@@ -142,4 +142,36 @@ describe("buildSessionFeedSources", () => {
       },
     });
   });
+
+  it("exposes the daemon turn id only when a message actually carried one", () => {
+    const withTurnId = buildSessionFeedSources(
+      [
+        message("think-1", "agent_thinking", "…", "2026-05-20T10:00:01.000Z", "agent-1", "turn-7"),
+        message("reply-1", "agent_reply", "Done.", "2026-05-20T10:00:02.000Z", "agent-1", "turn-7"),
+      ],
+      new Map(),
+    );
+    expect(withTurnId[0]).toMatchObject({ turn: { daemonTurnId: "turn-7", id: "turn-7" } });
+
+    const synthetic = buildSessionFeedSources(
+      [message("reply-1", "agent_reply", "Done.", "2026-05-20T10:00:02.000Z")],
+      new Map(),
+    );
+    // No `turnId` on the wire → the feed key falls back to `turn:<messageId>`,
+    // which the daemon would not recognise, so daemonTurnId stays undefined.
+    expect(synthetic[0]).toMatchObject({ turn: { id: "turn:reply-1" } });
+    expect(
+      synthetic[0].kind === "agentTurn" ? synthetic[0].turn.daemonTurnId : "unset",
+    ).toBeUndefined();
+  });
+
+  it("picks up the daemon turn id from an open turn's runtime events", () => {
+    const sources = buildSessionFeedSources(
+      [
+        message("think-1", "agent_thinking", "…", "2026-05-20T10:00:01.000Z", "agent-1", "turn-8"),
+      ],
+      new Map(),
+    );
+    expect(sources[0]).toMatchObject({ turn: { daemonTurnId: "turn-8", isActive: true } });
+  });
 });

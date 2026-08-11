@@ -22,10 +22,13 @@ import { PageHeader } from "../../../ui/PageHeader";
 import { impactLight, selectionTick } from "../../../lib/haptics";
 import { colors, spacing, typography } from "../../../ui/theme";
 import { matchesAnyField } from "../../search/search-matcher";
-import { SessionRow } from "../components/SessionRow";
+import { DaemonStatusBanner, type DaemonConnectionState } from "../components/DaemonStatusBanner";
+import { SessionRow, type SessionRowRuntime } from "../components/SessionRow";
 import type { SessionGroup, SessionsListState } from "../session-types";
 
 type SessionsListScreenProps = {
+  /** Extra bottom inset so content clears the floating tab bar. */
+  bottomInset?: number;
   onArchiveBatch?: (sessionIds: string[]) => Promise<void>;
   actorGlyphById?: ReadonlyMap<string, string>;
   hasAgents?: boolean;
@@ -38,6 +41,14 @@ type SessionsListScreenProps = {
   onSelectSession: (sessionId: string) => void;
   onTogglePin?: (sessionId: string) => Promise<void> | void;
   pinnedSessionIds?: ReadonlySet<string>;
+  /** Live runtime attachment per session — drives the badge dot and status label. */
+  runtimeBySessionId?: ReadonlyMap<string, SessionRowRuntime>;
+  /** Workspace/worktree name per session, shown at the head of the meta strip. */
+  workspaceBySessionId?: ReadonlyMap<string, string>;
+  mutedSessionIds?: ReadonlySet<string>;
+  /** Daemon reachability, shown as a pill above the search field. */
+  daemonConnectionState?: DaemonConnectionState;
+  brokerHost?: string;
   onShortcuts?: () => void;
   selectedSessionId?: string | null;
   state: SessionsListState;
@@ -46,21 +57,27 @@ type SessionsListScreenProps = {
 export function SessionGroupSection({
   actorGlyphById,
   group,
+  mutedSessionIds,
   onLongPressSession,
   onSelectSession,
   pinnedSessionIds,
+  runtimeBySessionId,
   selectedSessionId,
   selectionMode,
   selection,
+  workspaceBySessionId,
 }: {
   actorGlyphById?: ReadonlyMap<string, string>;
   group: SessionGroup;
+  mutedSessionIds?: ReadonlySet<string>;
   onLongPressSession?: (id: string) => void;
   onSelectSession: (sessionId: string) => void;
   pinnedSessionIds?: ReadonlySet<string>;
+  runtimeBySessionId?: ReadonlyMap<string, SessionRowRuntime>;
   selectedSessionId: string | null;
   selectionMode: boolean;
   selection: ReadonlySet<string>;
+  workspaceBySessionId?: ReadonlyMap<string, string>;
 }) {
   return (
     <View style={styles.group}>
@@ -85,7 +102,10 @@ export function SessionGroupSection({
                   <SessionRow
                     actorGlyphById={actorGlyphById}
                     isActive={selectedSessionId === session.sessionId}
+                    isMuted={mutedSessionIds?.has(session.sessionId) ?? false}
                     isPinned={pinnedSessionIds?.has(session.sessionId) ?? false}
+                    runtime={runtimeBySessionId?.get(session.sessionId) ?? null}
+                    workspaceName={workspaceBySessionId?.get(session.sessionId) ?? ""}
                     onLongPress={
                       onLongPressSession
                         ? () => onLongPressSession(session.sessionId)
@@ -132,7 +152,10 @@ function HeaderBar({
 }
 
 export function SessionsListScreen({
+  bottomInset = 0,
   actorGlyphById,
+  brokerHost,
+  daemonConnectionState,
   hasAgents = true,
   onArchiveBatch,
   onInviteAgent,
@@ -144,9 +167,12 @@ export function SessionsListScreen({
   onSelectSession,
   onShortcuts,
   onTogglePin,
+  mutedSessionIds,
   pinnedSessionIds,
+  runtimeBySessionId,
   selectedSessionId = null,
   state,
+  workspaceBySessionId,
 }: SessionsListScreenProps) {
   const [placeholderMessage, setPlaceholderMessage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -314,7 +340,7 @@ export function SessionsListScreen({
   if (state.status === "loading" || (state.status === "idle" && state.sessions.length === 0)) {
     return (
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
         refreshControl={
           <RefreshControl
             onRefresh={onRefresh}
@@ -338,7 +364,7 @@ export function SessionsListScreen({
 
   if (state.status === "error" && state.sessions.length === 0) {
     return (
-      <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]} style={styles.screen}>
         {headerBar}
         {placeholderMessage ? <Text style={styles.feedback}>{placeholderMessage}</Text> : null}
         <View style={styles.stateBlock}>
@@ -358,7 +384,7 @@ export function SessionsListScreen({
   return (
     <View style={styles.screen}>
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       refreshControl={
@@ -377,6 +403,15 @@ export function SessionsListScreen({
         <AppCard compact style={styles.banner}>
           <Text style={styles.bannerText}>{state.errorMessage}</Text>
         </AppCard>
+      ) : null}
+
+      {daemonConnectionState ? (
+        <View style={styles.daemonBanner}>
+          <DaemonStatusBanner
+            brokerHost={brokerHost}
+            connectionState={daemonConnectionState}
+          />
+        </View>
       ) : null}
 
       <View style={styles.searchField}>
@@ -424,10 +459,13 @@ export function SessionsListScreen({
                   onSelectSession(id);
                 }
               }}
+              mutedSessionIds={mutedSessionIds}
               pinnedSessionIds={pinnedSessionIds}
+              runtimeBySessionId={runtimeBySessionId}
               selectedSessionId={selectedSessionId}
               selection={selection}
               selectionMode={selectionMode}
+              workspaceBySessionId={workspaceBySessionId}
             />
           ))}
         </View>
@@ -632,6 +670,10 @@ const styles = StyleSheet.create({
   sessionRowInner: {
     alignItems: "center",
     flexDirection: "row",
+  },
+  daemonBanner: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
   },
   searchField: {
     alignItems: "center",

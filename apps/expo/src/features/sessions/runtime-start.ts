@@ -48,7 +48,15 @@ type ResolveRuntimeStartPlansInput = {
   agents: RuntimeStartAgent[];
   connectedAgents: RuntimeStartConnectedAgent[];
   workspaces: RuntimeStartWorkspace[];
-  explicitSelection?: RuntimeStartSelection | null;
+  /**
+   * Per-agent workspace/type overrides, keyed by agent actor id.
+   *
+   * Keyed, not shared. A single selection applied to every agent started the
+   * second agent in the first one's worktree — the exact thing `pickWorkspace`
+   * refuses to do on the fallback path ("never borrow another agent's
+   * team-visible row"). iOS keeps `agentConfigs[actorId]` for the same reason.
+   */
+  selectionByAgentId?: Readonly<Record<string, RuntimeStartSelection>> | null;
 };
 
 type ResolveRuntimeRestartPlanInput = {
@@ -118,7 +126,7 @@ export function resolveAgentRuntimeStartPlans({
   agents,
   connectedAgents,
   workspaces,
-  explicitSelection = null,
+  selectionByAgentId = null,
 }: ResolveRuntimeStartPlansInput): RuntimeStartPlan[] {
   const connectedByAgentId = new Map(
     connectedAgents.map((agent) => [agent.agentId, agent]),
@@ -132,13 +140,14 @@ export function resolveAgentRuntimeStartPlans({
       throw new Error(`${agent.displayName || "Agent"} daemon is offline — wait for it to reconnect.`);
     }
 
-    const workspace = pickWorkspace(agent, workspaces, explicitSelection);
+    const selection = selectionByAgentId?.[agent.actorId] ?? null;
+    const workspace = pickWorkspace(agent, workspaces, selection);
     return {
       agentActorId: agent.actorId,
       targetActorId: agent.actorId,
       workspaceId: workspace.id,
       worktree: workspace.path ?? "",
-      agentType: pickAgentType(agent, explicitSelection),
+      agentType: pickAgentType(agent, selection),
     };
   });
 }

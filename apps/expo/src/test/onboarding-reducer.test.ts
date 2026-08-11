@@ -35,6 +35,7 @@ describe("onboardingReducer", () => {
     const bootstrapResult: BootstrapResult = {
       isAnonymous: true,
       team: null,
+      teamChoices: [],
       memberActorId: null,
     };
 
@@ -67,6 +68,7 @@ describe("onboardingReducer", () => {
     const bootstrapResult: BootstrapResult = {
       isAnonymous: false,
       team,
+      teamChoices: [],
       memberActorId: "actor_123",
     };
 
@@ -85,6 +87,7 @@ describe("onboardingReducer", () => {
     const state = onboardingReducer(
       {
         route: "ready",
+    teamChoices: [],
         isBusy: true,
         errorMessage: null,
         pendingEmailOTPEmail: "person@example.com",
@@ -116,6 +119,7 @@ describe("onboardingReducer", () => {
     const state = onboardingReducer(
       {
         route: "ready",
+    teamChoices: [],
         isBusy: true,
         errorMessage: "Oops",
         pendingEmailOTPEmail: "person@example.com",

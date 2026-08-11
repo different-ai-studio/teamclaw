@@ -8,10 +8,18 @@ import {
   AgentType,
   canConfirmSelection,
   initialWorkspaceId,
+  resolveInitialAgentType,
+  supportedAgentTypes,
 } from "./agent-config-helpers";
 
 export type { AgentType };
-export { AGENT_TYPE_ORDER, canConfirmSelection, initialWorkspaceId };
+export {
+  AGENT_TYPE_ORDER,
+  canConfirmSelection,
+  initialWorkspaceId,
+  resolveInitialAgentType,
+  supportedAgentTypes,
+};
 
 export type AgentConfigSelection = {
   workspaceId: string;
@@ -22,6 +30,11 @@ export type AgentConfigSheetProps = {
   actorDisplayName: string;
   workspaces: { id: string; path: string }[];
   defaultType?: AgentType;
+  /**
+   * Backends this agent reports it can run (`actor.agentTypes`). Omitted means
+   * "unknown", which shows all of them.
+   */
+  agentTypes?: ReadonlyArray<string>;
   onConfirm: (selection: AgentConfigSelection) => void;
   onCancel: () => void;
 };
@@ -36,13 +49,17 @@ export function AgentConfigSheet({
   actorDisplayName,
   workspaces,
   defaultType = "claude",
+  agentTypes,
   onConfirm,
   onCancel,
 }: AgentConfigSheetProps) {
+  const offeredTypes = supportedAgentTypes(agentTypes);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(
     initialWorkspaceId(workspaces),
   );
-  const [selectedType, setSelectedType] = useState<AgentType>(defaultType);
+  const [selectedType, setSelectedType] = useState<AgentType>(() =>
+    resolveInitialAgentType(defaultType, offeredTypes),
+  );
 
   const canConfirm = canConfirmSelection(selectedWorkspaceId);
 
@@ -110,7 +127,7 @@ export function AgentConfigSheet({
           AGENT TYPE
         </Text>
         <View style={styles.segmented}>
-          {AGENT_TYPE_ORDER.map((type) => {
+          {offeredTypes.map((type) => {
             const selected = type === selectedType;
             return (
               <Pressable

@@ -36,17 +36,15 @@ describe("createOnboardingApi (cloud-only)", () => {
       isAnonymous: true,
       team: null,
       memberActorId: null,
+      teamChoices: [],
     } satisfies BootstrapResult);
-    expect(get).toHaveBeenCalledWith("/v1/teams");
+    expect(get).toHaveBeenCalledWith("/v1/teams?scope=all");
   });
 
-  it("loadBootstrap activates the selected listed team to resolve its actor", async () => {
+  it("loadBootstrap activates the only team and resolves its actor", async () => {
     const { createOnboardingApi } = await import("../lib/supabase/onboarding-api");
     const get = vi.fn().mockResolvedValue({
-      items: [
-        { id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" },
-        { id: "team-2", name: "Ignored", slug: "ignored", role: "member" },
-      ],
+      items: [{ id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" }],
     });
     const post = vi.fn().mockResolvedValue({ actorId: "actor-1", refreshToken: "refresh-1" });
     const setRefreshSession = vi.fn().mockResolvedValue({ data: {}, error: null });
@@ -57,9 +55,72 @@ describe("createOnboardingApi (cloud-only)", () => {
       isAnonymous: false,
       memberActorId: "actor-1",
       team: { id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" } satisfies TeamSummary,
+      teamChoices: [],
     } satisfies BootstrapResult);
     expect(post).toHaveBeenCalledWith("/v1/teams/team-1/activate");
     expect(setRefreshSession).toHaveBeenCalledWith("refresh-1");
+  });
+
+  it("loadBootstrap stops to ask when the user is on more than one team", async () => {
+    // It used to take the first listed team and activate it, so a user on
+    // several landed in one with nothing saying a choice had been made.
+    const { createOnboardingApi } = await import("../lib/supabase/onboarding-api");
+    const get = vi.fn().mockResolvedValue({
+      items: [
+        { id: "team-1", name: "Alpha", slug: "alpha", role: "owner", orgName: "Acme" },
+        { id: "team-2", name: "Beta", slug: "beta", role: "member" },
+      ],
+    });
+    const post = vi.fn();
+    const client = makeClient({ session: { user: { id: "user-1", is_anonymous: false } }, get, post });
+
+    const api = createOnboardingApi(client);
+    const result = await api.loadBootstrap();
+
+    expect(result.team).toBeNull();
+    expect(result.teamChoices.map((t) => t.id)).toEqual(["team-1", "team-2"]);
+    expect(result.teamChoices[0]?.orgName).toBe("Acme");
+    // Nothing is activated yet: doing so would put the session in an org the
+    // user may be about to navigate away from.
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("loadBootstrap honours a remembered team without asking", async () => {
+    const { createOnboardingApi } = await import("../lib/supabase/onboarding-api");
+    const get = vi.fn().mockResolvedValue({
+      items: [
+        { id: "team-1", name: "Alpha", slug: "alpha", role: "owner" },
+        { id: "team-2", name: "Beta", slug: "beta", role: "member" },
+      ],
+    });
+    const post = vi.fn().mockResolvedValue({ actorId: "actor-2", refreshToken: "" });
+    const client = makeClient({ session: { user: { id: "user-1", is_anonymous: false } }, get, post });
+
+    const api = createOnboardingApi(client);
+    const result = await api.loadBootstrap("team-2");
+
+    expect(result.team?.id).toBe("team-2");
+    expect(result.teamChoices).toEqual([]);
+    expect(post).toHaveBeenCalledWith("/v1/teams/team-2/activate");
+  });
+
+  it("loadBootstrap asks again when the remembered team is gone", async () => {
+    const { createOnboardingApi } = await import("../lib/supabase/onboarding-api");
+    const get = vi.fn().mockResolvedValue({
+      items: [
+        { id: "team-1", name: "Alpha", slug: "alpha", role: "owner" },
+        { id: "team-2", name: "Beta", slug: "beta", role: "member" },
+      ],
+    });
+    const post = vi.fn();
+    const client = makeClient({ session: { user: { id: "user-1", is_anonymous: false } }, get, post });
+
+    const api = createOnboardingApi(client);
+    const result = await api.loadBootstrap("team-removed");
+
+    expect(result.team).toBeNull();
+    expect(result.teamChoices).toHaveLength(2);
+    expect(post).not.toHaveBeenCalled();
   });
 
   it("loadBootstrap returns empty when there is no session", async () => {
@@ -70,6 +131,7 @@ describe("createOnboardingApi (cloud-only)", () => {
       isAnonymous: false,
       team: null,
       memberActorId: null,
+      teamChoices: [],
     } satisfies BootstrapResult);
   });
 

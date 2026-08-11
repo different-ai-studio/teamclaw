@@ -105,6 +105,8 @@ export function routeToHref(route: OnboardingRoute): string | null {
       return "/welcome";
     case "createTeam":
       return "/create-team";
+    case "selectTeam":
+      return "/select-team";
     case "ready":
       return "/(app)/sessions";
     case "loading":
@@ -415,7 +417,14 @@ function RootLayout() {
     <GestureHandlerRootView style={styles.root}>
       <StatusBar {...appStatusBarProps} />
       <OnboardingProvider>
-        <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
+        {/* Top only. The bottom belongs to whatever is at the bottom of the
+            screen: the tab bar pads itself so it reaches the display edge,
+            `SheetModal` insets its own sheets, and no other route pins content
+            to the bottom. Reserving it here instead left every tabbed screen
+            with a strip of Mist under the Paper tab bar — near-identical
+            colours, so it read as one tall bar floating above the gesture
+            pill, with the icons stuck in its top half. */}
+        <SafeAreaView edges={["top"]} style={styles.safeArea}>
           <View style={styles.layout}>
             <Slot />
             <ToastHost />

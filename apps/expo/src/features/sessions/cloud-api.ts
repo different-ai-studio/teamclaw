@@ -64,34 +64,17 @@ type CloudMessage = {
   attachments?: unknown | null;
 };
 
-type CloudAgentRuntime = {
-  id: string;
-  runtimeId: string | null;
-  agentId: string | null;
-  status: string | null;
-  currentModel: string | null;
-  lastSeenAt: string | null;
-  backendType: string | null;
-};
-
-type RuntimeInfo = {
-  dbRuntimeId: string;
-  runtimeId: string;
-  agentId: string | null;
-  status: string;
-  currentModel: string | null;
-  lastSeenAt: string | null;
-  backendType: string | null;
-};
-
-type SessionRuntime = {
-  dbRuntimeId: string;
-  runtimeId: string;
-  agentId: string | null;
+/** A row of `session_participants`, joined to the actor directory. */
+export type SessionParticipantRecord = {
+  actorId: string;
+  actorType: string | null;
+  displayName: string;
+  role: string | null;
+  /** Agent's workspace for this session (ADR-0005); null on member rows. */
   workspaceId: string | null;
-  backendType: string | null;
-  currentModel: string | null;
-  status: string;
+  /** Agent's model for this session; null on member rows. */
+  model: string | null;
+  avatarUrl: string | null;
 };
 
 /** Server-side cap in FC's `parseLimit`; a larger `limit` is rejected as a 400. */
@@ -175,8 +158,8 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
     fetchImpl: options.fetchImpl,
   });
 
-  // Bound to a name so methods can call siblings (listMessages delegates to
-  // listMessagesPage) without `this` — callers destructure this object.
+  // Bound to a name only so the object has one; callers destructure it, so no
+  // method may reach a sibling through `this`.
   const api = {
     async listSessions(teamId: string, currentActorId?: string): Promise<SessionSummary[]> {
       // currentActorId is derived server-side from the bearer; kept for
@@ -242,13 +225,6 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
         items: (response.items ?? []).map(mapMessage),
         nextCursor: response.nextCursor ?? null,
       };
-    },
-
-    // Convenience wrapper for callers that only want the current viewport.
-    // Deliberately NOT `this.listMessagesPage` — the api object gets picked
-    // apart into `deps.api`, so a `this` reference would break on the way.
-    async listMessages(teamId: string, sessionId: string): Promise<SessionMessage[]> {
-      return (await api.listMessagesPage(teamId, sessionId)).items;
     },
 
     async insertOutgoingMessage(input: OutgoingMessageInput): Promise<void> {
@@ -357,54 +333,45 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
       );
     },
 
-    async updateRuntimeModel(runtimeId: string, model: string): Promise<void> {
-      await client.patch(`/v1/runtime/${encodeURIComponent(runtimeId)}/model`, { model });
-    },
-
-    async listSessionRuntimes(sessionId: string): Promise<SessionRuntime[]> {
+    /**
+     * Participants with their per-session agent state.
+     *
+     * `workspaceId` and `model` used to live on `agent_runtimes`; that table
+     * was dropped on 2026-08-03 and the columns were backfilled onto
+     * `session_participants` (ADR-0005). This is the endpoint iOS reads for
+     * the member sheet, and the reason `/v1/sessions/:id/runtime-models`,
+     * `/v1/agents/runtimes` and `/v1/runtime/:id/model` are gone — all three
+     * answered 404 on the live API.
+     *
+     * Live runtime facts (status, available models) are not here: they arrive
+     * over MQTT as retained `ActorPresence` (ADR-0004).
+     */
+    async listSessionParticipants(
+      sessionId: string,
+    ): Promise<SessionParticipantRecord[]> {
       type Row = {
-        id: string | null;
-        runtime_id: string | null;
-        agent_id: string | null;
-        workspace_id: string | null;
-        backend_type: string | null;
-        current_model: string | null;
-        status: string | null;
+        actorId?: string | null;
+        actorType?: string | null;
+        displayName?: string | null;
+        role?: string | null;
+        workspaceId?: string | null;
+        model?: string | null;
+        avatarUrl?: string | null;
       };
       const response = await client.get<{ items?: Row[] }>(
-        `/v1/sessions/${encodeURIComponent(sessionId)}/runtime-models`,
+        `/v1/sessions/${encodeURIComponent(sessionId)}/participants`,
       );
       return (response.items ?? [])
-        .filter((row): row is Row & { id: string } => Boolean(row.id))
+        .filter((row): row is Row & { actorId: string } => Boolean(row.actorId))
         .map((row) => ({
-          dbRuntimeId: row.id,
-          runtimeId: row.runtime_id ?? "",
-          agentId: row.agent_id ?? null,
-          workspaceId: row.workspace_id ?? null,
-          backendType: row.backend_type ?? null,
-          currentModel: row.current_model ?? null,
-          status: row.status ?? "unknown",
+          actorId: row.actorId,
+          actorType: row.actorType ?? null,
+          displayName: row.displayName ?? "",
+          role: row.role ?? null,
+          workspaceId: row.workspaceId ?? null,
+          model: row.model ?? null,
+          avatarUrl: row.avatarUrl ?? null,
         }));
-    },
-
-    async loadRuntime(sessionId: string): Promise<RuntimeInfo | null> {
-      try {
-        const row = await client.get<CloudAgentRuntime>(
-          `/v1/agents/runtimes?sessionId=${encodeURIComponent(sessionId)}`,
-        );
-        return {
-          dbRuntimeId: row.id,
-          runtimeId: row.runtimeId ?? "",
-          agentId: row.agentId ?? null,
-          status: row.status ?? "unknown",
-          currentModel: row.currentModel ?? null,
-          lastSeenAt: row.lastSeenAt ?? null,
-          backendType: row.backendType ?? null,
-        };
-      } catch (error) {
-        if (error instanceof CloudApiError && error.status === 404) return null;
-        throw error;
-      }
     },
   };
 

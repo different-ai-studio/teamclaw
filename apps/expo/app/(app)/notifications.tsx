@@ -25,6 +25,7 @@ import { Hairline } from "../../src/ui/atoms/Hairline";
 import { SectionEyebrow } from "../../src/ui/atoms/SectionEyebrow";
 import { showToast } from "../../src/ui/Toast";
 import { colors, radii, spacing, typography } from "../../src/ui/theme";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
 
 const STORAGE_KEY = "teamclu.notificationPrefs.v1";
 
@@ -145,14 +146,13 @@ export default function NotificationsRoute() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot} />
         <Text style={styles.headerTitle}>Notifications</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.section}>
@@ -305,19 +305,12 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
+    paddingTop: GLASS_HEADER_HEIGHT + spacing.lg,
   },
   footnote: {
     color: colors.slate,
     paddingHorizontal: spacing.xs,
     ...typography.caption,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
   },
   headerSlot: {
     alignItems: "center",

@@ -24,7 +24,12 @@ export type SessionPlansPanelProps = {
   onClose?: () => void;
 };
 
-const PANEL_HEIGHT = 280;
+/**
+ * iOS pins the panel at 205. Expo was 280 — a third taller, over a list the
+ * user is trying to read. The item list scrolls, so the extra height bought
+ * nothing the scroll did not already give.
+ */
+const PANEL_HEIGHT = 205;
 const ITEM_GAP = 14;
 
 type Glyph = { name: React.ComponentProps<typeof Ionicons>["name"]; tint: string };
@@ -34,7 +39,9 @@ function glyphForStatus(status: TodoItemStatus): Glyph {
     case "completed":
       return { name: "checkmark-circle", tint: colors.sage };
     case "in_progress":
-      return { name: "ellipse", tint: colors.cinnabar };
+      // Half-filled circle, matching iOS `circle.lefthalf.filled` and the
+      // todo dock. A solid `ellipse` reads as "done" at a glance.
+      return { name: "contrast", tint: colors.cinnabar };
     case "cancelled":
       return { name: "close-circle", tint: colors.slate };
     case "pending":

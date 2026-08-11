@@ -20,6 +20,19 @@ export type Actor = {
   visibility?: "team" | "personal" | null;
   /** Deprecated UI alias: defaultAgentType ?? agentTypes[0]. */
   agentKind: string | null;
+  /** `active` | `invited` | … for members; null for agents. */
+  memberStatus?: string | null;
+  /** Daemon-reported lifecycle status for agents; null for members. */
+  agentStatus?: string | null;
+  /**
+   * Member contact, from the actor_directory view's SECURITY DEFINER contact
+   * join — only teammates ever receive these, and both are null for agents and
+   * for anonymous accounts that never set one.
+   */
+  email?: string | null;
+  phone?: string | null;
+  /** When the actor row was created — the "Joined" line on actor detail. */
+  createdAt?: string | null;
 };
 
 export type ActorsListState = {

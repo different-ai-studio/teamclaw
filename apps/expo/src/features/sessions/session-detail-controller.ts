@@ -21,8 +21,16 @@ import { setOutboxStatus, syncOutboxFromDao } from "./outbox-store";
 import type { OutboxDao } from "./outbox-db";
 import type { OutboxSender } from "./outbox-sender";
 import { peekPendingAttachments, takePendingAttachments } from "./pending-attachments";
+import {
+  decodePendingQuestion,
+  decodeQuestionRequestId,
+  removePendingQuestion,
+  upsertPendingQuestion,
+  type PendingAcpQuestion,
+} from "./pending-questions";
 import { resolveMentionActorIdsForComposer } from "./session-mention-resolver";
 import type { SessionDetailCache } from "./session-detail-cache";
+import type { StreamingSnapshotStore } from "./streaming-snapshot";
 import {
   buildSessionDetailState,
   type SessionDetailState,
@@ -31,7 +39,12 @@ import {
   type StreamingBuffer,
   type TimelineEvent,
 } from "./session-types";
-import { reduceTimeline, emptyTimelineState, type TimelineState } from "./timeline-reducer";
+import {
+  reduceTimeline,
+  emptyTimelineState,
+  mergeNewestPage,
+  type TimelineState,
+} from "./timeline-reducer";
 import type { createCloudSessionsApi } from "./cloud-api";
 
 export type SessionDetailConnectionState = "connecting" | "connected" | "disconnected";
@@ -48,6 +61,18 @@ export type SessionDetailControllerState = {
   sendErrorMessage: string | null;
   replyTarget: { messageId: string; content: string } | null;
   streamingByAgent: ReadonlyMap<string, StreamingBuffer>;
+  /**
+   * Unanswered opencode `question` prompts, oldest first. The composer is
+   * replaced by the first entry until it is answered or rejected.
+   */
+  pendingQuestions: ReadonlyArray<PendingAcpQuestion>;
+  /**
+   * Whether the server reported a page older than the one loaded. False also
+   * covers "we are already at the beginning of the session".
+   */
+  canLoadOlder: boolean;
+  /** A back-scroll fetch is in flight. */
+  isLoadingOlder: boolean;
 };
 
 type SessionsApi = ReturnType<typeof createCloudSessionsApi>;
@@ -57,7 +82,7 @@ type SessionDetailControllerDeps = {
     SessionsApi,
     | "getSession"
     | "insertOutgoingMessage"
-    | "listMessages"
+    | "listMessagesPage"
     | "markSessionRead"
     | "resolveMemberActorId"
   >;
@@ -70,15 +95,43 @@ type SessionDetailControllerDeps = {
   teamId: string;
   cache?: SessionDetailCache;
   outbox?: { sender: OutboxSender; dao: OutboxDao };
+  /**
+   * Partial-output store used across a suspend. Absent in tests that don't
+   * exercise the lifecycle path.
+   */
+  streamingSnapshots?: StreamingSnapshotStore;
 };
 
 type SessionDetailController = {
   subscribe: (listener: () => void) => () => void;
   getState: () => SessionDetailControllerState;
   load: (options?: { preserveExisting?: boolean }) => Promise<void>;
+  /**
+   * Walk one page further back through the transcript. No-op once the server
+   * stops reporting a cursor, or while a page is already in flight.
+   */
+  loadOlderMessages: () => Promise<void>;
   setComposerText: (value: string) => void;
   setReplyTarget: (target: { messageId: string; content: string } | null) => void;
   sendMessage: () => Promise<void>;
+  /**
+   * Drop a question locally once its answer has been published. The daemon also
+   * emits `question_replied`/`question_rejected`, but a slow broker echo would
+   * otherwise leave the answered card blocking the composer.
+   */
+  resolvePendingQuestion: (requestId: string) => void;
+  /**
+   * Persist the in-flight streaming buffers before the process is suspended.
+   * Does not touch the live buffers or the MQTT subscription — if the process
+   * survives, nothing changed; if it is reclaimed, the next launch restores
+   * the partial text instead of an empty bubble.
+   */
+  flushStreamingForBackground: () => Promise<void>;
+  /**
+   * Counterpart to the above, called on the way back to the foreground. The
+   * live buffers are authoritative again, so the snapshot is now stale.
+   */
+  discardBackgroundSnapshot: () => Promise<void>;
   dispose: () => Promise<void>;
 };
 
@@ -94,6 +147,9 @@ const initialState: SessionDetailControllerState = {
   sendErrorMessage: null,
   replyTarget: null,
   streamingByAgent: emptyTimelineState().streamingByAgent,
+  pendingQuestions: [],
+  canLoadOlder: false,
+  isLoadingOlder: false,
 };
 
 function toIsoFromSeconds(value: bigint): string {
@@ -339,7 +395,26 @@ export function createSessionDetailController(
 ): SessionDetailController {
   const listeners = new Set<() => void>();
   let state = initialState;
+  /**
+   * Whether MQTT has ever reached `connected` for this controller. Separates
+   * the first connect (whose fetch is already in flight) from a genuine
+   * reconnect, which has a gap to close.
+   */
+  let hasConnectedOnce = false;
   let timeline: TimelineState = emptyTimelineState();
+  /**
+   * Cursor to the page *before* the oldest one loaded, or null at the start of
+   * the session. `/v1/sessions/:id/messages` walks backward: no cursor gives
+   * the newest page, and `nextCursor` reaches older ones.
+   */
+  let olderCursor: string | null = null;
+  /**
+   * Set once a back-scroll has succeeded. A refresh fetches the newest page
+   * again and reports the cursor just behind it — which is a page the user has
+   * already read past — so after a walk back the cursor is left alone rather
+   * than rewound.
+   */
+  let hasWalkedBack = false;
   let disposed = false;
   let unsubscribeSession: (() => void) | null = null;
   let cleanupConnectionStateListener: (() => void) | null = null;
@@ -381,6 +456,49 @@ export function createSessionDetailController(
     return resolved;
   }
 
+  /**
+   * Coalesced write-behind for the timeline.
+   *
+   * Every timeline change routes through `publishTimelineState`, including the
+   * ACP-driven ones — agent thinking, tool calls, tool results, plan updates.
+   * Those used to reach React state and nothing else: the ACP branch returned
+   * before the one `saveMessages` call further down, so an agent's whole trace
+   * lived in memory and died with the process. iOS persists the same events
+   * from its streaming path (`TimelineSwiftDataSync`), explicitly for crash
+   * recovery.
+   *
+   * The cache is an AsyncStorage blob rewritten whole, so writing per event
+   * would thrash it during a busy turn. Writes coalesce to one per interval,
+   * with `flushTimelinePersist` for the moments that must not be lost.
+   */
+  const PERSIST_INTERVAL_MS = 1_000;
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  let persistPending = false;
+
+  function writeTimelineNow() {
+    persistPending = false;
+    if (!deps.cache) return;
+    void deps.cache.saveMessages(deps.sessionId, timeline.messages);
+  }
+
+  function scheduleTimelinePersist() {
+    if (!deps.cache) return;
+    persistPending = true;
+    if (persistTimer) return;
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      if (persistPending) writeTimelineNow();
+    }, PERSIST_INTERVAL_MS);
+  }
+
+  function flushTimelinePersist() {
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    if (persistPending) writeTimelineNow();
+  }
+
   function publishTimelineState(next: TimelineState) {
     timeline = next;
     setState({
@@ -389,6 +507,46 @@ export function createSessionDetailController(
       streamingByAgent: next.streamingByAgent,
       status: nextStatusForMessages(state.session, next.messages, state.status),
     });
+    scheduleTimelinePersist();
+  }
+
+  /**
+   * OpenCode question events are control-plane state, not timeline rows: keep
+   * them in-memory and let the composer surface the prompt (iOS does the same).
+   * Returns true when the event was a question event and needs no further
+   * timeline handling.
+   */
+  function applyQuestionRawEvent(method: string, payload: Uint8Array, actorId: string): boolean {
+    if (
+      method !== "question_asked" &&
+      method !== "question_replied" &&
+      method !== "question_rejected"
+    ) {
+      return false;
+    }
+    let json: unknown;
+    try {
+      json = JSON.parse(new TextDecoder().decode(payload));
+    } catch {
+      return true;
+    }
+    if (method === "question_asked") {
+      const question = decodePendingQuestion(json, actorId);
+      if (!question) return true;
+      setState({
+        ...state,
+        pendingQuestions: upsertPendingQuestion(state.pendingQuestions, question),
+      });
+      return true;
+    }
+    const requestId = decodeQuestionRequestId(json);
+    if (requestId) {
+      setState({
+        ...state,
+        pendingQuestions: removePendingQuestion(state.pendingQuestions, requestId),
+      });
+    }
+    return true;
   }
 
   function applyAcpEvent(acpEvent: AcpEvent, envelope: LiveEventEnvelope): boolean {
@@ -398,6 +556,13 @@ export function createSessionDetailController(
     const event = acpEvent.event;
     const createdAt = liveEventCreatedAt(envelope);
     let next: TimelineState | null = null;
+
+    if (
+      event.case === "raw" &&
+      applyQuestionRawEvent(event.value.method, event.value.jsonPayload, actorId)
+    ) {
+      return false;
+    }
 
     if (event.case === "output") {
       const prev = timeline.streamingByAgent.get(actorId);
@@ -464,10 +629,28 @@ export function createSessionDetailController(
           return;
         }
 
+        // Catch up on what was missed while the socket was down. The session's
+        // `live` topic is not retained — only presence and runtime state are —
+        // so anything published during the gap is simply not redelivered on
+        // resubscribe, and the timeline would stay short a few messages until
+        // the screen was reopened. iOS runs the same recovery on every
+        // reconnect ("two-source recovery" in SessionDetailViewModel).
+        //
+        // Not on the first connect: the load that installed this listener is
+        // already fetching.
+        const wasDropped =
+          state.connectionState === "disconnected" || state.connectionState === "connecting";
+        const reconnected = connectionState === "connected" && wasDropped && hasConnectedOnce;
+        if (connectionState === "connected") hasConnectedOnce = true;
+
         setState({
           ...state,
           connectionState,
         });
+
+        if (reconnected) {
+          void controller.load({ preserveExisting: true });
+        }
       });
 
       const topic = `amux/${deps.teamId}/session/${deps.sessionId}/live`;
@@ -498,7 +681,9 @@ export function createSessionDetailController(
         const event: TimelineEvent = { kind: "messageCommitted", message: nextMessage };
         const next = reduceTimeline(timeline, event);
         publishTimelineState(next);
-        void deps.cache?.saveMessages(deps.sessionId, next.messages);
+        // A committed message ends a turn; land it now rather than waiting out
+        // the coalescing window.
+        flushTimelinePersist();
 
         // Live-update the read marker so the Sessions list stays clean
         // while the detail screen is open. We pass the senderActorId
@@ -516,7 +701,11 @@ export function createSessionDetailController(
         }
       });
 
-      const latestMessages = await deps.api.listMessages(deps.teamId, deps.sessionId);
+      // Closes the gap between the fetch above and this subscription. Merged
+      // rather than folded through `mergeNewestPage`: a message published in
+      // that window is an addition, and nothing here says a row that is absent
+      // was deleted.
+      const latest = await deps.api.listMessagesPage(deps.teamId, deps.sessionId);
 
       if (disposed || currentToken !== loadToken) {
         disconnectRealtime();
@@ -524,7 +713,7 @@ export function createSessionDetailController(
       }
 
       let next = timeline;
-      for (const m of latestMessages) {
+      for (const m of latest.items) {
         next = reduceTimeline(next, { kind: "messageCommitted", message: m });
       }
       timeline = next;
@@ -553,7 +742,7 @@ export function createSessionDetailController(
     }
   }
 
-  return {
+  const controller: SessionDetailController = {
     subscribe(listener) {
       listeners.add(listener);
       return () => {
@@ -579,6 +768,8 @@ export function createSessionDetailController(
         });
       } else {
         timeline = emptyTimelineState();
+        olderCursor = null;
+        hasWalkedBack = false;
         setState({
           ...state,
           status: "loading",
@@ -589,34 +780,67 @@ export function createSessionDetailController(
           isRefreshing: false,
           sendErrorMessage: null,
           streamingByAgent: timeline.streamingByAgent,
+          canLoadOlder: false,
+          isLoadingOlder: false,
         });
       }
 
       deps.outbox?.sender.start();
 
+      // A snapshot only exists if the process was killed while streaming.
+      // Restore before the timeline hydrate so a partial bubble is on screen
+      // from the first paint, then let the daemon's real message replace it.
+      const restoreSnapshot =
+        deps.streamingSnapshots && !preserveExisting
+          ? deps.streamingSnapshots.load(deps.sessionId).then((restored) => {
+              if (disposed || currentToken !== loadToken || restored.size === 0) return;
+              const merged = new Map(timeline.streamingByAgent);
+              for (const [agentId, buffer] of restored) {
+                // A live delta that already arrived is newer than anything on disk.
+                if (!merged.has(agentId)) merged.set(agentId, buffer);
+              }
+              timeline = { ...timeline, streamingByAgent: merged };
+              setState({ ...state, streamingByAgent: timeline.streamingByAgent });
+            })
+          : null;
+
       // Hydrate from disk first so the user sees the timeline immediately on
       // cold start. The network results below overlay on top once they land.
-      if (deps.cache && !preserveExisting) {
-        void deps.cache.load(deps.sessionId).then((cached) => {
-          if (disposed || currentToken !== loadToken || !cached) return;
-          if (state.session) return; // network beat the disk read
-          timeline = timelineFromMessages(cached.messages);
-          const detailState = buildSessionDetailState(cached.session, cached.messages);
-          setState({
-            ...state,
-            status: detailState.status,
-            session: cached.session,
-            messages: detailState.messages,
-            errorMessage: null,
-            streamingByAgent: timeline.streamingByAgent,
-          });
-        });
-      }
+      const hydrateFromCache =
+        deps.cache && !preserveExisting
+          ? deps.cache.load(deps.sessionId).then((cached) => {
+              if (disposed || currentToken !== loadToken || !cached) return;
+              // Carry the buffers through: this read races the snapshot
+              // restore, and dropping them here would silently undo it
+              // whenever it lost.
+              timeline = timelineFromMessages(cached.messages, timeline.streamingByAgent);
+              const detailState = buildSessionDetailState(cached.session, cached.messages);
+              setState({
+                ...state,
+                status: detailState.status,
+                session: cached.session,
+                messages: detailState.messages,
+                errorMessage: null,
+                streamingByAgent: timeline.streamingByAgent,
+              });
+            })
+          : null;
 
       const [sessionResult, messagesResult] = await Promise.allSettled([
         deps.api.getSession(deps.teamId, deps.sessionId),
-        deps.api.listMessages(deps.teamId, deps.sessionId),
+        deps.api.listMessagesPage(deps.teamId, deps.sessionId),
       ]);
+
+      // Both disk reads raced the network, and the merge below has to see what
+      // they left. The cache read decides what the fetched page is folded onto
+      // — it covers the newest page only, while the `cache.save` after it
+      // replaces the session's rows with whatever the timeline holds, so
+      // landing it first is what keeps a transcript that was scrolled back on
+      // disk instead of trimming it to one page. The snapshot read decides
+      // which restored partials are still unfinished: the merge settles the
+      // ones whose turn completed while the process was dead, and it can only
+      // do that for buffers that have arrived.
+      await Promise.all([hydrateFromCache, restoreSnapshot]);
 
       if (disposed || currentToken !== loadToken) {
         return;
@@ -670,10 +894,16 @@ export function createSessionDetailController(
         return;
       }
 
-      timeline = timelineFromMessages(
-        messagesResult.value,
-        preserveExisting ? timeline.streamingByAgent : undefined,
-      );
+      // The fetch above asks for the newest page only, so it cannot speak for
+      // anything older — a page the user scrolled back to, or a longer
+      // transcript hydrated from disk. Fold it in over that instead of
+      // replacing it.
+      timeline = mergeNewestPage(timeline, messagesResult.value.items);
+      // A refresh reports the cursor sitting just behind the newest page. That
+      // is only news if the user has not already walked past it.
+      if (!hasWalkedBack) {
+        olderCursor = messagesResult.value.nextCursor;
+      }
       const detailState = buildSessionDetailState(session, timeline.messages);
       setState({
         ...state,
@@ -683,6 +913,7 @@ export function createSessionDetailController(
         errorMessage: null,
         isRefreshing: preserveExisting,
         streamingByAgent: timeline.streamingByAgent,
+        canLoadOlder: olderCursor !== null,
       });
 
       // Persist authoritative network state for the next cold start.
@@ -699,12 +930,79 @@ export function createSessionDetailController(
         });
       }
     },
+    async loadOlderMessages() {
+      const cursor = olderCursor;
+      if (!cursor || state.isLoadingOlder || !state.session) {
+        return;
+      }
+
+      const currentToken = loadToken;
+      setState({ ...state, isLoadingOlder: true });
+
+      let page: { items: SessionMessage[]; nextCursor: string | null };
+      try {
+        page = await deps.api.listMessagesPage(deps.teamId, deps.sessionId, { cursor });
+      } catch (error) {
+        if (disposed || currentToken !== loadToken) return;
+        // The transcript on screen is intact — only the page behind it is
+        // missing — so this reports itself in the banner without disturbing the
+        // timeline, and the cursor stays put so the header can retry the same
+        // page. (`status` is what makes the banner render; the next timeline
+        // change recomputes it back to ready.)
+        setState({
+          ...state,
+          status: "error",
+          isLoadingOlder: false,
+          errorMessage: toErrorMessage(error, "加载更早的消息失败。"),
+        });
+        return;
+      }
+
+      // A reload landed while this page was in flight; it owns the timeline now.
+      if (disposed || currentToken !== loadToken) return;
+
+      hasWalkedBack = true;
+      olderCursor = page.nextCursor;
+
+      let next = timeline;
+      for (const message of page.items) {
+        next = reduceTimeline(next, { kind: "messageCommitted", message });
+      }
+      timeline = next;
+
+      setState({
+        ...state,
+        messages: next.messages,
+        errorMessage: null,
+        canLoadOlder: olderCursor !== null,
+        isLoadingOlder: false,
+        status: nextStatusForMessages(state.session, next.messages, state.status),
+      });
+      // Older pages belong on disk too, so the next cold start opens where the
+      // user left off instead of walking the same cursor again.
+      scheduleTimelinePersist();
+    },
     setComposerText(value) {
       setState({
         ...state,
         composerText: value,
         sendErrorMessage: null,
       });
+    },
+    async flushStreamingForBackground() {
+      if (!deps.streamingSnapshots) return;
+      // Land any pending timeline write too, so the cached timeline and the
+      // snapshot describe the same moment.
+      flushTimelinePersist();
+      await deps.streamingSnapshots.save(deps.sessionId, timeline.streamingByAgent);
+    },
+    async discardBackgroundSnapshot() {
+      await deps.streamingSnapshots?.clear(deps.sessionId);
+    },
+    resolvePendingQuestion(requestId) {
+      const pendingQuestions = removePendingQuestion(state.pendingQuestions, requestId);
+      if (pendingQuestions.length === state.pendingQuestions.length) return;
+      setState({ ...state, pendingQuestions });
     },
     setReplyTarget(target) {
       setState({
@@ -898,6 +1196,8 @@ export function createSessionDetailController(
     },
     async dispose() {
       disposed = true;
+      // Last chance to keep whatever the coalescing window still holds.
+      flushTimelinePersist();
       deps.outbox?.sender.stop();
       disconnectRealtime();
       setState({
@@ -906,4 +1206,6 @@ export function createSessionDetailController(
       });
     },
   };
+
+  return controller;
 }

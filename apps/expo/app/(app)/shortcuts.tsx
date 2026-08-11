@@ -23,7 +23,12 @@ import {
 import { Hairline } from "../../src/ui/atoms/Hairline";
 import { SectionEyebrow } from "../../src/ui/atoms/SectionEyebrow";
 import { supabase } from "../../src/lib/supabase/client";
+import { createShortcutRowsCache } from "../../src/lib/db/team-cache";
 import { colors, hai, radii, spacing, typography } from "../../src/ui/theme";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
+
+// Module-scoped: one cache handle for the app, not one per render.
+const shortcutsCache = createShortcutRowsCache();
 
 export default function ShortcutsRoute() {
   const router = useRouter();
@@ -48,10 +53,18 @@ export default function ShortcutsRoute() {
     setIsLoading(true);
     setError(null);
     void (async () => {
+      // Paint last-known shortcuts first, as iOS does from SwiftData.
+      const cached = await shortcutsCache.load(teamId);
+      if (cached && !cancelled) {
+        setShortcuts(cached);
+        setIsLoading(false);
+      }
       try {
         const rows = await createConfiguredShortcutsApi(supabase).listShortcuts(teamId);
         if (!cancelled) setShortcuts(rows);
+        void shortcutsCache.save(teamId, rows);
       } catch (err) {
+        // Leave the cached rows on screen; the error line reports the refresh.
         if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load shortcuts.");
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -121,7 +134,7 @@ export default function ShortcutsRoute() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot}>
           {folderStack.length > 0 ? (
             <Pressable
@@ -156,8 +169,7 @@ export default function ShortcutsRoute() {
             <Ionicons color={colors.onyx} name="close" size={26} />
           </Pressable>
         </View>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <ScrollView contentContainerStyle={styles.content}>
         {isLoading ? (
@@ -404,17 +416,10 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
+    paddingTop: GLASS_HEADER_HEIGHT + spacing.lg,
   },
   groups: {
     gap: spacing.lg,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
   },
   headerSlot: {
     alignItems: "center",

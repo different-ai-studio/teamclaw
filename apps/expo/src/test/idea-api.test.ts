@@ -58,6 +58,7 @@ describe("createIdeasApi", () => {
         description: "do the thing",
         status: "in_progress",
         archived: false,
+        sortOrder: 0,
         createdAt: "2026-05-01T00:00:00Z",
         updatedAt: "2026-05-02T00:00:00Z",
       },
@@ -111,5 +112,104 @@ describe("createIdeasApi", () => {
     expect(fetchImpl.mock.calls[0][0]).toBe("https://cloud.test/v1/ideas/i1/archive");
     expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({ archived: true });
     expect(JSON.parse(fetchImpl.mock.calls[1][1].body)).toEqual({ archived: false });
+  });
+
+  it("listActivities normalises both the pg (kind) and Supabase (activityType) shapes", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      json({
+        items: [
+          {
+            id: "act2",
+            ideaId: "i1",
+            actorId: "a1",
+            kind: "status_change",
+            content: "Changed status from Open to Done",
+            metadata: { from_status: "open", to_status: "done" },
+            createdAt: "2026-05-03T00:00:00Z",
+          },
+          {
+            id: "act1",
+            teamId: "t1",
+            ideaId: "i1",
+            actorId: "a2",
+            activityType: "progress",
+            content: "Pushed a fix",
+            metadata: null,
+            attachmentUrls: ["https://cdn.test/a.jpg"],
+            createdAt: "2026-05-02T00:00:00Z",
+            updatedAt: "2026-05-02T00:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    const activities = await api(fetchImpl).listActivities("i1");
+
+    expect(fetchImpl.mock.calls[0][0]).toBe("https://cloud.test/v1/ideas/i1/activities");
+    expect(activities).toEqual([
+      {
+        id: "act2",
+        ideaId: "i1",
+        teamId: "",
+        actorId: "a1",
+        activityType: "status_change",
+        content: "Changed status from Open to Done",
+        metadata: { from_status: "open", to_status: "done" },
+        attachmentUrls: [],
+        createdAt: "2026-05-03T00:00:00Z",
+        updatedAt: "2026-05-03T00:00:00Z",
+      },
+      {
+        id: "act1",
+        ideaId: "i1",
+        teamId: "t1",
+        actorId: "a2",
+        activityType: "progress",
+        content: "Pushed a fix",
+        metadata: {},
+        attachmentUrls: ["https://cdn.test/a.jpg"],
+        createdAt: "2026-05-02T00:00:00Z",
+        updatedAt: "2026-05-02T00:00:00Z",
+      },
+    ]);
+  });
+
+  it("createActivity POSTs the iOS wire shape and trims the content", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      json({ id: "act1", ideaId: "i1", actorId: "a1", kind: "progress", createdAt: "t" }),
+    );
+
+    await api(fetchImpl).createActivity("i1", {
+      activityType: "progress",
+      content: "  shipped  ",
+      actorId: "a1",
+      attachmentUrls: ["https://cdn.test/a.jpg"],
+    });
+
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://cloud.test/v1/ideas/i1/activities");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      kind: "progress",
+      content: "shipped",
+      actorId: "a1",
+      metadata: {},
+      attachmentUrls: ["https://cdn.test/a.jpg"],
+    });
+  });
+
+  it("reorderIdeas POSTs the ordered id list and no-ops when empty", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const ideas = api(fetchImpl);
+
+    await ideas.reorderIdeas("t1", []);
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    await ideas.reorderIdeas("t1", ["i2", "i1"]);
+    expect(fetchImpl.mock.calls[0][0]).toBe("https://cloud.test/v1/ideas/reorder");
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
+      teamId: "t1",
+      ideaIds: ["i2", "i1"],
+    });
   });
 });

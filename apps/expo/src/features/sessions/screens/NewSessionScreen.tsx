@@ -4,7 +4,6 @@ import {
   ActionSheetIOS,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -17,13 +16,16 @@ import {
 import { isAgentActor, type Actor } from "../../actors/actor-types";
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../../ui/GlassHeader";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
 import {
   AgentConfigSheet,
   type AgentConfigSelection,
   type AgentType,
 } from "../components/AgentConfigSheet";
+import { normalizeStoredAgentType } from "../components/agent-config-helpers";
 import { MemberPickerSheet } from "./MemberPickerSheet";
+import { SheetModal } from "../../../ui/SheetModal";
 
 const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   claude: "Claude",
@@ -101,6 +103,12 @@ export function NewSessionScreen({
     return pickedAgentIds[0];
   }, [pickedAgentIds, primaryAgentId]);
 
+  const configuredAgent = useMemo(
+    () =>
+      actors.find((actor) => actor.actorId === effectivePrimaryAgentId) ?? null,
+    [actors, effectivePrimaryAgentId],
+  );
+
   const workspaceLabelById = useMemo(() => {
     const map = new Map<string, string>();
     for (const workspace of workspaces) {
@@ -173,14 +181,13 @@ export function NewSessionScreen({
 
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot} />
         <Text style={styles.headerTitle}>New Session</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons name="close" size={26} color={colors.onyx} />
         </Pressable>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <KeyboardAvoidingView
         behavior={Platform.select({ ios: "padding", default: undefined })}
@@ -328,10 +335,8 @@ export function NewSessionScreen({
         </View>
       </KeyboardAvoidingView>
 
-      <Modal
-        animationType="slide"
+      <SheetModal
         onRequestClose={() => setPickerOpen(false)}
-        presentationStyle="pageSheet"
         visible={pickerOpen}
       >
         <MemberPickerSheet
@@ -347,17 +352,25 @@ export function NewSessionScreen({
           }}
           primaryAgentId={effectivePrimaryAgentId}
         />
-      </Modal>
+      </SheetModal>
 
-      <Modal
-        animationType="slide"
+      <SheetModal
         onRequestClose={() => setAgentConfigOpen(false)}
         presentationStyle="formSheet"
         visible={agentConfigOpen}
       >
         <AgentConfigSheet
-          actorDisplayName="Agent"
-          defaultType={agentConfig?.agentType ?? "claude"}
+          // The agent this configures is the session's primary one. It used to
+          // say "Agent" and offer all three backends regardless of what that
+          // agent can actually run — picking an unsupported one sends a
+          // `runtime_start` the daemon cannot honour.
+          actorDisplayName={configuredAgent?.displayName ?? "Agent"}
+          agentTypes={configuredAgent?.agentTypes}
+          defaultType={
+            agentConfig?.agentType ??
+            normalizeStoredAgentType(configuredAgent?.defaultAgentType) ??
+            "claude"
+          }
           onCancel={() => setAgentConfigOpen(false)}
           onConfirm={(selection) => {
             setAgentConfig(selection);
@@ -368,7 +381,7 @@ export function NewSessionScreen({
             path: workspace.path,
           }))}
         />
-      </Modal>
+      </SheetModal>
     </View>
   );
 }
@@ -448,6 +461,7 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
+    paddingTop: GLASS_HEADER_HEIGHT,
   },
   bodyContent: {
     gap: spacing.xl,
@@ -533,14 +547,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
     ...typography.caption,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
   },
   headerSlot: {
     alignItems: "center",

@@ -1,10 +1,15 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useOnboarding } from "../_layout";
 import { createActorsApi } from "../../src/features/actors/actor-api";
 import { createIdeasApi } from "../../src/features/ideas/idea-api";
-import type { Idea, IdeaStatus } from "../../src/features/ideas/idea-types";
+import {
+  imageOnlyProgressContent,
+  useIdeaImageAttachments,
+} from "../../src/features/ideas/idea-image-attachments";
+import type { Idea, IdeaActivity, IdeaStatus } from "../../src/features/ideas/idea-types";
+import type { IdeaActivityAuthor } from "../../src/features/ideas/components/IdeaActivityTimeline";
 import { IdeaDetailScreen } from "../../src/features/ideas/screens/IdeaDetailScreen";
 import { createConfiguredSessionsApi } from "../../src/features/sessions/api-provider";
 import { supabase } from "../../src/lib/supabase/client";
@@ -19,6 +24,7 @@ export default function IdeaDetailRoute() {
   const params = useLocalSearchParams<{ ideaId?: string }>();
   const ideaId = typeof params.ideaId === "string" ? params.ideaId : null;
   const teamId = state.currentTeam?.id ?? "";
+  const currentActorId = state.currentMemberActorId;
 
   const [idea, setIdea] = useState<Idea | null>(null);
   const [creatorName, setCreatorName] = useState<string | null>(null);
@@ -28,18 +34,47 @@ export default function IdeaDetailRoute() {
   const [relatedSessions, setRelatedSessions] = useState<
     Array<{ sessionId: string; title: string; lastMessageAt: string }>
   >([]);
+  const [activities, setActivities] = useState<IdeaActivity[]>([]);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
+  const [activityAuthors, setActivityAuthors] = useState<Record<string, IdeaActivityAuthor>>({});
+  const [isSubmittingProgress, setIsSubmittingProgress] = useState(false);
+
+  const ideasApi = useMemo(
+    () => createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) }),
+    [],
+  );
+
+  const onAttachmentError = useCallback((message: string) => showToast("error", message), []);
+  const images = useIdeaImageAttachments({
+    teamId,
+    contextId: ideaId ?? "",
+    onError: onAttachmentError,
+  });
+
+  const loadActivities = useCallback(async () => {
+    if (!ideaId) return;
+    setIsLoadingActivities(true);
+    try {
+      setActivities(await ideasApi.listActivities(ideaId));
+    } catch {
+      // Soft failure: the rest of the detail screen stays usable.
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  }, [ideaId, ideasApi]);
 
   const refresh = useCallback(async () => {
     if (!teamId || !ideaId) return;
     setIsRefreshing(true);
     try {
-      const fresh = await createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) }).listIdeas(teamId);
+      const fresh = await ideasApi.listIdeas(teamId);
       const found = fresh.find((row) => row.ideaId === ideaId) ?? null;
       setIdea(found);
+      await loadActivities();
     } finally {
       setIsRefreshing(false);
     }
-  }, [ideaId, teamId]);
+  }, [ideaId, ideasApi, loadActivities, teamId]);
 
   useEffect(() => {
     if (!teamId || !ideaId) {
@@ -50,7 +85,6 @@ export default function IdeaDetailRoute() {
     setIsLoading(true);
     void (async () => {
       try {
-        const ideasApi = createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) });
         const actorsApi = createActorsApi({ getAccessToken: supabaseAccessToken(supabase) });
         const [ideas, actors] = await Promise.all([
           ideasApi.listIdeas(teamId),
@@ -65,6 +99,21 @@ export default function IdeaDetailRoute() {
         } else {
           setCreatorName(null);
         }
+        // The activity feed only carries actor ids; the directory supplies the
+        // name/avatar/kind each row renders (iOS reads the same from CachedActor).
+        setActivityAuthors(
+          Object.fromEntries(
+            actors.map((actor) => [
+              actor.actorId,
+              {
+                actorId: actor.actorId,
+                displayName: actor.displayName,
+                avatarUrl: actor.avatarUrl,
+                isAgent: actor.actorType === "agent",
+              },
+            ]),
+          ),
+        );
 
         const related = await createConfiguredSessionsApi(supabase).listSessionsForIdea(
           teamId,
@@ -91,15 +140,76 @@ export default function IdeaDetailRoute() {
     return () => {
       cancelled = true;
     };
-  }, [ideaId, teamId]);
+  }, [ideaId, ideasApi, teamId]);
+
+  useEffect(() => {
+    void loadActivities();
+  }, [loadActivities]);
+
+  const handleSubmitProgress = useCallback(
+    async (text: string) => {
+      if (!ideaId) return;
+      if (!currentActorId) {
+        showToast("error", "Sign in to a team before posting progress.");
+        return;
+      }
+      const attachmentUrls = images.uploadedUrls;
+      const trimmed = text.trim();
+      if (!trimmed && attachmentUrls.length === 0) return;
+      // Same fallback copy iOS uses for an image-only submission.
+      const content = trimmed ? trimmed : imageOnlyProgressContent(attachmentUrls.length);
+
+      setIsSubmittingProgress(true);
+      try {
+        await ideasApi.createActivity(ideaId, {
+          activityType: "progress",
+          content,
+          actorId: currentActorId,
+          attachmentUrls,
+        });
+        images.reset();
+        await loadActivities();
+      } catch (err) {
+        showToast("error", err instanceof Error ? err.message : "Couldn't post progress.");
+      } finally {
+        setIsSubmittingProgress(false);
+      }
+    },
+    [currentActorId, ideaId, ideasApi, images, loadActivities],
+  );
+
+  /**
+   * Append the `status_change` row iOS writes from `IdeaStore.merge` whenever a
+   * status transition lands. The backend doesn't log it, so both clients have
+   * to — otherwise the timeline shows only progress notes.
+   */
+  const logStatusChange = useCallback(
+    async (from: IdeaStatus, to: IdeaStatus) => {
+      if (!ideaId || !currentActorId || from === to) return;
+      try {
+        await ideasApi.createActivity(ideaId, {
+          activityType: "status_change",
+          content: `Changed status from ${statusLabel(from)} to ${statusLabel(to)}`,
+          actorId: currentActorId,
+          metadata: { from_status: from, to_status: to },
+        });
+        await loadActivities();
+      } catch {
+        // The status itself already saved; the audit row is best-effort.
+      }
+    },
+    [currentActorId, ideaId, ideasApi, loadActivities],
+  );
 
   const handleToggleStatus = idea
     ? async () => {
         setBusyAction("toggleStatus");
+        const previous = idea.status;
         const next: IdeaStatus = idea.status === "done" ? "open" : "done";
         try {
-          await createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) }).updateStatus(idea.ideaId, next);
+          await ideasApi.updateStatus(idea.ideaId, next);
           setIdea({ ...idea, status: next, updatedAt: new Date().toISOString() });
+          await logStatusChange(previous, next);
         } catch {
           // Surface via screen busy state release — keep idea as-is.
         } finally {
@@ -112,10 +222,12 @@ export default function IdeaDetailRoute() {
     ? async (next: IdeaStatus) => {
         if (next === idea.status) return;
         setBusyAction("toggleStatus");
+        const previous = idea.status;
         try {
-          await createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) }).updateStatus(idea.ideaId, next);
+          await ideasApi.updateStatus(idea.ideaId, next);
           setIdea({ ...idea, status: next, updatedAt: new Date().toISOString() });
           showToast("success", `Marked ${next.replace("_", " ")}`);
+          await logStatusChange(previous, next);
         } catch (err) {
           showToast(
             "error",
@@ -131,7 +243,7 @@ export default function IdeaDetailRoute() {
     ? async () => {
         setBusyAction("archive");
         try {
-          await createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) }).archive(idea.ideaId);
+          await ideasApi.archive(idea.ideaId);
           showToast("success", "Idea archived");
           router.back();
         } catch (err) {
@@ -148,7 +260,7 @@ export default function IdeaDetailRoute() {
     ? async (patch: { title: string; description: string }) => {
         setBusyAction("save");
         try {
-          await createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) }).updateContent(idea.ideaId, patch);
+          await ideasApi.updateContent(idea.ideaId, patch);
           setIdea({
             ...idea,
             title: patch.title,
@@ -169,16 +281,25 @@ export default function IdeaDetailRoute() {
 
   return (
     <IdeaDetailScreen
+      activities={activities}
+      activityAuthorsById={activityAuthors}
       busyAction={busyAction}
+      composerAttachments={images.attachments}
       creatorName={creatorName}
       idea={idea}
       isLoading={isLoading}
+      isLoadingActivities={isLoadingActivities}
       isRefreshing={isRefreshing}
+      isSubmittingProgress={isSubmittingProgress}
+      onAddProgressImage={(source) => {
+        void images.addImages(source);
+      }}
       onArchive={handleArchive}
       onClose={() => router.back()}
       onRefresh={() => {
         void refresh();
       }}
+      onRemoveProgressAttachment={images.removeAttachment}
       onSaveContent={handleSaveContent}
       onSelectSession={(sessionId) => router.replace(`/(app)/sessions/${sessionId}`)}
       onSetStatus={handleSetStatus}
@@ -189,8 +310,23 @@ export default function IdeaDetailRoute() {
             }
           : undefined
       }
+      onSubmitProgress={(text) => {
+        void handleSubmitProgress(text);
+      }}
       onToggleStatus={handleToggleStatus}
       relatedSessions={relatedSessions}
     />
   );
+}
+
+/** Mirrors iOS `IdeaRecord.statusLabel`, used in status_change activity copy. */
+function statusLabel(status: IdeaStatus): string {
+  switch (status) {
+    case "in_progress":
+      return "In Progress";
+    case "done":
+      return "Done";
+    default:
+      return "Open";
+  }
 }

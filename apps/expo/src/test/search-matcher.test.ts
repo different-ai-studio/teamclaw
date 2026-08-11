@@ -44,3 +44,34 @@ describe("matchesAnyField", () => {
     expect(matchesAnyField(["title", null, undefined, "tail"], "title tail")).toBe(true);
   });
 });
+
+describe("diacritic folding", () => {
+  it("matches in both directions, accented or not", async () => {
+    // Decomposing without stripping the marks only worked one way: "jose"
+    // found "José", but "josé" did not find "Jose" — so searching *with* an
+    // accent silently under-matched.
+    const { matchesQuery } = await import("../features/search/search-matcher");
+    expect(matchesQuery("José Álvarez", "jose")).toBe(true);
+    expect(matchesQuery("Jose Alvarez", "josé")).toBe(true);
+    expect(matchesQuery("José Álvarez", "álvarez")).toBe(true);
+    expect(matchesQuery("Jose Alvarez", "álvarez")).toBe(true);
+  });
+
+  it("folds case as well", async () => {
+    const { matchesQuery } = await import("../features/search/search-matcher");
+    expect(matchesQuery("MACMINI", "macmini")).toBe(true);
+    expect(matchesQuery("macmini", "MACMINI")).toBe(true);
+  });
+
+  it("leaves CJK alone", async () => {
+    const { matchesQuery } = await import("../features/search/search-matcher");
+    expect(matchesQuery("海港 · 前端", "海港")).toBe(true);
+    expect(matchesQuery("海港", "前端")).toBe(false);
+  });
+
+  it("exposes the fold for callers that match field-by-field", async () => {
+    const { foldForSearch } = await import("../features/search/search-matcher");
+    expect(foldForSearch("José")).toBe("jose");
+    expect(foldForSearch("  Ünïcödé  ")).toBe("unicode");
+  });
+});

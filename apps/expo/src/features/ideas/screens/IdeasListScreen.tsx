@@ -38,13 +38,18 @@ import {
 type Filter = "all" | "mine" | "open" | "done";
 
 export type IdeasListScreenProps = {
+  /** Extra bottom inset so content clears the floating tab bar. */
+  bottomInset?: number;
   actorNames?: ReadonlyMap<string, string>;
   currentActorId: string | null;
   onArchiveBatch?: (ideaIds: string[]) => Promise<void>;
   onCreate?: () => void;
   onLoad: () => void;
   onOpenArchived?: () => void;
+  onOpenStats?: () => void;
   onRefresh: () => void;
+  /** Move `ideaId` to `destinationIndex` in the team's stored idea order. */
+  onReorder?: (ideaId: string, destinationIndex: number) => void;
   onSelectIdea?: (ideaId: string) => void;
   state: IdeasListState;
 };
@@ -53,16 +58,29 @@ function HeaderBar({
   count,
   onCreate,
   onOpenArchived,
+  onOpenStats,
 }: {
   count: number;
   onCreate?: () => void;
   onOpenArchived?: () => void;
+  onOpenStats?: () => void;
 }) {
   return (
     <PageHeader
       count={count}
       right={
         <View style={styles.toolbarGroup}>
+          {onOpenStats ? (
+            <Pressable
+              accessibilityLabel="Idea statistics"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onOpenStats}
+              style={styles.toolbarButton}
+            >
+              <Ionicons color={colors.onyx} name="stats-chart-outline" size={20} />
+            </Pressable>
+          ) : null}
           {onOpenArchived ? (
             <Pressable
               accessibilityLabel="Archived ideas"
@@ -96,13 +114,16 @@ function HeaderBar({
 }
 
 export function IdeasListScreen({
+  bottomInset = 0,
   actorNames,
   currentActorId,
   onArchiveBatch,
   onCreate,
   onLoad,
   onOpenArchived,
+  onOpenStats,
   onRefresh,
+  onReorder,
   onSelectIdea,
   state,
 }: IdeasListScreenProps) {
@@ -133,27 +154,55 @@ export function IdeasListScreen({
 
   const clearSelection = () => setSelection(new Set());
 
+  /** A search or filter hides rows, so "position N" would no longer match the
+   * stored order the reorder endpoint writes. Reordering is offered only on the
+   * full list. */
+  const isFiltered = filter !== "all" || query.trim().length > 0 || workspaceFilter !== null;
+
   const showRowContextMenu = useCallback(
     (ideaId: string) => {
       impactLight();
-      const labels = ["归档", "选择更多…", "取消"];
-      const dispatch = (index: number) => {
-        switch (index) {
-          case 0:
+      // Reorder entries stand in for the drag handle iOS gets from
+      // `List.onMove`; they call the same reorder endpoint underneath. Only
+      // offered on the unfiltered list, where the visible order is the stored
+      // order and a "position" is meaningful.
+      const canReorder = Boolean(onReorder) && !isFiltered;
+      const position = state.ideas.findIndex((idea) => idea.ideaId === ideaId);
+      const canMoveUp = canReorder && position > 0;
+      const canMoveDown = canReorder && position >= 0 && position < state.ideas.length - 1;
+
+      type Entry = { label: string; destructive?: boolean; run: () => void };
+      const entries: Entry[] = [
+        {
+          label: "归档",
+          destructive: true,
+          run: () => {
             if (onArchiveBatch) void onArchiveBatch([ideaId]);
-            break;
-          case 1:
-            toggleSelection(ideaId);
-            break;
-          default:
-            break;
-        }
+          },
+        },
+        { label: "选择更多…", run: () => toggleSelection(ideaId) },
+      ];
+      if (canMoveUp) {
+        entries.push({ label: "上移", run: () => onReorder?.(ideaId, position - 1) });
+        entries.push({ label: "移到顶部", run: () => onReorder?.(ideaId, 0) });
+      }
+      if (canMoveDown) {
+        entries.push({ label: "下移", run: () => onReorder?.(ideaId, position + 1) });
+        entries.push({
+          label: "移到底部",
+          run: () => onReorder?.(ideaId, state.ideas.length - 1),
+        });
+      }
+
+      const labels = [...entries.map((entry) => entry.label), "取消"];
+      const dispatch = (index: number) => {
+        entries[index]?.run();
       };
       if (Platform.OS === "ios") {
         ActionSheetIOS.showActionSheetWithOptions(
           {
             options: labels,
-            cancelButtonIndex: 2,
+            cancelButtonIndex: entries.length,
             destructiveButtonIndex: 0,
           },
           dispatch,
@@ -161,12 +210,15 @@ export function IdeasListScreen({
         return;
       }
       Alert.alert("想法操作", undefined, [
-        { text: labels[0], style: "destructive", onPress: () => dispatch(0) },
-        { text: labels[1], onPress: () => dispatch(1) },
-        { text: labels[2], style: "cancel" },
+        ...entries.map((entry, index) => ({
+          text: entry.label,
+          style: entry.destructive ? ("destructive" as const) : undefined,
+          onPress: () => dispatch(index),
+        })),
+        { text: "取消", style: "cancel" as const },
       ]);
     },
-    [onArchiveBatch],
+    [isFiltered, onArchiveBatch, onReorder, state.ideas],
   );
 
   const handleArchiveSelected = async () => {
@@ -225,13 +277,14 @@ export function IdeasListScreen({
       count={state.ideas.length}
       onCreate={onCreate}
       onOpenArchived={onOpenArchived}
+      onOpenStats={onOpenStats}
     />
   );
 
   if (state.status === "loading" || (state.status === "idle" && state.ideas.length === 0)) {
     return (
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
         refreshControl={
           <RefreshControl
             onRefresh={onRefresh}
@@ -253,7 +306,7 @@ export function IdeasListScreen({
 
   if (state.status === "error" && state.ideas.length === 0) {
     return (
-      <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]} style={styles.screen}>
         {headerBar}
         <View style={styles.stateBlock}>
           <Text style={styles.stateTitle}>Couldn't load ideas</Text>
@@ -267,7 +320,7 @@ export function IdeasListScreen({
   return (
     <View style={styles.screen}>
       <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       refreshControl={
@@ -431,6 +484,7 @@ export function IdeasListScreen({
                     ) : null}
                     <View style={styles.ideaRowBody}>
                       <IdeaRow
+                        creatorId={idea.createdByActorId}
                         creatorName={
                           idea.createdByActorId
                             ? actorNames?.get(idea.createdByActorId) ?? null

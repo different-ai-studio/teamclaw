@@ -25,6 +25,11 @@ type CloudActor = {
   defaultWorkspaceId?: string | null;
   visibility?: string | null;
   lastActiveAt?: string | null;
+  memberStatus?: string | null;
+  agentStatus?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  createdAt?: string | null;
 };
 
 export type ActorInviteResult = {
@@ -64,6 +69,11 @@ function toActor(row: CloudActor): Actor {
     visibility:
       row.visibility === "personal" ? "personal" : row.visibility === "team" ? "team" : null,
     agentKind: row.agentKind ?? defaultAgentType ?? agentTypes[0] ?? null,
+    memberStatus: row.memberStatus ?? null,
+    agentStatus: row.agentStatus ?? null,
+    email: row.email ?? null,
+    phone: row.phone ?? null,
+    createdAt: row.createdAt ?? null,
   };
 }
 
@@ -96,6 +106,27 @@ export type ActorsApi = {
     agentKind?: string | null;
     ttlSeconds?: number;
   }) => Promise<ActorInviteResult>;
+  /**
+   * Moves the team out of the shared default org into its own.
+   *
+   * Member invites are refused with 403 `upgrade_required` while a team is
+   * still in the public org — it is solo-only. `POST /v1/account/upgrade` is
+   * the way out, and iOS folds the form into the invite sheet rather than
+   * sending the user somewhere else.
+   */
+  upgradeAccount: (input: {
+    teamId: string;
+    orgName: string;
+    contact?: string | null;
+  }) => Promise<void>;
+  /** The caller's own default agent (`members.default_agent_id`). */
+  getMemberDefaultAgent: (teamId: string) => Promise<string | null>;
+  setMemberDefaultAgent: (teamId: string, agentId: string | null) => Promise<string | null>;
+  /** The team-wide default agent (`teams.default_agent_id`); owner/admin writable. */
+  getTeamDefaultAgent: (teamId: string) => Promise<string | null>;
+  setTeamDefaultAgent: (teamId: string, agentId: string | null) => Promise<string | null>;
+  /** The member default if set, else the team default — what New Session picks. */
+  getEffectiveDefaultAgent: (teamId: string) => Promise<string | null>;
 };
 
 export function createActorsApi(args: {
@@ -166,6 +197,14 @@ export function createActorsApi(args: {
       };
     },
 
+    async upgradeAccount({ teamId, orgName, contact }) {
+      await client.post("/v1/account/upgrade", {
+        teamId,
+        orgName: orgName.trim(),
+        contact: contact?.trim() || null,
+      });
+    },
+
     async createInvite({
       teamId,
       kind,
@@ -191,6 +230,43 @@ export function createActorsApi(args: {
         deeplink: row.deeplink || buildInviteDeeplink(row.token),
         expiresAt: row.expiresAt ?? "",
       };
+    },
+
+    async getMemberDefaultAgent(teamId) {
+      if (!teamId) return null;
+      const row = await client.get<{ defaultAgentId?: string | null }>(
+        `/v1/teams/${encodeURIComponent(teamId)}/members/me/default-agent`,
+      );
+      return row?.defaultAgentId ?? null;
+    },
+
+    async setMemberDefaultAgent(teamId, agentId) {
+      // FC echoes the new value; mirror updateAgentDefaults and return what we sent.
+      await client.put(`/v1/teams/${encodeURIComponent(teamId)}/members/me/default-agent`, {
+        agentId,
+      });
+      return agentId;
+    },
+
+    async getTeamDefaultAgent(teamId) {
+      if (!teamId) return null;
+      const row = await client.get<{ defaultAgentId?: string | null }>(
+        `/v1/teams/${encodeURIComponent(teamId)}/default-agent`,
+      );
+      return row?.defaultAgentId ?? null;
+    },
+
+    async setTeamDefaultAgent(teamId, agentId) {
+      await client.put(`/v1/teams/${encodeURIComponent(teamId)}/default-agent`, { agentId });
+      return agentId;
+    },
+
+    async getEffectiveDefaultAgent(teamId) {
+      if (!teamId) return null;
+      const row = await client.get<{ defaultAgentId?: string | null }>(
+        `/v1/teams/${encodeURIComponent(teamId)}/members/me/effective-default-agent`,
+      );
+      return row?.defaultAgentId ?? null;
     },
   };
 }

@@ -1,17 +1,11 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-import type { SessionMessage, SessionSummary } from "./session-types";
-
-const SESSION_PREFIX = "teamclu.sessionDetail.v1.session.";
-const MESSAGES_PREFIX = "teamclu.sessionDetail.v1.messages.";
-
-function sessionKey(sessionId: string): string {
-  return `${SESSION_PREFIX}${sessionId}`;
-}
-
-function messagesKey(sessionId: string): string {
-  return `${MESSAGES_PREFIX}${sessionId}`;
-}
+import {
+  loadMessages,
+  loadSessions,
+  saveMessages,
+  saveSessions,
+} from "../../lib/db/local-cache";
+import { openCacheDb, type CacheDb } from "../../lib/db/cache-db";
+import type { MessageAttachment, SessionMessage, SessionSummary } from "./session-types";
 
 export type SessionDetailCacheEntry = {
   session: SessionSummary;
@@ -26,32 +20,79 @@ export type SessionDetailCache = {
 };
 
 /**
- * AsyncStorage-backed cache for an individual session's metadata + message
- * timeline. Mirrors iOS's SwiftData detail-screen hydration — load instantly
- * from disk, then let the network refresh overlay on top.
+ * Per-session metadata + timeline cache, mirroring iOS's SwiftData hydration:
+ * paint from disk immediately, let the network refresh overlay on top.
  *
- * Per-session timelines are clamped to the most recent 200 messages to keep
- * write costs reasonable. Older history reloads from Supabase when the user
- * scrolls back.
+ * Backed by SQLite rather than two AsyncStorage blobs. The blobs were clamped
+ * to the newest 200 messages and rewritten whole on every append — including on
+ * every streaming flush, which is why the streaming write is coalesced upstream
+ * in `session-detail-controller`. Rows carry no such clamp, so scrolling back
+ * through a long session no longer has to hit the network.
  */
-const MAX_CACHED_MESSAGES = 200;
+export function createSessionDetailCache(
+  getCacheDb: () => Promise<CacheDb> = openCacheDb,
+): SessionDetailCache {
+  const toSessionMessage = (row: {
+    messageId: string;
+    sessionId: string;
+    teamId: string;
+    senderActorId: string;
+    kind: string;
+    content: string;
+    model: string;
+    turnId: string;
+    replyToMessageId: string;
+    metadata: unknown;
+    attachments: unknown[];
+    createdAt: string;
+  }): SessionMessage => ({
+    messageId: row.messageId,
+    sessionId: row.sessionId,
+    teamId: row.teamId,
+    senderActorId: row.senderActorId,
+    kind: row.kind,
+    content: row.content,
+    model: row.model,
+    turnId: row.turnId,
+    replyToMessageId: row.replyToMessageId,
+    metadata: row.metadata,
+    createdAt: row.createdAt,
+    attachments: row.attachments as MessageAttachment[],
+  });
 
-export function createSessionDetailCache(): SessionDetailCache {
   return {
     async load(sessionId) {
       if (!sessionId) return null;
       try {
-        const [rawSession, rawMessages] = await Promise.all([
-          AsyncStorage.getItem(sessionKey(sessionId)),
-          AsyncStorage.getItem(messagesKey(sessionId)),
-        ]);
-        if (!rawSession) return null;
-        const session = JSON.parse(rawSession) as SessionSummary;
-        const messages = rawMessages
-          ? (JSON.parse(rawMessages) as SessionMessage[])
-          : [];
-        if (!Array.isArray(messages)) return { session, messages: [] };
-        return { session, messages };
+        const db = await getCacheDb();
+        const messages = await loadMessages(db, sessionId);
+        // The session row is scoped by team, and the caller only knows the
+        // session id, so find it by walking the message rows' team back into
+        // the sessions table. A session with no cached messages still has a
+        // cached header if the list screen wrote one.
+        const teamId = messages[0]?.teamId ?? "";
+        const session = teamId
+          ? (await loadSessions(db, teamId)).find(
+              (row) => row.sessionId === sessionId,
+            )
+          : undefined;
+        if (!session) return null;
+        return {
+          session: {
+            sessionId: session.sessionId,
+            teamId: session.teamId,
+            title: session.title,
+            summary: session.summary,
+            participantCount: session.participantCount,
+            participantActorIds: session.participantActorIds,
+            lastMessagePreview: session.lastMessagePreview,
+            lastMessageAt: session.lastMessageAt,
+            createdAt: session.createdAt,
+            createdBy: session.createdBy,
+            hasUnread: session.hasUnread,
+          },
+          messages: messages.map(toSessionMessage),
+        };
       } catch {
         return null;
       }
@@ -59,11 +100,32 @@ export function createSessionDetailCache(): SessionDetailCache {
     async save(sessionId, entry) {
       if (!sessionId) return;
       try {
-        const tail = entry.messages.slice(-MAX_CACHED_MESSAGES);
-        await Promise.all([
-          AsyncStorage.setItem(sessionKey(sessionId), JSON.stringify(entry.session)),
-          AsyncStorage.setItem(messagesKey(sessionId), JSON.stringify(tail)),
-        ]);
+        const db = await getCacheDb();
+        const teamId = entry.session.teamId;
+        if (teamId) {
+          // Merge rather than replace: the sessions scope belongs to the list
+          // screen, and blowing it away here would empty the list cache every
+          // time a detail screen opened.
+          const existing = await loadSessions(db, teamId);
+          const merged = [
+            ...existing.filter((row) => row.sessionId !== sessionId),
+            {
+              sessionId: entry.session.sessionId,
+              teamId,
+              title: entry.session.title,
+              summary: entry.session.summary,
+              participantCount: entry.session.participantCount,
+              participantActorIds: entry.session.participantActorIds ?? [],
+              lastMessagePreview: entry.session.lastMessagePreview,
+              lastMessageAt: entry.session.lastMessageAt,
+              createdAt: entry.session.createdAt,
+              createdBy: entry.session.createdBy,
+              hasUnread: entry.session.hasUnread ?? false,
+            },
+          ];
+          await saveSessions(db, teamId, merged);
+        }
+        await this.saveMessages(sessionId, entry.messages);
       } catch {
         // best-effort
       }
@@ -71,8 +133,24 @@ export function createSessionDetailCache(): SessionDetailCache {
     async saveMessages(sessionId, messages) {
       if (!sessionId) return;
       try {
-        const tail = messages.slice(-MAX_CACHED_MESSAGES);
-        await AsyncStorage.setItem(messagesKey(sessionId), JSON.stringify(tail));
+        await saveMessages(
+          await getCacheDb(),
+          sessionId,
+          messages.map((message) => ({
+            messageId: message.messageId,
+            sessionId: message.sessionId || sessionId,
+            teamId: message.teamId,
+            senderActorId: message.senderActorId,
+            kind: message.kind,
+            content: message.content,
+            model: message.model,
+            turnId: message.turnId,
+            replyToMessageId: message.replyToMessageId,
+            metadata: message.metadata,
+            attachments: message.attachments ?? [],
+            createdAt: message.createdAt,
+          })),
+        );
       } catch {
         // best-effort
       }
@@ -80,10 +158,7 @@ export function createSessionDetailCache(): SessionDetailCache {
     async clear(sessionId) {
       if (!sessionId) return;
       try {
-        await Promise.all([
-          AsyncStorage.removeItem(sessionKey(sessionId)),
-          AsyncStorage.removeItem(messagesKey(sessionId)),
-        ]);
+        await saveMessages(await getCacheDb(), sessionId, []);
       } catch {
         // ignore
       }

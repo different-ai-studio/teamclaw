@@ -74,6 +74,13 @@ export function createConfiguredInviteApi(
  * Tolerates the two shapes the iOS app emits (path token + query token) so
  * shared links continue to work across platforms.
  */
+/** Schemes an invite link may carry, matching iOS. `amux` predates both names. */
+const INVITE_SCHEMES: ReadonlySet<string> = new Set([
+  "teamclu:",
+  "teamclaw:",
+  "amux:",
+]);
+
 export function parseInviteToken(url: string | null | undefined): string | null {
   if (!url) return null;
   const trimmed = url.trim();
@@ -88,8 +95,14 @@ export function parseInviteToken(url: string | null | undefined): string | null 
 
   // RN's URL parser puts the scheme in `protocol` with the trailing colon,
   // e.g. "teamclu:". The host is what comes right after `//`.
+  //
+  // All three schemes are accepted, as iOS accepts them: links minted before
+  // the teamclaw → teamclu rename are still in inboxes and chat history, and a
+  // link that cannot be parsed does not fail cleanly — the caller falls back to
+  // treating the whole URL as the token and the server rejects that with a far
+  // less useful message.
   const isInvite =
-    (parsed.protocol === "teamclu:" && parsed.host === "invite") ||
+    (INVITE_SCHEMES.has(parsed.protocol) && parsed.host === "invite") ||
     parsed.pathname.startsWith("/invite");
   if (!isInvite) return null;
 

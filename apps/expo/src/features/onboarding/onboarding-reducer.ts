@@ -2,6 +2,7 @@ import type { OnboardingAction, OnboardingState } from "./onboarding-types";
 
 export const initialOnboardingState: OnboardingState = {
   route: "loading",
+  teamChoices: [],
   isBusy: false,
   errorMessage: null,
   pendingEmailOTPEmail: null,
@@ -41,7 +42,15 @@ export function onboardingReducer(
     case "bootstrapResolved":
       return {
         ...state,
-        route: action.payload.team === null ? "createTeam" : "ready",
+        // Three outcomes, not two. A null team with choices means the bootstrap
+        // stopped to ask rather than finding nothing.
+        route:
+          action.payload.team !== null
+            ? "ready"
+            : action.payload.teamChoices.length > 0
+              ? "selectTeam"
+              : "createTeam",
+        teamChoices: action.payload.teamChoices,
         isBusy: false,
         errorMessage: null,
         pendingEmailOTPEmail: null,
@@ -53,6 +62,7 @@ export function onboardingReducer(
       return {
         ...state,
         route: "failed",
+        teamChoices: [],
         isBusy: false,
         errorMessage: action.message,
         pendingEmailOTPEmail: null,
@@ -60,10 +70,18 @@ export function onboardingReducer(
         currentMemberActorId: null,
         isAnonymous: false,
       };
+    case "teamSelectionFailed":
+      return {
+        ...state,
+        route: "selectTeam",
+        isBusy: false,
+        errorMessage: action.message,
+      };
     case "signedOut":
       return {
         ...state,
         route: "needsAuth",
+        teamChoices: [],
         isBusy: false,
         errorMessage: null,
         pendingEmailOTPEmail: null,

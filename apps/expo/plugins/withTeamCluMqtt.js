@@ -9,13 +9,23 @@ const {
 
 const MQTT_DEPENDENCY = '    implementation("com.hivemq:hivemq-mqtt-client:1.3.3")';
 const PACKAGE_REGISTRATION = "            packages.add(TeamCluMqttPackage())";
-const COCOA_MQTT_POD = "  pod 'CocoaMQTT', '~> 2.2.3'";
+// CocoaMQTT is a Swift pod, and it depends on MqttCocoaAsyncSocket, which is
+// Objective-C and ships no module map. Swift cannot import such a target when
+// pods build as static libraries, and `pod install` refuses outright:
+// "The following Swift pods cannot yet be integrated as static libraries."
+// Declaring the transitive dependency with `:modular_headers => true` generates
+// the module map for that one pod, which is narrower than flipping
+// `use_modular_headers!` on for the whole Podfile.
+const COCOA_MQTT_POD = [
+  "  pod 'MqttCocoaAsyncSocket', :modular_headers => true",
+  "  pod 'CocoaMQTT', '~> 2.2.3'",
+].join("\n");
 const NETTY_RESOURCE_EXCLUDES = [
   "META-INF/INDEX.LIST",
   "META-INF/io.netty.versions.properties",
 ];
 
-const moduleSource = `package com.bertrand319.teamcluexpo
+const moduleSource = (pkg) => `package ${pkg}
 
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -191,7 +201,7 @@ class TeamCluMqttModule(
 }
 `;
 
-const packageSource = `package com.bertrand319.teamcluexpo
+const packageSource = (pkg) => `package ${pkg}
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
@@ -397,14 +407,28 @@ function addCocoaMqttPod(contents) {
   return contents.replace(/(target ['"][^'"]+['"] do\n)/, `$1${COCOA_MQTT_POD}\n`);
 }
 
-function writeMqttModuleFiles(projectRoot) {
+/**
+ * Emits the Kotlin module into the app's own package.
+ *
+ * The package was hardcoded here until the applicationId changed and the two
+ * silently diverged — the generated sources would land in a package Android
+ * never looks in, and `TeamCluMqttPackage()` fails to resolve deep into a
+ * cloud build. Deriving it from `android.package` keeps the two in step.
+ */
+function writeMqttModuleFiles(projectRoot, androidPackage) {
+  if (!androidPackage) {
+    throw new Error(
+      "withTeamCluMqtt: android.package is required to emit the MQTT module.",
+    );
+  }
   const targetDir = path.join(
     projectRoot,
-    "android/app/src/main/java/com/bertrand319/teamcluexpo",
+    "android/app/src/main/java",
+    ...androidPackage.split("."),
   );
   fs.mkdirSync(targetDir, { recursive: true });
-  fs.writeFileSync(path.join(targetDir, "TeamCluMqttModule.kt"), moduleSource);
-  fs.writeFileSync(path.join(targetDir, "TeamCluMqttPackage.kt"), packageSource);
+  fs.writeFileSync(path.join(targetDir, "TeamCluMqttModule.kt"), moduleSource(androidPackage));
+  fs.writeFileSync(path.join(targetDir, "TeamCluMqttPackage.kt"), packageSource(androidPackage));
 }
 
 function writeIosMqttModuleFiles(projectRoot, projectName) {
@@ -430,7 +454,7 @@ function withTeamCluMqtt(config) {
   config = withDangerousMod(config, [
     "android",
     async (mod) => {
-      writeMqttModuleFiles(mod.modRequest.projectRoot);
+      writeMqttModuleFiles(mod.modRequest.projectRoot, mod.android?.package);
       return mod;
     },
   ]);

@@ -89,7 +89,9 @@ describe("runtime start planning", () => {
         },
       ],
       connectedAgents: [{ agentId: "agent-1" }],
-      explicitSelection: { workspaceId: "workspace-picked", agentType: "codex" },
+      selectionByAgentId: {
+        "agent-1": { workspaceId: "workspace-picked", agentType: "codex" },
+      },
       workspaces: [
         { id: "workspace-default", path: "/tmp/default", agentId: null },
         { id: "workspace-picked", path: "/tmp/picked", agentId: null },
@@ -158,5 +160,77 @@ describe("runtime start planning", () => {
       worktree: "/tmp/current",
       agentType: AgentType.CODEX,
     });
+  });
+});
+
+describe("per-agent selection", () => {
+  it("does not apply one agent's picked workspace to another", async () => {
+    // A single shared selection started the second agent in the first one's
+    // worktree — the very thing the fallback path refuses to do.
+    const { resolveAgentRuntimeStartPlans } = await import(
+      "../features/sessions/runtime-start"
+    );
+    const plans = resolveAgentRuntimeStartPlans({
+      agents: [
+        {
+          actorId: "agent-1",
+          displayName: "Claude",
+          agentTypes: ["claude"],
+          defaultAgentType: "claude",
+          defaultWorkspaceId: "ws-1",
+        },
+        {
+          actorId: "agent-2",
+          displayName: "OpenCode",
+          agentTypes: ["opencode"],
+          defaultAgentType: "opencode",
+          defaultWorkspaceId: "ws-2",
+        },
+      ],
+      connectedAgents: [{ agentId: "agent-1" }, { agentId: "agent-2" }],
+      selectionByAgentId: {
+        "agent-1": { workspaceId: "ws-picked", agentType: "codex" },
+      },
+      workspaces: [
+        { id: "ws-1", path: "/tmp/one", agentId: "agent-1" },
+        { id: "ws-2", path: "/tmp/two", agentId: "agent-2" },
+        { id: "ws-picked", path: "/tmp/picked", agentId: null },
+      ],
+    });
+
+    expect(plans[0]).toMatchObject({ agentActorId: "agent-1", workspaceId: "ws-picked" });
+    // agent-2 keeps its own default, and its own type.
+    expect(plans[1]).toMatchObject({ agentActorId: "agent-2", workspaceId: "ws-2" });
+    expect(plans[1]?.agentType).not.toBe(plans[0]?.agentType);
+  });
+
+  it("falls every agent back to its own default when nothing is selected", async () => {
+    const { resolveAgentRuntimeStartPlans } = await import(
+      "../features/sessions/runtime-start"
+    );
+    const plans = resolveAgentRuntimeStartPlans({
+      agents: [
+        {
+          actorId: "agent-1",
+          displayName: "A",
+          agentTypes: ["claude"],
+          defaultAgentType: "claude",
+          defaultWorkspaceId: "ws-1",
+        },
+        {
+          actorId: "agent-2",
+          displayName: "B",
+          agentTypes: ["opencode"],
+          defaultAgentType: "opencode",
+          defaultWorkspaceId: "ws-2",
+        },
+      ],
+      connectedAgents: [{ agentId: "agent-1" }, { agentId: "agent-2" }],
+      workspaces: [
+        { id: "ws-1", path: "/tmp/one", agentId: "agent-1" },
+        { id: "ws-2", path: "/tmp/two", agentId: "agent-2" },
+      ],
+    });
+    expect(plans.map((p) => p.workspaceId)).toEqual(["ws-1", "ws-2"]);
   });
 });

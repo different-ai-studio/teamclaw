@@ -9,7 +9,7 @@
       "**/*"
     ],
     "android": {
-      "package": "com.bertrand319.teamcluexpo",
+      "package": "com.teamclu",
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
@@ -30,11 +30,11 @@
       ]
     ],
     "ios": {
-      "bundleIdentifier": "com.bertrand319.teamcluexpo"
+      "bundleIdentifier": "com.teamclu"
     },
     "extra": {
       "eas": {
-        "projectId": "d68ed240-fe6c-4180-a1b4-305faff315ff"
+        "projectId": "ddfbf2cd-4440-4c7a-b1fb-f773687cc060"
       }
     },
     "owner": "teamklo-team"

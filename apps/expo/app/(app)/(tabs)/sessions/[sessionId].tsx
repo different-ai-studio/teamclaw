@@ -1,6 +1,15 @@
 import { Redirect, Stack, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, Share, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  AppState,
+  Platform,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { routeToHref, useConnectedAgentsStore, useOnboarding, useTeamMqtt } from "../../../_layout";
 import { resolveSlashCommands } from "../../../../src/features/sessions/components/runtime-commands";
@@ -9,6 +18,7 @@ import type { RuntimeInfo } from "../../../../src/features/actors/connected-agen
 import { createActorsApi } from "../../../../src/features/actors/actor-api";
 import type { Actor } from "../../../../src/features/actors/actor-types";
 import type { SessionMessage } from "../../../../src/features/sessions/session-types";
+import type { PendingAcpQuestion } from "../../../../src/features/sessions/pending-questions";
 import {
   loadComposerDraft,
   saveComposerDraft,
@@ -23,10 +33,17 @@ import { createConfiguredSessionsApi } from "../../../../src/features/sessions/a
 import { createSessionDetailController } from "../../../../src/features/sessions/session-detail-controller";
 import { emptyTimelineState } from "../../../../src/features/sessions/timeline-reducer";
 import { createSessionDetailCache } from "../../../../src/features/sessions/session-detail-cache";
+import { createStreamingSnapshotStore } from "../../../../src/features/sessions/streaming-snapshot";
 import { createSessionMutesApi } from "../../../../src/features/sessions/session-mutes";
 import { supabaseAccessToken } from "../../../../src/lib/cloud-api/client";
 import { SessionDetailScreen } from "../../../../src/features/sessions/screens/SessionDetailScreen";
+import { ModelPickerSheet } from "../../../../src/features/sessions/screens/ModelPickerSheet";
+import {
+  agentBackendDisplayName,
+  runtimeStatusName,
+} from "../../../../src/features/sessions/agent-runtime-state";
 import { impactLight, selectionTick, successTone } from "../../../../src/lib/haptics";
+import { androidTabBarStyle } from "../../../../src/ui/tab-bar";
 import { showToast } from "../../../../src/ui/Toast";
 import { supabase } from "../../../../src/lib/supabase/client";
 import { getDb } from "../../../../src/lib/db/sqlite";
@@ -35,12 +52,17 @@ import {
   createRuntimeCommandSender,
   resolvePermissionRuntimeTarget,
 } from "../../../../src/lib/teamclu/runtime-command";
+import { createRuntimeRpcClient } from "../../../../src/lib/teamclu/runtime-rpc";
 import type { TeamMqttClient } from "../../../../src/lib/mqtt/team-mqtt";
 import { PrimaryButton } from "../../../../src/ui/button";
 import { AppCard } from "../../../../src/ui/card";
 import { TextPromptModal } from "../../../../src/ui/TextPromptModal";
 import { colors, spacing, typography } from "../../../../src/ui/theme";
 import type { SessionDetailControllerState } from "../../../../src/features/sessions/session-detail-controller";
+import { SheetModal } from "../../../../src/ui/SheetModal";
+
+// Module-scoped: one store for the app, not one per controller rebuild.
+const streamingSnapshotStore = createStreamingSnapshotStore();
 
 const fallbackDetailState: SessionDetailControllerState = {
   status: "loading",
@@ -54,6 +76,9 @@ const fallbackDetailState: SessionDetailControllerState = {
   sendErrorMessage: null,
   replyTarget: null,
   streamingByAgent: emptyTimelineState().streamingByAgent,
+  pendingQuestions: [],
+  canLoadOlder: false,
+  isLoadingOlder: false,
 };
 
 type RouteRuntimeInfo = {
@@ -85,17 +110,32 @@ export default function SessionDetailRoute() {
     sessionId?: string | string[];
   }>();
 
-  // Hide the parent Tabs bar while a session detail is on screen, matching
-  // the iOS NavigationStack behavior. Restore on unmount so the bar comes
-  // back when the user pops back to the list.
+  // Hide the parent tab bar while a session detail is on screen, matching iOS's
+  // NavigationStack behaviour. Restore on unmount so the bar comes back on pop.
+  //
+  // Android only. `tabBarStyle` is an option of the JS `Tabs` navigator, and
+  // iOS now runs `NativeTabs` (see `(tabs)/_layout.tsx`), where the bar is a
+  // real UITabBar that this cannot reach — hiding it there needs
+  // `hidesBottomBarWhenPushed` on the pushed view controller, which the
+  // installed react-native-screens does not expose. Guarded rather than left to
+  // silently no-op, so the gap is visible in the code that owns it.
+  //
+  // Restoring means putting the real style back, not clearing the override:
+  // runtime options are merged *over* `screenOptions`, so `undefined` wins and
+  // the Sessions tab kept React Navigation's 49dp default bar — a shorter bar
+  // with no Paper background or hairline, on that tab only, until the app
+  // restarted. `androidTabBarStyle` exists so this is the same value the
+  // navigator set.
+  const tabBarInset = useSafeAreaInsets().bottom;
   useEffect(() => {
+    if (Platform.OS !== "android") return;
     const parent = navigation.getParent();
     if (!parent) return;
     parent.setOptions({ tabBarStyle: { display: "none" } });
     return () => {
-      parent.setOptions({ tabBarStyle: undefined });
+      parent.setOptions({ tabBarStyle: androidTabBarStyle(tabBarInset) });
     };
-  }, [navigation]);
+  }, [navigation, tabBarInset]);
   const sessionId = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
   const { state } = useOnboarding();
   const teamMqtt = useTeamMqtt();
@@ -183,6 +223,7 @@ export default function SessionDetailRoute() {
         mqttUrl: getKnownMqttUrl(),
         outbox: { dao, sender },
         sessionId,
+        streamingSnapshots: streamingSnapshotStore,
         teamId: currentTeam.id,
       });
 
@@ -233,6 +274,25 @@ export default function SessionDetailRoute() {
     controller?.getState ?? (() => fallbackDetailState),
   );
 
+  // Save the in-flight streaming buffers on the way out, drop them on the way
+  // back in. iOS wires the same pair to `scenePhase`. The snapshot only ever
+  // gets read when the OS reclaimed the suspended process — on the common path
+  // the foreground handler deletes it before anything can restore it.
+  useEffect(() => {
+    if (!controller) return;
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        void controller.discardBackgroundSnapshot();
+        return;
+      }
+      // "background" on Android and iOS; "inactive" is the iOS transition
+      // state, and saving there costs one write for a call banner or app
+      // switcher — cheaper than missing the real suspend.
+      void controller.flushStreamingForBackground();
+    });
+    return () => subscription.remove();
+  }, [controller]);
+
   const connectedAgentsStore = useConnectedAgentsStore();
   const emptyAgentsState = useMemo(() => ({
     agents: [],
@@ -256,7 +316,6 @@ export default function SessionDetailRoute() {
   }, [detailState.session, agentsState.runtimeInfoByAgentId]);
 
   const [teamActors, setTeamActors] = useState<Actor[]>([]);
-  const [runtimeInfo, setRuntimeInfo] = useState<RouteRuntimeInfo | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isModelPromptOpen, setIsModelPromptOpen] = useState(false);
   const [editingMessage, setEditingMessage] = useState<
@@ -265,6 +324,8 @@ export default function SessionDetailRoute() {
   const [resolvedPermissions, setResolvedPermissions] = useState<
     ReadonlyMap<string, boolean>
   >(new Map());
+  const [isAnsweringQuestion, setIsAnsweringQuestion] = useState(false);
+  const [questionError, setQuestionError] = useState<string | null>(null);
   const userIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -292,32 +353,34 @@ export default function SessionDetailRoute() {
     };
   }, [sessionId]);
 
-  useEffect(() => {
-    if (!sessionId) return;
-    let cancelled = false;
-    void createConfiguredSessionsApi(supabase)
-      .loadRuntime(sessionId)
-      .then((row) => {
-        if (cancelled) return;
-        setRuntimeInfo(
-          row
-            ? {
-                dbRuntimeId: row.dbRuntimeId,
-                runtimeId: row.runtimeId,
-                agentId: row.agentId,
-                status: row.status,
-                currentModel: row.currentModel,
-              }
-            : null,
-        );
+  /**
+   * Single-runtime fallback used when a command can't name its target agent.
+   *
+   * This used to be `GET /v1/agents/runtimes?sessionId=…`, which pointed at the
+   * `agent_runtimes` table dropped on 2026-08-03 and answers 404 — so the
+   * fallback never engaged. The same facts now arrive as retained MQTT state
+   * (ADR-0004): if exactly one participating agent has a live runtime, it is
+   * unambiguously the fallback.
+   */
+  const runtimeInfo: RouteRuntimeInfo | null = useMemo(() => {
+    const session = detailState.session;
+    if (!session) return null;
+    const live = session.participantActorIds
+      .map((id) => {
+        const info = agentsState.runtimeInfoByAgentId.get(id);
+        return info ? { agentId: id, info } : null;
       })
-      .catch(() => {
-        if (!cancelled) setRuntimeInfo(null);
-      });
-    return () => {
-      cancelled = true;
+      .filter((entry): entry is { agentId: string; info: RuntimeInfo } => entry != null);
+    if (live.length !== 1) return null;
+    const [{ agentId, info }] = live;
+    return {
+      dbRuntimeId: info.runtimeId,
+      runtimeId: info.runtimeId,
+      agentId,
+      status: runtimeStatusName(info.status) ?? "unknown",
+      currentModel: info.currentModel || null,
     };
-  }, [sessionId]);
+  }, [detailState.session, agentsState.runtimeInfoByAgentId]);
   useEffect(() => {
     if (!currentTeam?.id) return;
     let cancelled = false;
@@ -375,14 +438,38 @@ export default function SessionDetailRoute() {
     return Array.from(ids);
   }, [agentsState.agents, detailState.session, teamActors]);
 
-  const mentionPool = useMemo(
-    () =>
-      teamActors.map((actor) => ({
+  // Session participants, not the whole team directory. `@`-ing someone who is
+  // not in the session put their actor id into `mention_actor_ids` at send
+  // time, addressing a message to a non-participant. Agents come first, as on
+  // iOS — they are what a mention is usually reaching for.
+  const mentionPool = useMemo(() => {
+    const session = detailState.session;
+    if (!session) return [];
+    const participantIds = new Set(session.participantActorIds);
+    const inSession = teamActors.filter((actor) => participantIds.has(actor.actorId));
+    const agents = inSession
+      .filter((actor) => actor.actorType === "agent")
+      .map((actor) => ({
         actorId: actor.actorId,
         displayName: actor.displayName,
-      })),
-    [teamActors],
-  );
+        kind: "agent" as const,
+        // The backend name only. iOS deliberately omits the lifecycle state:
+        // it would be captured at open time and stale seconds later, and the
+        // chip bar above the composer carries it live.
+        subtitle: agentBackendDisplayName(
+          actor.defaultAgentType ?? actor.agentTypes?.[0] ?? null,
+        ) || null,
+      }));
+    const members = inSession
+      .filter((actor) => actor.actorType !== "agent")
+      .map((actor) => ({
+        actorId: actor.actorId,
+        displayName: actor.displayName,
+        kind: "member" as const,
+        subtitle: "Member",
+      }));
+    return [...agents, ...members];
+  }, [detailState.session, teamActors]);
 
   const senderNames = useMemo(() => {
     const map = new Map<string, string>();
@@ -513,6 +600,91 @@ export default function SessionDetailRoute() {
     }
   };
 
+  const pendingQuestion = detailState.pendingQuestions[0] ?? null;
+
+  /**
+   * Ask the agent's daemon to replay a turn's recorded events. Best-effort: the
+   * turn detail already shows whatever this device streamed, so a missing
+   * runtime target or a publish failure is not worth interrupting the user for.
+   */
+  const requestTurnHistory = async (turnId: string, agentId: string) => {
+    if (!permissionCommandSender) return;
+    const fallbackAgentIds =
+      agentParticipantIds.length > 0
+        ? agentParticipantIds
+        : [agentId, runtimeInfo?.agentId ?? ""].filter(Boolean);
+    const target = resolvePermissionRuntimeTarget({
+      requestingActorId: agentId,
+      agentParticipantIds: fallbackAgentIds,
+      connectedAgents: agentsState.agents,
+      runtimeInfoByAgentId: agentsState.runtimeInfoByAgentId,
+      fallbackRuntime: runtimeInfo
+        ? { agentId: runtimeInfo.agentId, runtimeId: runtimeInfo.runtimeId }
+        : null,
+    });
+    if (!target) return;
+    try {
+      await permissionCommandSender.sendRequestTurnHistory({
+        targetActorId: target.actorId,
+        runtimeId: target.runtimeId,
+        turnId,
+      });
+    } catch {
+      // Silent: the detail view is still useful without the backfill.
+    }
+  };
+
+  /**
+   * Publish an answer (or rejection) for an opencode question, then drop the
+   * card locally. The daemon echoes `question_replied`/`question_rejected`, but
+   * waiting on the broker would leave an answered card blocking the composer.
+   */
+  const handleQuestionResponse = async (
+    question: PendingAcpQuestion,
+    answers: string[][],
+    reject: boolean,
+  ) => {
+    if (!permissionCommandSender) {
+      setQuestionError("移动端 MQTT 未连接，重连后再试。");
+      return;
+    }
+    const fallbackAgentIds =
+      agentParticipantIds.length > 0
+        ? agentParticipantIds
+        : [question.agentActorId, runtimeInfo?.agentId ?? ""].filter(Boolean);
+    const target = resolvePermissionRuntimeTarget({
+      requestingActorId: question.agentActorId,
+      agentParticipantIds: fallbackAgentIds,
+      connectedAgents: agentsState.agents,
+      runtimeInfoByAgentId: agentsState.runtimeInfoByAgentId,
+      fallbackRuntime: runtimeInfo
+        ? { agentId: runtimeInfo.agentId, runtimeId: runtimeInfo.runtimeId }
+        : null,
+    });
+    if (!target) {
+      setQuestionError("还没定位到这个 agent runtime，请等 agent 在线后重试。");
+      return;
+    }
+
+    setIsAnsweringQuestion(true);
+    setQuestionError(null);
+    try {
+      await permissionCommandSender.sendAnswerQuestion({
+        targetActorId: target.actorId,
+        runtimeId: target.runtimeId,
+        requestId: question.id,
+        answers,
+        reject,
+      });
+      controller?.resolvePendingQuestion(question.id);
+      selectionTick();
+    } catch (err) {
+      setQuestionError(err instanceof Error ? err.message : "Couldn't send the answer.");
+    } finally {
+      setIsAnsweringQuestion(false);
+    }
+  };
+
   return (
     <View style={styles.screen}>
       <Stack.Screen options={{ title: "会话详情" }} />
@@ -564,7 +736,19 @@ export default function SessionDetailRoute() {
           headerAvatars={headerAvatars}
           isSending={detailState.isSending}
           isRefreshing={detailState.isRefreshing}
+          isAnsweringQuestion={isAnsweringQuestion}
           mentionPool={mentionPool}
+          pendingQuestion={pendingQuestion}
+          questionErrorMessage={questionError}
+          onAnswerQuestion={(question, answers) => {
+            void handleQuestionResponse(question, answers, false);
+          }}
+          onSkipQuestion={(question) => {
+            void handleQuestionResponse(question, [], true);
+          }}
+          onRequestTurnHistory={(turnId, agentId) => {
+            void requestTurnHistory(turnId, agentId);
+          }}
           onAttach={() => {
             router.push(`/(app)/attach?sessionId=${sessionId}`);
           }}
@@ -604,6 +788,9 @@ export default function SessionDetailRoute() {
           }}
           onEditMessage={(messageId, currentContent) => {
             setEditingMessage({ messageId, content: currentContent });
+          }}
+          onLoadOlder={() => {
+            void controller?.loadOlderMessages();
           }}
           onOpenMembers={() => {
             router.push(`/(app)/session-members?sessionId=${sessionId}`);
@@ -646,7 +833,7 @@ export default function SessionDetailRoute() {
             sessionId
               ? async () => {
                   const session = detailState.session;
-                  const title = session?.title?.trim() ?? "Teamclu session";
+                  const title = session?.title?.trim() ?? "TeamClu session";
                   const url = `teamclu://session/${sessionId}`;
                   try {
                     await Share.share({ message: `${title}\n${url}`, url });
@@ -691,33 +878,55 @@ export default function SessionDetailRoute() {
         />
       ) : null}
 
-      <TextPromptModal
-        confirmLabel="Update"
-        description="Set the model the runtime uses for the next turn (e.g. claude-sonnet-4-6)."
-        initialValue={runtimeInfo?.currentModel ?? ""}
-        isVisible={isModelPromptOpen && runtimeInfo !== null}
-        onCancel={() => setIsModelPromptOpen(false)}
-        onSubmit={async (next) => {
-          const trimmed = next.trim();
-          setIsModelPromptOpen(false);
-          if (!trimmed || !runtimeInfo) return;
-          try {
-            await createConfiguredSessionsApi(supabase).updateRuntimeModel(
-              runtimeInfo.dbRuntimeId,
-              trimmed,
-            );
-            setRuntimeInfo({ ...runtimeInfo, currentModel: trimmed });
-            showToast("success", `Model set to ${trimmed}`);
-          } catch (err) {
-            showToast(
-              "error",
-              err instanceof Error ? err.message : "Couldn't update model",
-            );
-          }
-        }}
-        placeholder="claude-sonnet-4-6"
-        title="Change model"
-      />
+      <SheetModal
+        onRequestClose={() => setIsModelPromptOpen(false)}
+        visible={isModelPromptOpen && runtimeInfo !== null}
+      >
+        {runtimeInfo ? (
+          <ModelPickerSheet
+            agentName={
+              teamActors.find((actor) => actor.actorId === runtimeInfo.agentId)
+                ?.displayName ?? "Agent"
+            }
+            currentModel={runtimeInfo.currentModel}
+            models={
+              agentsState.runtimeInfoByAgentId.get(runtimeInfo.agentId ?? "")
+                ?.availableModels ?? []
+            }
+            onCancel={() => setIsModelPromptOpen(false)}
+            onSelect={(modelId) => {
+              setIsModelPromptOpen(false);
+              const targetActorId = runtimeInfo.agentId;
+              const requesterActorId = state.currentMemberActorId;
+              if (!targetActorId || !teamMqtt || !currentTeam?.id || !requesterActorId) {
+                showToast("error", "This agent's runtime isn't online.");
+                return;
+              }
+              void createRuntimeRpcClient({
+                mqtt: teamMqtt,
+                teamId: currentTeam.id,
+                requesterActorId,
+              })
+                .setModel({
+                  targetActorId,
+                  runtimeId: runtimeInfo.runtimeId,
+                  modelId,
+                })
+                .then(() => {
+                  // The daemon republishes the retained runtime state, so the
+                  // derived `runtimeInfo` picks the new model up on its own.
+                  showToast("success", `Model set to ${modelId}`);
+                })
+                .catch((err) => {
+                  showToast(
+                    "error",
+                    err instanceof Error ? err.message : "Couldn't set model",
+                  );
+                });
+            }}
+          />
+        ) : null}
+      </SheetModal>
 
       <TextPromptModal
         confirmLabel="Save"

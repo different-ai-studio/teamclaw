@@ -41,10 +41,12 @@ function createDeferredPromise<T>() {
 function createApiMock(overrides: Partial<OnboardingApi> = {}): OnboardingApi {
   return {
     getCurrentSession: vi.fn().mockResolvedValue(null),
+    activateTeam: vi.fn().mockResolvedValue("actor-1"),
     loadBootstrap: vi.fn().mockResolvedValue({
       isAnonymous: false,
       team: null,
       memberActorId: null,
+        teamChoices: [],
     } satisfies BootstrapResult),
     signInAnonymously: vi.fn().mockResolvedValue({}),
     sendEmailOTP: vi.fn().mockImplementation(async (email: string) => ({
@@ -75,6 +77,7 @@ describe("createOnboardingController", () => {
     const { createOnboardingController } = await loadController();
     const api = createApiMock({
       getCurrentSession: vi.fn().mockResolvedValue(null),
+    activateTeam: vi.fn().mockResolvedValue("actor-1"),
     });
 
     const controller = createOnboardingController(api);
@@ -85,6 +88,7 @@ describe("createOnboardingController", () => {
     expect(api.loadBootstrap).not.toHaveBeenCalled();
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "needsAuth",
+    teamChoices: [],
       isBusy: false,
       errorMessage: null,
       pendingEmailOTPEmail: null,
@@ -104,6 +108,7 @@ describe("createOnboardingController", () => {
           role: "owner",
         },
         memberActorId: "member-1",
+        teamChoices: [],
       } satisfies BootstrapResult),
     });
 
@@ -113,6 +118,7 @@ describe("createOnboardingController", () => {
 
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "ready",
+    teamChoices: [],
       currentTeam: {
         id: "team-1",
         name: "Team Claw",
@@ -135,6 +141,7 @@ describe("createOnboardingController", () => {
     await expect(controller.bootstrap()).rejects.toThrow("boom");
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "failed",
+    teamChoices: [],
       isBusy: false,
       errorMessage: "We couldn't load your account right now. Please try again.",
       currentTeam: null,
@@ -182,6 +189,7 @@ describe("createOnboardingController", () => {
         isAnonymous: false,
         team: null,
         memberActorId: null,
+        teamChoices: [],
       } satisfies BootstrapResult),
     });
     const controller = createOnboardingController(api);
@@ -193,6 +201,7 @@ describe("createOnboardingController", () => {
     expect(api.loadBootstrap).toHaveBeenCalledTimes(1);
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "createTeam",
+    teamChoices: [],
       pendingEmailOTPEmail: null,
     });
   });
@@ -217,6 +226,7 @@ describe("createOnboardingController", () => {
     expect(api.loadBootstrap).toHaveBeenCalledTimes(1);
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "createTeam",
+    teamChoices: [],
     });
   });
 
@@ -255,6 +265,7 @@ describe("createOnboardingController", () => {
           role: "owner",
         },
         memberActorId: "member-1",
+        teamChoices: [],
       } satisfies BootstrapResult),
     });
     const openAuthSession = vi
@@ -280,6 +291,7 @@ describe("createOnboardingController", () => {
     );
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "ready",
+    teamChoices: [],
       currentMemberActorId: "member-1",
       isBusy: false,
     });
@@ -320,6 +332,7 @@ describe("createOnboardingController", () => {
         isAnonymous: false,
         team: { id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" },
         memberActorId: "member-1",
+        teamChoices: [],
       } satisfies BootstrapResult),
     });
     const controller = createOnboardingController(api);
@@ -337,6 +350,7 @@ describe("createOnboardingController", () => {
     );
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "ready",
+    teamChoices: [],
       currentMemberActorId: "member-1",
       isBusy: false,
     });
@@ -399,6 +413,7 @@ describe("createOnboardingController", () => {
           role: "owner",
         },
         memberActorId: "member-1",
+        teamChoices: [],
       } satisfies BootstrapResult),
     });
     const openAuthSession = vi
@@ -424,6 +439,7 @@ describe("createOnboardingController", () => {
     );
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "ready",
+    teamChoices: [],
       isAnonymous: false,
       isBusy: false,
     });
@@ -442,6 +458,7 @@ describe("createOnboardingController", () => {
           role: "owner",
         },
         memberActorId: "member-1",
+        teamChoices: [],
       } satisfies BootstrapResult),
     });
     const controller = createOnboardingController(api);
@@ -452,6 +469,7 @@ describe("createOnboardingController", () => {
     expect(api.signOut).toHaveBeenCalledTimes(1);
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "needsAuth",
+    teamChoices: [],
       currentTeam: null,
       currentMemberActorId: null,
       isAnonymous: false,
@@ -472,6 +490,7 @@ describe("createOnboardingController", () => {
         isAnonymous: false,
         team: { id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" },
         memberActorId: "member-1",
+        teamChoices: [],
       } satisfies BootstrapResult),
     });
     const controller = createOnboardingController(api);
@@ -501,6 +520,7 @@ describe("createOnboardingController", () => {
 
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "loading",
+    teamChoices: [],
       pendingEmailOTPEmail: "normalized@example.com",
       isBusy: false,
       errorMessage: null,
@@ -528,11 +548,13 @@ describe("createOnboardingController", () => {
         role: "owner",
       },
       memberActorId: "member-stale",
+      teamChoices: [],
     });
     await bootstrapPromise;
 
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "needsAuth",
+    teamChoices: [],
       currentTeam: null,
       currentMemberActorId: null,
       pendingEmailOTPEmail: null,
@@ -555,6 +577,7 @@ describe("createOnboardingController", () => {
           role: "owner",
         },
         memberActorId: "member-2",
+        teamChoices: [],
       } satisfies BootstrapResult),
     });
     const controller = createOnboardingController(api);
@@ -565,6 +588,7 @@ describe("createOnboardingController", () => {
     expect(api.loadBootstrap).toHaveBeenCalledTimes(1);
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "ready",
+    teamChoices: [],
       currentTeam: {
         id: "team-2",
         name: "Launch Team",
@@ -593,6 +617,7 @@ describe("createOnboardingController", () => {
     expect(api.createTeam).toHaveBeenCalledWith("Launch Team");
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "failed",
+    teamChoices: [],
       isBusy: false,
       errorMessage: "We couldn't load your account right now. Please try again.",
       currentTeam: null,

@@ -12,6 +12,13 @@ const FINAL_AGENT_KINDS = new Set(["agent_reply"]);
 export type AgentTurnFeedItem = {
   agentId: string;
   createdAt: string;
+  /**
+   * The daemon's own turn id, when any message in this turn carried one.
+   * Distinct from `id`, which falls back to a synthetic `turn:`/`stream:` key
+   * so every turn has a stable React key. Only this value is meaningful to
+   * `AcpRequestTurnHistory` — a synthetic id would match nothing on the daemon.
+   */
+  daemonTurnId?: string;
   finalMessage?: SessionMessage;
   id: string;
   isActive: boolean;
@@ -70,6 +77,17 @@ function turnIdForOpen(
 
 function feedKeyForTurn(agentId: string, turnId: string): string {
   return `agentTurn:${agentId}:${turnId}`;
+}
+
+/** First real `turnId` across a turn's messages, or undefined if none carried one. */
+function daemonTurnId(
+  messages: ReadonlyArray<SessionMessage | undefined>,
+): string | undefined {
+  for (const message of messages) {
+    const turnId = message?.turnId.trim();
+    if (turnId) return turnId;
+  }
+  return undefined;
 }
 
 function createdAtForOpen(
@@ -178,6 +196,8 @@ export function buildSessionFeedSources(
             createdAt: message.createdAt || existingSource.createdAt,
             turn: {
               ...existingTurn,
+              daemonTurnId:
+                existingTurn.daemonTurnId ?? daemonTurnId([message, ...runtimeEvents]),
               finalMessage: existingTurn.finalMessage
                 ? mergeFinalMessage(existingTurn.finalMessage, message)
                 : message,
@@ -193,6 +213,7 @@ export function buildSessionFeedSources(
       const turn: AgentTurnFeedItem = {
         agentId,
         createdAt: runtimeEvents[0]?.createdAt || message.createdAt,
+        daemonTurnId: daemonTurnId([message, ...runtimeEvents]),
         finalMessage: message,
         id: turnId,
         isActive: false,
@@ -228,6 +249,7 @@ export function buildSessionFeedSources(
     const turn: AgentTurnFeedItem = {
       agentId,
       createdAt: createdAtForOpen(runtimeEvents, stream),
+      daemonTurnId: daemonTurnId(runtimeEvents),
       id: turnIdForOpen(agentId, runtimeEvents, stream),
       isActive: true,
       runtimeEvents,

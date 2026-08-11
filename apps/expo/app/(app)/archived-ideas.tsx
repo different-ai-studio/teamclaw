@@ -20,6 +20,7 @@ import { SkeletonRow } from "../../src/ui/atoms/SkeletonRow";
 import { supabase } from "../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
 import { colors, radii, spacing, typography } from "../../src/ui/theme";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
 
 export default function ArchivedIdeasRoute() {
   const router = useRouter();
@@ -59,14 +60,13 @@ export default function ArchivedIdeasRoute() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot} />
         <Text style={styles.headerTitle}>Archived Ideas</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -147,14 +147,7 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
+    paddingTop: GLASS_HEADER_HEIGHT + spacing.lg,
   },
   headerSlot: {
     alignItems: "center",

@@ -1,6 +1,20 @@
 export type MentionTarget = {
   actorId: string;
   displayName: string;
+  /**
+   * Which affordance the row gets, mirroring iOS `MentionTarget.Kind`. Members
+   * are marked with `@`, agents with a dot — mentioning an agent routes the
+   * turn to a runtime, and that is worth telling apart at a glance.
+   */
+  kind: "member" | "agent";
+  /**
+   * Second line: "Member" for humans, the backend name for agents.
+   *
+   * Deliberately not the live lifecycle state. iOS notes why: the value would
+   * be captured when the popup opens and go stale within seconds, and the chip
+   * bar above the composer already carries it live.
+   */
+  subtitle: string | null;
 };
 
 /**

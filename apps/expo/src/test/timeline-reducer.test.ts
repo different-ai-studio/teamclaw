@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { emptyTimelineState, reduceTimeline } from "../features/sessions/timeline-reducer";
+import {
+  emptyTimelineState,
+  mergeNewestPage,
+  reduceTimeline,
+} from "../features/sessions/timeline-reducer";
 import type { SessionMessage } from "../features/sessions/session-types";
 
 function msg(id: string, content: string, createdAt = "2026-05-20T10:00:00.000Z"): SessionMessage {
@@ -104,5 +108,67 @@ describe("reduceTimeline · streamingDone", () => {
       messageKind: "agent_reply", deltaText: "Hi", createdAt: "2026-05-20T10:00:00.000Z" });
     s = reduceTimeline(s, { kind: "streamingDone", agentId: "a", messageId: "m1" });
     expect(s.streamingByAgent.has("a")).toBe(false);
+  });
+});
+
+describe("mergeNewestPage", () => {
+  const page = [
+    msg("c", "third", "2026-05-20T10:02:00.000Z"),
+    msg("d", "fourth", "2026-05-20T10:03:00.000Z"),
+  ];
+
+  function stateOf(messages: SessionMessage[]) {
+    return { ...emptyTimelineState(), messages };
+  }
+
+  it("keeps history older than the page the server answered with", () => {
+    const older = [
+      msg("a", "first", "2026-05-20T10:00:00.000Z"),
+      msg("b", "second", "2026-05-20T10:01:00.000Z"),
+    ];
+    const merged = mergeNewestPage(stateOf([...older, ...page]), page);
+    expect(merged.messages.map((m) => m.messageId)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("drops a row the page no longer carries — that is a delete", () => {
+    const withDeleted = [
+      msg("a", "first", "2026-05-20T10:00:00.000Z"),
+      msg("gone", "deleted", "2026-05-20T10:02:30.000Z"),
+      ...page,
+    ];
+    expect(mergeNewestPage(stateOf(withDeleted), page).messages.map((m) => m.messageId)).toEqual([
+      "a", "c", "d",
+    ]);
+  });
+
+  it("prefers the page's copy of a row it also holds", () => {
+    const stale = [msg("c", "part", "2026-05-20T10:02:00.000Z")];
+    expect(mergeNewestPage(stateOf(stale), page).messages[0].content).toBe("third");
+  });
+
+  it("clears the messages when the session has no messages at all", () => {
+    expect(mergeNewestPage(stateOf([msg("a", "first")]), []).messages).toEqual([]);
+  });
+
+  it("keeps a partial whose turn is still unfinished", () => {
+    // The restored-snapshot case: killed mid-turn, and the page carries
+    // nothing from that agent.
+    let s = emptyTimelineState();
+    s = reduceTimeline(s, {
+      kind: "streamingDelta", agentId: "agent-1", messageId: "acp:1",
+      messageKind: "agent_reply", deltaText: "Half a th", createdAt: "2026-05-20T10:04:00.000Z",
+    });
+    const other = { ...page[0], senderActorId: "agent-2" };
+    expect(mergeNewestPage(s, [other]).streamingByAgent.get("agent-1")?.text).toBe("Half a th");
+  });
+
+  it("settles a partial whose turn finished while the app was away", () => {
+    let s = emptyTimelineState();
+    s = reduceTimeline(s, {
+      kind: "streamingDelta", agentId: "agent-1", messageId: "acp:1",
+      messageKind: "agent_reply", deltaText: "Half a th", createdAt: "2026-05-20T10:04:00.000Z",
+    });
+    const finished = { ...msg("done", "Half a thought, finished"), kind: "agent_reply" };
+    expect(mergeNewestPage(s, [finished]).streamingByAgent.has("agent-1")).toBe(false);
   });
 });

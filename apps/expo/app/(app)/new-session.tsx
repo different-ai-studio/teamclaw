@@ -125,7 +125,7 @@ export default function NewSessionRoute() {
             .map((id) => actorById.get(id))
             .filter((actor): actor is Actor => Boolean(actor && isAgentActor(actor)));
           if (selectedAgents.length > 0 && !connectedAgentsStore) {
-            throw new Error("Connected agents are not ready — wait for Teamclu to reconnect.");
+            throw new Error("Connected agents are not ready — wait for TeamClu to reconnect.");
           }
           if (selectedAgents.length > 0) {
             await connectedAgentsStore?.reload();
@@ -144,7 +144,13 @@ export default function NewSessionRoute() {
                     connectedAgentsStore?.getState().agents.map((agent) => ({
                       agentId: agent.agentId,
                     })) ?? [],
-                  explicitSelection: agentConfig,
+                  // Keyed to the agent it was configured for. The sheet
+                  // configures the primary agent only, so any others fall back
+                  // to their own defaults rather than inheriting its workspace.
+                  selectionByAgentId:
+                    agentConfig && primaryAgentActorId
+                      ? { [primaryAgentActorId]: agentConfig }
+                      : null,
                   workspaces: workspaces.map((workspace) => ({
                     id: workspace.id,
                     path: workspace.path,
@@ -154,7 +160,7 @@ export default function NewSessionRoute() {
               : [];
 
           if (runtimePlans.length > 0 && !teamMqtt) {
-            throw new Error("MQTT is not connected — wait for Teamclu to reconnect.");
+            throw new Error("MQTT is not connected — wait for TeamClu to reconnect.");
           }
 
           const idea = chosenIdeaId

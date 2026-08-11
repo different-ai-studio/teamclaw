@@ -18,10 +18,18 @@ import { useOnboarding } from "../_layout";
 import { Hairline } from "../../src/ui/atoms/Hairline";
 import { SectionEyebrow } from "../../src/ui/atoms/SectionEyebrow";
 import { createWorkspacesApi } from "../../src/features/workspaces/workspace-api";
+import { IdeaImageAttachmentStrip } from "../../src/features/ideas/components/IdeaImageAttachmentStrip";
 import { createIdeasApi } from "../../src/features/ideas/idea-api";
+import {
+  imageOnlyProgressContent,
+  useIdeaImageAttachments,
+  type IdeaImageSource,
+} from "../../src/features/ideas/idea-image-attachments";
 import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
 import { supabase } from "../../src/lib/supabase/client";
+import { uuidV4 } from "../../src/lib/uuid";
 import { colors, hai, radii, spacing, typography } from "../../src/ui/theme";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
 
 export default function NewIdeaRoute() {
   const router = useRouter();
@@ -35,6 +43,15 @@ export default function NewIdeaRoute() {
   const [error, setError] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<Array<{ id: string; name: string }>>([]);
   const [pickedWorkspaceId, setPickedWorkspaceId] = useState<string | null>(null);
+  // The idea doesn't exist yet, so images upload under a draft id and are
+  // attached to the first `progress` activity once the idea is created — the
+  // same two-step iOS `CreateIdeaSheet.save()` performs.
+  const [draftContextId] = useState(() => uuidV4());
+  const images = useIdeaImageAttachments({
+    teamId,
+    contextId: draftContextId,
+    onError: setError,
+  });
 
   useEffect(() => {
     if (!teamId) return;
@@ -92,22 +109,62 @@ export default function NewIdeaRoute() {
     );
   };
 
+  const showImageSourcePicker = () => {
+    const labels = ["Photo Library", "Camera", "Cancel"];
+    const dispatch = (index: number) => {
+      const source: IdeaImageSource | null =
+        index === 0 ? "library" : index === 1 ? "camera" : null;
+      if (source) void images.addImages(source);
+    };
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: labels, cancelButtonIndex: 2 },
+        dispatch,
+      );
+      return;
+    }
+    Alert.alert("Add image", undefined, [
+      { text: labels[0], onPress: () => dispatch(0) },
+      { text: labels[1], onPress: () => dispatch(1) },
+      { text: labels[2], style: "cancel" },
+    ]);
+  };
+
   const canCreate =
-    !isBusy && Boolean(teamId) && Boolean(memberActorId) && title.trim().length > 0;
+    !isBusy &&
+    Boolean(teamId) &&
+    Boolean(memberActorId) &&
+    title.trim().length > 0 &&
+    !images.hasPendingUploads &&
+    !images.hasFailedUploads;
 
   const handleCreate = async () => {
     if (!canCreate) return;
     setIsBusy(true);
     setError(null);
     try {
-      const idea = await createIdeasApi({
-        getAccessToken: supabaseAccessToken(supabase),
-      }).createIdea({
+      const ideasApi = createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) });
+      const idea = await ideasApi.createIdea({
         teamId,
         title: title.trim(),
         description: description.trim(),
         workspaceId: pickedWorkspaceId,
       });
+      // Images can only be linked once the idea has an id, so they land as the
+      // idea's first progress activity (iOS does the same after createIdea).
+      const attachmentUrls = images.uploadedUrls;
+      if (idea.ideaId && attachmentUrls.length > 0 && memberActorId) {
+        try {
+          await ideasApi.createActivity(idea.ideaId, {
+            activityType: "progress",
+            content: imageOnlyProgressContent(attachmentUrls.length),
+            actorId: memberActorId,
+            attachmentUrls,
+          });
+        } catch {
+          // The idea itself is created; a failed attachment post isn't fatal.
+        }
+      }
       router.back();
       if (idea.ideaId) {
         router.push(`/(app)/idea-detail?ideaId=${idea.ideaId}`);
@@ -121,14 +178,13 @@ export default function NewIdeaRoute() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot} />
         <Text style={styles.headerTitle}>New Idea</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -195,6 +251,29 @@ export default function NewIdeaRoute() {
           </View>
         </View>
 
+        <View style={styles.section}>
+          <SectionEyebrow
+            label={
+              images.attachments.length > 0
+                ? `IMAGES · ${images.attachments.length}`
+                : "IMAGES"
+            }
+            style={styles.sectionEyebrow}
+          />
+          <View style={styles.card}>
+            <IdeaImageAttachmentStrip
+              attachments={images.attachments}
+              onAdd={showImageSourcePicker}
+              onRemove={images.removeAttachment}
+            />
+            {images.hasFailedUploads ? (
+              <Text style={styles.attachmentError}>
+                One image failed to upload. Remove it and try again.
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         <Pressable
@@ -223,6 +302,11 @@ export default function NewIdeaRoute() {
 }
 
 const styles = StyleSheet.create({
+  attachmentError: {
+    color: hai.cinnabarDeep,
+    paddingTop: spacing.sm,
+    ...typography.caption,
+  },
   card: {
     backgroundColor: colors.paper,
     borderColor: colors.hairline,
@@ -234,6 +318,7 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
+    paddingTop: GLASS_HEADER_HEIGHT + spacing.lg,
   },
   cta: {
     alignItems: "center",
@@ -269,14 +354,6 @@ const styles = StyleSheet.create({
     color: hai.cinnabarDeep,
     paddingHorizontal: spacing.xs,
     ...typography.caption,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
   },
   headerSlot: {
     alignItems: "center",

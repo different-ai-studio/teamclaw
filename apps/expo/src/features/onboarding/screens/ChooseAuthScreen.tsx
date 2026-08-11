@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import {
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -12,6 +11,7 @@ import {
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { colors, radii, shadows, spacing, typography } from "../../../ui/theme";
 import { parseInviteToken } from "../invite-api";
+import { SheetModal } from "../../../ui/SheetModal";
 
 export type ChooseAuthScreenProps = {
   errorMessage?: string | null;
@@ -40,7 +40,7 @@ export function ChooseAuthScreen({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>Set up Teamclu</Text>
+        <Text style={styles.title}>Set up TeamClu</Text>
         <Text style={styles.subtitle}>
           Create your workspace or join the team that already works with your AI
           allies.
@@ -78,10 +78,8 @@ export function ChooseAuthScreen({
         <Text style={styles.error}>{errorMessage}</Text>
       ) : null}
 
-      <Modal
-        animationType="slide"
+      <SheetModal
         onRequestClose={() => setInviteOpen(false)}
-        presentationStyle="pageSheet"
         visible={inviteOpen}
       >
         <InviteJoinSheet
@@ -92,7 +90,7 @@ export function ChooseAuthScreen({
             await onJoinWithToken(token);
           }}
         />
-      </Modal>
+      </SheetModal>
     </View>
   );
 }
@@ -197,7 +195,7 @@ function InviteJoinSheet({
       <Hairline />
       <View style={styles.sheetBody}>
         <Text style={styles.sheetCaption}>
-          Paste the link your teammate shared. Teamclu will sign you in and add
+          Paste the link your teammate shared. TeamClu will sign you in and add
           you to their team.
         </Text>
         <TextInput

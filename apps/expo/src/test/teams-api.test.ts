@@ -32,7 +32,7 @@ describe("createTeamsApi", () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
         items: [
-          { id: "team-1", name: "Alpha", slug: "alpha", role: "owner", isMember: true },
+          { id: "team-1", name: "Alpha", slug: "alpha", role: "owner", isMember: true, orgName: "Acme" },
           { id: "team-2", name: null, slug: null, role: null, isMember: true },
           { id: "team-public", name: "Public", slug: "public", role: null, isMember: false },
         ],
@@ -42,9 +42,11 @@ describe("createTeamsApi", () => {
 
     const { memberships } = await api.listMemberships();
 
+    // orgName rides the picker RPC and is what the team list groups by; the
+    // mapper used to drop it.
     expect(memberships).toEqual([
-      { teamId: "team-1", name: "Alpha", slug: "alpha", role: "owner" },
-      { teamId: "team-2", name: "Unnamed team", slug: "", role: "member" },
+      { teamId: "team-1", name: "Alpha", slug: "alpha", role: "owner", orgName: "Acme" },
+      { teamId: "team-2", name: "Unnamed team", slug: "", role: "member", orgName: null },
     ]);
     const { url, init } = lastCall(fetchImpl);
     expect(url).toBe(`${BASE}/v1/teams?scope=all`);

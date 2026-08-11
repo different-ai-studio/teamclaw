@@ -1,27 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("@react-native-async-storage/async-storage", () => {
-  const store = new Map<string, string>();
-  return {
-    default: {
-      getItem: vi.fn(async (key: string) => store.get(key) ?? null),
-      setItem: vi.fn(async (key: string, value: string) => {
-        store.set(key, value);
-      }),
-      removeItem: vi.fn(async (key: string) => {
-        store.delete(key);
-      }),
-      _reset() {
-        store.clear();
-      },
-    },
-  };
-});
-
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createSessionsCache } from "../features/sessions/session-cache";
 import type { SessionSummary } from "../features/sessions/session-types";
+import { createMemoryCacheDb } from "./helpers/memory-db";
 
 function summary(partial: Partial<SessionSummary>): SessionSummary {
   return {
@@ -29,69 +10,89 @@ function summary(partial: Partial<SessionSummary>): SessionSummary {
     teamId: "t1",
     title: "Session",
     summary: "",
-    lastMessagePreview: "",
-    lastMessageAt: "2026-01-01T00:00:00.000Z",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    createdBy: "actor-1",
-    participantCount: 1,
-    participantActorIds: [],
-    hasUnread: false,
+    participantCount: 2,
+    participantActorIds: ["a1", "a2"],
+    lastMessagePreview: "hello",
+    lastMessageAt: "2026-01-01T00:00:00Z",
+    createdAt: "2026-01-01T00:00:00Z",
+    createdBy: "a1",
     ...partial,
   };
 }
 
-describe("session-cache", () => {
-  beforeEach(() => {
-    (AsyncStorage as unknown as { _reset: () => void })._reset();
-    vi.clearAllMocks();
+let db: ReturnType<typeof createMemoryCacheDb>;
+let cache: ReturnType<typeof createSessionsCache>;
+
+beforeEach(() => {
+  db = createMemoryCacheDb();
+  cache = createSessionsCache(async () => db);
+});
+
+afterEach(() => {
+  db.close();
+});
+
+describe("sessions cache", () => {
+  it("returns null before anything is cached", async () => {
+    // Null, not [] — the list screen shows a spinner for "nothing yet" and an
+    // empty state for "cached, genuinely empty".
+    expect(await cache.load("t1")).toBeNull();
   });
 
-  it("returns null for an unseen team", async () => {
-    const cache = createSessionsCache();
-    expect(await cache.load("team-1")).toBeNull();
+  it("round-trips a session, arrays and all", async () => {
+    await cache.save("t1", [summary({})]);
+    const loaded = await cache.load("t1");
+    expect(loaded).toEqual([summary({ hasUnread: false })]);
   });
 
-  it("returns null when the teamId is empty", async () => {
-    const cache = createSessionsCache();
-    expect(await cache.load("")).toBeNull();
+  it("orders by last message, newest first", async () => {
+    await cache.save("t1", [
+      summary({ sessionId: "old", lastMessageAt: "2026-01-01T00:00:00Z" }),
+      summary({ sessionId: "new", lastMessageAt: "2026-06-01T00:00:00Z" }),
+    ]);
+    const loaded = await cache.load("t1");
+    expect(loaded?.map((s) => s.sessionId)).toEqual(["new", "old"]);
   });
 
-  it("round-trips a list of sessions", async () => {
-    const cache = createSessionsCache();
-    const items: SessionSummary[] = [summary({ sessionId: "a" }), summary({ sessionId: "b" })];
-    await cache.save("team-1", items);
-    const loaded = await cache.load("team-1");
-    expect(loaded?.map((s) => s.sessionId)).toEqual(["a", "b"]);
+  it("keeps teams apart instead of evicting each other", async () => {
+    await cache.save("t1", [summary({ sessionId: "s1", teamId: "t1" })]);
+    await cache.save("t2", [summary({ sessionId: "s2", teamId: "t2" })]);
+    expect((await cache.load("t1"))?.map((s) => s.sessionId)).toEqual(["s1"]);
+    expect((await cache.load("t2"))?.map((s) => s.sessionId)).toEqual(["s2"]);
   });
 
-  it("clamps to the head of the list to keep writes cheap", async () => {
-    const cache = createSessionsCache();
-    const big: SessionSummary[] = Array.from({ length: 250 }, (_, i) =>
-      summary({ sessionId: `s${i}` }),
+  it("replaces a team's scope on save rather than appending", async () => {
+    await cache.save("t1", [summary({ sessionId: "s1" }), summary({ sessionId: "s2" })]);
+    await cache.save("t1", [summary({ sessionId: "s2" })]);
+    expect((await cache.load("t1"))?.map((s) => s.sessionId)).toEqual(["s2"]);
+  });
+
+  it("clears only the requested team", async () => {
+    await cache.save("t1", [summary({ sessionId: "s1", teamId: "t1" })]);
+    await cache.save("t2", [summary({ sessionId: "s2", teamId: "t2" })]);
+    await cache.clear("t1");
+    expect(await cache.load("t1")).toBeNull();
+    expect((await cache.load("t2"))?.length).toBe(1);
+  });
+
+  it("carries the unread flag through the integer column", async () => {
+    await cache.save("t1", [summary({ hasUnread: true })]);
+    expect((await cache.load("t1"))?.[0]?.hasUnread).toBe(true);
+  });
+
+  it("stores past the 200-row ceiling the AsyncStorage blob had", async () => {
+    const many = Array.from({ length: 250 }, (_, i) =>
+      summary({
+        sessionId: `s${String(i).padStart(4, "0")}`,
+        lastMessageAt: `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
+      }),
     );
-    await cache.save("team-1", big);
-    const loaded = await cache.load("team-1");
-    expect(loaded).toHaveLength(200);
-    expect(loaded?.[0].sessionId).toBe("s0");
-    expect(loaded?.[199].sessionId).toBe("s199");
+    await cache.save("t1", many);
+    expect((await cache.load("t1"))?.length).toBe(250);
   });
 
-  it("returns null when stored payload is not a JSON array", async () => {
-    await AsyncStorage.setItem("teamclu.sessionsCache.v1.team-1", JSON.stringify({ oops: true }));
-    const cache = createSessionsCache();
-    expect(await cache.load("team-1")).toBeNull();
-  });
-
-  it("clear removes the cached entry", async () => {
-    const cache = createSessionsCache();
-    await cache.save("team-1", [summary({})]);
-    await cache.clear("team-1");
-    expect(await cache.load("team-1")).toBeNull();
-  });
-
-  it("save with an empty teamId is a no-op", async () => {
-    const cache = createSessionsCache();
+  it("ignores a blank team id", async () => {
     await cache.save("", [summary({})]);
-    expect(AsyncStorage.setItem).not.toHaveBeenCalled();
+    expect(await cache.load("")).toBeNull();
   });
 });

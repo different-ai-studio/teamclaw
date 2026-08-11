@@ -16,16 +16,19 @@ import {
 import { useOnboarding } from "../_layout";
 import { Hairline } from "../../src/ui/atoms/Hairline";
 import { SectionEyebrow } from "../../src/ui/atoms/SectionEyebrow";
+import { groupMembershipsByOrg } from "../../src/features/teams/membership-groups";
 import { supabase } from "../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
 import { createTeamsApi } from "../../src/features/teams/teams-api";
 import { colors, hai, radii, spacing, typography } from "../../src/ui/theme";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
 
 type Membership = {
   teamId: string;
   name: string;
   slug: string;
   role: string;
+  orgName: string | null;
 };
 
 export default function TeamsRoute() {
@@ -107,14 +110,13 @@ export default function TeamsRoute() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot} />
         <Text style={styles.headerTitle}>Teams</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -146,10 +148,14 @@ export default function TeamsRoute() {
             <Text style={styles.body}>You're not on any teams yet.</Text>
           </View>
         ) : (
-          <View style={styles.section}>
-            <SectionEyebrow label={`MEMBER OF · ${memberships.length}`} style={styles.sectionEyebrow} />
+          groupMembershipsByOrg(memberships).map((group) => (
+          <View key={group.org} style={styles.section}>
+            <SectionEyebrow
+              label={`${group.org.toUpperCase()} · ${group.memberships.length}`}
+              style={styles.sectionEyebrow}
+            />
             <View style={styles.card}>
-              {memberships.map((membership, index) => {
+              {group.memberships.map((membership, index) => {
                 const isActive = membership.teamId === activeTeamId;
                 const isEditing = editingTeamId === membership.teamId;
                 const isOwnerOrAdmin =
@@ -220,18 +226,22 @@ export default function TeamsRoute() {
                         </Pressable>
                       ) : null}
                     </View>
-                    {index < memberships.length - 1 ? <Hairline /> : null}
+                    {index < group.memberships.length - 1 ? <Hairline /> : null}
                   </View>
                 );
               })}
             </View>
-            <Text style={styles.footnote}>
-              Cross-team switching commits to the onboarding store in a
-              follow-up — the picker surfaces every membership today so
-              the user can audit their access.
-            </Text>
           </View>
+          ))
         )}
+
+        {memberships.length > 0 ? (
+          <Text style={styles.footnote}>
+            Grouped by org because that is what decides whether a team is
+            usable: the server keeps one active org per session, and teams from
+            another org are filtered out by RLS after they are picked.
+          </Text>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -253,19 +263,12 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
+    paddingTop: GLASS_HEADER_HEIGHT + spacing.lg,
   },
   footnote: {
     color: colors.slate,
     paddingHorizontal: spacing.xs,
     ...typography.caption,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
   },
   headerSlot: {
     alignItems: "center",

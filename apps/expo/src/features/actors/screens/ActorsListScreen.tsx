@@ -15,7 +15,7 @@ import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
 import { SkeletonRow } from "../../../ui/atoms/SkeletonRow";
 import { PrimaryButton } from "../../../ui/button";
 import { PageHeader } from "../../../ui/PageHeader";
-import { colors, spacing, typography } from "../../../ui/theme";
+import { colors, radii, spacing, typography } from "../../../ui/theme";
 import { ActorRow } from "../components/ActorRow";
 import {
   SegmentedFilter,
@@ -32,10 +32,15 @@ import { matchesQuery } from "../../search/search-matcher";
 type Filter = "all" | "humans" | "agents";
 
 export type ActorsListScreenProps = {
+  /** Extra bottom inset so content clears the floating tab bar. */
+  bottomInset?: number;
   currentActorId: string | null;
   onInvite?: () => void;
   onLoad: () => void;
+  onOpenStats?: () => void;
   onRefresh: () => void;
+  /** True when the signed-in user has zero accessible agents in this team. */
+  showAddYourAgentNotice?: boolean;
   onSelectActor?: (actorId: string) => void;
   state: ActorsListState;
 };
@@ -43,28 +48,43 @@ export type ActorsListScreenProps = {
 function HeaderBar({
   count,
   onInvite,
+  onOpenStats,
 }: {
   count: number;
   onInvite?: () => void;
+  onOpenStats?: () => void;
 }) {
   return (
     <PageHeader
       count={count}
       right={
-        <Pressable
-          accessibilityLabel="Invite Member"
-          accessibilityRole="button"
-          disabled={!onInvite}
-          hitSlop={8}
-          onPress={onInvite}
-          style={styles.toolbarButton}
-        >
-          <Ionicons
-            color={onInvite ? colors.onyx : colors.slate}
-            name="person-add-outline"
-            size={22}
-          />
-        </Pressable>
+        <View style={styles.toolbarGroup}>
+          {onOpenStats ? (
+            <Pressable
+              accessibilityLabel="Team statistics"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onOpenStats}
+              style={styles.toolbarButton}
+            >
+              <Ionicons color={colors.onyx} name="stats-chart-outline" size={20} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityLabel="Invite Member"
+            accessibilityRole="button"
+            disabled={!onInvite}
+            hitSlop={8}
+            onPress={onInvite}
+            style={styles.toolbarButton}
+          >
+            <Ionicons
+              color={onInvite ? colors.onyx : colors.slate}
+              name="person-add-outline"
+              size={22}
+            />
+          </Pressable>
+        </View>
       }
       title="Actors"
     />
@@ -102,11 +122,14 @@ function Section({
 }
 
 export function ActorsListScreen({
+  bottomInset = 0,
   currentActorId,
   onInvite,
   onLoad,
+  onOpenStats,
   onRefresh,
   onSelectActor,
+  showAddYourAgentNotice = false,
   state,
 }: ActorsListScreenProps) {
   const [filter, setFilter] = useState<Filter>("all");
@@ -136,12 +159,18 @@ export function ActorsListScreen({
   const visibleHumans = filter === "agents" ? [] : humans;
   const visibleAgents = filter === "humans" ? [] : agents;
 
-  const headerBar = <HeaderBar count={humans.length + agents.length} onInvite={onInvite} />;
+  const headerBar = (
+    <HeaderBar
+      count={humans.length + agents.length}
+      onInvite={onInvite}
+      onOpenStats={onOpenStats}
+    />
+  );
 
   if (state.status === "loading" || (state.status === "idle" && state.actors.length === 0)) {
     return (
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
         refreshControl={
           <RefreshControl
             onRefresh={onRefresh}
@@ -163,7 +192,7 @@ export function ActorsListScreen({
 
   if (state.status === "error" && state.actors.length === 0) {
     return (
-      <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]} style={styles.screen}>
         {headerBar}
         <View style={styles.stateBlock}>
           <Text style={styles.stateTitle}>Couldn't load actors</Text>
@@ -176,7 +205,7 @@ export function ActorsListScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       refreshControl={
@@ -215,6 +244,21 @@ export function ActorsListScreen({
       </View>
 
       <SegmentedFilter onSelect={setFilter} segments={segments} selection={filter} />
+
+      {/* "The current user has no accessible agent" — distinct from "the team
+          has none", which the zero-agent reminder sheet covers on first run. */}
+      {showAddYourAgentNotice && onInvite ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onInvite}
+          style={({ pressed }) => [styles.ownAgentNotice, pressed ? { opacity: 0.8 } : null]}
+          testID="members.addYourAgentNotice"
+        >
+          <Ionicons color={colors.cinnabar} name="bulb-outline" size={16} />
+          <Text style={styles.ownAgentNoticeText}>Add your own agent</Text>
+          <Ionicons color={colors.slate} name="chevron-forward" size={14} />
+        </Pressable>
+      ) : null}
 
       {humans.length + agents.length === 0 ? (
         <View style={styles.stateBlock}>
@@ -310,6 +354,26 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: "center",
     width: 40,
+  },
+  toolbarGroup: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  ownAgentNotice: {
+    alignItems: "center",
+    backgroundColor: "rgba(184,75,54,0.10)",
+    borderRadius: radii.button,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  ownAgentNoticeText: {
+    color: colors.onyx,
+    flex: 1,
+    ...typography.secondaryBody,
+    fontWeight: "600",
   },
 });
 

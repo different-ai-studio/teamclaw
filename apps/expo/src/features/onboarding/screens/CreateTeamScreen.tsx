@@ -45,7 +45,10 @@ export function CreateTeamScreen({
 
     try {
       await onCreateTeam(nextName);
-    } catch {}
+    } catch {
+      // `createTeam` calls finishWithError before rethrowing, so the message
+      // is already bound to `errorMessage` and rendered as `visibleError`.
+    }
   };
 
   const visibleError =

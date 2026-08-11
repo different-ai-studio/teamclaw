@@ -20,6 +20,11 @@ type CloudTeam = { id: string; name: string; slug?: string | null };
 type MembershipTeam = CloudTeam & { role?: string | null; isMember?: boolean };
 type TeamActivation = { actorId?: string | null; refreshToken: string };
 
+import {
+  resolveBootstrapDecision,
+  type BootstrapTeam,
+} from "../../features/onboarding/bootstrap-route";
+
 export function createOnboardingApi(client: CloudAuthClient) {
   return {
     async getCurrentSession() {
@@ -27,35 +32,68 @@ export function createOnboardingApi(client: CloudAuthClient) {
       return data.session ?? null;
     },
 
-    async loadBootstrap(): Promise<BootstrapResult> {
+    async loadBootstrap(rememberedTeamId?: string | null): Promise<BootstrapResult> {
       const session = await this.getCurrentSession();
       if (!session?.user?.id) {
-        return { isAnonymous: false, team: null, memberActorId: null };
+        return { isAnonymous: false, team: null, memberActorId: null, teamChoices: [] };
       }
 
-      const dto = await client.api.get<CloudTeamPage>("/v1/teams");
       const isAnonymous = Boolean(session.user.is_anonymous);
-      const firstTeam = (dto.items as MembershipTeam[] | undefined)?.find((team) => team.isMember !== false) ?? null;
-      if (!firstTeam) {
-        return { isAnonymous, team: null, memberActorId: null };
+      // scope=all, because the decision is about which org to activate and the
+      // default listing only covers the org already active. It is also the only
+      // listing that carries orgName, which the picker groups by.
+      const dto = await client.api.get<CloudTeamPage>("/v1/teams?scope=all");
+      const teams: BootstrapTeam[] = ((dto.items as MembershipTeam[] | undefined) ?? [])
+        .filter((team) => team.isMember !== false)
+        .map((team) => ({
+          id: team.id,
+          name: team.name ?? "Unnamed team",
+          slug: team.slug ?? "",
+          role: team.role ?? "member",
+          orgName: (team as { orgName?: string | null }).orgName ?? null,
+        }));
+
+      const decision = resolveBootstrapDecision({ teams, rememberedTeamId });
+      if (decision.kind === "createTeam") {
+        return { isAnonymous, team: null, memberActorId: null, teamChoices: [] };
       }
+      if (decision.kind === "selectTeam") {
+        // Deliberately no activate call. Activating to show a picker would put
+        // the session in an org the user may be about to navigate away from.
+        return { isAnonymous, team: null, memberActorId: null, teamChoices: decision.teams };
+      }
+
+      const adopted = teams.find((team) => team.id === decision.teamId) ?? teams[0];
+      const memberActorId = await this.activateTeam(adopted.id);
+      return {
+        isAnonymous,
+        team: {
+          id: adopted.id,
+          name: adopted.name,
+          slug: adopted.slug,
+          role: adopted.role,
+        },
+        memberActorId,
+        teamChoices: [],
+      };
+    },
+
+    /**
+     * Makes `teamId` the session's active team and returns the caller's actor
+     * id within it.
+     *
+     * Separate from the listing because the picker path defers it: nothing is
+     * activated until the user has chosen.
+     */
+    async activateTeam(teamId: string): Promise<string | null> {
       const activation = await client.api.post<TeamActivation>(
-        `/v1/teams/${encodeURIComponent(firstTeam.id)}/activate`,
+        `/v1/teams/${encodeURIComponent(teamId)}/activate`,
       );
       if (activation.refreshToken) {
         const result = await client.auth.setRefreshSession(activation.refreshToken);
         if (result.error) throw new Error(result.error.message);
       }
-      return {
-        isAnonymous,
-        team: {
-          id: firstTeam.id,
-          name: firstTeam.name,
-          slug: firstTeam.slug ?? "",
-          role: firstTeam.role ?? "member",
-        },
-        memberActorId: activation.actorId ?? null,
-      };
+      return activation.actorId ?? null;
     },
 
     async signInAnonymously() {

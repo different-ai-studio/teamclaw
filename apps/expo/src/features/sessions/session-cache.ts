@@ -1,12 +1,6 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
+import { clearTeamCache, loadSessions, saveSessions } from "../../lib/db/local-cache";
+import { openCacheDb, type CacheDb } from "../../lib/db/cache-db";
 import type { SessionSummary } from "./session-types";
-
-const STORAGE_PREFIX = "teamclu.sessionsCache.v1.";
-
-function storageKey(teamId: string): string {
-  return `${STORAGE_PREFIX}${teamId}`;
-}
 
 export type SessionsCache = {
   load: (teamId: string) => Promise<SessionSummary[] | null>;
@@ -15,26 +9,41 @@ export type SessionsCache = {
 };
 
 /**
- * AsyncStorage-backed cache for the sessions list. iOS reads its
- * sessions instantly from SwiftData on cold start; this gives the Expo
- * client an equivalent first-paint by hydrating from disk while the
- * network fetch is in flight.
+ * Sessions-list cache. iOS reads its list instantly from SwiftData on cold
+ * start; this gives Expo the same first paint while the network fetch is in
+ * flight.
  *
- * Cached values are clamped to ~200 sessions per team to keep
- * AsyncStorage writes cheap. Older entries fall off the bottom.
+ * Backed by SQLite rather than the single AsyncStorage blob it used to be. The
+ * blob was rewritten in full on every change and clamped to 200 sessions, so a
+ * team past that could not see its older sessions offline at all. Rows have no
+ * such ceiling and a team switch reads its own scope instead of evicting the
+ * other team's.
  */
-const MAX_CACHED_SESSIONS = 200;
-
-export function createSessionsCache(): SessionsCache {
+export function createSessionsCache(
+  getCacheDb: () => Promise<CacheDb> = openCacheDb,
+): SessionsCache {
   return {
     async load(teamId) {
       if (!teamId) return null;
       try {
-        const raw = await AsyncStorage.getItem(storageKey(teamId));
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return null;
-        return parsed as SessionSummary[];
+        const rows = await loadSessions(await getCacheDb(), teamId);
+        // Null, not [], distinguishes "nothing cached yet" from "cached empty" —
+        // the list screen shows a spinner for the first and an empty state for
+        // the second.
+        if (rows.length === 0) return null;
+        return rows.map((row) => ({
+          sessionId: row.sessionId,
+          teamId: row.teamId,
+          title: row.title,
+          summary: row.summary,
+          participantCount: row.participantCount,
+          participantActorIds: row.participantActorIds,
+          lastMessagePreview: row.lastMessagePreview,
+          lastMessageAt: row.lastMessageAt,
+          createdAt: row.createdAt,
+          createdBy: row.createdBy,
+          hasUnread: row.hasUnread,
+        }));
       } catch {
         return null;
       }
@@ -42,8 +51,23 @@ export function createSessionsCache(): SessionsCache {
     async save(teamId, sessions) {
       if (!teamId) return;
       try {
-        const head = sessions.slice(0, MAX_CACHED_SESSIONS);
-        await AsyncStorage.setItem(storageKey(teamId), JSON.stringify(head));
+        await saveSessions(
+          await getCacheDb(),
+          teamId,
+          sessions.map((session) => ({
+            sessionId: session.sessionId,
+            teamId: session.teamId || teamId,
+            title: session.title,
+            summary: session.summary,
+            participantCount: session.participantCount,
+            participantActorIds: session.participantActorIds ?? [],
+            lastMessagePreview: session.lastMessagePreview,
+            lastMessageAt: session.lastMessageAt,
+            createdAt: session.createdAt,
+            createdBy: session.createdBy,
+            hasUnread: session.hasUnread ?? false,
+          })),
+        );
       } catch {
         // best-effort — cache is a hint, never a source of truth
       }
@@ -51,7 +75,7 @@ export function createSessionsCache(): SessionsCache {
     async clear(teamId) {
       if (!teamId) return;
       try {
-        await AsyncStorage.removeItem(storageKey(teamId));
+        await clearTeamCache(await getCacheDb(), teamId);
       } catch {
         // ignore
       }

@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { Animated, StyleSheet, View, type ViewStyle } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { AccessibilityInfo, Animated, Easing, type ViewStyle } from "react-native";
 
 import { colors, dotSize } from "../theme";
 
@@ -8,6 +8,10 @@ export type StatusDotKind = "active" | "idle" | "error" | "muted" | "working";
 export type StatusDotProps = {
   kind?: StatusDotKind;
   size?: number;
+  /** Overrides the kind's colour. iOS drives some dots straight off a token. */
+  color?: string;
+  /** Overrides whether the dot breathes. Defaults to active/working. */
+  breathing?: boolean;
   style?: ViewStyle;
 };
 
@@ -23,49 +27,83 @@ const KIND_COLOR: Record<StatusDotKind, string> = {
   muted: colors.slate,
 };
 
+/** iOS `AMUXAnimation.breatheDuration` is 1.4s for a full cycle. */
+const BREATHE_HALF_CYCLE_MS = 700;
+/** iOS `BreathingOpacity` dims to 0.35 by default; DESIGN.md specs 0.45. */
+const BREATHE_DIM = 0.45;
+
 /**
- * 8px semantic status indicator. The `active` variant breathes (1.4s
- * ease-in-out, opacity 1 → 0.45) to mirror the iOS @keyframes
- * amuxBreathe rule.
+ * 8px semantic status indicator. The breathing variant mirrors the iOS
+ * `BreathingOpacity` modifier: a 1.4s ease-in-out cycle between 1 and 0.45,
+ * and — like iOS — it stops entirely when the OS reports Reduce Motion.
  */
-export function StatusDot({ kind = "idle", size = dotSize.status, style }: StatusDotProps) {
+export function StatusDot({
+  kind = "idle",
+  size = dotSize.status,
+  color,
+  breathing,
+  style,
+}: StatusDotProps) {
   const opacity = useRef(new Animated.Value(1)).current;
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
-    if (kind !== "active" && kind !== "working") {
+    let cancelled = false;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (!cancelled) setReduceMotion(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion,
+    );
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, []);
+
+  const shouldBreathe =
+    (breathing ?? (kind === "active" || kind === "working")) && !reduceMotion;
+
+  useEffect(() => {
+    if (!shouldBreathe) {
       opacity.setValue(1);
       return;
     }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, {
-          toValue: 0.45,
-          duration: 700,
+          toValue: BREATHE_DIM,
+          duration: BREATHE_HALF_CYCLE_MS,
+          easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
         Animated.timing(opacity, {
           toValue: 1,
-          duration: 700,
+          duration: BREATHE_HALF_CYCLE_MS,
+          easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
       ]),
     );
     loop.start();
     return () => loop.stop();
-  }, [kind, opacity]);
+  }, [opacity, shouldBreathe]);
 
   return (
     <Animated.View
       style={[
-        styles.dot,
-        { width: size, height: size, borderRadius: size / 2, backgroundColor: KIND_COLOR[kind] },
-        kind === "active" || kind === "working" ? { opacity } : null,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: color ?? KIND_COLOR[kind],
+        },
+        shouldBreathe ? { opacity } : null,
         style,
       ]}
     />
   );
 }
 
-const styles = StyleSheet.create({
-  dot: {},
-});
+export default StatusDot;

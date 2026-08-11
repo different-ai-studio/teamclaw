@@ -57,7 +57,13 @@ export function createOutboxSender(deps: Deps): OutboxSender {
   function scheduleNext() {
     if (!running) return;
     timer = setTimeout(async () => {
-      try { await pass(); } catch {}
+      try {
+        await pass();
+      } catch {
+        // Per-row failures are already recorded on the row (last_error,
+        // attempt_count) and retried with backoff. This guard is only so one
+        // bad pass can't kill the scheduling loop and strand the whole outbox.
+      }
       scheduleNext();
     }, tickMs);
   }

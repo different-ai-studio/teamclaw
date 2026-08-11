@@ -58,6 +58,79 @@ describe("createActorsApi", () => {
       ownerMemberId: null,
       visibility: "team",
       agentKind: "claude",
+      memberStatus: null,
+      agentStatus: null,
+      email: null,
+      phone: null,
+      createdAt: null,
+    });
+  });
+
+  it("carries the directory's member contact and lifecycle fields", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: "member-1",
+              teamId: "team-1",
+              kind: "member",
+              displayName: "Ada",
+              teamRole: "owner",
+              memberStatus: "active",
+              email: "ada@example.com",
+              phone: "+8613800000000",
+              createdAt: "2026-01-02T03:04:05.000Z",
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const rows = await api(fetchImpl).listActors("team-1");
+
+    expect(rows[0]).toMatchObject({
+      actorType: "member",
+      role: "owner",
+      memberStatus: "active",
+      email: "ada@example.com",
+      phone: "+8613800000000",
+      createdAt: "2026-01-02T03:04:05.000Z",
+    });
+  });
+
+  it("reads and writes the member and team default agents", async () => {
+    const calls: Array<{ url: string; method?: string; body?: unknown }> = [];
+    const fetchImpl = vi.fn((url: string, init: { method?: string; body?: string }) => {
+      calls.push({
+        url,
+        method: init?.method,
+        body: init?.body ? JSON.parse(init.body) : undefined,
+      });
+      if (url.endsWith("/members/me/default-agent") && init?.method === "GET") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ defaultAgentId: "agent-1" }), { status: 200 }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    const actors = api(fetchImpl);
+
+    expect(await actors.getMemberDefaultAgent("team-1")).toBe("agent-1");
+    expect(calls[0]).toMatchObject({
+      url: "https://cloud.test/v1/teams/team-1/members/me/default-agent",
+      method: "GET",
+    });
+
+    expect(await actors.setMemberDefaultAgent("team-1", null)).toBeNull();
+    expect(calls[1]).toMatchObject({ method: "PUT", body: { agentId: null } });
+
+    expect(await actors.setTeamDefaultAgent("team-1", "agent-2")).toBe("agent-2");
+    expect(calls[2]).toMatchObject({
+      url: "https://cloud.test/v1/teams/team-1/default-agent",
+      method: "PUT",
+      body: { agentId: "agent-2" },
     });
   });
 

@@ -98,3 +98,25 @@ describe("createInviteApi.claim", () => {
     await expect(api.claim("tok")).rejects.toThrow(/no actor/i);
   });
 });
+
+describe("parseInviteToken legacy schemes", () => {
+  it("accepts links minted before the teamclaw → teamclu rename", async () => {
+    // Those links are still in inboxes and chat history. Rejecting one does not
+    // fail cleanly either — the caller falls back to submitting the whole URL
+    // as the token, and the server's rejection says much less.
+    const { parseInviteToken } = await import("../features/onboarding/invite-api");
+    expect(parseInviteToken("teamclaw://invite?token=tok-old")).toBe("tok-old");
+    expect(parseInviteToken("amux://invite?token=tok-older")).toBe("tok-older");
+    expect(parseInviteToken("teamclaw://invite/tok-path")).toBe("tok-path");
+  });
+
+  it("still refuses a non-invite host on a legacy scheme", async () => {
+    const { parseInviteToken } = await import("../features/onboarding/invite-api");
+    expect(parseInviteToken("teamclaw://session/abc-123")).toBeNull();
+  });
+
+  it("refuses a scheme that was never ours", async () => {
+    const { parseInviteToken } = await import("../features/onboarding/invite-api");
+    expect(parseInviteToken("evil://invite?token=tok")).toBeNull();
+  });
+});

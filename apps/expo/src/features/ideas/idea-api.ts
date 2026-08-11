@@ -1,5 +1,5 @@
 import { cloudApiBaseUrl, createCloudApiClient } from "../../lib/cloud-api/client";
-import type { Idea, IdeaStatus } from "./idea-types";
+import { compareIdeas, type Idea, type IdeaActivity, type IdeaStatus } from "./idea-types";
 
 /**
  * Cloud-only ideas provider. Mirrors the iOS CloudAPIIdeaRepository: the FC
@@ -19,6 +19,7 @@ type CloudIdea = {
   description?: string | null;
   status?: string | null;
   archived?: boolean | null;
+  sortOrder?: number | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 };
@@ -45,10 +46,61 @@ function toIdea(row: CloudIdea, workspaceName: string | null): Idea {
     description: row.description ?? "",
     status: toStatus(row.status),
     archived: Boolean(row.archived),
+    sortOrder: typeof row.sortOrder === "number" ? row.sortOrder : 0,
     createdAt: row.createdAt ?? "",
     updatedAt: row.updatedAt ?? row.createdAt ?? "",
   };
 }
+
+// FC mapIdeaActivityRow / mapActivity camelCase shape. `kind` is the pg-repo
+// spelling, `activityType` the Supabase one — both backends are in play.
+type CloudIdeaActivity = {
+  id: string;
+  teamId?: string | null;
+  ideaId: string;
+  actorId: string;
+  kind?: string | null;
+  activityType?: string | null;
+  content?: string | null;
+  metadata?: Record<string, unknown> | null;
+  attachmentUrls?: string[] | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+function toStringMap(value: Record<string, unknown> | null | undefined): Record<string, string> {
+  if (!value) return {};
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (raw === null || raw === undefined) continue;
+    out[key] = typeof raw === "string" ? raw : JSON.stringify(raw);
+  }
+  return out;
+}
+
+function toActivity(row: CloudIdeaActivity): IdeaActivity {
+  const createdAt = row.createdAt ?? "";
+  return {
+    id: row.id,
+    ideaId: row.ideaId,
+    teamId: row.teamId ?? "",
+    actorId: row.actorId,
+    activityType: row.activityType ?? row.kind ?? "",
+    content: row.content ?? "",
+    metadata: toStringMap(row.metadata),
+    attachmentUrls: (row.attachmentUrls ?? []).filter((url) => Boolean(url)),
+    createdAt,
+    updatedAt: row.updatedAt ?? createdAt,
+  };
+}
+
+export type IdeaActivityCreateInput = {
+  activityType: string;
+  content: string;
+  actorId: string;
+  metadata?: Record<string, string>;
+  attachmentUrls?: string[];
+};
 
 export type IdeasApi = {
   createIdea: (input: {
@@ -65,6 +117,9 @@ export type IdeasApi = {
   archive: (ideaId: string) => Promise<void>;
   unarchive: (ideaId: string) => Promise<void>;
   listIdeas: (teamId: string, options?: { includeArchived?: boolean }) => Promise<Idea[]>;
+  listActivities: (ideaId: string) => Promise<IdeaActivity[]>;
+  createActivity: (ideaId: string, input: IdeaActivityCreateInput) => Promise<IdeaActivity>;
+  reorderIdeas: (teamId: string, ideaIds: string[]) => Promise<void>;
 };
 
 export function createIdeasApi(args: {
@@ -129,7 +184,6 @@ export function createIdeasApi(args: {
       for (const archived of buckets) {
         rows.push(...(await fetchBucket(teamId, archived)));
       }
-      rows.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
 
       const workspaceIds = Array.from(
         new Set(rows.map((r) => r.workspaceId).filter((id): id is string => Boolean(id))),
@@ -142,9 +196,39 @@ export function createIdeasApi(args: {
         workspaceNames = new Map((ws.items ?? []).map((w) => [w.id, w.name?.trim() ?? ""]));
       }
 
-      return rows.map((row) =>
-        toIdea(row, row.workspaceId ? workspaceNames.get(row.workspaceId) ?? null : null),
+      return rows
+        .map((row) =>
+          toIdea(row, row.workspaceId ? workspaceNames.get(row.workspaceId) ?? null : null),
+        )
+        .sort(compareIdeas);
+    },
+
+    async listActivities(ideaId) {
+      if (!ideaId) return [];
+      const page = await client.get<{ items: CloudIdeaActivity[] }>(
+        `/v1/ideas/${encodeURIComponent(ideaId)}/activities`,
       );
+      // FC orders newest-first; the timeline renders in that order (iOS parity).
+      return (page.items ?? []).map(toActivity);
+    },
+
+    async createActivity(ideaId, input) {
+      const row = await client.post<CloudIdeaActivity>(
+        `/v1/ideas/${encodeURIComponent(ideaId)}/activities`,
+        {
+          kind: input.activityType,
+          content: input.content.trim(),
+          actorId: input.actorId,
+          metadata: input.metadata ?? {},
+          attachmentUrls: input.attachmentUrls ?? [],
+        },
+      );
+      return toActivity(row);
+    },
+
+    async reorderIdeas(teamId, ideaIds) {
+      if (!teamId || ideaIds.length === 0) return;
+      await client.post("/v1/ideas/reorder", { teamId, ideaIds });
     },
   };
 }

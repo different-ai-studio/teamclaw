@@ -15,12 +15,14 @@ import {
 import { useOnboarding } from "../_layout";
 import { createActorsApi } from "../../src/features/actors/actor-api";
 import { createWorkspacesApi } from "../../src/features/workspaces/workspace-api";
+import { createWorkspacesCache } from "../../src/lib/db/team-cache";
 import { showToast } from "../../src/ui/Toast";
 import { Hairline } from "../../src/ui/atoms/Hairline";
 import { SectionEyebrow } from "../../src/ui/atoms/SectionEyebrow";
 import { supabase } from "../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
 import { colors, hai, radii, spacing, typography } from "../../src/ui/theme";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
 
 type WorkspaceRow = {
   id: string;
@@ -31,6 +33,9 @@ type WorkspaceRow = {
 };
 
 type AgentChoice = { actorId: string; displayName: string };
+
+// Module-scoped: one cache handle for the app, not one per render.
+const workspacesCache = createWorkspacesCache();
 
 export default function WorkspacesRoute() {
   const router = useRouter();
@@ -56,6 +61,16 @@ export default function WorkspacesRoute() {
     }
     setIsLoading(true);
     setError(null);
+    // Paint last-known workspaces first, as iOS does from SwiftData.
+    const cached = await workspacesCache.load(teamId);
+    if (cached) {
+      setRows(
+        cached
+          .map((w) => ({ id: w.id, name: w.name, path: w.path, agent_id: w.agentId, archived: w.archived }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setIsLoading(false);
+    }
     try {
       const items = await workspacesApi.list(teamId);
       setRows(
@@ -69,9 +84,22 @@ export default function WorkspacesRoute() {
           }))
           .sort((a, b) => a.name.localeCompare(b.name)),
       );
+      void workspacesCache.save(
+        teamId,
+        items.map((w) => ({
+          id: w.id,
+          teamId,
+          name: w.name,
+          path: w.path,
+          agentId: w.agentId,
+          archived: w.archived,
+        })),
+      );
     } catch (err) {
+      // Keep whatever the cache painted rather than blanking the list; the
+      // error line says the refresh failed.
       setError(err instanceof Error ? err.message : "Couldn't load workspaces.");
-      setRows([]);
+      if (!cached) setRows([]);
     } finally {
       setIsLoading(false);
     }
@@ -176,14 +204,13 @@ export default function WorkspacesRoute() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot} />
         <Text style={styles.headerTitle}>Workspaces</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -480,17 +507,10 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
+    paddingTop: GLASS_HEADER_HEIGHT + spacing.lg,
   },
   groups: {
     gap: spacing.lg,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
   },
   headerSlot: {
     alignItems: "center",

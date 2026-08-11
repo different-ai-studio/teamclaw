@@ -95,6 +95,99 @@ describe("runtime command sender", () => {
     ).rejects.toThrow("runtime id is required");
     expect(mqtt.publish).not.toHaveBeenCalled();
   });
+
+  it("publishes an answer_question ACP command with the JSON answer matrix", async () => {
+    const mqtt = { publish: vi.fn().mockResolvedValue(undefined) };
+    const sender = createRuntimeCommandSender({
+      mqtt,
+      teamId: "team-1",
+      peerId: "peer-1",
+      commandId: () => "command-3",
+      nowSeconds: () => 1,
+    });
+
+    await sender.sendAnswerQuestion({
+      targetActorId: "actor-1",
+      runtimeId: "rt-abcd",
+      requestId: "q-1",
+      answers: [["main"], ["yes", "no"]],
+    });
+
+    const [topic, bytes] = mqtt.publish.mock.calls[0] as [string, Uint8Array];
+    expect(topic).toBe("amux/team-1/actor-1/runtime/rt-abcd/commands");
+    const envelope = fromBinary(RuntimeCommandEnvelopeSchema, bytes);
+    if (envelope.acpCommand?.command.case !== "answerQuestion") {
+      throw new Error("expected answerQuestion command");
+    }
+    expect(envelope.acpCommand.command.value.requestId).toBe("q-1");
+    expect(envelope.acpCommand.command.value.reject).toBe(false);
+    expect(JSON.parse(envelope.acpCommand.command.value.answersJson)).toEqual([
+      ["main"],
+      ["yes", "no"],
+    ]);
+  });
+
+  it("drops the answers when rejecting so the payload can't mislead", async () => {
+    const mqtt = { publish: vi.fn().mockResolvedValue(undefined) };
+    const sender = createRuntimeCommandSender({ mqtt, teamId: "team-1", peerId: "peer-1" });
+
+    await sender.sendAnswerQuestion({
+      targetActorId: "actor-1",
+      runtimeId: "rt-abcd",
+      requestId: "q-1",
+      answers: [["main"]],
+      reject: true,
+    });
+
+    const [, bytes] = mqtt.publish.mock.calls[0] as [string, Uint8Array];
+    const envelope = fromBinary(RuntimeCommandEnvelopeSchema, bytes);
+    if (envelope.acpCommand?.command.case !== "answerQuestion") {
+      throw new Error("expected answerQuestion command");
+    }
+    expect(envelope.acpCommand.command.value.reject).toBe(true);
+    expect(envelope.acpCommand.command.value.answersJson).toBe("[]");
+  });
+
+  it("publishes a request_turn_history ACP command", async () => {
+    const mqtt = { publish: vi.fn().mockResolvedValue(undefined) };
+    const sender = createRuntimeCommandSender({
+      mqtt,
+      teamId: "team-1",
+      peerId: "peer-1",
+      commandId: () => "command-4",
+      nowSeconds: () => 1,
+    });
+
+    await sender.sendRequestTurnHistory({
+      targetActorId: "actor-1",
+      runtimeId: "rt-abcd",
+      turnId: "turn-9",
+      requestId: "req-9",
+    });
+
+    const [, bytes] = mqtt.publish.mock.calls[0] as [string, Uint8Array];
+    const envelope = fromBinary(RuntimeCommandEnvelopeSchema, bytes);
+    if (envelope.acpCommand?.command.case !== "requestTurnHistory") {
+      throw new Error("expected requestTurnHistory command");
+    }
+    expect(envelope.acpCommand.command.value.turnId).toBe("turn-9");
+    expect(envelope.acpCommand.command.value.requestId).toBe("req-9");
+  });
+
+  it("rejects an answer with no request id before publishing", async () => {
+    const mqtt = { publish: vi.fn().mockResolvedValue(undefined) };
+    const sender = createRuntimeCommandSender({ mqtt, teamId: "team-1", peerId: "peer-1" });
+
+    await expect(
+      sender.sendAnswerQuestion({
+        targetActorId: "actor-1",
+        runtimeId: "rt-abcd",
+        requestId: "",
+        answers: [],
+      }),
+    ).rejects.toThrow("request id is required");
+    expect(mqtt.publish).not.toHaveBeenCalled();
+  });
 });
 
 describe("resolvePermissionRuntimeTarget", () => {

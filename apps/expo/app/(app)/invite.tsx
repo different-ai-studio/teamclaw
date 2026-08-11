@@ -17,10 +17,11 @@ import { useOnboarding } from "../_layout";
 import { Hairline } from "../../src/ui/atoms/Hairline";
 import { SectionEyebrow } from "../../src/ui/atoms/SectionEyebrow";
 import { createActorsApi } from "../../src/features/actors/actor-api";
-import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
+import { CloudApiError, supabaseAccessToken } from "../../src/lib/cloud-api/client";
 import { supabase } from "../../src/lib/supabase/client";
 import { showToast } from "../../src/ui/Toast";
 import { colors, hai, radii, spacing, typography } from "../../src/ui/theme";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
 
 type Kind = "member" | "agent";
 type Role = "member" | "admin";
@@ -46,6 +47,13 @@ export default function InviteRoute() {
   const [name, setName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A member invite into the shared default org comes back 403
+  // `upgrade_required`. iOS swaps the invite form for an upgrade form rather
+  // than reporting a dead end, and the team leaves the public org in place.
+  const [needsUpgrade, setNeedsUpgrade] = useState(false);
+  const [orgName, setOrgName] = useState("");
+  const [contact, setContact] = useState("");
+  const [isUpgrading, setIsUpgrading] = useState(false);
   const [invite, setInvite] = useState<InviteResult | null>(null);
 
   const canInvite = name.trim().length > 0 && !isCreating && invite === null;
@@ -70,9 +78,35 @@ export default function InviteRoute() {
         expiresAt: result.expiresAt,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't create invite.");
+      if (err instanceof CloudApiError && err.code === "upgrade_required") {
+        setNeedsUpgrade(true);
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : "Couldn't create invite.");
+      }
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleUpgrade = async () => {
+    const trimmedOrg = orgName.trim();
+    if (!teamId || trimmedOrg.length === 0 || isUpgrading) return;
+    setIsUpgrading(true);
+    setError(null);
+    try {
+      await createActorsApi({
+        getAccessToken: supabaseAccessToken(supabase),
+      }).upgradeAccount({ teamId, orgName: trimmedOrg, contact });
+      // The team has its own org now, so the invite the user came here to make
+      // will go through. Clear the prompt and let them retry.
+      setNeedsUpgrade(false);
+      setOrgName("");
+      setContact("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "升级失败，请重试。");
+    } finally {
+      setIsUpgrading(false);
     }
   };
 
@@ -93,14 +127,13 @@ export default function InviteRoute() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot} />
         <Text style={styles.headerTitle}>Invite</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -174,6 +207,55 @@ export default function InviteRoute() {
             </View>
           </View>
         )}
+
+        {needsUpgrade ? (
+          <View style={styles.section}>
+            <SectionEyebrow label="升级账号" style={styles.sectionEyebrow} />
+            <Text style={styles.upgradeHint}>
+              当前团队还在公共组织下，只能自己使用。升级账号、创建你自己的团队后即可邀请成员。
+            </Text>
+            <View style={styles.card}>
+              <TextInput
+                editable={!isUpgrading}
+                maxLength={64}
+                onChangeText={setOrgName}
+                placeholder="团队/组织名称"
+                placeholderTextColor={colors.slate}
+                style={styles.input}
+                value={orgName}
+              />
+              <Hairline />
+              <TextInput
+                editable={!isUpgrading}
+                maxLength={64}
+                onChangeText={setContact}
+                placeholder="联系方式（选填）"
+                placeholderTextColor={colors.slate}
+                style={styles.input}
+                value={contact}
+              />
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: orgName.trim().length === 0 || isUpgrading }}
+              disabled={orgName.trim().length === 0 || isUpgrading}
+              onPress={() => {
+                void handleUpgrade();
+              }}
+              style={({ pressed }) => [
+                styles.upgradeButton,
+                orgName.trim().length === 0 || isUpgrading
+                  ? styles.upgradeButtonDisabled
+                  : null,
+                pressed ? styles.actionPressed : null,
+              ]}
+            >
+              <Text style={styles.upgradeButtonLabel}>
+                {isUpgrading ? "升级中…" : "升级账号"}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -278,6 +360,26 @@ function SegmentChoice({
 }
 
 const styles = StyleSheet.create({
+  upgradeHint: {
+    color: colors.basalt,
+    paddingHorizontal: spacing.lg,
+    ...typography.caption,
+  },
+  upgradeButton: {
+    alignItems: "center",
+    backgroundColor: colors.onyx,
+    borderRadius: radii.pill,
+    marginHorizontal: spacing.lg,
+    paddingVertical: 12,
+  },
+  upgradeButtonDisabled: {
+    opacity: 0.4,
+  },
+  upgradeButtonLabel: {
+    color: colors.paper,
+    ...typography.body,
+    fontWeight: "600",
+  },
   actionButton: {
     alignItems: "center",
     flex: 1,
@@ -312,6 +414,7 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
+    paddingTop: GLASS_HEADER_HEIGHT + spacing.lg,
   },
   cta: {
     alignItems: "center",
@@ -345,14 +448,6 @@ const styles = StyleSheet.create({
     color: hai.cinnabarDeep,
     paddingHorizontal: spacing.xs,
     ...typography.caption,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
   },
   headerSlot: {
     alignItems: "center",

@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../../ui/GlassHeader";
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
@@ -59,14 +60,13 @@ export function AttachmentDrawerSheet({
 }: AttachmentDrawerSheetProps) {
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot} />
         <Text style={styles.headerTitle}>Attach</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <View style={styles.body}>
         <SectionEyebrow label="SOURCE" style={styles.sectionEyebrow} />
@@ -125,6 +125,7 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: spacing.md,
     padding: spacing.lg,
+    paddingTop: GLASS_HEADER_HEIGHT,
   },
   card: {
     backgroundColor: colors.paper,
@@ -161,14 +162,6 @@ const styles = StyleSheet.create({
     color: colors.slate,
     paddingHorizontal: spacing.xs,
     ...typography.caption,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
   },
   headerSlot: {
     alignItems: "center",

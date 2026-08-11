@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { actorAvatarColor } from "../../../lib/actor-color";
@@ -5,22 +6,74 @@ import { formatRelativeTime } from "../../../lib/relative-time";
 import { AgentBadge } from "../../../ui/atoms/AgentBadge";
 import { AvatarStack, type AvatarEntry } from "../../../ui/atoms/AvatarStack";
 import { UnreadDot } from "../../../ui/atoms/UnreadDot";
-import { colors, spacing, typography } from "../../../ui/theme";
+import { colors, hai, iosType, spacing } from "../../../ui/theme";
 import type { SessionSummary } from "../session-types";
+
+/**
+ * One row of the sessions list, ported from the iOS `AgentRowView`
+ * (`SessionListHelpers.swift`). Structure, type sizes and the meta strip follow
+ * that source; see `docs/expo-ios-parity-audit.md` for why the type scale is
+ * read from `iosType` rather than this app's own smaller scale.
+ */
+
+/** `Amux_AgentType` raw values, as carried on the runtime attachment. */
+const AGENT_TYPE_CLAUDE = 1;
+const AGENT_TYPE_OPENCODE = 2;
+const AGENT_TYPE_CODEX = 3;
+
+/** Runtime status raw values (`AgentAttachment.status`). */
+const STATUS_STARTING = 1;
+const STATUS_RUNNING = 2;
+const STATUS_STOPPED = 5;
+
+export type SessionRowRuntime = {
+  /** `AgentAttachment.status`; 0/undefined means no attachment — a cold session. */
+  status?: number;
+  agentType?: number;
+  statusLabel?: string;
+};
 
 type SessionRowProps = {
   /** Per-actor glyph override (e.g. "CC"/"OC"/"CX" for known agent kinds). */
   actorGlyphById?: ReadonlyMap<string, string>;
   isActive?: boolean;
+  isMuted?: boolean;
   isPinned?: boolean;
+  /** Live runtime attachment for this session's agent, when known. */
+  runtime?: SessionRowRuntime | null;
   session: SessionSummary;
+  /** Workspace/worktree name shown at the head of the meta strip. */
+  workspaceName?: string;
   onLongPress?: (session: SessionSummary) => void;
   onPress?: (session: SessionSummary) => void;
   unreadCount?: number;
 };
 
-
 const BADGE_INDENT = 38;
+
+type Badge = { glyph: string; fg: string };
+
+/**
+ * Pebble-tinted badge with a backend-keyed foreground. Per "spare the
+ * vermillion" only the Claude variant gets Cinnabar; OpenCode/Codex sit in
+ * Basalt, and an unknown backend drops to Slate.
+ */
+function agentBadge(
+  session: SessionSummary,
+  runtime: SessionRowRuntime | null | undefined,
+  actorGlyphById?: ReadonlyMap<string, string>,
+): Badge {
+  switch (runtime?.agentType) {
+    case AGENT_TYPE_CLAUDE:
+      return { glyph: "CC", fg: hai.cinnabar };
+    case AGENT_TYPE_OPENCODE:
+      return { glyph: "OC", fg: hai.basalt };
+    case AGENT_TYPE_CODEX:
+      return { glyph: "CX", fg: hai.basalt };
+    default:
+      return { glyph: fallbackGlyph(session, actorGlyphById), fg: hai.slate };
+  }
+}
 
 function fallbackGlyph(
   session: SessionSummary,
@@ -33,8 +86,21 @@ function fallbackGlyph(
   const source = (session.title || session.sessionId).trim();
   const last = source.split("/").pop() ?? source;
   if (!last) return "·";
-  const ch = last.charAt(0);
-  return ch.toUpperCase() || "·";
+  return last.charAt(0).toUpperCase() || "·";
+}
+
+function statusDotColor(runtime: SessionRowRuntime | null | undefined): string {
+  switch (runtime?.status) {
+    case STATUS_RUNNING:
+      return hai.sage;
+    case STATUS_STARTING:
+      return hai.slate;
+    case STATUS_STOPPED:
+      // Onyx at 25% — a stopped session reads as spent, not idle.
+      return "rgba(34,32,29,0.25)";
+    default:
+      return hai.slate;
+  }
 }
 
 function buildAvatars(
@@ -50,29 +116,30 @@ function buildAvatars(
     const override = actorGlyphById?.get(id);
     const initials =
       override ?? (id.replace(/[^A-Za-z0-9一-龥]/g, "").slice(0, 2) || "·");
-    return {
-      id,
-      initials,
-      bg: palette.bg,
-      fg: palette.fg,
-    };
+    return { id, initials, bg: palette.bg, fg: palette.fg };
   });
 }
 
 export function SessionRow({
   actorGlyphById,
   isActive = false,
+  isMuted = false,
   isPinned = false,
+  runtime,
   session,
+  workspaceName = "",
   onLongPress,
   onPress,
   unreadCount = 0,
 }: SessionRowProps) {
   const title = session.title.trim() || "Untitled session";
   const lastMessage = session.lastMessagePreview.trim();
-  const timestamp = session.lastMessageAt || session.createdAt;
-  const timeLabel = formatRelativeTime(timestamp);
+  const timeLabel = formatRelativeTime(session.lastMessageAt || session.createdAt);
   const isUnread = unreadCount > 0 || Boolean(session.hasUnread);
+  const isRunning = runtime?.status === STATUS_RUNNING;
+  const isStopped = runtime?.status === STATUS_STOPPED;
+  const badge = agentBadge(session, runtime, actorGlyphById);
+  const statusLabel = runtime?.status && runtime.status !== 0 ? runtime.statusLabel ?? "" : "";
 
   return (
     <Pressable
@@ -89,29 +156,59 @@ export function SessionRow({
     >
       <View style={styles.headerRow}>
         <AgentBadge
-          label={fallbackGlyph(session, actorGlyphById)}
-          status="active"
           bg={colors.pebble}
-          fg={colors.basalt}
+          breathing={isRunning}
+          dotColor={statusDotColor(runtime)}
+          fg={badge.fg}
+          label={badge.glyph}
         />
-        <Text style={styles.title} numberOfLines={1}>
-          {isPinned ? "📌 " : ""}
+        <Text
+          numberOfLines={1}
+          style={[styles.title, isStopped ? styles.titleStopped : null]}
+        >
           {title}
         </Text>
+        {/* Quiet markers — bare Slate glyphs, no capsule, per the Hai
+            restraint rule that status whispers rather than shouts. */}
+        {isPinned ? (
+          <Ionicons color={colors.slate} name="pin" size={11} />
+        ) : null}
+        {isMuted ? (
+          <Ionicons
+            accessibilityLabel="Muted"
+            color={colors.slate}
+            name="notifications-off"
+            size={11}
+          />
+        ) : null}
         <UnreadDot hidden={!isUnread} />
         <Text style={styles.time}>{timeLabel}</Text>
       </View>
 
       {lastMessage ? (
-        <Text style={styles.summary} numberOfLines={1}>
+        <Text numberOfLines={1} style={styles.summary}>
           {lastMessage}
         </Text>
       ) : null}
 
       <View style={styles.metaStrip}>
-        <Text style={styles.participantCount}>
-          {session.participantCount} {session.participantCount === 1 ? "actor" : "actors"}
-        </Text>
+        {workspaceName ? (
+          <Text numberOfLines={1} style={styles.workspace}>
+            {workspaceName}
+          </Text>
+        ) : null}
+        {workspaceName && statusLabel ? <View style={styles.metaSeparator} /> : null}
+        {statusLabel ? (
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.statusLabel,
+              isRunning ? styles.statusLabelRunning : null,
+            ]}
+          >
+            {statusLabel}
+          </Text>
+        ) : null}
         <View style={styles.metaSpacer} />
         <AvatarStack avatars={buildAvatars(session, actorGlyphById)} max={3} size={22} />
       </View>
@@ -128,6 +225,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
   },
+  metaSeparator: {
+    backgroundColor: "rgba(166,163,156,0.5)",
+    borderRadius: 1.5,
+    height: 3,
+    width: 3,
+  },
   metaSpacer: {
     flex: 1,
   },
@@ -137,10 +240,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingLeft: BADGE_INDENT,
   },
-  participantCount: {
-    color: colors.slate,
-    ...typography.monoMeta,
-  },
   pressed: {
     backgroundColor: "rgba(34,32,29,0.03)",
   },
@@ -148,21 +247,37 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     gap: 6,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    // iOS uses `.padding(.vertical, 6)`; the List supplies the rest.
+    paddingVertical: 6,
+  },
+  statusLabel: {
+    color: colors.basalt,
+    ...iosType.caption,
+    fontWeight: "500",
+  },
+  statusLabelRunning: {
+    color: hai.sage,
   },
   summary: {
     color: colors.basalt,
     paddingLeft: BADGE_INDENT,
-    ...typography.secondaryBody,
+    ...iosType.subheadline,
   },
   time: {
     color: colors.slate,
-    ...typography.caption,
+    ...iosType.caption,
   },
   title: {
     color: colors.onyx,
     flex: 1,
-    ...typography.body,
+    ...iosType.body,
     fontWeight: "600",
+  },
+  titleStopped: {
+    color: colors.basalt,
+  },
+  workspace: {
+    color: colors.slate,
+    ...iosType.captionMono,
   },
 });
