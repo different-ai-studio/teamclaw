@@ -3229,6 +3229,65 @@ export function createSupabaseBusinessRepository(options) {
       return mapTeamSkillVersionRow(version);
     },
 
+    /** See the pg-repo twin for why a revert publishes forward instead of
+     * moving latest_version back. */
+    async revertTeamSkillVersion(teamId, slug, targetVersion: number, body: any = {}) {
+      const { data: skill, error } = await supabase
+        .from("team_skills")
+        .select("*")
+        .eq("team_id", teamId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (error) throw error;
+      if (!skill) throw new ApiError(404, "not_found", `skill not found: ${slug}`);
+
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id;
+      if (!callerActorId) throw new ApiError(403, "forbidden", "not a member of this team");
+
+      const { data: source, error: sErr } = await supabase
+        .from("team_skill_versions")
+        .select("*")
+        .eq("skill_id", skill.id)
+        .eq("version", targetVersion)
+        .maybeSingle();
+      if (sErr) throw sErr;
+      if (!source) throw new ApiError(404, "not_found", `version ${targetVersion} not found`);
+      if (targetVersion === skill.latest_version) {
+        throw new ApiError(409, "conflict", `v${targetVersion} is already the latest version`);
+      }
+
+      const changelog = String(body.changelog ?? "").trim() || `Reverted to v${targetVersion}`;
+      const nextVersion = (skill.latest_version ?? 0) + 1;
+      const snapshot = {
+        summary: source.summary,
+        when_to_use: source.when_to_use,
+        when_not_to_use: source.when_not_to_use,
+        requires: source.requires ?? null,
+      };
+
+      const { data: version, error: vErr } = await supabase
+        .from("team_skill_versions")
+        .insert({
+          skill_id: skill.id,
+          version: nextVersion,
+          content_hash: source.content_hash,
+          size: source.size ?? 0,
+          changelog,
+          created_by: callerActorId,
+          ...snapshot,
+        })
+        .select("*")
+        .single();
+      if (vErr) throw vErr;
+
+      const { error: uErr } = await supabase
+        .from("team_skills")
+        .update({ latest_version: nextVersion, ...snapshot })
+        .eq("id", skill.id);
+      if (uErr) throw uErr;
+      return mapTeamSkillVersionRow(version);
+    },
+
     async updateTeamSkill(teamId, slug, patch: any = {}) {
       const fields = requireTeamSkillFields(patch, { partial: true });
       const update: any = {};
@@ -3514,6 +3573,33 @@ export function createSupabaseBusinessRepository(options) {
           hasUpdate: (r.installed_version ?? 0) < (r.team_skills?.latest_version ?? 0),
         }))
         .sort((a: any, b: any) => String(a.slug).localeCompare(String(b.slug)));
+    },
+
+    /**
+     * Every actor carrying an install row for one skill.
+     *
+     * Only used to address the MQTT nudge after a publish — the reconcile is
+     * still what decides anything. Returns ids and nothing else, since the
+     * caller's entire job is to send "re-check now" to each of them.
+     */
+    async listTeamSkillInstallerActorIds(teamId, slug) {
+      const { data: skillRows, error: skillErr } = await supabase
+        .from("team_skills")
+        .select("id")
+        .eq("team_id", teamId)
+        .eq("slug", slug)
+        .limit(1);
+      if (skillErr) throw skillErr;
+      const skillId = skillRows?.[0]?.id;
+      if (!skillId) return [];
+
+      const { data, error } = await supabase
+        .from("team_skill_installs")
+        .select("actor_id")
+        .eq("team_id", teamId)
+        .eq("skill_id", skillId);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => r.actor_id).filter(Boolean);
     },
 
     // ─── Team MCP catalog ────────────────────────────────────────────────────
@@ -3881,10 +3967,21 @@ function requireTeamSkillFields(body: any, { partial = false } = {}): any {
     }
     out[key] = value.trim();
   };
+  // Present-but-empty is a real answer here, and it is stored as one.
+  const optional = (key: string, value: unknown) => {
+    if (value === undefined) return;
+    out[key] = typeof value === "string" ? value.trim() : "";
+  };
+  // `summary` and `category` stay required: one is the list subtitle, the other
+  // drives filtering, and a registry full of blanks in either is unusable.
+  // The two guidance fields are not — they are what a thoughtful author writes,
+  // not a gate on sharing at all. Demanding them up front mostly produced
+  // placeholder text, which is worse than an empty field: it reads as guidance
+  // and isn't.
   need("summary", body.summary, "summary");
   need("category", body.category, "category");
-  need("whenToUse", body.whenToUse, "whenToUse");
-  need("whenNotToUse", body.whenNotToUse, "whenNotToUse");
+  optional("whenToUse", body.whenToUse);
+  optional("whenNotToUse", body.whenNotToUse);
 
   if (out.summary !== undefined && out.summary.length > 200) {
     throw new ApiError(400, "validation_failed", "summary must be 200 characters or fewer");

@@ -33,6 +33,7 @@ function fakeRepo(overrides: Record<string, unknown> = {}) {
       size: 12,
       ossKey: "teams/team-1/blobs/sha256/aa/aa/" + "a".repeat(64),
     }),
+    revertTeamSkillVersion: record("revertTeamSkillVersion", { version: 4 }),
     installTeamSkill: record("installTeamSkill", { installedVersion: 3 }),
     uninstallTeamSkill: record("uninstallTeamSkill"),
     ...overrides,
@@ -122,6 +123,39 @@ test("POST versions publishes a new version", async () => {
     "deploy-check",
     { contentHash: "sha256:def", changelog: "fix typo" },
   ]);
+});
+
+test("POST versions/:v/revert rolls forward with the old content", async () => {
+  const repo = fakeRepo();
+  const res = await request(
+    {
+      httpMethod: "POST",
+      path: "/v1/teams/team-1/skills/deploy-check/versions/3/revert",
+      body: JSON.stringify({ changelog: "v5 broke the migration check" }),
+    },
+    repo,
+  );
+  assert.equal(res.statusCode, 201);
+  assert.equal(repo.calls[0].method, "revertTeamSkillVersion");
+  assert.deepEqual(repo.calls[0].args, [
+    "team-1",
+    "deploy-check",
+    3,
+    { changelog: "v5 broke the migration check" },
+  ]);
+  // The result is a *new* version, not the old number coming back: installs
+  // auto-follow latestVersion, and that only ever moves forward.
+  assert.equal(JSON.parse(res.body).version, 4);
+});
+
+test("revert rejects a non-numeric version rather than passing it down", async () => {
+  const repo = fakeRepo();
+  const res = await request(
+    { httpMethod: "POST", path: "/v1/teams/team-1/skills/deploy-check/versions/latest/revert" },
+    repo,
+  );
+  assert.equal(res.statusCode, 400);
+  assert.equal(repo.calls.length, 0);
 });
 
 test("GET a version rejects a non-numeric version rather than passing it down", async () => {
