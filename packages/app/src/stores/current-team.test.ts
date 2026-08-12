@@ -38,7 +38,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
-const { useCurrentTeamStore, readCachedCurrentTeam, writeCachedCurrentTeam, initialCurrentTeamState } =
+const { useCurrentTeamStore, readCachedCurrentTeam, writeCachedCurrentTeam, initialCurrentTeamState, resolveTeamFromActiveOrgList } =
   await import("./current-team");
 
 const ACTIVE_TEAM = { id: "team-1", name: "Brave Otter", slug: "brave-otter" };
@@ -68,7 +68,8 @@ beforeEach(() => {
 });
 
 describe("current-team persistence cache", () => {
-  it("persists the resolved team so a later launch can hydrate it synchronously", async () => {
+  it("persists the resolved team when load revalidates a held team", async () => {
+    useCurrentTeamStore.setState({ team: ACTIVE_TEAM, teamUserId: "anon-1" });
     teamsMock.listCurrentUserTeams.mockResolvedValueOnce([ACTIVE_TEAM]);
     directoryMock.getCurrentTeamMember.mockResolvedValueOnce(ACTIVE_MEMBER);
 
@@ -158,16 +159,16 @@ describe("useCurrentTeamStore.load", () => {
     expect(state.loading).toBe(false);
   });
 
-  it("loads the team and current member when the list returns a team", async () => {
+  it("does not auto-select a team when held is empty and rows are non-empty", async () => {
     teamsMock.listCurrentUserTeams.mockResolvedValueOnce([ACTIVE_TEAM]);
-    directoryMock.getCurrentTeamMember.mockResolvedValueOnce(ACTIVE_MEMBER);
 
     await useCurrentTeamStore.getState().load();
 
     const state = useCurrentTeamStore.getState();
-    expect(state.team).toEqual(ACTIVE_TEAM);
-    expect(state.currentMember).toEqual(ACTIVE_MEMBER);
-    expect(directoryMock.getCurrentTeamMember).toHaveBeenCalledWith("team-1", "anon-1");
+    expect(state.team).toBeNull();
+    expect(state.currentMember).toBeNull();
+    expect(state.loading).toBe(false);
+    expect(directoryMock.getCurrentTeamMember).not.toHaveBeenCalled();
   });
 });
 
@@ -186,14 +187,36 @@ describe("load() team selection", () => {
     expect(useCurrentTeamStore.getState().team).toEqual(ACTIVE_TEAM);
   });
 
-  it("falls back to the first row when the held team left the active org", async () => {
+  it("preserves the held team when it is not in the active org list", async () => {
     teamsMock.listCurrentUserTeams.mockResolvedValueOnce([OTHER_TEAM]);
-    directoryMock.getCurrentTeamMember.mockResolvedValueOnce(ACTIVE_MEMBER);
     useCurrentTeamStore.setState({ team: ACTIVE_TEAM, teamUserId: "anon-1" });
 
     await useCurrentTeamStore.getState().load();
 
-    expect(useCurrentTeamStore.getState().team).toEqual(OTHER_TEAM);
+    expect(useCurrentTeamStore.getState().team).toEqual(ACTIVE_TEAM);
+    expect(directoryMock.getCurrentTeamMember).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveTeamFromActiveOrgList", () => {
+  const OTHER_TEAM = { id: "team-2", name: "Quiet Falcon", slug: "quiet-falcon" };
+
+  it("revalidates when the held team is still listed", () => {
+    expect(
+      resolveTeamFromActiveOrgList([OTHER_TEAM, ACTIVE_TEAM], ACTIVE_TEAM, "anon-1", "anon-1"),
+    ).toEqual({ action: "revalidate", row: ACTIVE_TEAM });
+  });
+
+  it("preserves when the held team left the active org for the same user", () => {
+    expect(
+      resolveTeamFromActiveOrgList([OTHER_TEAM], ACTIVE_TEAM, "anon-1", "anon-1"),
+    ).toEqual({ action: "preserve" });
+  });
+
+  it("does not auto-select when held is empty", () => {
+    expect(resolveTeamFromActiveOrgList([ACTIVE_TEAM], null, "anon-1", null)).toEqual({
+      action: "no_selection",
+    });
   });
 });
 
