@@ -275,7 +275,11 @@ async fn post_provider_oauth_authorize_503_without_settings_service() {
 }
 
 #[tokio::test]
-async fn post_materialize_team_mcp_writes_team_servers_into_opencode_json() {
+async fn post_materialize_team_mcp_clears_copies_an_older_build_left_behind() {
+    // The route no longer materialises: every runtime reads the team's own file
+    // now. What it does instead is undo the old behaviour, because a leftover
+    // copy in this file outranks the team's and would freeze that server at
+    // whatever was copied.
     let (app, dir) = test_app_with_workspace_store(None).await;
     let wid = ws_id(dir.path());
 
@@ -294,6 +298,17 @@ async fn post_materialize_team_mcp_writes_team_servers_into_opencode_json() {
     )
     .expect("write team mcp");
 
+    // What the old materialise would have written, plus a server of the user's
+    // own that must survive.
+    std::fs::write(
+        dir.path().join("opencode.json"),
+        r#"{"mcp":{
+  "team-db":{"type":"local","enabled":true,"command":["npx","-y","team-db-mcp"]},
+  "mine":{"type":"local","enabled":true,"command":["npx","mine"]}
+}}"#,
+    )
+    .expect("write opencode.json");
+
     let body: Value = app
         .client
         .post(format!(
@@ -311,9 +326,16 @@ async fn post_materialize_team_mcp_writes_team_servers_into_opencode_json() {
         .expect("json");
 
     assert_eq!(body["changed"], true);
-    assert_eq!(body["added_count"], 1);
+    assert_eq!(body["added_count"], 1, "reports what it removed");
 
     let opencode = std::fs::read_to_string(dir.path().join("opencode.json")).expect("opencode");
     let parsed: Value = serde_json::from_str(&opencode).expect("parse opencode");
-    assert!(parsed["mcp"]["team-db"].is_object());
+    assert!(
+        parsed["mcp"]["team-db"].is_null(),
+        "the leftover team copy is gone"
+    );
+    assert!(
+        parsed["mcp"]["mine"].is_object(),
+        "the user's own server is untouched"
+    );
 }
