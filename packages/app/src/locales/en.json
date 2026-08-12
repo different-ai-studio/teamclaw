@@ -1277,6 +1277,8 @@
       "refreshing": "Refreshing...",
       "custom": "Custom",
       "modelsAvailable": "{{count}} model(s) available",
+      "modelsLoading": "Loading models...",
+      "modelsUnavailable": "Models could not be loaded",
       "notConnected": "Not connected",
       "removeCustomTooltip": "Remove custom provider",
       "editCustomTooltip": "Edit custom provider",
