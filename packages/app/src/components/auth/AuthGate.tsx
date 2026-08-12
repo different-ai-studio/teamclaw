@@ -100,6 +100,9 @@ export function AuthGate({ children }: AuthGateProps) {
 
   const daemonStatus = useDaemonOnboardingStore((s) => s.status);
   const daemonLoaded = useDaemonOnboardingStore((s) => s.loaded);
+  // The one remaining question in onboarding: name a brand-new agent for this
+  // machine. It must hold the gate, or the shell would render behind the prompt.
+  const daemonAwaitingName = useDaemonOnboardingStore((s) => !!s.pendingName);
   const refreshDaemonOnboarding = useDaemonOnboardingStore((s) => s.refresh);
   const [daemonOnboardingAck, setDaemonOnboardingAck] = useState(() => devSkipDaemonOnboarding());
 
@@ -503,14 +506,17 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   // Daemon readiness gate: after login + workspace bootstrap, ensure the local
-  // daemon is bound to the current team AND running with a valid token. Interactive
-  // states (needs-onboard / mismatch) prompt the user; transient states (starting /
-  // error) auto-recover or offer retry. 'ready'/'unknown' fall through.
+  // daemon is bound to this machine's agent in the current team AND running with a
+  // valid token. None of these states prompt for input any more — needs-onboard
+  // and mismatch are resolved by binding (team, device id) server-side, and the
+  // screen below is progress plus a retry on failure. 'ready'/'unknown' fall
+  // through.
   if (isTauri() && !daemonOnboardingAck) {
     if (!daemonLoaded) {
       return null;
     }
     if (
+      daemonAwaitingName ||
       daemonStatus === 'needs-onboard' ||
       daemonStatus === 'mismatch' ||
       daemonStatus === 'starting' ||

@@ -68,6 +68,33 @@ export function registerActors(router) {
     return { body: { items: result.items } };
   });
 
+  // Read-only lookup the desktop runs before binding: found → bind silently,
+  // not found → ask the user to name their new agent, then ensure-for-device.
+  router.get("/v1/teams/:teamId/agents/for-device", async (ctx) => {
+    const teamId = decodeURIComponent(ctx.params.teamId);
+    const deviceId = ctx.query.get("deviceId");
+    if (!deviceId) throw new ApiError(400, "validation_failed", "deviceId is required");
+    const result = await ctx.repository.findAgentForDevice(teamId, { deviceId });
+    return { body: { agentId: result.agentId ?? null, displayName: result.displayName ?? null } };
+  });
+
+  // Idempotent per (team, device): the desktop calls this after login instead of
+  // asking the user to create an agent, bind an existing one, or reset a machine
+  // bound to another team. deviceId is write-only — it is deliberately absent
+  // from the connected-agents response so one member cannot enumerate another's
+  // machines.
+  router.post("/v1/teams/:teamId/agents/ensure-for-device", async (ctx) => {
+    const teamId = decodeURIComponent(ctx.params.teamId);
+    const body = ctx.json ?? {};
+    requireString(body.deviceId, "deviceId");
+    requireString(body.displayName, "displayName");
+    const result = await ctx.repository.ensureAgentForDevice(teamId, {
+      deviceId: body.deviceId,
+      displayName: body.displayName,
+    });
+    return { body: result };
+  });
+
   // Per-member default agent. "me" is resolved server-side from the bearer
   // token + team — the route never accepts a client-supplied member id, so a
   // caller can only read/write their own default.

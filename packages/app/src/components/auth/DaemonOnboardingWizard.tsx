@@ -1,13 +1,12 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, AlertCircle, Users, Lock, ChevronRight, Check } from 'lucide-react'
+import { Loader2, AlertCircle, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   useDaemonOnboardingStore,
   ONBOARDING_STEPS,
-  type Visibility,
   type OnboardingStep,
 } from '@/stores/daemon-onboarding'
 
@@ -77,117 +76,102 @@ function StepList({
   )
 }
 
-/** Calm segmented control (no heavy solid-black buttons). */
-function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-  disabled,
-}: {
-  value: T
-  options: { value: T; label: string }[]
-  onChange: (v: T) => void
-  disabled?: boolean
-}) {
-  return (
-    <div className="inline-flex rounded-[9px] bg-panel p-[3px]">
-      {options.map((o) => {
-        const active = o.value === value
-        return (
-          <button
-            key={o.value}
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              'rounded-[7px] px-3.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50',
-              active
-                ? 'bg-paper text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {o.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-[11.5px] font-medium uppercase tracking-wide text-faint">{label}</span>
-      {children}
-    </div>
-  )
-}
-
+/**
+ * This machine's agent: name it the first time, then never think about it again.
+ *
+ * The agent is resolved by (team, device id) server-side, so there is no
+ * visibility to choose, no create-vs-bind fork, and no "belongs to another team"
+ * reset. One question survives — what to call a robot that does not exist yet —
+ * and it is only asked when the lookup comes back empty. Everything else here is
+ * progress and failure.
+ *
+ * Mounting it is what starts the work: `refresh()` looks the machine up and either
+ * binds it or parks the naming prompt.
+ */
 export function DaemonOnboardingWizard({ onDone }: { onDone: () => void }) {
   const { t } = useTranslation()
   const {
     status,
     busy,
     error,
-    ownedAgents,
     step,
     completedSteps,
     failedStep,
     runStartedAt,
     completedAgent,
+    pendingName,
+    nameDeviceAgent,
     refresh,
-    loadOwnedAgents,
-    createNewAgent,
-    bindExistingAgent,
     forceReset,
     autoHealCloudSession,
   } = useDaemonOnboardingStore()
   const elapsed = useElapsedSeconds(runStartedAt)
-  const [mode, setMode] = React.useState<'new' | 'bind'>('new')
   const [name, setName] = React.useState('')
-  const nameTouched = React.useRef(false)
-  const [visibility, setVisibility] = React.useState<Visibility>('personal')
 
   React.useEffect(() => {
     void refresh()
   }, [refresh])
 
-  // Suggest this machine's hostname as the default agent name. The user can
-  // still edit it; once they type, we stop overwriting their input.
+  // Prefill with the hostname once the prompt appears, so "just press enter" is a
+  // sane default and the field is never empty.
   React.useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core')
-        const host = (await invoke<string>('get_device_hostname'))?.trim()
-        if (!cancelled && host && !nameTouched.current) setName(host)
-      } catch {
-        // Non-Tauri / command unavailable — keep the placeholder.
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    if (pendingName) setName((current) => current || pendingName.suggested)
+  }, [pendingName])
 
-  // On the silent auto-recovery path (nothing the user initiated) hand off
-  // immediately, exactly as before — a cold start should gain no latency. When
-  // the user actually created or bound an agent, hold briefly to confirm what
-  // was set up instead of just vanishing.
+  // On the silent path (nothing the user initiated) hand off immediately — a cold
+  // start should gain no latency from a screen nobody asked for. When the user
+  // actually named this machine's agent, hold briefly to confirm what was set up
+  // instead of just vanishing.
   React.useEffect(() => {
-    if (status !== 'ready') return
+    if (status !== 'ready' || pendingName) return
     if (!completedAgent) {
       onDone()
       return
     }
     const id = setTimeout(onDone, 1500)
     return () => clearTimeout(id)
-  }, [status, onDone, completedAgent])
+  }, [status, pendingName, completedAgent, onDone])
 
-  React.useEffect(() => {
-    if (mode === 'bind') void loadOwnedAgents()
-  }, [mode, loadOwnedAgents])
+  // The only input left in onboarding: this machine has no agent in this team yet.
+  if (pendingName) {
+    const trimmed = name.trim()
+    return (
+      <Shell
+        title={t('settings.daemonOnboarding.nameTitle', 'Name this machine’s agent')}
+        subtitle={t(
+          'settings.daemonOnboarding.nameSubtitle',
+          'It runs here, on this machine, and only you can see it. You can rename it later in settings.',
+        )}
+      >
+        <Input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && trimmed && !busy) void nameDeviceAgent(trimmed)
+          }}
+          placeholder={pendingName.suggested}
+          disabled={busy}
+          className="h-10 rounded-[10px] text-[13px]"
+        />
+        {error && <ErrorLine error={error} />}
+        <Button
+          className="h-10 w-full rounded-[10px] bg-coral text-coral-foreground hover:opacity-90"
+          disabled={busy || trimmed.length === 0}
+          onClick={() => void nameDeviceAgent(trimmed)}
+        >
+          {busy ? (
+            <Spinner label={t('settings.daemonOnboarding.creating', 'Setting up…')} />
+          ) : (
+            t('settings.daemonOnboarding.nameConfirm', 'Continue')
+          )}
+        </Button>
+      </Shell>
+    )
+  }
 
+  // Named just now — confirm the name that stuck before handing off.
   if (status === 'ready' && completedAgent) {
     return (
       <Shell title={t('settings.daemonOnboarding.doneTitle', 'This machine is ready')}>
@@ -207,14 +191,14 @@ export function DaemonOnboardingWizard({ onDone }: { onDone: () => void }) {
     )
   }
 
-  // Auto-recovery in progress (onboarded but daemon was down / token stale).
+  // Binding in flight, or bound already and the daemon is being started.
   if (status === 'starting') {
     return (
       <Shell
-        title={t('settings.daemonOnboarding.startingTitle', 'Starting daemon…')}
+        title={t('settings.daemonOnboarding.startingTitle', "Setting up this machine's agent…")}
         subtitle={t(
           'settings.daemonOnboarding.startingSubtitle',
-          "This machine's agent is bound; making sure the local daemon is running.",
+          'Connecting this machine to the current team and starting the local daemon.',
         )}
       >
         <StepList current={step} completed={completedSteps} failed={failedStep} />
@@ -254,8 +238,10 @@ export function DaemonOnboardingWizard({ onDone }: { onDone: () => void }) {
     )
   }
 
-  // Auto-recovery failed. Name the step that broke and offer the recovery that
-  // fits it, rather than one generic Retry for five different failures.
+  // Binding or auto-recovery failed. Name the step that broke and offer the
+  // recovery that fits it, rather than one generic Retry for five different
+  // failures. Without a step the copy stays vague on purpose — `error` carries
+  // the cause, and it is not always the daemon (see bindErrorMessage).
   if (status === 'error') {
     return (
       <Shell
@@ -264,14 +250,14 @@ export function DaemonOnboardingWizard({ onDone }: { onDone: () => void }) {
             ? t('settings.daemonOnboarding.errorAtStep', 'Setup stopped at: {{step}}', {
                 step: t(`settings.daemonOnboarding.steps.${failedStep}`, failedStep),
               })
-            : t('settings.daemonOnboarding.errorTitle', "Can't start the local daemon")
+            : t('settings.daemonOnboarding.errorTitle', "Can't set up this machine's agent")
         }
         subtitle={
           failedStep
             ? t(`settings.daemonOnboarding.recovery.${failedStep}`, '')
             : t(
                 'settings.daemonOnboarding.errorSubtitle',
-                "This machine's agent is bound, but the local daemon failed to start.",
+                'Nothing was left half-configured — retrying is safe.',
               )
         }
       >
@@ -310,148 +296,14 @@ export function DaemonOnboardingWizard({ onDone }: { onDone: () => void }) {
     )
   }
 
-  // Other transitional states (unknown / ready-before-onDone).
-  if (status !== 'needs-onboard' && status !== 'mismatch') {
-    return (
-      <Shell>
-        <div className="flex items-center justify-center py-10">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </div>
-      </Shell>
-    )
-  }
-
-  if (status === 'mismatch') {
-    return (
-      <Shell
-        title={t('settings.daemonOnboarding.mismatchTitle', "This machine's agent belongs to another team")}
-        subtitle={t(
-          'settings.daemonOnboarding.mismatchSubtitle',
-          "The signed-in team doesn't match the team this machine's daemon is bound to. It needs to be reset and re-initialized.",
-        )}
-      >
-        {error && <ErrorLine error={error} />}
-        <Button
-          className="mt-1 h-10 w-full rounded-[10px] bg-coral text-coral-foreground hover:opacity-90"
-          disabled={busy}
-          onClick={() => void forceReset()}
-        >
-          {busy ? (
-            <Spinner label={t('settings.daemonOnboarding.resetting', 'Resetting…')} />
-          ) : (
-            t('settings.daemonOnboarding.resetReinit', 'Reset and re-initialize')
-          )}
-        </Button>
-      </Shell>
-    )
-  }
-
+  // Everything else is a moment in transit: 'unknown' before the current team
+  // resolves, 'needs-onboard'/'mismatch' in the beat before refresh() promotes
+  // them to 'starting', and 'ready' between the status change and onDone.
   return (
-    <Shell
-      title={t('settings.daemonOnboarding.initTitle', "Set up this machine's agent")}
-      subtitle={t(
-        'settings.daemonOnboarding.initSubtitle',
-        'Create a new agent, or bind this machine to one you already have.',
-      )}
-    >
-      <Segmented
-        value={mode}
-        disabled={busy}
-        onChange={(m) => setMode(m)}
-        options={[
-          { value: 'new', label: t('settings.daemonOnboarding.modeNew', 'New') },
-          { value: 'bind', label: t('settings.daemonOnboarding.modeBind', 'Bind existing') },
-        ]}
-      />
-
-      {mode === 'new' ? (
-        <div className="flex flex-col gap-4">
-          <Field label={t('settings.daemonOnboarding.name', 'Name')}>
-            <Input
-              placeholder={t('settings.daemonOnboarding.namePlaceholder', 'e.g. MacBook Pro')}
-              value={name}
-              onChange={(e) => {
-                nameTouched.current = true
-                setName(e.target.value)
-              }}
-              disabled={busy}
-              className="h-10 rounded-[10px] text-[13px]"
-            />
-          </Field>
-
-          <Field label={t('settings.daemonOnboarding.visibility', 'Visibility')}>
-            <label className="flex items-start gap-2.5">
-              <input
-                type="checkbox"
-                checked={visibility === 'team'}
-                disabled={busy}
-                onChange={(e) => setVisibility(e.target.checked ? 'team' : 'personal')}
-                className="mt-0.5 h-4 w-4 shrink-0 rounded-[5px] border-border accent-coral disabled:opacity-50"
-              />
-              <span className="flex flex-col gap-1">
-                <span className="text-[13px] font-medium text-foreground">
-                  {t('settings.daemonOnboarding.shareWithTeam', 'Share with the team')}
-                </span>
-                <span className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-                  {visibility === 'team' ? (
-                    <>
-                      <Users className="h-3 w-3 shrink-0" />{' '}
-                      {t('settings.daemonOnboarding.visibilityTeamHint', 'Everyone on the team can see and use this agent.')}
-                    </>
-                  ) : (
-                    <>
-                      <Lock className="h-3 w-3 shrink-0" />{' '}
-                      {t(
-                        'settings.daemonOnboarding.visibilityPersonalHint',
-                        'Only you can see and use it; hidden from the rest of the team.',
-                      )}
-                    </>
-                  )}
-                </span>
-              </span>
-            </label>
-          </Field>
-
-          {error && <ErrorLine error={error} />}
-
-          <Button
-            className="h-10 w-full rounded-[10px] bg-coral text-coral-foreground hover:opacity-90"
-            disabled={busy || name.trim().length === 0}
-            onClick={() => void createNewAgent(name.trim(), visibility)}
-          >
-            {busy ? (
-              <Spinner label={t('settings.daemonOnboarding.creating', 'Setting up…')} />
-            ) : (
-              t('settings.daemonOnboarding.create', 'Create and start')
-            )}
-          </Button>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {ownedAgents.length === 0 ? (
-            <p className="rounded-[10px] border border-dashed border-border px-4 py-6 text-center text-[12.5px] text-faint">
-              {t('settings.daemonOnboarding.noOwnedAgents', 'You have no agents in the current team to bind to.')}
-            </p>
-          ) : (
-            ownedAgents.map((a) => (
-              <button
-                key={a.agentId}
-                type="button"
-                disabled={busy}
-                onClick={() => void bindExistingAgent(a.agentId, a.displayName)}
-                className="group flex items-center justify-between rounded-[12px] border border-border bg-paper px-4 py-3 text-left transition-colors hover:bg-selected disabled:opacity-50"
-              >
-                <span className="flex flex-col">
-                  <span className="text-[13px] font-medium text-foreground">{a.displayName || a.agentId}</span>
-                  <span className="font-mono text-[11px] text-faint">{a.visibility}</span>
-                </span>
-                <ChevronRight className="h-4 w-4 text-faint transition-colors group-hover:text-muted-foreground" />
-              </button>
-            ))
-          )}
-          {error && <ErrorLine error={error} />}
-        </div>
-      )}
+    <Shell>
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
     </Shell>
   )
 }

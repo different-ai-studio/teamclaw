@@ -260,6 +260,11 @@ struct InfoBody {
     uptime_seconds: i64,
     actor_id: String,
     backend_kind: String,
+    /// This machine's stable id (`~/.amuxd/device-id`). The desktop reads it here
+    /// and passes it to `POST /v1/teams/:id/agents/ensure-for-device`, which is
+    /// how a login resolves "the agent for this machine" without asking the user.
+    /// Served on the un-onboarded daemon too — that is exactly when it is needed.
+    device_id: String,
     /// Cloud-auth session health. Omitted when the backend exposes no auth
     /// surface (e.g. focused tests). `status: "expired"` means the refresh
     /// token was terminally rejected and the daemon needs re-onboarding — the
@@ -303,6 +308,7 @@ async fn info_handler(State(state): State<HttpState>) -> Json<InfoBody> {
         uptime_seconds: uptime,
         actor_id: state.meta.actor_id.clone(),
         backend_kind: state.meta.backend_kind.clone(),
+        device_id: state.meta.device_id.clone(),
         cloud_auth,
         configured_agent_types: state.meta.configured_agent_types.clone(),
         agent_types_advertise: state.meta.agent_types_advertise.lock().clone(),

@@ -73,6 +73,12 @@ pub struct DaemonMetadata {
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub actor_id: String,
     pub backend_kind: String,
+    /// This machine's stable id (`~/.amuxd/device-id`). Surfaced via `/v1/info`
+    /// so the desktop can ask the Cloud API for the agent bound to this machine
+    /// (`POST /v1/teams/:id/agents/ensure-for-device`) — the daemon owns the id
+    /// but cannot make that call itself, having no cloud session before it is
+    /// onboarded.
+    pub device_id: String,
     /// Agent backends this daemon has configured (subset of
     /// `["claude", "opencode", "codex"]`), as reported by
     /// `supported_agent_type_names`. Drives the per-backend model catalog

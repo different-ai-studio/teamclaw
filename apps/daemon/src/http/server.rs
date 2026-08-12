@@ -202,6 +202,7 @@ pub fn metadata(actor_id: String, backend_kind: impl Into<String>) -> DaemonMeta
         started_at: chrono::Utc::now(),
         actor_id,
         backend_kind: backend_kind.into(),
+        device_id: crate::device_id::daemon_device_id(),
         configured_agent_types: Vec::new(),
         agent_types_advertise: Default::default(),
         mqtt_connected: Default::default(),

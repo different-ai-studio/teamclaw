@@ -35,7 +35,6 @@ import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
 import { DEFAULT_WORKSPACE_PATH, TEAM_REPO_DIR } from "@/lib/build-config";
 import { WORKSPACE_STORAGE_KEY } from "@/stores/workspace";
 import { markStartup } from "@/lib/startup-perf";
-import { E2E_BUILD } from "@/lib/e2e/v2-control-active";
 
 export const SKILLS_CHANGED_EVENT = "skills-files-changed";
 
