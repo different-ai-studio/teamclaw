@@ -75,6 +75,19 @@ pub fn amuxd_home_dir() -> std::path::PathBuf {
     teamclu_runtime_env::amuxd_home_for_brand(APP_SHORT_NAME)
 }
 
+/// `<amuxd home>/run` — where the daemon publishes pid, lock, control socket
+/// and the HTTP port/token the desktop discovers it by. Mirrors
+/// `daemon::config::layout::run_dir`; the two must move together.
+pub fn amuxd_run_dir() -> std::path::PathBuf {
+    amuxd_home_dir().join("run")
+}
+
+/// `<amuxd home>/logs` — the daemon's rotating log, and the stdout/stderr this
+/// app redirects when it spawns the bundled sidecar.
+pub fn amuxd_logs_dir() -> std::path::PathBuf {
+    amuxd_home_dir().join("logs")
+}
+
 /// This desktop brand's own home storage directory (`~/.teamclu` or `~/.<brand>`):
 /// personal secrets, `local-cache.db`, telemetry consent, the PATH cache.
 ///

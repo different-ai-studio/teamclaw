@@ -87,6 +87,10 @@ fn main() -> anyhow::Result<()> {
             }
 
             let _daemon_lock = cli::process::acquire_daemon_lock()?;
+            // Under the lock, so two daemons never scaffold concurrently. Every
+            // writer also creates its own parent, so this is about the layout
+            // being inspectable on a fresh install rather than about safety.
+            config::layout::ensure();
             cli::process::write_pidfile()?;
             let _pid_guard = PidfileGuard;
 

@@ -53,7 +53,7 @@ fn amuxd_unavailable() -> String {
 }
 
 pub(crate) fn sock_path() -> PathBuf {
-    crate::commands::amuxd_home_dir().join("amuxd.sock")
+    crate::commands::amuxd_run_dir().join("amuxd.sock")
 }
 
 fn daemon_config_path() -> PathBuf {

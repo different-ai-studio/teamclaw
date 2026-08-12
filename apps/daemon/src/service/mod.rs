@@ -68,9 +68,12 @@ pub fn install_service() -> anyhow::Result<()> {
         .join("Library/LaunchAgents");
     std::fs::create_dir_all(&plist_dir)?;
     let plist_path = plist_dir.join(format!("{LAUNCHD_LABEL}.plist"));
-    // launchd redirects amuxd's stdout/stderr into ~/.amuxd so logs survive
-    // restarts and are tailable; the dir already holds bin/ + config so it exists.
-    let log_dir = DaemonConfig::config_dir();
+    // launchd redirects amuxd's stdout/stderr into `logs/` so they survive
+    // restarts and are tailable. launchd will not create the directory, and it
+    // silently declines to start the job when the redirect target's parent is
+    // missing, so create it here.
+    let log_dir = crate::config::layout::logs_dir();
+    std::fs::create_dir_all(&log_dir)?;
     std::fs::write(&plist_path, launchd_plist(&exe, &log_dir))?;
     let uid = nix_uid();
     let target = format!("gui/{uid}/{LAUNCHD_LABEL}");
@@ -253,7 +256,7 @@ mod tests {
     fn launchd_plist_contains_exec_and_label() {
         let p = launchd_plist(
             Path::new("/Users/x/.amuxd/bin/amuxd"),
-            Path::new("/Users/x/.amuxd"),
+            Path::new("/Users/x/.amuxd/logs"),
         );
         assert!(p.contains("<string>cc.ucar.amuxd</string>"));
         assert!(p.contains("<string>/Users/x/.amuxd/bin/amuxd</string>"));
@@ -261,9 +264,9 @@ mod tests {
         assert!(p.contains("<key>RunAtLoad</key>"));
         assert!(p.contains("<key>KeepAlive</key>"));
         assert!(p.contains("<key>StandardOutPath</key>"));
-        assert!(p.contains("<string>/Users/x/.amuxd/amuxd.out.log</string>"));
+        assert!(p.contains("<string>/Users/x/.amuxd/logs/amuxd.out.log</string>"));
         assert!(p.contains("<key>StandardErrorPath</key>"));
-        assert!(p.contains("<string>/Users/x/.amuxd/amuxd.err.log</string>"));
+        assert!(p.contains("<string>/Users/x/.amuxd/logs/amuxd.err.log</string>"));
     }
 
     #[test]

@@ -6,6 +6,12 @@
 >
 > 决策依据见 [ADR-0006](../adr/0006-daemon-state-is-team-scoped.md)。
 > 面向用户的说明见 [`../amuxd-home-directory.md`](../amuxd-home-directory.md)。
+>
+> **落地进度**（本文描述的是目标态，不是当前态）：
+> ① 文档 + 棘轮 ✅ · ② 品牌收敛 ✅ · ③ 路径 helper ✅ ·
+> ④a 根目录 `run/` `logs/` `cache/` + 白名单测试 ✅ ·
+> ④b 团队状态下沉 `teams/<id>/{shared,state,workspace}` ⬜ ·
+> ④c 一次性清理 + 删迁移代码 ⬜ · ⑤ 配置拆分 + 日志轮换 + `amuxd clear` 重写 ⬜
 
 ---
 
@@ -135,9 +141,14 @@ daemon 这一次安装的 id，**只用于 daemon 自己的版本上报**。它�
 
 ### 3.3 `logs/`
 
-单文件 `amuxd.log`，带轮换（上限与保留份数在 `daemon.toml` 的 `[log]` 段，
+目标是单文件 `amuxd.log`，带轮换（上限与保留份数在 `daemon.toml` 的 `[log]` 段，
 默认 32 MB × 3）。旧布局的 `amuxd.out.log` / `amuxd.err.log` /
 `amuxd.managed.log` 三份并存且永不截断，实测单机 116 MB。
+
+**④a 只把这三份搬进 `logs/`**，写入方（桌面端 spawn 时的重定向、launchd 的
+`StandardOutPath`）不变；合并成单文件与轮换在 ⑤。这么切是因为轮换要改的是
+*写入方*，而搬目录要改的是*读取方*——两件事失败的方式不一样，混在一起出问题时
+分不清是哪一半。
 
 ---
 

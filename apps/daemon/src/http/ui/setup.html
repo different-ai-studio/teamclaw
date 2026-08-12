@@ -7,7 +7,7 @@
   daemon is configured at all.
 
   Auth: the page is opened with `?access_token=<root token>` (see `amuxd
-  setup`, which reads ~/.amuxd/amuxd.http.token and prints the URL). The root
+  setup`, which reads ~/.amuxd/run/amuxd.http.token and prints the URL). The root
   token claims the invite; it is then exchanged for an `admin`-scoped session
   token, which is what the config calls use. The HTML itself holds no secret.
 -->

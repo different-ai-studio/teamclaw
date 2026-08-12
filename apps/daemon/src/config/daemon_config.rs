@@ -640,11 +640,11 @@ impl DaemonConfig {
     }
 
     pub fn pid_path() -> PathBuf {
-        Self::config_dir().join("amuxd.pid")
+        super::layout::run_dir().join("amuxd.pid")
     }
 
     pub fn lock_path() -> PathBuf {
-        Self::config_dir().join("amuxd.lock")
+        super::layout::run_dir().join("amuxd.lock")
     }
 
     /// Control endpoint: a Unix socket path on unix, a named-pipe name on
@@ -652,7 +652,7 @@ impl DaemonConfig {
     /// carries the (sanitized) username for per-user uniqueness.
     #[cfg(not(windows))]
     pub fn sock_path() -> PathBuf {
-        Self::config_dir().join("amuxd.sock")
+        super::layout::run_dir().join("amuxd.sock")
     }
 
     #[cfg(windows)]
@@ -683,25 +683,28 @@ impl DaemonConfig {
     }
 
     pub fn http_token_path() -> PathBuf {
-        Self::config_dir().join("amuxd.http.token")
+        super::layout::run_dir().join("amuxd.http.token")
     }
 
     /// File the daemon keeps refreshed with the current cloud access token
     /// (JWT), written `0600`. Injected into agent processes as
     /// `TC_ACCESS_TOKEN_FILE` so long-running agents can re-read a fresh token.
+    ///
+    /// A team credential, so it belongs in `teams/<id>/state/` — moved in ④b,
+    /// together with the `backend.toml` it is refreshed from.
     pub fn cloud_token_path() -> PathBuf {
         Self::config_dir().join("amuxd.cloud-token")
     }
 
     pub fn http_port_path() -> PathBuf {
-        Self::config_dir().join("amuxd.http.port")
+        super::layout::run_dir().join("amuxd.http.port")
     }
 
     /// Process-group id of the managed `opencode serve` tree (Unix). Written
     /// while serve is live so `amuxd stop` can reap the group even if the
     /// daemon was hard-killed mid-shutdown.
     pub fn opencode_serve_pgid_path() -> PathBuf {
-        Self::config_dir().join("opencode.serve.pgid")
+        super::layout::run_dir().join("opencode.serve.pgid")
     }
 }
 

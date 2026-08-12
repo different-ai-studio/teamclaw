@@ -53,7 +53,7 @@ struct ListedWorkspaceRecord {
 /// not running or has not started its HTTP listener yet.
 #[tauri::command]
 pub async fn get_daemon_http_info() -> Result<Option<DaemonHttpInfo>, String> {
-    let amuxd_dir = amuxd_dir();
+    let amuxd_dir = crate::commands::amuxd_run_dir();
 
     let port_path = amuxd_dir.join("amuxd.http.port");
     let token_path = amuxd_dir.join("amuxd.http.token");
@@ -155,7 +155,7 @@ pub(crate) fn read_daemon_actor_id() -> String {
 /// up yet (port/token files missing) so callers can treat it as a soft no-op.
 #[tauri::command]
 pub async fn list_local_daemon_workspaces() -> Result<Vec<LocalDaemonWorkspace>, String> {
-    let amuxd_dir = amuxd_dir();
+    let amuxd_dir = crate::commands::amuxd_run_dir();
     let port: u16 = match std::fs::read_to_string(amuxd_dir.join("amuxd.http.port")) {
         Ok(s) => match s.trim().parse() {
             Ok(p) => p,
@@ -413,7 +413,7 @@ pub async fn daemon_rpc(payload_b64: String) -> Result<String, String> {
 }
 
 fn daemon_http_base() -> Option<(String, String)> {
-    let amuxd_dir = amuxd_dir();
+    let amuxd_dir = crate::commands::amuxd_run_dir();
     let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
         .ok()?
         .trim()
@@ -437,7 +437,7 @@ struct DaemonProviderInfo {
 pub async fn fetch_workspace_provider_model_keys(
     workspace_path: &str,
 ) -> Option<std::collections::HashSet<String>> {
-    let amuxd_dir = amuxd_dir();
+    let amuxd_dir = crate::commands::amuxd_run_dir();
     let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
         .ok()?
         .trim()
@@ -518,7 +518,7 @@ struct DaemonModelCatalog {
 pub async fn fetch_workspace_model_catalog_keys(
     workspace_path: &str,
 ) -> Option<std::collections::HashSet<String>> {
-    let amuxd_dir = amuxd_dir();
+    let amuxd_dir = crate::commands::amuxd_run_dir();
     let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
         .ok()?
         .trim()
@@ -587,7 +587,7 @@ struct DaemonDefaultWorkspaceResponse {
 /// isn't onboarded, or the daemon has no resolvable default (no agent
 /// default configured and no on-disk team workspace either).
 pub async fn fetch_daemon_default_workspace_path() -> Option<String> {
-    let amuxd_dir = amuxd_dir();
+    let amuxd_dir = crate::commands::amuxd_run_dir();
     let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
         .ok()?
         .trim()
@@ -674,14 +674,15 @@ pub async fn register_daemon_workspace(
     if let Err(e) = std::fs::create_dir_all(&path) {
         return Err(format!("create workspace dir {path}: {e}"));
     }
-    let port: u16 = match std::fs::read_to_string(amuxd_dir.join("amuxd.http.port")) {
+    let run_dir = crate::commands::amuxd_run_dir();
+    let port: u16 = match std::fs::read_to_string(run_dir.join("amuxd.http.port")) {
         Ok(s) => match s.trim().parse() {
             Ok(p) => p,
             Err(_) => return Ok(None),
         },
         Err(_) => return Ok(None),
     };
-    let root_token = match std::fs::read_to_string(amuxd_dir.join("amuxd.http.token")) {
+    let root_token = match std::fs::read_to_string(run_dir.join("amuxd.http.token")) {
         Ok(s) => s.trim().to_string(),
         Err(_) => return Ok(None),
     };

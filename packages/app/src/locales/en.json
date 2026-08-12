@@ -1659,11 +1659,11 @@
         "mint-invite": "The server could not be reached. Check your connection, then try again.",
         "init-daemon": "Credentials could not be written. A reset clears any half-written state.",
         "restart-daemon": "The local service would not restart. A reset clears any half-written state.",
-        "await-daemon": "The service started but never answered. See ~/.amuxd/amuxd.managed.log.",
+        "await-daemon": "The service started but never answered. See ~/.amuxd/logs/amuxd.managed.log.",
         "cloud-auth": "This machine could not verify with the server."
       },
       "elapsed": "Still working — {{seconds}}s",
-      "stuckHint": "Taking longer than expected. Check ~/.amuxd/amuxd.managed.log for details.",
+      "stuckHint": "Taking longer than expected. Check ~/.amuxd/logs/amuxd.managed.log for details.",
       "errorAtStep": "Setup stopped at: {{step}}",
       "reconnect": "Reconnect",
       "doneTitle": "This machine is ready",
@@ -1683,7 +1683,7 @@
       "retrying": "Retrying…",
       "retry": "Retry",
       "resetReinit": "Reset and re-initialize",
-      "resetIncomplete": "Reset did not take effect: this machine is still bound to team {{teamId}}. Check ~/.amuxd/amuxd.managed.log."
+      "resetIncomplete": "Reset did not take effect: this machine is still bound to team {{teamId}}. Check ~/.amuxd/logs/amuxd.managed.log."
     },
     "daemonWorkspaces": {
       "title": "Workspace",
@@ -3326,7 +3326,7 @@
       "providerError": "The model provider reported an error. Please retry or switch models."
     },
     "connection": {
-      "portFileMissing": "amuxd daemon not connected: the HTTP control plane is not ready (~/.amuxd/amuxd.http.port does not exist). Restart amuxd, or confirm you are running the build from this branch.",
+      "portFileMissing": "amuxd daemon not connected: the HTTP control plane is not ready (~/.amuxd/run/amuxd.http.port does not exist). Restart amuxd, or confirm you are running the build from this branch.",
       "tokenExchangeFailed": "amuxd daemon HTTP started but authentication failed: restart amuxd and try again.",
       "healthCheckFailed": "amuxd daemon HTTP is not responding: confirm the amuxd process is still running.",
       "notConnected": "amuxd daemon not connected: confirm amuxd is started and the HTTP control plane is available."

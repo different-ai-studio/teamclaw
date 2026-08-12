@@ -1659,11 +1659,11 @@
         "mint-invite": "连不上服务器。检查网络后重试。",
         "init-daemon": "凭证没能写入。重置可以清掉写了一半的状态。",
         "restart-daemon": "本地服务没能重启。重置可以清掉写了一半的状态。",
-        "await-daemon": "服务起来了但一直没响应，看看 ~/.amuxd/amuxd.managed.log。",
+        "await-daemon": "服务起来了但一直没响应，看看 ~/.amuxd/logs/amuxd.managed.log。",
         "cloud-auth": "这台机器没能通过服务器验证。"
       },
       "elapsed": "仍在进行——已用 {{seconds}} 秒",
-      "stuckHint": "比预期慢。细节看 ~/.amuxd/amuxd.managed.log。",
+      "stuckHint": "比预期慢。细节看 ~/.amuxd/logs/amuxd.managed.log。",
       "errorAtStep": "卡在这一步：{{step}}",
       "reconnect": "重新连接",
       "doneTitle": "这台机器已就绪",
@@ -1683,7 +1683,7 @@
       "retrying": "重试中…",
       "retry": "重试",
       "resetReinit": "重置并重新初始化",
-      "resetIncomplete": "重置未生效：本机仍绑定在团队 {{teamId}} 上。请查看 ~/.amuxd/amuxd.managed.log。"
+      "resetIncomplete": "重置未生效：本机仍绑定在团队 {{teamId}} 上。请查看 ~/.amuxd/logs/amuxd.managed.log。"
     },
     "daemonWorkspaces": {
       "title": "工作区",
@@ -3326,7 +3326,7 @@
       "providerError": "模型服务返回错误，请重试或切换模型。"
     },
     "connection": {
-      "portFileMissing": "amuxd daemon 未连接：HTTP 控制面未就绪（~/.amuxd/amuxd.http.port 不存在）。请重启 amuxd，或确认运行的是本分支构建的版本。",
+      "portFileMissing": "amuxd daemon 未连接：HTTP 控制面未就绪（~/.amuxd/run/amuxd.http.port 不存在）。请重启 amuxd，或确认运行的是本分支构建的版本。",
       "tokenExchangeFailed": "amuxd daemon HTTP 已启动但鉴权失败：请重启 amuxd 后重试。",
       "healthCheckFailed": "amuxd daemon HTTP 无响应：请确认 amuxd 进程仍在运行。",
       "notConnected": "amuxd daemon 未连接：请确认 amuxd 已启动且 HTTP 控制面可用"

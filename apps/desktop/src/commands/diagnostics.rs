@@ -47,16 +47,20 @@ fn amuxd_dir() -> Option<PathBuf> {
     Some(super::amuxd_home_dir())
 }
 
+fn amuxd_logs_dir_opt() -> Option<PathBuf> {
+    Some(super::amuxd_logs_dir())
+}
+
 fn amuxd_out_log_path() -> Option<PathBuf> {
-    amuxd_dir().map(|d| d.join("amuxd.out.log"))
+    amuxd_logs_dir_opt().map(|d| d.join("amuxd.out.log"))
 }
 
 fn amuxd_err_log_path() -> Option<PathBuf> {
-    amuxd_dir().map(|d| d.join("amuxd.err.log"))
+    amuxd_logs_dir_opt().map(|d| d.join("amuxd.err.log"))
 }
 
 fn amuxd_managed_log_path() -> Option<PathBuf> {
-    amuxd_dir().map(|d| d.join("amuxd.managed.log"))
+    amuxd_logs_dir_opt().map(|d| d.join("amuxd.managed.log"))
 }
 
 fn tail_file(path: &Path, max_lines: usize) -> Option<String> {
@@ -405,8 +409,10 @@ mod tests {
         let out = amuxd_out_log_path().unwrap();
         let err = amuxd_err_log_path().unwrap();
         let managed = amuxd_managed_log_path().unwrap();
-        assert!(out.ends_with(".amuxd/amuxd.out.log"));
-        assert!(err.ends_with(".amuxd/amuxd.err.log"));
-        assert!(managed.ends_with(".amuxd/amuxd.managed.log"));
+        // Logs live under `logs/`, not loose at the amuxd root
+        // (docs/architecture/amuxd-home-layout-v2.md §2).
+        assert!(out.ends_with(".amuxd/logs/amuxd.out.log"));
+        assert!(err.ends_with(".amuxd/logs/amuxd.err.log"));
+        assert!(managed.ends_with(".amuxd/logs/amuxd.managed.log"));
     }
 }
