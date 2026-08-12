@@ -92,7 +92,12 @@ export function AuthGate({ children }: AuthGateProps) {
   const onboardingDone = useOnboardingStore((s) => s.completed);
   const setOnboardingRole = useOnboardingStore((s) => s.setRole);
   const markOnboardingCompleted = useOnboardingStore((s) => s.markCompleted);
-  const [onboardingSetupAck, setOnboardingSetupAck] = useState(false);
+  const onboardingSetupAck = useOnboardingStore((s) => s.setupAck);
+  const setOnboardingSetupAck = useOnboardingStore((s) => s.markSetupAck);
+  // Started-but-unfinished. Whichever screen the user quit on, they come back
+  // to it — and it outranks the `setup-ok` optimistic skip below, which would
+  // otherwise swallow the rest of a flow the user is visibly in the middle of.
+  const onboardingStarted = useOnboardingStore((s) => s.languageAck || s.role !== null || s.setupAck);
   // Whether a model step follows is decided here, when setup finishes, rather
   // than as another render branch — that branch would have had to call
   // `markCompleted` during render to skip itself.
@@ -101,10 +106,10 @@ export function AuthGate({ children }: AuthGateProps) {
   // connected a provider would land in an app that cannot answer them.
   // Developers configure models in Settings on their own terms.
   const finishSetupStep = useCallback(() => {
-    setOnboardingSetupAck(true);
+    setOnboardingSetupAck();
     const { role, runtime } = useOnboardingStore.getState();
     if (!(role === "guided" && runtime === "pi")) markOnboardingCompleted();
-  }, [markOnboardingCompleted]);
+  }, [markOnboardingCompleted, setOnboardingSetupAck]);
 
   const daemonStatus = useDaemonOnboardingStore((s) => s.status);
   const daemonLoaded = useDaemonOnboardingStore((s) => s.loaded);
@@ -393,7 +398,7 @@ export function AuthGate({ children }: AuthGateProps) {
   //
   // Returning users skip all of it: `onboardingDone` is set once the flow
   // completes, and `setupRequiredSatisfied` covers installs that predate it.
-  if (isTauri() && !setupAck && !onboardingDone) {
+  if (isTauri() && !onboardingDone && (!setupAck || onboardingStarted)) {
     if (!setupLoaded) {
       return null;
     }

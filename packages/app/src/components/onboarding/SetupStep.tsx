@@ -37,47 +37,49 @@ function RuntimeCard({
   const { t } = useTranslation()
   const Icon = RUNTIME_ICON[runtime.id] ?? Terminal
   const installed = usable(runtime)
+  // Select and Install are siblings, never nested. As a <span role="button">
+  // inside the card's own <button>, Install was unreachable the entire time a
+  // runtime was missing: an uninstalled card is disabled, and a disabled button
+  // swallows pointer events for everything inside it — so the one control that
+  // only ever appears on an uninstalled runtime could never be clicked.
   return (
-    <button
-      type="button"
-      onClick={installed ? onSelect : undefined}
-      disabled={busy || !installed}
+    <div
       className={cn(
-        'flex flex-1 flex-col items-start gap-2 rounded-[14px] border p-4 text-left transition-colors',
+        'flex flex-1 flex-col items-start gap-2 rounded-[14px] border p-4 transition-colors',
         selected ? 'border-coral bg-selected/35' : 'border-border bg-paper',
-        installed && !busy && 'hover:bg-selected/45',
-        !installed && 'cursor-default',
       )}
     >
-      <span className="flex w-full items-center justify-between">
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={busy || !installed}
+        className={cn(
+          'flex w-full items-center justify-between text-left',
+          installed && !busy ? 'cursor-pointer' : 'cursor-default',
+        )}
+      >
         <span className="flex items-center gap-2">
           <Icon className="h-4 w-4 text-ink-2" />
           <span className="text-[13px] font-semibold text-foreground">{runtime.title}</span>
         </span>
         {selected && <Check className="h-4 w-4 text-coral" />}
-      </span>
+      </button>
       {installed ? (
         <span className="font-mono text-[11px] text-faint">
           {runtime.version ?? t('onboarding.setup.installed', 'installed')}
         </span>
       ) : (
-        <span
-          role="button"
-          tabIndex={0}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (!busy) onInstall()
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !busy) onInstall()
-          }}
-          className="inline-flex items-center gap-1.5 rounded-[6px] text-[11.5px] text-coral hover:underline"
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onInstall}
+          className="inline-flex items-center gap-1.5 rounded-[6px] text-[11.5px] text-coral hover:underline disabled:opacity-50"
         >
-          <Download className="h-3 w-3" />
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
           {t('onboarding.setup.install', 'Install')}
-        </span>
+        </button>
       )}
-    </button>
+    </div>
   )
 }
 
@@ -164,6 +166,16 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
   const selectedRuntime = agentRuntimes.find((r) => r.id === selected)
   const runtimeReady = usable(selectedRuntime)
   const canContinue = loaded && !installing && !amuxdMissing && runtimeReady
+  /**
+   * Work is in flight and Continue is waiting on it.
+   *
+   * Wider than `installing` on purpose: the auto-install of amuxd is triggered
+   * from an effect, so between "deps probed" and "install started" the button is
+   * disabled with nothing running under it — and the guided screen offers no
+   * other moving part, so the whole window reads as hung. Anything that greys
+   * the button out while the machine is still working spins.
+   */
+  const busy = !!installing || amuxdMissing || (!runtimeReady && agentRuntimes.length > 0)
 
   const pick = (id: DaemonLocalAgent) => {
     setSelected(id)
@@ -252,9 +264,14 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
           disabled={!canContinue}
           onClick={proceed}
         >
-          {installing
-            ? t('onboarding.setup.working', 'Setting up…')
-            : t('onboarding.setup.continue', 'Continue')}
+          {busy ? (
+            <span className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('onboarding.setup.working', 'Setting up…')}
+            </span>
+          ) : (
+            t('onboarding.setup.continue', 'Continue')
+          )}
         </Button>
 
         {/* Picking the simpler path should never be a one-way door. */}

@@ -1,10 +1,10 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, AlertCircle, ChevronRight, Check } from 'lucide-react'
+import { Loader2, AlertCircle, ChevronRight, Check, ExternalLink } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { cn } from '@/lib/utils'
+import { cn, openExternalUrl } from '@/lib/utils'
 import { ONBOARDING_PROVIDERS } from '@/lib/mainstream-providers'
 import { useProviderStore } from '@/stores/provider'
 
@@ -86,6 +86,21 @@ export function ModelStep({ onDone }: { onDone: () => void }) {
                     <ChevronRight className="h-4 w-4 text-faint" />
                   )}
                 </button>
+
+                {/* Where the key comes from. Outside the row's <button> — nesting
+                    a link inside a button is invalid and would make picking a
+                    provider and leaving for the browser the same click. */}
+                <a
+                  href={p.keyUrl}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    openExternalUrl(p.keyUrl)
+                  }}
+                  className="mt-1 ml-4 inline-flex w-fit items-center gap-1 rounded-[6px] text-[11.5px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                >
+                  {t('onboarding.model.getKey', 'Get an API key')}
+                  <ExternalLink className="h-3 w-3 shrink-0" />
+                </a>
 
                 {active && (
                   <div className="mt-2 flex flex-col gap-2 px-1">

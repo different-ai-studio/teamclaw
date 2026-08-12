@@ -795,6 +795,7 @@
     "model": {
       "title": "Connect a model",
       "subtitle": "Pick a provider and paste its API key. You can add more later in Settings.",
+      "getKey": "Get an API key",
       "keyPlaceholder": "Paste the API key",
       "connect": "Connect",
       "saving": "Saving…",

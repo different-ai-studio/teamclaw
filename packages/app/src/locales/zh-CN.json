@@ -795,6 +795,7 @@
     "model": {
       "title": "连接一个模型",
       "subtitle": "选一家服务商，把 API key 粘进来。之后还能在设置里加更多。",
+      "getKey": "去申请 API Key",
       "keyPlaceholder": "粘贴 API key",
       "connect": "连接",
       "saving": "保存中…",
