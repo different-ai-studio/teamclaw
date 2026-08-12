@@ -93,6 +93,39 @@ pub fn handle(workspace: &str, arguments: &Value) -> Result<Value, String> {
     }))
 }
 
+/// Archive a cloud session via the desktop introspect API → Cloud API PATCH.
+pub async fn archive(workspace: &str, api_port: u16, arguments: &Value) -> Result<Value, String> {
+    let session_id = resolve_session_id(workspace, arguments)?;
+    let mut body = json!({ "session_id": session_id });
+    if let Some(at) = arguments
+        .get("archived_at")
+        .or_else(|| arguments.get("archivedAt"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        body["archivedAt"] = json!(at);
+    }
+
+    let url = format!("http://127.0.0.1:{api_port}/session-archive");
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}. Is the TeamClu app running?"))?;
+
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("API error: {text}"));
+    }
+
+    resp.json::<Value>()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +196,13 @@ mod tests {
             Some(v) => std::env::set_var(TEAMCLU_SESSION_ID_ENV, v),
             None => std::env::remove_var(TEAMCLU_SESSION_ID_ENV),
         }
+    }
+
+    #[tokio::test]
+    async fn archive_rejects_invalid_uuid_without_network() {
+        let err = archive("/ws", 13144, &json!({ "session_id": "not-a-uuid" }))
+            .await
+            .unwrap_err();
+        assert!(err.contains("Invalid session_id"));
     }
 }

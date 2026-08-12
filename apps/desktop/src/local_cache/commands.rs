@@ -220,6 +220,17 @@ pub async fn local_cache_session_soft_delete(
     db.session_soft_delete(&id, &deleted_at).await
 }
 
+/// Soft-delete without the current-team gate — used by introspect after a
+/// successful Cloud API archive. Missing rows are fine (store update is a no-op).
+pub async fn soft_delete_session_best_effort(
+    state: &LocalCacheState,
+    id: &str,
+    deleted_at: &str,
+) -> Result<(), String> {
+    let db = get_db(state).await?;
+    db.session_soft_delete(id, deleted_at).await
+}
+
 // ─── session_workspace commands ───────────────────────────────────────────
 
 #[tauri::command]
