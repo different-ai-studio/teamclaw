@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Terminal, Sparkles } from 'lucide-react'
+import { Terminal, Sparkles, Languages } from 'lucide-react'
 
 import { appDisplayName } from '@/lib/build-config'
 import { changeLanguage, getCurrentLanguage, isLocaleLocked, availableLanguages } from '@/lib/i18n'
@@ -7,32 +7,44 @@ import { useAppVersion } from '@/lib/version'
 import { useOnboardingStore, type OnboardingRole } from '@/stores/onboarding'
 import { cn } from '@/lib/utils'
 
+// Each language named in its own script: somebody scanning for a language they
+// can read recognizes "中文" and "English", not the ISO code "EN".
 const LANGUAGE_LABELS: Record<string, string> = {
-  en: 'EN',
+  en: 'English',
   'zh-CN': '中文',
 }
 
-/** Quiet locale toggle. Hidden entirely on single-locale builds. */
+/**
+ * Locale toggle. Hidden entirely on single-locale builds.
+ *
+ * Centered and full-size rather than tucked into a corner: it is the one control
+ * on this screen a user might need *before* they can read anything else on it,
+ * so it cannot be the quietest thing in the frame.
+ */
 function LanguageToggle() {
   const current = getCurrentLanguage()
   if (isLocaleLocked || availableLanguages.length < 2) return null
   return (
-    <div className="flex items-center gap-0.5 rounded-[8px] bg-panel p-[3px]">
-      {availableLanguages.map((lang) => (
-        <button
-          key={lang}
-          type="button"
-          onClick={() => changeLanguage(lang)}
-          className={cn(
-            'rounded-[6px] px-2.5 py-1 text-[12px] transition-colors',
-            lang === current
-              ? 'bg-paper text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {LANGUAGE_LABELS[lang] ?? lang}
-        </button>
-      ))}
+    <div className="flex items-center gap-2">
+      <Languages className="h-4 w-4 shrink-0 text-faint" aria-hidden />
+      <div className="flex items-center gap-1 rounded-[10px] bg-panel p-1">
+        {availableLanguages.map((lang) => (
+          <button
+            key={lang}
+            type="button"
+            onClick={() => changeLanguage(lang)}
+            aria-pressed={lang === current}
+            className={cn(
+              'rounded-[8px] px-4 py-1.5 text-[13px] font-medium transition-colors',
+              lang === current
+                ? 'bg-paper text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {LANGUAGE_LABELS[lang] ?? lang}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
@@ -82,7 +94,7 @@ export function RoleStep({ onDone }: { onDone: (role: OnboardingRole) => void })
     <div className="relative flex min-h-screen flex-col bg-background px-6 py-8" data-tauri-drag-region>
       <div className="absolute inset-x-0 top-0 h-12" data-tauri-drag-region />
       <div className="mx-auto flex w-full max-w-[640px] flex-1 flex-col">
-        <div className="flex justify-end pt-1">
+        <div className="flex justify-center pt-1">
           <LanguageToggle />
         </div>
 

@@ -49,7 +49,7 @@ describe('RoleStep', () => {
 
   it('offers a language switch when the build ships more than one locale', () => {
     render(<RoleStep onDone={() => {}} />)
-    fireEvent.click(screen.getByText('EN'))
+    fireEvent.click(screen.getByText('English'))
     expect(changeLanguage).toHaveBeenCalledWith('en')
   })
 
@@ -59,7 +59,7 @@ describe('RoleStep', () => {
     localeState.locked = true
     localeState.languages = ['zh-CN']
     render(<RoleStep onDone={() => {}} />)
-    expect(screen.queryByText('EN')).not.toBeInTheDocument()
+    expect(screen.queryByText('English')).not.toBeInTheDocument()
     expect(screen.queryByText('中文')).not.toBeInTheDocument()
   })
 })
