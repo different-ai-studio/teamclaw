@@ -740,6 +740,14 @@
     "openAgentSettings": "打开 Agent 设置"
   },
   "onboarding": {
+    "role": {
+      "title": "想怎么配置 {{app}}？",
+      "subtitle": "这些之后都能在设置里改。",
+      "developerTitle": "我自己来",
+      "developerCaption": "自己选运行时，安装内容一览无余。",
+      "guidedTitle": "直接开始用",
+      "guidedCaption": "用推荐配置，顺手把模型连好。"
+    },
     "common": {
       "back": "上一步"
     }

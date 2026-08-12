@@ -740,6 +740,14 @@
     "openAgentSettings": "Open agent settings"
   },
   "onboarding": {
+    "role": {
+      "title": "How would you like to set up {{app}}?",
+      "subtitle": "You can change any of this later in Settings.",
+      "developerTitle": "I'll set it up myself",
+      "developerCaption": "Choose the agent runtime and review what gets installed.",
+      "guidedTitle": "Just get me started",
+      "guidedCaption": "Use the recommended setup and connect a model in one step."
+    },
     "common": {
       "back": "Back"
     }

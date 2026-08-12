@@ -62,3 +62,15 @@ export const changeLanguage = (lang: string) => {
 export const getCurrentLanguage = () => {
   return i18n.language;
 };
+
+/**
+ * True when this build ships a single locale (`VITE_LOCALE=en` / `zh-CN`).
+ *
+ * Onboarding uses this to hide its language switcher: offering a choice that
+ * has exactly one option is noise, and switching would silently no-op because
+ * `changeLanguage` only applies languages present in `resources`.
+ */
+export const isLocaleLocked = Boolean(forcedSupportedLocale);
+
+/** Locales this build can actually switch to. */
+export const availableLanguages = Object.keys(resources);
