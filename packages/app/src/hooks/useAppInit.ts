@@ -36,6 +36,7 @@ import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
 import { appStoragePrefix, DEFAULT_WORKSPACE_PATH, TEAM_REPO_DIR } from "@/lib/build-config";
 import { WORKSPACE_STORAGE_KEY } from "@/stores/workspace";
 import { markStartup } from "@/lib/startup-perf";
+import { E2E_BUILD } from "@/lib/e2e/v2-control-active";
 
 export const SKILLS_CHANGED_EVENT = "skills-files-changed";
 
@@ -746,7 +747,10 @@ export function useSetupGuide(workspaceReady: boolean) {
 
     const decision = setupDecisionRef.current;
 
-    if (decision === "skip") {
+    // E2E builds never show the dependency guide: a CI machine legitimately
+    // lacks the optional runtimes, and the guide would render over the chat UI
+    // the harness is there to exercise.
+    if (E2E_BUILD || decision === "skip") {
       depsResultRef.current = { checked: true, hasRequiredMissing: false };
       return;
     }
