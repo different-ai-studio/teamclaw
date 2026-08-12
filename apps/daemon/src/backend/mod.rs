@@ -111,6 +111,51 @@ pub struct TeamEnvSecretRow {
     pub envelope: serde_json::Value,
 }
 
+/// One row of the team skills registry, decorated with the calling actor's
+/// install state (`GET /v1/teams/:id/skills`).
+///
+/// The daemon reads the registry list rather than `/skill-installs` because it
+/// needs the metadata too: the frontmatter rewrite that makes a skill legible
+/// to an agent (`when_to_use`, `when_not_to_use`, owner) is fed from these
+/// fields, and the install list carries only versions.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSkillRow {
+    pub slug: String,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub when_to_use: String,
+    #[serde(default)]
+    pub when_not_to_use: String,
+    /// jsonb — shape is not fixed, so it stays raw and is flattened to strings
+    /// only where the frontmatter needs a list.
+    #[serde(default)]
+    pub requires: Option<serde_json::Value>,
+    #[serde(default)]
+    pub owner_actor_id: Option<String>,
+    #[serde(default)]
+    pub latest_version: i64,
+    #[serde(default)]
+    pub installed: bool,
+    #[serde(default)]
+    pub installed_version: Option<i64>,
+}
+
+/// A short-lived signed URL for one version's package
+/// (`GET /v1/teams/:id/skills/:slug/versions/:v/download`).
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSkillDownload {
+    pub url: String,
+    #[serde(default)]
+    pub content_hash: String,
+    #[serde(default)]
+    pub size: u64,
+}
+
 /// The team's managed (shared) LLM, as sourced from
 /// `GET /v1/teams/:id/workspace-config` (`llm.*`). This replaces the old
 /// disk-mirrored `_meta/provider.json` so the shared provider converges on first
@@ -244,6 +289,52 @@ pub trait Backend: Send + Sync {
     /// the team key decrypts it locally.
     async fn team_env_secrets(&self, _team_id: &str) -> BackendResult<Vec<TeamEnvSecretRow>> {
         Ok(Vec::new())
+    }
+
+    /// Fetch the team skills registry decorated with this actor's install state
+    /// (`GET /v1/teams/:id/skills`).
+    ///
+    /// No `actorId` parameter: the endpoint decorates for the caller, and the
+    /// daemon's caller *is* the agent actor whose skills it has to materialise.
+    ///
+    /// The default errors rather than returning an empty list. A backend that
+    /// has not implemented this knows nothing about the team's skills, and the
+    /// reconcile reads an empty list as "the team removed everything" and
+    /// clears the agent's skill root — the one interpretation that must never
+    /// be reachable by forgetting to wire something up.
+    async fn team_skills(&self, _team_id: &str) -> BackendResult<Vec<TeamSkillRow>> {
+        Err(BackendError::NotFound(
+            "team skills unavailable on this backend".to_string(),
+        ))
+    }
+
+    /// Resolve one version's package to a short-lived signed URL
+    /// (`GET /v1/teams/:id/skills/:slug/versions/:v/download`).
+    async fn team_skill_download(
+        &self,
+        _team_id: &str,
+        _slug: &str,
+        _version: i64,
+    ) -> BackendResult<TeamSkillDownload> {
+        Err(BackendError::NotFound(
+            "team skill download unavailable on this backend".to_string(),
+        ))
+    }
+
+    /// Tell the server which version this actor is now on
+    /// (`PUT /v1/teams/:id/skills/:slug/install`).
+    ///
+    /// Auto-follow moves packs without anyone asking, so without this the
+    /// server's `installed_version` freezes at whatever was last installed by
+    /// hand and `hasUpdate` stays true forever — the UI then shows a permanent
+    /// "updating…" for a pack that is already current.
+    async fn record_team_skill_install(
+        &self,
+        _team_id: &str,
+        _slug: &str,
+        _version: i64,
+    ) -> BackendResult<()> {
+        Ok(())
     }
 
     /// Idempotently ensure the caller's LiteLLM member key is provisioned via
