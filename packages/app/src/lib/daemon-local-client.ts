@@ -222,6 +222,32 @@ export async function fetchDaemonCloudAuthStatus(): Promise<DaemonCloudAuthStatu
   }
 }
 
+/**
+ * This machine's stable id, as the local daemon reports it (`~/.amuxd/device-id`
+ * via the unauthenticated `/v1/info`). It is the key the Cloud API binds an agent
+ * actor to, so the desktop needs it before the daemon has any cloud session of
+ * its own — which is why it is read from the daemon rather than minted here.
+ *
+ * `null` when the daemon is unreachable or predates the field. Callers must treat
+ * that as "cannot resolve this machine's agent" and surface it, never fall back
+ * to a locally generated id: a fresh id provisions a second agent for a machine
+ * that already has one.
+ */
+export async function fetchDaemonDeviceId(): Promise<string | null> {
+  if (!isTauri()) return null
+  const info = await readDaemonHttpInfo()
+  if (!info) return null
+  try {
+    const resp = await fetch(`${info.base_url}/v1/info`)
+    if (!resp.ok) return null
+    const data: { device_id?: unknown } = await resp.json()
+    const deviceId = typeof data.device_id === 'string' ? data.device_id.trim() : ''
+    return deviceId || null
+  } catch {
+    return null
+  }
+}
+
 // ─── Authenticated fetch ──────────────────────────────────────────────────────
 
 async function daemonFetch<T>(

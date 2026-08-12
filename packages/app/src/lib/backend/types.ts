@@ -685,6 +685,30 @@ export interface ActorsBackend {
   getActorDirectoryEntry(actorId: string): Promise<ActorDirectoryEntry | null>;
   getDaemonAgentDirectoryEntry(teamId: string, agentId: string): Promise<ActorDirectoryEntry | null>;
   listConnectedAgents(teamId: string): Promise<ConnectedAgentRow[]>;
+  /**
+   * This machine's agent in this team, if the caller already owns one. Read-only:
+   * the desktop asks this first so it only interrupts the user for a name when
+   * the machine is genuinely new to the team.
+   */
+  findAgentForDevice(input: {
+    teamId: string;
+    deviceId: string;
+  }): Promise<{ agentId: string | null; displayName: string | null }>;
+  /**
+   * The agent actor bound to this machine in this team — created if absent —
+   * plus a one-shot invite for the local daemon to claim. Idempotent per
+   * (team, deviceId): calling it twice re-binds the same actor instead of
+   * stacking up duplicates, which is what lets login provision an agent with no
+   * user interaction. An agent on this device owned by another account counts as
+   * absent, so a shared machine gets one agent per account.
+   *
+   * `displayName` applies to creation only — a rebind never renames.
+   */
+  ensureAgentForDevice(input: {
+    teamId: string;
+    deviceId: string;
+    displayName: string;
+  }): Promise<{ agentId: string; token: string; expiresAt: string | null; created: boolean }>;
   updateOwnedAgentProfile(input: {
     agentId: string;
     displayName?: string | null;

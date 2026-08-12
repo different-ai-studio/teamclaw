@@ -1,8 +1,17 @@
 use std::fs;
 use std::path::PathBuf;
 
-/// Telemetry-only per-install id (NOT a routing identity). Persisted so two
-/// machines running amuxd for the same actor show as separate version rows.
+/// This machine's stable id. Persisted at `~/.amuxd/device-id`, generated once.
+///
+/// Two roles, and the second one is why it must stay stable: it separates two
+/// machines' rows in client-version telemetry, AND it is the key the Cloud API
+/// binds an agent actor to (`agents.device_id`, unique per team). A rotated id
+/// means the next login silently provisions a second agent for this machine, so
+/// nothing may regenerate this file — note that `amuxd clear` deliberately does
+/// not remove it.
+///
+/// Not to be confused with the webview's `teamclu.client-version.device-id`,
+/// which lives in local storage and is telemetry-only.
 pub fn daemon_device_id() -> String {
     let path = device_id_path();
     if let Some(p) = &path {

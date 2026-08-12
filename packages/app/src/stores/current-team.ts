@@ -243,14 +243,15 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
   switchToTeam: async (teamId: string) => {
     set({ loading: true, error: null });
     const previousUserId = useAuthStore.getState().session?.user?.id ?? null;
-    const previousTeamId = get().team?.id ?? null;
     try {
       await get().enterTeam(teamId);
     } catch (error) {
       set({ loading: false, error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
-    // 4) Tauri：daemon 重新 onboard 到新 team（绑定新 actor/凭证）。
+    // 4) Tauri：daemon 换绑到新 team 的本机 agent（按 device id 找回或新建）。
+    //    换 team 不需要传标记——refresh 看到 mismatch 就会换绑。只有「同一个 team
+    //    但换了 linked account」需要显式要求，因为那种情况 daemon 指向的 team 没变。
     try {
       const { isTauri } = await import("@/lib/utils");
       if (isTauri()) {
@@ -258,7 +259,6 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
         const currentUserId = useAuthStore.getState().session?.user?.id ?? null;
         await useDaemonOnboardingStore.getState().refresh({
           forceIdentityRebind: !!previousUserId && !!currentUserId && previousUserId !== currentUserId,
-          forceTeamRebind: !!previousTeamId && previousTeamId !== teamId,
         });
       }
     } catch (e) {

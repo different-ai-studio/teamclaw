@@ -91,8 +91,17 @@ vi.mock("../SetupWizard", () => ({
 }));
 
 vi.mock("@/stores/daemon-onboarding", () => ({
-  useDaemonOnboardingStore: (selector: (s: { status: string; loaded: boolean; refresh: () => Promise<void> }) => unknown) =>
-    selector({ status: 'ready', loaded: true, refresh: async () => {} }),
+  useDaemonOnboardingStore: (
+    selector: (s: {
+      status: string
+      loaded: boolean
+      refresh: () => Promise<void>
+      pendingName: null
+    }) => unknown,
+  ) =>
+    // pendingName is explicit: a machine already bound has no naming prompt, and
+    // the gate holds while one is pending.
+    selector({ status: 'ready', loaded: true, refresh: async () => {}, pendingName: null }),
 }));
 
 vi.mock("../DaemonOnboardingWizard", () => ({
