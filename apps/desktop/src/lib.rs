@@ -434,6 +434,7 @@ pub fn run() {
             commands::amuxd_supervisor::daemon_stop_managed,
             commands::amuxd_supervisor::daemon_supervisor_status,
             commands::setup::setup_list_requirements,
+            commands::setup::setup_list_agent_runtimes,
             commands::setup::setup_install,
             commands::setup::restart_local_daemon,
             commands::clawhub::clawhub_search,

@@ -740,6 +740,20 @@
     "openAgentSettings": "Open agent settings"
   },
   "onboarding": {
+    "setup": {
+      "title": "Setting up your agent",
+      "developerSubtitle": "Pick the runtime this machine should use.",
+      "guidedSubtitle": "This only takes a moment.",
+      "runtime": "Agent runtime",
+      "install": "Install",
+      "installed": "installed",
+      "installing": "installing…",
+      "ready": "ready",
+      "missing": "not found",
+      "working": "Setting up…",
+      "continue": "Continue",
+      "switchToDeveloper": "Let me choose the runtime instead"
+    },
     "role": {
       "title": "How would you like to set up {{app}}?",
       "subtitle": "You can change any of this later in Settings.",

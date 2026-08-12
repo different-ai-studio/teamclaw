@@ -740,6 +740,20 @@
     "openAgentSettings": "打开 Agent 设置"
   },
   "onboarding": {
+    "setup": {
+      "title": "正在配置本机 agent",
+      "developerSubtitle": "选择这台机器要用的运行时。",
+      "guidedSubtitle": "稍等片刻就好。",
+      "runtime": "Agent 运行时",
+      "install": "安装",
+      "installed": "已安装",
+      "installing": "安装中…",
+      "ready": "就绪",
+      "missing": "未找到",
+      "working": "正在配置…",
+      "continue": "继续",
+      "switchToDeveloper": "我想自己选运行时"
+    },
     "role": {
       "title": "想怎么配置 {{app}}？",
       "subtitle": "这些之后都能在设置里改。",
