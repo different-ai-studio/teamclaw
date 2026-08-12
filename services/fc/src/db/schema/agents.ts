@@ -12,6 +12,12 @@ export const agents = pgTable("agents", {
   ownerMemberId: uuid("owner_member_id").references(() => members.id, { onDelete: "set null" }),
   agentTypes: jsonb("agent_types").notNull().default([]),
   defaultAgentType: text("default_agent_type"),
+  // The machine this agent runs on (the daemon's ~/.amuxd/device-id), and the
+  // team denormalized off actors so that (team_id, device_id) can carry the
+  // unique index enforcing one agent per machine per team. Both are NULL on
+  // agents created before device-scoped binding.
+  deviceId: text("device_id"),
+  teamId: uuid("team_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

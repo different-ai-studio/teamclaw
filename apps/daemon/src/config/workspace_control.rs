@@ -466,10 +466,6 @@ impl OpenCodeCompatStore {
         decode_workspace_path(workspace_id)
     }
 
-    fn opencode_json_path(workspace_path: &std::path::Path) -> PathBuf {
-        workspace_path.join("opencode.json")
-    }
-
     fn teamclu_json_path(workspace_path: &std::path::Path) -> PathBuf {
         // Legacy workspace-root config; brand meta config is resolved separately
         // via teamclu_runtime_env helpers where needed.
@@ -515,12 +511,73 @@ impl OpenCodeCompatStore {
         serde_json::from_str(&content).map_err(|e| WorkspaceControlError::Parse(e.to_string()))
     }
 
+    /// The daemon-owned global config (`~/.amuxd/opencode.json`), which is where
+    /// user-configured providers now live (#742). Missing file reads as empty.
+    fn read_global_opencode_json() -> Result<OpencodeJson, WorkspaceControlError> {
+        let value = teamclu_runtime_env::opencode_config::OpencodeConfigStore::load_global()
+            .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
+        serde_json::from_value(value).map_err(|e| WorkspaceControlError::Parse(e.to_string()))
+    }
+
+    /// Provider view = legacy workspace config, then workspace `opencode.json`
+    /// (which still owns the daemon-reconciled `provider.team`), then the global
+    /// config last so device-level entries win.
+    ///
+    /// Reading the workspace copies keeps pre-#742 installs working with no
+    /// migration step: an entry configured before the cutover stays visible and
+    /// usable until the user re-saves it, at which point it lands globally.
     fn merged_provider_entries(
         workspace_path: &std::path::Path,
     ) -> Result<HashMap<String, OcProviderEntry>, WorkspaceControlError> {
         let mut merged = Self::read_teamclu_json(workspace_path)?.provider;
         merged.extend(Self::read_opencode_json(workspace_path)?.provider);
+        merged.extend(Self::read_global_opencode_json()?.provider);
         Ok(merged)
+    }
+
+    /// Write one provider entry into the global config, leaving every other key
+    /// in that file untouched.
+    fn put_global_provider(
+        provider_id: &str,
+        entry: &OcProviderEntry,
+    ) -> Result<(), WorkspaceControlError> {
+        let entry_value =
+            serde_json::to_value(entry).map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
+        teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply_global(|cfg| {
+            let obj = cfg.as_object_mut().ok_or_else(|| {
+                teamclu_runtime_env::opencode_config::OpencodeConfigError::Parse(
+                    "global opencode.json is not an object".to_owned(),
+                )
+            })?;
+            let providers = obj
+                .entry("provider")
+                .or_insert_with(|| serde_json::Value::Object(Default::default()));
+            let providers = providers.as_object_mut().ok_or_else(|| {
+                teamclu_runtime_env::opencode_config::OpencodeConfigError::Parse(
+                    "global opencode.json `provider` is not an object".to_owned(),
+                )
+            })?;
+            providers.insert(provider_id.to_owned(), entry_value);
+            Ok(true)
+        })
+        .map(|_| ())
+        .map_err(|e| WorkspaceControlError::Io(e.to_string()))
+    }
+
+    /// Remove a provider entry from the global config. Returns without error
+    /// when the file or the entry is absent.
+    fn remove_global_provider(provider_id: &str) -> Result<(), WorkspaceControlError> {
+        teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply_global(|cfg| {
+            let Some(obj) = cfg.as_object_mut() else {
+                return Ok(false);
+            };
+            let Some(providers) = obj.get_mut("provider").and_then(|p| p.as_object_mut()) else {
+                return Ok(false);
+            };
+            Ok(providers.remove(provider_id).is_some())
+        })
+        .map(|_| ())
+        .map_err(|e| WorkspaceControlError::Io(e.to_string()))
     }
 
     fn write_opencode_json(
@@ -586,6 +643,105 @@ impl Default for OpenCodeCompatStore {
     }
 }
 
+/// Fold a save request into the entry to persist, seeded from whatever is
+/// already configured for that provider.
+///
+/// An empty `api_key` means "leave the stored key alone" — the settings UI
+/// sends it that way when the user edits a base URL or model list without
+/// re-typing their secret.
+fn build_provider_entry(
+    seed: Option<OcProviderEntry>,
+    req: ProviderAuthRequest,
+) -> Result<OcProviderEntry, WorkspaceControlError> {
+    let mut entry = seed.unwrap_or_default();
+
+    let api_key = if req.api_key.trim().is_empty() {
+        entry
+            .options
+            .get("apiKey")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_owned()
+    } else {
+        req.api_key
+    };
+    if api_key.trim().is_empty() {
+        return Err(WorkspaceControlError::InvalidInput(
+            "api_key must not be empty".to_owned(),
+        ));
+    }
+
+    if let Some(name) = req.display_name.as_ref() {
+        entry.name = Some(name.clone());
+    }
+    if entry.npm.is_none() && (req.display_name.is_some() || req.base_url.is_some()) {
+        entry.npm = Some("@ai-sdk/openai-compatible".to_owned());
+    }
+    entry
+        .options
+        .insert("apiKey".to_owned(), serde_json::Value::String(api_key));
+    if let Some(base_url) = req.base_url {
+        entry
+            .options
+            .insert("baseURL".to_owned(), serde_json::Value::String(base_url));
+    }
+    for model in req.models {
+        let model_val = serde_json::json!({
+            "name": model.model_name.unwrap_or_else(|| model.model_id.clone()),
+        });
+        entry.models.insert(model.model_id, model_val);
+    }
+    Ok(entry)
+}
+
+/// Device-level provider API (#742) — no workspace involved.
+///
+/// This is what lets the desktop configure a model provider *before* a
+/// workspace exists, which first-run onboarding needs: the user picks a
+/// provider and pastes a key on their way in, long before any project
+/// directory has been resolved.
+///
+/// Unlike the workspace-scoped view these functions deliberately do NOT merge
+/// the daemon-reconciled `provider.team` entry: team credentials are not the
+/// user's to configure, and there is no team context here anyway.
+pub fn device_providers() -> Result<Vec<ProviderInfo>, WorkspaceControlError> {
+    let entries = OpenCodeCompatStore::read_global_opencode_json()?.provider;
+    Ok(entries
+        .iter()
+        .map(|(id, entry)| ProviderInfo {
+            id: id.clone(),
+            display_name: entry.name.clone().unwrap_or_else(|| id.clone()),
+            authenticated: OpenCodeCompatStore::provider_entry_authenticated(entry),
+            base_url: entry
+                .options
+                .get("baseURL")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned),
+            models: entry.models.keys().cloned().collect(),
+        })
+        .collect())
+}
+
+pub fn put_device_provider_auth(
+    provider_id: &str,
+    req: ProviderAuthRequest,
+) -> Result<ApplyOutcome, WorkspaceControlError> {
+    let seed = OpenCodeCompatStore::read_global_opencode_json()?
+        .provider
+        .get(provider_id)
+        .cloned();
+    let entry = build_provider_entry(seed, req)?;
+    OpenCodeCompatStore::put_global_provider(provider_id, &entry)?;
+    Ok(ApplyOutcome::RestartRequired)
+}
+
+pub fn delete_device_provider_auth(
+    provider_id: &str,
+) -> Result<ApplyOutcome, WorkspaceControlError> {
+    OpenCodeCompatStore::remove_global_provider(provider_id)?;
+    Ok(ApplyOutcome::RestartRequired)
+}
+
 impl WorkspaceControlStore for OpenCodeCompatStore {
     fn get_providers(
         &self,
@@ -625,54 +781,17 @@ impl WorkspaceControlStore for OpenCodeCompatStore {
     ) -> Result<ApplyOutcome, WorkspaceControlError> {
         let wpath = self.workspace_path(workspace_id)?;
         let _lock = self.write_lock.lock().unwrap();
-        let mut cfg = Self::read_opencode_json(&wpath)?;
-        let merged = Self::merged_provider_entries(&wpath)?;
-
-        let mut entry = merged
+        // Seed from the merged view so a pre-#742 workspace entry is carried
+        // forward (base URL, model list) rather than silently reset when the
+        // user re-saves it into the global config.
+        let seed = Self::merged_provider_entries(&wpath)?
             .get(provider_id)
-            .cloned()
-            .or_else(|| cfg.provider.get(provider_id).cloned())
-            .unwrap_or_default();
+            .cloned();
+        let entry = build_provider_entry(seed, req)?;
 
-        let api_key = if req.api_key.trim().is_empty() {
-            entry
-                .options
-                .get("apiKey")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_owned()
-        } else {
-            req.api_key
-        };
-        if api_key.trim().is_empty() {
-            return Err(WorkspaceControlError::InvalidInput(
-                "api_key must not be empty".to_owned(),
-            ));
-        }
-
-        if let Some(name) = req.display_name.as_ref() {
-            entry.name = Some(name.clone());
-        }
-        if entry.npm.is_none() && (req.display_name.is_some() || req.base_url.is_some()) {
-            entry.npm = Some("@ai-sdk/openai-compatible".to_owned());
-        }
-        entry
-            .options
-            .insert("apiKey".to_owned(), serde_json::Value::String(api_key));
-        if let Some(base_url) = req.base_url {
-            entry
-                .options
-                .insert("baseURL".to_owned(), serde_json::Value::String(base_url));
-        }
-        for model in req.models {
-            let model_val = serde_json::json!({
-                "name": model.model_name.unwrap_or_else(|| model.model_id.clone()),
-            });
-            entry.models.insert(model.model_id, model_val);
-        }
-
-        cfg.provider.insert(provider_id.to_owned(), entry);
-        Self::write_opencode_json(&wpath, &cfg)?;
+        // #742: provider credentials are device-level, never per-workspace — the
+        // workspace copy is a git repo and used to leak API keys into commits.
+        Self::put_global_provider(provider_id, &entry)?;
         Ok(ApplyOutcome::RestartRequired)
     }
 
@@ -683,10 +802,14 @@ impl WorkspaceControlStore for OpenCodeCompatStore {
     ) -> Result<ApplyOutcome, WorkspaceControlError> {
         let wpath = self.workspace_path(workspace_id)?;
         let _lock = self.write_lock.lock().unwrap();
-        let mut cfg = Self::read_opencode_json(&wpath)?;
+        Self::remove_global_provider(provider_id)?;
 
-        cfg.provider.remove(provider_id);
-        Self::write_opencode_json(&wpath, &cfg)?;
+        // Also drop a pre-#742 workspace entry, otherwise the merged view would
+        // resurrect the provider the user just disconnected.
+        let mut cfg = Self::read_opencode_json(&wpath)?;
+        if cfg.provider.remove(provider_id).is_some() {
+            Self::write_opencode_json(&wpath, &cfg)?;
+        }
         Ok(ApplyOutcome::RestartRequired)
     }
 
@@ -1001,6 +1124,28 @@ mod tests {
         OpenCodeCompatStore::new()
     }
 
+    /// Point the device-level global config (#742) at a throwaway home.
+    ///
+    /// Without this, provider tests read and write the developer's real
+    /// `~/.amuxd/opencode.json` — they would leak into each other and their
+    /// results would depend on whatever that machine happens to have
+    /// configured. The inner guard holds `TEST_HOME_LOCK`, so these tests also
+    /// serialize against every other test that moves `HOME` / `AMUXD_HOME` /
+    /// the brand name.
+    struct GlobalConfigIsolation {
+        _guard: crate::test_brand_env::BrandEnvGuard,
+        _home: tempfile::TempDir,
+    }
+
+    fn isolate_global_config() -> GlobalConfigIsolation {
+        let home = tempfile::tempdir().unwrap();
+        let guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(home.path());
+        GlobalConfigIsolation {
+            _guard: guard,
+            _home: home,
+        }
+    }
+
     /// Encode an absolute path as a base64url workspace ID (mirrors the
     /// frontend `encodeWorkspaceId` helper in daemon-local-client.ts).
     fn ws_id(path: &std::path::Path) -> String {
@@ -1010,6 +1155,7 @@ mod tests {
 
     #[test]
     fn get_providers_empty_workspace_returns_empty_list() {
+        let _iso = isolate_global_config();
         let dir = tempfile::tempdir().unwrap();
         let store = make_store();
         let providers = store.get_providers(&ws_id(dir.path())).unwrap();
@@ -1018,6 +1164,7 @@ mod tests {
 
     #[test]
     fn get_providers_merges_teamclu_json_with_opencode() {
+        let _iso = isolate_global_config();
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::write(
@@ -1059,6 +1206,7 @@ mod tests {
 
     #[test]
     fn put_provider_auth_creates_entry_and_get_returns_it() {
+        let _iso = isolate_global_config();
         let dir = tempfile::tempdir().unwrap();
         let store = make_store();
         let wid = ws_id(dir.path());
@@ -1093,6 +1241,7 @@ mod tests {
 
     #[test]
     fn put_provider_auth_merges_existing_teamclu_provider_when_connecting_api_key() {
+        let _iso = isolate_global_config();
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::write(
@@ -1134,13 +1283,20 @@ mod tests {
         );
         assert!(scnet.models.contains(&"MiniMax-M2.5".to_owned()));
 
-        let opencode = std::fs::read_to_string(root.join("opencode.json")).unwrap();
-        assert!(opencode.contains("sk-live"));
-        assert!(!opencode.contains("@ai-sdk/openai-compatible"));
+        // #742: the key lands in the device-level config, and the workspace —
+        // which is usually a git repo — is left alone entirely.
+        assert!(!root.join("opencode.json").exists());
+        let global = std::fs::read_to_string(
+            teamclu_runtime_env::opencode_config::global_opencode_config_path(),
+        )
+        .unwrap();
+        assert!(global.contains("sk-live"));
+        assert!(!global.contains("@ai-sdk/openai-compatible"));
     }
 
     #[test]
     fn put_provider_auth_preserves_existing_api_key_when_update_omits_it() {
+        let _iso = isolate_global_config();
         let dir = tempfile::tempdir().unwrap();
         let store = make_store();
         let wid = ws_id(dir.path());
@@ -1190,6 +1346,7 @@ mod tests {
 
     #[test]
     fn delete_provider_auth_removes_entry() {
+        let _iso = isolate_global_config();
         let dir = tempfile::tempdir().unwrap();
         let store = make_store();
         let wid = ws_id(dir.path());
@@ -1210,6 +1367,129 @@ mod tests {
         store.delete_provider_auth(&wid, "to-remove").unwrap();
         let providers = store.get_providers(&wid).unwrap();
         assert!(providers.is_empty());
+    }
+
+    /// #742: the whole point of the change. An API key must never land in the
+    /// workspace, which is typically a git repo.
+    #[test]
+    fn put_provider_auth_writes_globally_not_into_the_workspace() {
+        let home = tempfile::tempdir().unwrap();
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(home.path());
+        let dir = tempfile::tempdir().unwrap();
+        let store = make_store();
+
+        store
+            .put_provider_auth(
+                &ws_id(dir.path()),
+                "my-llm",
+                ProviderAuthRequest {
+                    api_key: "sk-secret".to_owned(),
+                    base_url: None,
+                    display_name: None,
+                    models: vec![],
+                },
+            )
+            .unwrap();
+
+        assert!(
+            !dir.path().join("opencode.json").exists(),
+            "provider auth must not create a workspace opencode.json"
+        );
+        let global = std::fs::read_to_string(home.path().join("opencode.json")).unwrap();
+        assert!(global.contains("sk-secret"));
+    }
+
+    /// The device-level API is what first-run onboarding uses, so it has to work
+    /// with no workspace anywhere in sight.
+    #[test]
+    fn device_provider_auth_round_trips_without_a_workspace() {
+        let _iso = isolate_global_config();
+
+        assert!(device_providers().unwrap().is_empty());
+
+        put_device_provider_auth(
+            "my-llm",
+            ProviderAuthRequest {
+                api_key: "sk-device".to_owned(),
+                base_url: Some("https://api.example.com/v1".to_owned()),
+                display_name: Some("My LLM".to_owned()),
+                models: vec![ProviderModelConfig {
+                    model_id: "gpt-4".to_owned(),
+                    model_name: Some("GPT-4".to_owned()),
+                }],
+            },
+        )
+        .unwrap();
+
+        let providers = device_providers().unwrap();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].id, "my-llm");
+        assert_eq!(providers[0].display_name, "My LLM");
+        assert!(providers[0].authenticated);
+        assert!(providers[0].models.contains(&"gpt-4".to_owned()));
+
+        delete_device_provider_auth("my-llm").unwrap();
+        assert!(device_providers().unwrap().is_empty());
+    }
+
+    /// Team credentials are daemon-reconciled and not the user's to configure,
+    /// so the device-level list must not surface them.
+    #[test]
+    fn device_providers_excludes_the_workspace_team_entry() {
+        let _iso = isolate_global_config();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("opencode.json"),
+            r#"{ "provider": { "team": { "options": { "apiKey": "sk-team" } } } }"#,
+        )
+        .unwrap();
+
+        put_device_provider_auth(
+            "mine",
+            ProviderAuthRequest {
+                api_key: "sk-mine".to_owned(),
+                base_url: None,
+                display_name: None,
+                models: vec![],
+            },
+        )
+        .unwrap();
+
+        let device = device_providers().unwrap();
+        assert_eq!(device.len(), 1);
+        assert_eq!(device[0].id, "mine");
+
+        // The workspace-scoped view still shows both.
+        let store = make_store();
+        let ids: Vec<_> = store
+            .get_providers(&ws_id(dir.path()))
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        assert!(ids.contains(&"team".to_owned()));
+        assert!(ids.contains(&"mine".to_owned()));
+    }
+
+    /// A provider configured before the cutover stays usable, and disconnecting
+    /// it does not leave the stale workspace entry behind to resurrect it.
+    #[test]
+    fn delete_provider_auth_also_clears_a_pre_migration_workspace_entry() {
+        let _iso = isolate_global_config();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("opencode.json"),
+            r#"{ "provider": { "legacy": { "options": { "apiKey": "sk-old" } } } }"#,
+        )
+        .unwrap();
+        let store = make_store();
+        let wid = ws_id(root);
+
+        assert_eq!(store.get_providers(&wid).unwrap().len(), 1);
+
+        store.delete_provider_auth(&wid, "legacy").unwrap();
+        assert!(store.get_providers(&wid).unwrap().is_empty());
     }
 
     #[test]
@@ -1363,17 +1643,22 @@ mod tests {
 
     #[test]
     fn opencode_json_round_trip_preserves_unknown_fields() {
+        let _iso = isolate_global_config();
         let dir = tempfile::tempdir().unwrap();
         let wid = ws_id(dir.path());
 
-        let json = serde_json::json!({
-            "provider": {},
-            "someOtherKey": "preserved",
-            "mcp": { "server1": {} }
-        });
+        // Since #742 this is a property of the *global* config: saving a
+        // provider must not disturb anything else daemon or user put there.
+        let global_path = teamclu_runtime_env::opencode_config::global_opencode_config_path();
+        std::fs::create_dir_all(global_path.parent().unwrap()).unwrap();
         std::fs::write(
-            dir.path().join("opencode.json"),
-            serde_json::to_string_pretty(&json).unwrap(),
+            &global_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "provider": {},
+                "someOtherKey": "preserved",
+                "mcp": { "server1": {} }
+            }))
+            .unwrap(),
         )
         .unwrap();
 
@@ -1391,10 +1676,11 @@ mod tests {
             )
             .unwrap();
 
-        let content = std::fs::read_to_string(dir.path().join("opencode.json")).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&global_path).unwrap()).unwrap();
         assert_eq!(parsed["someOtherKey"], "preserved");
         assert_eq!(parsed["mcp"]["server1"], serde_json::json!({}));
+        assert_eq!(parsed["provider"]["p1"]["options"]["apiKey"], "sk");
     }
 
     #[test]
@@ -1440,6 +1726,7 @@ mod tests {
 
     #[test]
     fn put_mcp_preserves_other_opencode_json_sections() {
+        let _iso = isolate_global_config();
         let dir = tempfile::tempdir().unwrap();
         let store = make_store();
         let wid = ws_id(dir.path());

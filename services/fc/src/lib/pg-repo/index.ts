@@ -42,7 +42,24 @@ export function createPgBusinessRepository({ db, accessToken, userId, callerActo
   const workspacesRepo = makeWorkspacesRepo(db);
   const shortcutsRepo = makeShortcutsRepo(db, ctx);
   const actorsRepo = makeActorsRepo(db, ctx);
-  const agentsRepo = makeAgentsRepo(db, ctx);
+  // mintAgentInvite is injected so the agents repo can hand device binding its
+  // one-shot invite without importing the teams repo — the owner check on
+  // targetActorId stays in createTeamInvite alone.
+  const agentsRepo = makeAgentsRepo(db, {
+    ...ctx,
+    mintAgentInvite: (teamId, input) =>
+      teamsRepo.createTeamInvite(
+        teamId,
+        {
+          kind: "agent",
+          agentKind: "claude",
+          displayName: input.displayName,
+          targetActorId: input.targetActorId,
+          ttlSeconds: input.ttlSeconds,
+        },
+        teamsCtx,
+      ),
+  });
   const appsRepo = makeAppsRepo(db, ctx, { startDeploy, finalizeDeploy });
   const heartbeatRepo = makeHeartbeatRepo(db, ctx);
   const notificationsRepo = makeNotificationsRepo(db, ctx);

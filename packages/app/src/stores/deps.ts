@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
-import { loadFromStorage, saveToStorage } from '@/lib/storage'
 import { appStoragePrefix } from '@/lib/build-config'
 
 export interface DependencyInfo {
@@ -38,76 +37,6 @@ interface DepInstallProgressEvent {
   status: 'started' | 'installing' | 'done' | 'failed'
   outputLine?: string | null
   error?: string | null
-}
-
-// ─── Persistent setup status ─────────────────────────────────────────────────
-
-const DEPS_SETUP_KEY = `${appStoragePrefix}-deps-setup-status`
-/** First-run welcome screen seen flag (shown once, before dependency setup). */
-const WELCOME_SEEN_KEY = `${appStoragePrefix}-welcome-seen`
-/** Re-check interval: 24 hours */
-const RECHECK_TTL_MS = 24 * 60 * 60 * 1000
-
-/** Whether the first-run welcome screen has already been dismissed. */
-export function hasSeenWelcome(): boolean {
-  return loadFromStorage<boolean>(WELCOME_SEEN_KEY, false)
-}
-
-/** Mark the first-run welcome screen as seen (called on "Get started"). */
-export function markWelcomeSeen(): void {
-  saveToStorage(WELCOME_SEEN_KEY, true)
-}
-
-interface DepsSetupStatus {
-  /** Whether user has completed or skipped the setup guide */
-  setupCompleted: boolean
-  /** Timestamp of last dependency check */
-  lastCheckAt: number
-  /** Snapshot of last check: dep name → installed */
-  lastCheckResults: Record<string, boolean>
-}
-
-function loadSetupStatus(): DepsSetupStatus | null {
-  return loadFromStorage<DepsSetupStatus | null>(DEPS_SETUP_KEY, null)
-}
-
-function saveSetupStatus(status: DepsSetupStatus): void {
-  saveToStorage(DEPS_SETUP_KEY, status)
-}
-
-/** Mark setup as completed (called when user skips or finishes install). */
-export function markSetupCompleted(): void {
-  const existing = loadSetupStatus()
-  saveSetupStatus({
-    setupCompleted: true,
-    lastCheckAt: existing?.lastCheckAt ?? Date.now(),
-    lastCheckResults: existing?.lastCheckResults ?? {},
-  })
-}
-
-/**
- * Determine whether the setup guide should be shown.
- * Returns:
- *  - 'show'        — first launch or required deps missing
- *  - 'skip'        — user already completed setup and cache is fresh
- *  - 'silent-check' — cache is stale, re-check silently in background
- */
-export function getSetupDecision(): 'show' | 'skip' | 'silent-check' {
-  // Debug mode: always show
-  if (isDebugForceSetup()) return 'show'
-
-  const status = loadSetupStatus()
-
-  // Never completed setup → always show (will be gated by actual check result)
-  if (!status || !status.setupCompleted) return 'show'
-
-  const age = Date.now() - status.lastCheckAt
-
-  // Setup completed and cache is fresh → skip
-  if (age < RECHECK_TTL_MS) return 'skip'
-
-  // Setup completed but cache is stale → re-check silently
-  return 'silent-check'
 }
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -207,19 +136,6 @@ export const useDepsStore = create<DepsState>((set, get) => ({
       const { invoke } = await import('@tauri-apps/api/core')
       const result = await invoke<DependencyInfo[]>('check_dependencies')
       set({ dependencies: result, checked: true, loading: false })
-
-      // Persist check results to localStorage (preserves setupCompleted flag)
-      const existing = loadSetupStatus()
-      const snapshot: Record<string, boolean> = {}
-      for (const dep of result) {
-        snapshot[dep.name] = dep.installed
-      }
-      saveSetupStatus({
-        setupCompleted: existing?.setupCompleted ?? false,
-        lastCheckAt: Date.now(),
-        lastCheckResults: snapshot,
-      })
-
       return result
     } catch (err) {
       console.error('[DepsStore] Failed to check dependencies:', err)

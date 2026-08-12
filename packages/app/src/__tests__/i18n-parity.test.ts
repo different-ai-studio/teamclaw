@@ -77,7 +77,14 @@ for (const m of sourceBlob.matchAll(/i18nKey=['"]([\w]+(?:\.[\w]+)+)['"]/g)) ref
 for (const m of sourceBlob.matchAll(/\b(?:title|desc|label)Key:\s*['"]([\w]+(?:\.[\w]+)+)['"]/g)) referencedStrict.add(m[1])
 
 // Keys built dynamically as t(`prefix.${x}`) — list the static prefixes here.
-const DYNAMIC_PREFIXES = ['actors.role.', 'setupWizard.deps.']
+const DYNAMIC_PREFIXES = [
+  'actors.role.',
+  'setupWizard.deps.',
+  // Keyed by OnboardingStep at the call site (#881).
+  'settings.daemonOnboarding.steps.',
+  'settings.daemonOnboarding.slowHint.',
+  'settings.daemonOnboarding.recovery.',
+]
 // i18next plural/context suffixes resolve from the base key at runtime.
 const PLURAL_SUFFIX = /_(plural|one|two|few|many|other|zero|\d+)$/
 

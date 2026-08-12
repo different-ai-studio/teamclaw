@@ -274,8 +274,9 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
       set({ loading: false, error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
-    // 4) Tauri：refresh daemon onboarding. A team mismatch surfaces the
-    // create-or-bind wizard instead of silently provisioning a new agent.
+    // 4) Tauri：daemon 换绑到新 team 的本机 agent（按 device id 找回或新建）。
+    //    换 team 不需要传标记——refresh 看到 mismatch 就会换绑。只有「同一个 team
+    //    但换了 linked account」需要显式要求，因为那种情况 daemon 指向的 team 没变。
     try {
       const { isTauri } = await import("@/lib/utils");
       if (isTauri()) {

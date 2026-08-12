@@ -295,6 +295,50 @@ fn merge_live_provider_catalog(providers: &mut Vec<ProviderInfo>, catalog: &Live
     }
 }
 
+/// `GET /v1/providers`
+///
+/// Device-level provider list (#742). No workspace, and no daemon-managed
+/// `provider.team` entry — just what this user configured on this machine.
+pub async fn get_device_providers(
+    principal: Principal,
+    State(_state): State<HttpState>,
+) -> Result<Json<Vec<ProviderInfo>>, HttpError> {
+    require_scope(&principal, "workspace:read")?;
+    crate::config::workspace_control::device_providers()
+        .map(Json)
+        .map_err(map_control_err)
+}
+
+/// `POST /v1/providers/:provider_id/auth`
+///
+/// Save provider credentials without a workspace — what first-run onboarding
+/// uses to configure a model before any project directory exists. No runtime
+/// reload: there is no workspace whose runtime we could reload, and a runtime
+/// started later reads the config at spawn time anyway.
+pub async fn put_device_provider_auth(
+    principal: Principal,
+    State(_state): State<HttpState>,
+    Path(provider_id): Path<String>,
+    Json(body): Json<ProviderAuthRequest>,
+) -> Result<(StatusCode, Json<ApplyResponse>), HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let outcome = crate::config::workspace_control::put_device_provider_auth(&provider_id, body)
+        .map_err(map_control_err)?;
+    Ok((StatusCode::OK, apply_ok(outcome)))
+}
+
+/// `DELETE /v1/providers/:provider_id/auth`
+pub async fn delete_device_provider_auth(
+    principal: Principal,
+    State(_state): State<HttpState>,
+    Path(provider_id): Path<String>,
+) -> Result<(StatusCode, Json<ApplyResponse>), HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let outcome = crate::config::workspace_control::delete_device_provider_auth(&provider_id)
+        .map_err(map_control_err)?;
+    Ok((StatusCode::OK, apply_ok(outcome)))
+}
+
 /// `POST /v1/workspaces/:id/providers/:provider_id/auth`
 ///
 /// Creates or replaces the authentication credentials for a provider entry.

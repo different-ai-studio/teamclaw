@@ -110,6 +110,18 @@ pub fn build(state: HttpState) -> Router {
         // App build: pnpm build + zip `.output`, upload artifact to a presigned
         // OSS PUT URL. Kicked by the cloud deploy orchestration.
         .route("/v1/apps/build", post(apps::build_app))
+        // Device-level provider config (#742). Credentials are per-machine, not
+        // per-workspace, so these need no workspace id — which is what lets
+        // first-run onboarding configure a model before a project is chosen.
+        .route(
+            "/v1/providers",
+            get(workspaces::get_device_providers),
+        )
+        .route(
+            "/v1/providers/:provider_id/auth",
+            post(workspaces::put_device_provider_auth)
+                .delete(workspaces::delete_device_provider_auth),
+        )
         // Workspace control-plane APIs (Phase B/C)
         .route(
             "/v1/workspaces/:id/providers",
@@ -248,6 +260,11 @@ struct InfoBody {
     uptime_seconds: i64,
     actor_id: String,
     backend_kind: String,
+    /// This machine's stable id (`~/.amuxd/device-id`). The desktop reads it here
+    /// and passes it to `POST /v1/teams/:id/agents/ensure-for-device`, which is
+    /// how a login resolves "the agent for this machine" without asking the user.
+    /// Served on the un-onboarded daemon too — that is exactly when it is needed.
+    device_id: String,
     /// Cloud-auth session health. Omitted when the backend exposes no auth
     /// surface (e.g. focused tests). `status: "expired"` means the refresh
     /// token was terminally rejected and the daemon needs re-onboarding — the
@@ -291,6 +308,7 @@ async fn info_handler(State(state): State<HttpState>) -> Json<InfoBody> {
         uptime_seconds: uptime,
         actor_id: state.meta.actor_id.clone(),
         backend_kind: state.meta.backend_kind.clone(),
+        device_id: state.meta.device_id.clone(),
         cloud_auth,
         configured_agent_types: state.meta.configured_agent_types.clone(),
         agent_types_advertise: state.meta.agent_types_advertise.lock().clone(),

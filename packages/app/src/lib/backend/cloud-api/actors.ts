@@ -130,6 +130,22 @@ export function createActorsModule(client: CloudApiClient): ActorsBackend {
       const out = await client.get<{ items: CloudConnectedAgent[] }>(`/v1/teams/${encodeURIComponent(teamId)}/agents/connected`);
       return out.items.map((row) => mapConnectedAgent(row, teamId));
     },
+    async findAgentForDevice(input) {
+      return await client.get<{ agentId: string | null; displayName: string | null }>(
+        `/v1/teams/${encodeURIComponent(input.teamId)}/agents/for-device?deviceId=${encodeURIComponent(input.deviceId)}`,
+      );
+    },
+    async ensureAgentForDevice(input) {
+      return await client.post<{
+        agentId: string;
+        token: string;
+        expiresAt: string | null;
+        created: boolean;
+      }>(`/v1/teams/${encodeURIComponent(input.teamId)}/agents/ensure-for-device`, {
+        deviceId: input.deviceId,
+        displayName: input.displayName,
+      });
+    },
     async updateOwnedAgentProfile(input) {
       await client.patch<void>(`/v1/agents/${encodeURIComponent(input.agentId)}`, {
         displayName: input.displayName ?? null,

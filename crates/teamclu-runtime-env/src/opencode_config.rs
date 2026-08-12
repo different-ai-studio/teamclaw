@@ -28,6 +28,20 @@ pub fn opencode_config_path(workspace: &Path) -> PathBuf {
     workspace.join(OPENCODE_JSON)
 }
 
+/// The daemon-owned global opencode config (`~/.amuxd/opencode.json`, or the
+/// white-label equivalent).
+///
+/// This file is amuxd's alone — it is injected into opencode via
+/// `OPENCODE_CONFIG`, which loads it as an *additional* global-scope config
+/// after the standard global chain, so it wins over the user's hand-edited
+/// `~/.config/opencode/opencode.json`. We deliberately never write to that
+/// user file: it holds their own `plugin` config, and this store's
+/// `recover_leading_object` path exists because config files here have been
+/// corrupted by partial writes before.
+pub fn global_opencode_config_path() -> PathBuf {
+    crate::amuxd_home_from_env().join(OPENCODE_JSON)
+}
+
 /// Relative overlay path for the given brand (`{meta}/opencode.runtime.json`).
 pub fn runtime_overlay_rel(brand_short_name: &str) -> String {
     format!(
@@ -53,14 +67,23 @@ impl OpencodeConfigStore {
     /// Load `opencode.json` as a JSON object, recovering a leading object when
     /// trailing garbage is present (non-atomic partial writes).
     pub fn load(workspace: &Path) -> Result<Value, OpencodeConfigError> {
-        let path = opencode_config_path(workspace);
+        Self::load_at(&opencode_config_path(workspace))
+    }
+
+    /// [`load`] against the daemon-owned global config.
+    pub fn load_global() -> Result<Value, OpencodeConfigError> {
+        Self::load_at(&global_opencode_config_path())
+    }
+
+    /// Load an explicit config path. Missing file reads as an empty object.
+    pub fn load_at(path: &Path) -> Result<Value, OpencodeConfigError> {
         if !path.exists() {
             return Ok(Value::Object(Default::default()));
         }
-        let content = std::fs::read_to_string(&path).map_err(|e| OpencodeConfigError::Io(e.to_string()))?;
+        let content = std::fs::read_to_string(path).map_err(|e| OpencodeConfigError::Io(e.to_string()))?;
         match serde_json::from_str::<Value>(&content) {
             Ok(value) => Ok(value),
-            Err(err) => Self::recover_leading_object(&path, &content, err),
+            Err(err) => Self::recover_leading_object(path, &content, err),
         }
     }
 
@@ -81,22 +104,46 @@ impl OpencodeConfigStore {
     where
         F: FnOnce(&mut Value) -> Result<bool, OpencodeConfigError>,
     {
-        let path = opencode_config_path(workspace);
-        let write_lock = atomic_write::opencode_write_lock(&path);
+        Self::apply_at(&opencode_config_path(workspace), mutator)
+    }
+
+    /// [`apply`] against the daemon-owned global config.
+    pub fn apply_global<F>(mutator: F) -> Result<bool, OpencodeConfigError>
+    where
+        F: FnOnce(&mut Value) -> Result<bool, OpencodeConfigError>,
+    {
+        Self::apply_at(&global_opencode_config_path(), mutator)
+    }
+
+    /// Read-modify-write an explicit config path under its write lock.
+    pub fn apply_at<F>(path: &Path, mutator: F) -> Result<bool, OpencodeConfigError>
+    where
+        F: FnOnce(&mut Value) -> Result<bool, OpencodeConfigError>,
+    {
+        let write_lock = atomic_write::opencode_write_lock(path);
         let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let mut config = Self::load(workspace)?;
+        let mut config = Self::load_at(path)?;
         if !mutator(&mut config)? {
             return Ok(false);
         }
-        Self::write_value_at(&path, &config)?;
+        Self::write_value_at(path, &config)?;
         Ok(true)
     }
 
     pub fn write_value(workspace: &Path, value: &Value) -> Result<(), OpencodeConfigError> {
-        let path = opencode_config_path(workspace);
-        let write_lock = atomic_write::opencode_write_lock(&path);
+        Self::write_value_locked_at(&opencode_config_path(workspace), value)
+    }
+
+    /// [`write_value`] against the daemon-owned global config.
+    pub fn write_value_global(value: &Value) -> Result<(), OpencodeConfigError> {
+        Self::write_value_locked_at(&global_opencode_config_path(), value)
+    }
+
+    /// Write an explicit config path under its write lock.
+    pub fn write_value_locked_at(path: &Path, value: &Value) -> Result<(), OpencodeConfigError> {
+        let write_lock = atomic_write::opencode_write_lock(path);
         let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
-        Self::write_value_at(&path, value)
+        Self::write_value_at(path, value)
     }
 
     pub fn write_raw(path: &Path, content: &str) -> Result<(), OpencodeConfigError> {

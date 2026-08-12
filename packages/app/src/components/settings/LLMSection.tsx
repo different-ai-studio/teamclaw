@@ -31,6 +31,7 @@ import {
   ensureLocalDaemonCatalog,
   useLocalDaemonCatalogStore,
 } from '@/stores/local-daemon-catalog-store'
+import { MAINSTREAM_PROVIDER_IDS } from '@/lib/mainstream-providers'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -44,16 +45,6 @@ import {
 } from '@/components/ui/dialog'
 import { SettingCard, SectionHeader } from './shared'
 
-const MAINSTREAM_PROVIDER_IDS = new Set([
-  'anthropic',
-  'openai',
-  'google',
-  'deepseek',
-  'ollama',
-  'alibaba',
-  'alibaba-cn',
-  'zhipuai',
-])
 
 type OpenAICompatibleModel = {
   id: string

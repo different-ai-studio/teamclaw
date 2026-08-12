@@ -9,6 +9,10 @@ mod claude_install;
 mod config;
 #[path = "../../src/cursor_install/mod.rs"]
 mod cursor_install;
+// `http::server` reports this machine's id on /v1/info; an integration test's
+// crate root only has the modules it declares here.
+#[path = "../../src/device_id.rs"]
+mod device_id;
 #[path = "../../src/error.rs"]
 mod error;
 #[path = "../../src/http/mod.rs"]

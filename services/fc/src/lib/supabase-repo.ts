@@ -2688,6 +2688,51 @@ export function createSupabaseBusinessRepository(options) {
       return { items };
     },
 
+    async findAgentForDevice(teamId, input) {
+      const { data, error } = await supabase.rpc("find_agent_for_device", {
+        p_team_id: teamId,
+        p_device_id: input.deviceId,
+      });
+      if (error) throw error;
+      // Zero rows is the normal "this machine is new here" answer, not a fault.
+      const row = Array.isArray(data) ? data[0] : data;
+      return {
+        agentId: row?.agent_id ?? null,
+        displayName: row?.display_name ?? null,
+      };
+    },
+
+    async ensureAgentForDevice(teamId, input) {
+      // The RPC owns the whole decision: advisory lock on (team, device), find
+      // the caller-owned agent for this machine or create it (visibility comes
+      // from the column default, 'personal'), then mint the one-shot invite by
+      // delegating to create_team_invite. Doing the lookup here instead would
+      // need device_id exposed through list_connected_agents, which would hand
+      // every team member a fingerprint of everyone else's machines.
+      const { data, error } = await supabase.rpc("ensure_agent_for_device", {
+        p_team_id: teamId,
+        p_device_id: input.deviceId,
+        p_display_name: input.displayName,
+      });
+      if (error) {
+        if (error.code === "22023") {
+          throw new ApiError(400, "validation_failed", error.message ?? "invalid device agent request");
+        }
+        // 42501: the caller is not a member of this team.
+        if (error.code === "42501") {
+          throw new ApiError(403, "forbidden", error.message ?? "team membership required");
+        }
+        throw error;
+      }
+      const row = requiredRow(data, "actors.ensureAgentForDevice");
+      return {
+        agentId: requiredString(row.agent_id, "actors.ensureAgentForDevice", "agent_id"),
+        token: requiredString(row.token, "actors.ensureAgentForDevice", "token"),
+        expiresAt: row.expires_at ?? null,
+        created: row.created === true,
+      };
+    },
+
     async shareAgentToTeam(agentActorId) {
       const { error } = await supabase.rpc("share_agent_to_team", { p_agent_id: agentActorId });
       if (error) throw error;
