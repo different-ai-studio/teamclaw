@@ -116,7 +116,9 @@ fn load_team_env_from_secrets_dir_detailed(
         return Ok(TeamEnvLoadDiagnostics::default());
     }
 
-    let key = derive_key(env_secret)?;
+    // Validate the team secret shape up front; per-file decrypt uses
+    // `decrypt_secret_for_team` so pre-rename (teamclaw salt) envelopes still open.
+    derive_key(env_secret)?;
     let mut loaded = TeamEnvLoadDiagnostics::default();
     for entry in std::fs::read_dir(secrets_dir)? {
         let path = match entry {
@@ -152,7 +154,7 @@ fn load_team_env_from_secrets_dir_detailed(
                 continue;
             }
         };
-        let secret = match team_crypto::decrypt_secret(&envelope, &key) {
+        let secret = match team_crypto::decrypt_secret_for_team(&envelope, env_secret) {
             Ok(secret) => secret,
             Err(e) => {
                 warn!(path = %path.display(), "failed to decrypt team secret file: {e}");
@@ -578,6 +580,52 @@ mod tests {
             load_team_env_from_secrets_dir_detailed(&secrets_dir, &"77".repeat(32)).unwrap();
         assert_eq!(detailed.unresolved_keys, vec!["shared_token"]);
         assert!(detailed.source_paths.is_empty());
+    }
+
+    #[test]
+    fn load_team_env_decrypts_pre_rename_teamclaw_salt() {
+        use aes_gcm::aead::Aead;
+        use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+        use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+        use hkdf::Hkdf;
+        use sha2::Sha256;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let secrets_dir = tmp.path().join("teamclu").join("_secrets");
+        std::fs::create_dir_all(&secrets_dir).unwrap();
+
+        let env_secret = "99".repeat(32);
+        let ikm = hex::decode(&env_secret).unwrap();
+        let hk = Hkdf::<Sha256>::new(Some(b"teamclaw-secrets-v1"), &ikm);
+        let mut key = [0u8; 32];
+        hk.expand(b"aes-256-gcm", &mut key).unwrap();
+        let entry = SecretEntry {
+            key_id: "legacy_salt_token".to_string(),
+            key: "from-pre-rename".to_string(),
+            ..Default::default()
+        };
+        let plaintext = serde_json::to_vec(&entry).unwrap();
+        let nonce = [3u8; 12];
+        let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), plaintext.as_ref())
+            .unwrap();
+        let envelope = EncryptedEnvelope {
+            v: 1,
+            nonce: BASE64.encode(nonce),
+            ciphertext: BASE64.encode(ciphertext),
+        };
+        std::fs::write(
+            secrets_dir.join("legacy_salt_token.enc.json"),
+            serde_json::to_string(&envelope).unwrap(),
+        )
+        .unwrap();
+
+        let env = load_team_env(tmp.path(), "teamclu", &env_secret).unwrap();
+        assert_eq!(
+            env.get("LEGACY_SALT_TOKEN").map(String::as_str),
+            Some("from-pre-rename")
+        );
     }
 
     #[test]

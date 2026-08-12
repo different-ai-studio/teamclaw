@@ -31,7 +31,16 @@ use sha2::Sha256;
 // ---------------------------------------------------------------------------
 
 /// HKDF-SHA256 salt. Frozen: see module docs.
+///
+/// New envelopes are always derived with this salt via [`derive_key`].
 pub const SALT: &[u8] = b"teamclu-secrets-v1";
+
+/// Pre-rename HKDF salt (`teamclaw` → `teamclu` brand sweep).
+///
+/// The rename commit changed [`SALT`] in place, which left every existing
+/// `_secrets/*.enc.json` undecryptable. Readers must still accept envelopes
+/// derived under this salt; writers must never use it again.
+pub const LEGACY_SALT: &[u8] = b"teamclaw-secrets-v1";
 
 /// HKDF-SHA256 info. Frozen: see module docs.
 pub const INFO: &[u8] = b"aes-256-gcm";
@@ -157,12 +166,16 @@ impl From<&SecretEntry> for SecretMeta {
 /// Derive a 32-byte AES-256-GCM key from a hex-encoded 32-byte team secret
 /// using HKDF-SHA256 (RFC 5869) with [`SALT`] and [`INFO`].
 pub fn derive_key(team_secret: &str) -> Result<[u8; 32], TeamCryptoError> {
+    derive_key_with_salt(team_secret, SALT)
+}
+
+fn derive_key_with_salt(team_secret: &str, salt: &[u8]) -> Result<[u8; 32], TeamCryptoError> {
     let ikm = hex::decode(team_secret)?;
     if ikm.len() != TEAM_SECRET_BYTES {
         return Err(TeamCryptoError::SecretWrongLength { got: ikm.len() });
     }
 
-    let hk = Hkdf::<Sha256>::new(Some(SALT), &ikm);
+    let hk = Hkdf::<Sha256>::new(Some(salt), &ikm);
     let mut okm = [0u8; 32];
     hk.expand(INFO, &mut okm)
         .map_err(|_| TeamCryptoError::HkdfExpand)?;
@@ -220,6 +233,27 @@ pub fn decrypt_secret(
     Ok(serde_json::from_slice(&plaintext)?)
 }
 
+/// Decrypt a team env envelope under the team secret, accepting both the
+/// current HKDF salt and the pre-rename legacy salt.
+///
+/// Prefer this over [`derive_key`] + [`decrypt_secret`] at every read path:
+/// writers still encrypt under [`SALT`] alone, but disks (and cloud caches)
+/// still hold envelopes sealed with [`LEGACY_SALT`].
+pub fn decrypt_secret_for_team(
+    envelope: &EncryptedEnvelope,
+    team_secret: &str,
+) -> Result<SecretEntry, TeamCryptoError> {
+    let current = derive_key(team_secret)?;
+    match decrypt_secret(envelope, &current) {
+        Ok(entry) => Ok(entry),
+        Err(TeamCryptoError::Decrypt) => {
+            let legacy = derive_key_with_salt(team_secret, LEGACY_SALT)?;
+            decrypt_secret(envelope, &legacy)
+        }
+        Err(other) => Err(other),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -250,16 +284,15 @@ mod tests {
         assert_eq!(a.len(), 32);
     }
 
-    /// Pins the derived key to a literal. Any change to SALT, INFO, or the HKDF
-    /// construction breaks this — which is the point: it would silently make
-    /// every secret already on disk undecryptable.
+    /// Pins the current writer key to a literal. Legacy envelopes are covered
+    /// separately by `decrypt_secret_for_team_accepts_pre_rename_salt`.
     #[test]
     fn derive_key_matches_frozen_vector() {
         let key = derive_key(&"00".repeat(32)).unwrap();
         assert_eq!(
             hex::encode(key),
-            "d87d5fd7361bbf204cb7dc5aa0f9e4641d279bded6773423a5b6f8ffeb8f1b0e",
-            "HKDF output changed — every existing team secret would break"
+            "5c2d5a5222b3335bf85219d2867d1e415874d38ace3844a6d822e1e828f1906c",
+            "current teamclu HKDF writer output changed"
         );
     }
 
@@ -416,5 +449,40 @@ mod tests {
             !json.contains(&entry.key),
             "SecretMeta must never carry the secret value"
         );
+    }
+
+    fn encrypt_with_salt(entry: &SecretEntry, team_secret: &str, salt: &[u8]) -> EncryptedEnvelope {
+        let ikm = hex::decode(team_secret).unwrap();
+        let hk = Hkdf::<Sha256>::new(Some(salt), &ikm);
+        let mut key = [0u8; 32];
+        hk.expand(INFO, &mut key).unwrap();
+        encrypt_secret(entry, &key).unwrap()
+    }
+
+    /// Secrets written before the teamclaw→teamclu brand rename used
+    /// `teamclaw-secrets-v1` as the HKDF salt. Reading them must still work.
+    #[test]
+    fn decrypt_secret_for_team_accepts_pre_rename_salt() {
+        let entry = sample_entry();
+        let envelope = encrypt_with_salt(&entry, SECRET, b"teamclaw-secrets-v1");
+
+        // Current-salt-only decrypt must fail — that is the bug we are fixing.
+        let current_key = derive_key(SECRET).unwrap();
+        assert!(matches!(
+            decrypt_secret(&envelope, &current_key),
+            Err(TeamCryptoError::Decrypt)
+        ));
+
+        let out = decrypt_secret_for_team(&envelope, SECRET).unwrap();
+        assert_eq!(out.key_id, entry.key_id);
+        assert_eq!(out.key, entry.key);
+    }
+
+    #[test]
+    fn decrypt_secret_for_team_still_reads_current_salt() {
+        let entry = sample_entry();
+        let envelope = encrypt_with_salt(&entry, SECRET, SALT);
+        let out = decrypt_secret_for_team(&envelope, SECRET).unwrap();
+        assert_eq!(out.key, entry.key);
     }
 }
