@@ -63,6 +63,7 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { NewSessionDialog } from "@/components/chat/NewSessionDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MqttLiveWiring } from "@/components/MqttLiveWiring";
+import { TeamSkillAutoFollow } from "@/components/TeamSkillAutoFollow";
 import { SessionHistoryLoader } from "@/components/SessionHistoryLoader";
 import { UpdateDialogContainer } from "@/components/updater/UpdateDialog";
 import { RightPanel } from "@/components/panel";
@@ -904,6 +905,7 @@ function AppContent() {
   const appWiring = (
     <>
       <MqttLiveWiring userId={userId} teamId={currentTeamId} onMyActorId={setMyActorId} />
+      <TeamSkillAutoFollow teamId={currentTeamId} />
       <SessionHistoryLoader />
     </>
   );

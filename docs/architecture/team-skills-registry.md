@@ -1,7 +1,17 @@
 # 团队 Skills Registry 设计
 
 > 目标落位：`docs/architecture/team-skills-registry.md`
-> 状态：设计稿，待评审。文末「待定问题」还剩 5 条未拍板（#4 已定）。
+> 状态：**P0 + P1 + P2 的成员侧已落地。** 更新机制按「自动跟随」实现（§8.2）：
+> 10 分钟后台对账、逐文件安装态基线、脏改保护、安全升级、冲突 UI、发版入口、
+> 一键撤回。它翻掉了 §4 原先「成员侧服务端记录不是权威」和 §8.1 原先
+> 「MQTT 推送为主」两条结论。
+>
+> 两种主体都已接上：成员侧对账跑在桌面端（`components/TeamSkillAutoFollow.tsx`），
+> 共享 agent 侧跑在 daemon（`apps/daemon/src/runtime/team_skills.rs`），共用
+> `crates/teamclu-skillpack` 的清单 / 判脏 / 换文件 / frontmatter 回写。
+>
+> **尚未落地**：MQTT 加速（对账只靠 10 分钟定时器，通知会把下一次提前到现在）；
+> 多设备承载同一 team agent 的语义（待定 #5）。
 
 ## 1. 要解决什么
 
@@ -114,7 +124,13 @@
 | `actor_type = member` | 成员自己 | 自助按需安装，治噪音 |
 | `agent.visibility = 'team'` 的 agent actor | **管理员直接装** | 团队共享 agent 是团队资产，不存在个人意志要绕过 |
 
-服务端记安装，对成员 actor 是为了「已装 / 有更新」标记和推广效果统计——**不是权威**，权威是本地 lockfile，允许漂移。对 team agent actor 则**是权威**：它决定那个 agent 该加载哪些 skill。
+**服务端记录是期望态，两种主体统一。** 本地 lockfile 是它在某台机器上的投影，冲突时服务端赢。
+
+这一条被 §8.2 的自动跟随翻转过。原先写的是「对成员 actor 不是权威、权威是本地 lockfile、允许漂移」——那在手动安装下成立，在自动跟随下不成立：一个成员的第二台机器上没有任何本地记录，它凭什么知道该自动装什么。
+
+代价是成员在 A 机器卸载会传导到 B 机器。这符合「我不再要这个 skill」的本意，接受。收益有两个：同一套对账逻辑同时服务成员和 team agent，不用写两遍；顺带修掉当前的幻影安装——列表的 `installed` 直接取服务端记录（`stores/team-share-browser.ts` 的 `registryItem`），于是第二台机器显示「已安装 v3」而盘上空空，且因为 `hasUpdate=false` 连补装的入口都没有。
+
+`installed_version` 在自动跟随下会稳态收敛到 `latest_version`，它记的是「这个 actor 现在应该处于哪一版」，不是「用户选择停在哪一版」——没有 pin 语义（§8.2）。
 
 ### 建表位置
 
@@ -139,6 +155,7 @@
 | GET | `/v1/teams/:id/skills/:slug` | 详情 + 版本列表 |
 | POST | `/v1/teams/:id/skills` | 发布新 skill（两步上传：prepare 拿签名 URL → complete 提交元数据） |
 | POST | `/v1/teams/:id/skills/:slug/versions` | 发新版本 |
+| POST | `/v1/teams/:id/skills/:slug/versions/:v/revert` | 把 `v` 版的内容重发为 `latest+1`（一键撤回，见 §8.2） |
 | PATCH | `/v1/teams/:id/skills/:slug` | 改元数据 / 转交 owner / 标记 deprecated |
 | GET | `/v1/teams/:id/skills/:slug/versions/:v/download` | 返回 Supabase Storage 签名 URL |
 | PUT | `/v1/teams/:id/skills/:slug/install` | 记录安装（`actorId` + version + scope） |
@@ -224,7 +241,9 @@ team_skill_install(slug, version, scope)
   → PUT .../install                记录到服务端
 ```
 
-lockfile 建议**和 ClawHub 共用** `.clawhub/lockfile.json`，entry 加 `source: "clawhub" | "team"`。理由：更新检查只跑一遍，用户看到的是一个统一的「有更新」列表。
+lockfile **和 ClawHub 共用** `.clawhub/lockfile.json`，entry 加 `source: "clawhub" | "team"`（已实现）。
+
+> 原来给共用写的理由是「更新检查只跑一遍，用户看到一个统一的『有更新』列表」。自动跟随（§8.2）之后这条理由不成立了——team 项不再进「有更新」列表，它们自己就升了。共用仍然值得保留，但理由换成：`source` 字段让对账能精确圈出自己该管的那部分（`team_skill_list_installed` 正是这么过滤的），而 ClawHub 装的东西不会被团队对账误删。两种来源装到同一个 `~/.agents/skills` 目录下，没有这条边界就分不清谁该负责谁。
 
 ### 8.1 团队共享 agent 的安装（管理员直接装）
 
@@ -236,9 +255,12 @@ lockfile 建议**和 ClawHub 共用** `.clawhub/lockfile.json`，entry 加 `sour
 管理员点安装
   → PUT /v1/teams/:id/skills/:slug/install  { actorId: <team agent>, version }
   → FC 写 install 记录
-  → FC 经 MQTT 通知该 agent actor（topic: amux/<team_id>/<actor_id>/notify）
-  → 承载它的 daemon 收到 → 拉取该 actor 的安装清单 → 下载解压 → 回写 frontmatter
+  ⋯ 承载该 agent 的 daemon 在下一个对账周期（§8.2，10 分钟）拉取该 actor 的
+    完整清单 → 下载解压 → 回写 frontmatter
+  → MQTT 通知只是把「下一个周期」提前到「现在」
 ```
+
+**对账是主干，MQTT 是加速器**——此处推翻了本文档早前的写法。推送会丢、daemon 会离线、消息会乱序，任何以推送为主干的设计最终都要再补一条兜底路径，那不如一开始就让兜底路径成为唯一路径，推送只负责削掉等待时间。周期性全量对账天然幂等，丢一条通知的后果仅仅是晚 10 分钟生效。
 
 MQTT 通道是现成的（`crates/teamclu-types/src/mqtt.rs` 的 `actor_notify()`），不新造推送链路。
 
@@ -246,11 +268,70 @@ MQTT 通道是现成的（`crates/teamclu-types/src/mqtt.rs` 的 `actor_notify()
 
 **对账而非增量。** daemon 收到通知后拉的是**该 actor 当前应有的完整清单**，和本地 lockfile 做差集：多的装、少的卸、版本不符的换。理由是通知会丢、daemon 会离线，只处理增量迟早漂移。启动时也跑一次同样的对账。
 
-**权威在服务端。** 和成员 actor 相反：team agent 的本地 lockfile 是服务端记录的投影，冲突时服务端赢。管理员在别的机器上卸载了某个 skill，下次对账就该消失。
+**权威在服务端。** 本地 lockfile 是服务端记录的投影，冲突时服务端赢。管理员在别的机器上卸载了某个 skill，下次对账就该消失。这一条现在对成员 actor 同样成立（§4），两种主体不再有区别——正因如此，§8.2 的对账循环一套代码就够。
 
 **未决**：同一个 team agent 是否可能被多台设备同时承载。若可能，对账要按设备幂等（当前设计天然幂等，因为是全量对账），但「装在哪台」的语义要再确认——见 §10 待定 #5。
 
 市场 UI 在 `SkillsMarketplace.tsx` 加一个「团队」tab，和现有的 ClawHub tab 并列。
+
+### 8.2 更新机制：自动跟随
+
+**已装的团队 skill 自动跟随 `latest_version`，不需要用户点。** 理由是团队 skill 更接近团队规范而不是个人依赖——一个成员停在 v1 用着已经被作者改掉的流程，比他被动升到 v3 要糟。
+
+这个决定不是「把 Update 按钮改成自动点一下」。无人值守的覆盖把下面五件事从可选顶成前置条件，其中两件（§4 权威模型、§8.1 推送语义）已经在上面翻掉了。
+
+#### 参数
+
+| | 值 | 说明 |
+|---|---|---|
+| 对账周期 | **10 分钟** | 后台 tick，不是懒刷新 |
+| 加速通道 | MQTT `actor_notify()` | 可选，只削等待时间 |
+| per-device 关闭开关 | **不做** | |
+
+**为什么不能照抄 `team_cloud_config.rs` 的 TTL。** 那里的 `TEAM_CLOUD_TTL` 是 60 秒，而且是**懒刷新**——挂在 spawn 热路径上按需触发（`refresh_if_stale`）。team MCP / team env 拉的是几 KB JSON，这么做没问题；skills 要下载并解压 zip，挂在 spawn 路径上就是给每次 agent 启动加一段不可预测的延迟。所以 skills 要开真正的后台定时器，周期也拉长到 10 分钟。
+
+**为什么不做 per-device 开关。** 多一个状态就多一类「为什么他有我没有」的排查，而这类问题的排查成本远高于开关本身的价值。不想要某个 skill 的出口是卸载，不是关闭跟随。
+
+#### 一、对账循环放 daemon，一个循环覆盖两种主体
+
+不是放桌面端。三条理由：
+
+1. team agent 本来就只能在 daemon 做（§8.1）——管理员的机器上不跑那个 agent。
+2. `runtime/team_cloud_config.rs` 已经把「后台 reconcile + 文件缓存 + 失败不缩水 + 离线可用」这套模式跑通了，skills 是第三个 `reconcile_*`，不是新范式。
+3. **`runtime/refresh_watch.rs` 已经 recursive watch `~/.agents/skills` 并归类成 `RefreshChangeKind::Skills`。** 这意味着落盘完成后，正在跑的 session 会自动刷新——自动跟随传导到活着的 agent 是白捡的，不用新写通知链路。
+
+**代价（本方案唯一的大账）：安装管线要抽成共享 crate。** zip 防穿越解压、frontmatter 回写、lockfile、`permission.skill` 写入现在全在 `apps/desktop/src/commands/{clawhub,team_skills}.rs`，daemon 够不着。`crates/teamclu-types/src/skill_frontmatter.rs` 是这条路的先例。工作量比本设计里所有 UI 加起来都大，排期时不要按「加个定时器」估。
+
+桌面端相应地退成两件事：一个「立刻对账」的 IPC，和冲突的呈现（下面第三条）。UI 不再自己 `invoke('team_skill_install')`。
+
+#### 二、跟版本，不跟 slug
+
+- `latest_version` 变了 → 自动升。
+- `status` 变 `deprecated` → **只打标提示，不自动卸载，也不自动安装 `superseded_by`**。让正在跑的流程突然失能，比多留一个废 skill 糟糕得多。弃用是给人看的信号，不是给机器执行的指令。
+
+#### 三、本地脏改保护——必做，且有一个具体的坑
+
+`team_skill_install_blocking` 目前是 `remove_dir_all` 之后重新解压（`apps/desktop/src/commands/team_skills.rs`）。手动模式下这只是「点了更新就丢改动」；自动跟随下，这是**用户不看着的时候改动消失**。
+
+对账前必须判 dirty，脏了就跳过升级、记冲突、交给用户选「发新版 / 丢弃本地」。
+
+**坑：不能用 zip 的 `content_hash` 判 dirty。** frontmatter 回写发生在解压**之后**，落盘状态天生就不等于 zip 内容，直接比会永远判脏。必须在回写完成后再算一次目录 hash（安装态 hash），写进 lockfile，对账时比这一个。
+
+连带一个必须处理的场景：**作者自己的机器每次都会走到这条路径。** publish 成功后要立刻把本地登记成新版本 + 新的安装态 hash，否则作者天天被误报「本地有修改」，而他恰恰是最该拿到干净信号的人。
+
+#### 四、回滚必须先有，这是上线硬门槛
+
+`latest_version` 现在只能 +1（`services/fc/src/lib/pg-repo/team-skills.ts` 的 `createTeamSkillVersion`），`PATCH` 也不开放改它。坏版本发出去，唯一的解是再发一版。
+
+手动模式下这不致命，因为扩散取决于每个人自己点；自动跟随把扩散时间压缩成一个对账周期。**没有撤回不能开自动跟随。**
+
+做法是 `POST .../versions/:v/revert`（§5）：把 `v` 版的 blob 重新登记为 `latest+1`。blob 是内容寻址的、历史版本全留着，所以这只是一次元数据写入，不需要重新上传。changelog 自动填「撤回至 v{n}」。
+
+**刻意不做 `latest_version` 回退**：那会让某些成员的 `installed_version > latest_version`，`hasUpdate` 的比较立刻失去意义，对账也说不清该升还是该降。只往前滚是唯一自洽的方向。
+
+#### 五、发版入口是这一切的前提
+
+`POST .../versions` 至今没有调用点，所以线上不存在任何 v2，`hasUpdate` 从未为真，自动跟随也永远不会触发。**先做发版入口，其余才有意义**（分期见 §12）。
 
 ## 9. 桌面端 UI
 
@@ -266,12 +347,13 @@ MQTT 通道是现成的（`crates/teamclu-types/src/mqtt.rs` 的 `actor_notify()
 
 ### 9.2 第二列：全量列表 + 安装态
 
-**数据源换掉。**从「扫本地团队目录」改成 `GET /v1/teams/:id/skills` 的**全量 registry 列表**，每项带 `installed` / `installedVersion` / `hasUpdate`。本地 lockfile 参与合并，决定 `installed` 的最终显示（服务端记录允许漂移，见 §4）。
+**数据源换掉。**从「扫本地团队目录」改成 `GET /v1/teams/:id/skills` 的**全量 registry 列表**，每项带 `installed` / `installedVersion` / `hasUpdate`。`installed` 以服务端记录为准（期望态，§4），本地 lockfile 只用于判断「盘上是否已到位」——两者不一致时显示的是「正在同步」，不是让用户去点。
 
 **行内安装态。**`ItemRow` 目前没有右侧插槽，需要加一个 `trailing`：
 
-- 已安装 → `Check` 图标，muted 色
-- 已安装且有新版 → `ArrowUpCircle`，coral 色
+- 已安装且已到位 → `Check` 图标，muted 色
+- 已安装但版本落后 / 盘上还没到位 → `ArrowUpCircle`，muted 色（**不是 coral**：自动跟随下这是个最多 10 分钟的过渡态，不是等待用户操作的召唤，用 coral 会把它读成待办）
+- 本地脏改冲突 → `AlertTriangle`，**满墨（`text-foreground`）**。这是这一列唯一需要人来决定的状态（§8.2 三），但强调靠的是对比不是颜色：整列其他字形都是 muted/faint，满墨本身就足够跳出来。`AGENTS.md` 明确 coral 是品牌强调色、每屏最多两处、批准清单里没有告警——告警用 coral 和用它做 success/focus ring 是同一类错误
 - 未安装 → 不显示（留白，避免整列图标噪音）
 - 已弃用（`status='deprecated'`）→ 标题走 muted + 一个 `Archive` 角标
 
@@ -300,6 +382,8 @@ MQTT 通道是现成的（`crates/teamclu-types/src/mqtt.rs` 的 `actor_notify()
           依赖          ← requires（有才显示）
 版本      版本列表 + changelog，可展开
 操作      [安装] / [卸载] + 「安装到」选择器
+          [发新版]         ← owner 本人可见（§8.2 五）
+          冲突条            ← 本地有修改时：[发新版] / [丢弃本地]
 ```
 
 **「何时不要用」必须和「何时使用」视觉并列**，不能折叠或降级成小字。§6 里让人填这个字段，是为了让两个重叠的 skill 能被并排比较——UI 上藏起来就白填了。
@@ -312,6 +396,12 @@ MQTT 通道是现成的（`crates/teamclu-types/src/mqtt.rs` 的 `actor_notify()
 - 装给 team agent 后，按钮区显示「已安装到 <agent 名>」，卸载同理
 
 `deprecated` 的 skill：安装按钮降级为次要样式 + 一行提示「已弃用，建议改用 <superseded_by>」，点那个 slug 直接跳过去。**不禁用安装**——旧流程可能还依赖它。
+
+**没有「更新」按钮。** 自动跟随（§8.2）之后，版本落后是一个最多持续 10 分钟的过渡态，为它长期占一个主操作位是错的。取而代之：
+
+- 落后时，版本号旁一行 muted 小字「正在更新到 v{n}」，无按钮。
+- **只有脏改冲突时**才出现操作项，因为那是唯一需要人做决定的情况——自动跟随在这里主动停下来了，得有人告诉它往哪走。
+- 编辑保存对「已发布且我是 owner」的 skill 拆成两个动作：**存本地**（现有的 `putDaemonSkill`，只写盘）和**发新版**（打包 + `POST .../versions`，changelog 必填）。现在只有前者，于是作者的本地修改和 registry 静默分叉——而自动跟随会在 10 分钟后试图覆盖它，全靠第三条的脏改检测兜住。
 
 ### 9.4 过渡期的双来源
 
@@ -329,6 +419,7 @@ MQTT 通道是现成的（`crates/teamclu-types/src/mqtt.rs` 的 `actor_notify()
 | 4 | ~~管理员推送语义~~ | **已定**：管理员对 `visibility='team'` 的 agent actor 直接装，见 §4 / §5 / §8.1。成员的 member actor 仍是自助，管理员不能代装 |
 | 5 | team agent actor 的 skill 落在哪台机器的哪个目录 | 见 §8.1，落 `agents.default_workspace_id` 对应 workspace；多设备承载同一 agent 的情况待确认 |
 | 6 | YAML 解析器选型与替换节奏 | TS 侧和 Rust 侧同一个 PR 换掉，配一组两边对拍的 fixture |
+| 7 | ~~更新语义：手动 / 提示 / 自动~~ | **已定**：自动跟随 `latest_version`，10 分钟对账，不做 per-device 开关。见 §8.2 |
 
 ## 11. 明确不做
 
@@ -340,15 +431,37 @@ MQTT 通道是现成的（`crates/teamclu-types/src/mqtt.rs` 的 `actor_notify()
 
 ## 12. 分期
 
-**P0 — 能用**
+分期在自动跟随（§8.2）拍板后重排过。原来的排法把「更新」当成 P1 的一个小条目，而自动跟随把它变成一条有前置安全带的主线。
+
+**P0 — 能用** ✅
 表 + 发布/列表/下载/安装 API + frontmatter 回写 + 两个 YAML 解析器 + 存量一次性导入
 UI：第二列换成 registry 全量 + 行内安装态 + header 过滤（§9.2）、第三列详情实装 + 安装/卸载（§9.3）
 
-**P1 — 能管**
-deprecated + superseded_by、owner 转交、相似度警告、更新检查合流到统一列表
-UI：「安装到」选择器（团队 agent）、遗留项徽标与迁移行动条（§9.4）
+**P1 — 能发、能撤** ✅（自动跟随的安全带，必须先于 P2）
+- 发版入口：`PublishVersionSheet` + `publishSkillVersion`，接上 `POST .../versions`
+- 一键撤回：`POST .../versions/:v/revert`（§5、§8.2 四）
+- 安装态基线（frontmatter 回写**之后**再建）+ 脏改检测 + 冲突 UI（§8.2 三）
 
-**P2 — 能收**
+**P2 — 能自动** ✅（MQTT 加速除外）
+- ✅ 抽共享 crate：`crates/teamclu-skillpack`——清单 / 判脏 / 换文件 / frontmatter 回写 /
+  zip 路径守卫，纯逻辑
+- ✅ 成员侧 10 分钟对账，跑在桌面端（`components/TeamSkillAutoFollow.tsx`）
+- ✅ 共享 agent 侧 10 分钟对账，跑在 daemon（`apps/daemon/src/runtime/team_skills.rs`），
+  装到**自己的根目录**（见下），并显式 fan-out `RefreshChangeKind::Skills`
+- ✅ §4 权威翻转：服务端记录是期望态
+- ✅ 去掉「更新」按钮，改成过渡态提示（§9.3）
+- ⬜ MQTT 加速：`actor_notify()` 把下一次对账提前到现在。不做只是慢 10 分钟
+
+**P3 — 能管、能收**
+deprecated 提示与 `superseded_by`、owner 转交、相似度警告、「安装到」选择器、遗留项徽标（§9.4）
 `skills/` 退出团队同步、安装记录的运营视图、多设备承载同一 team agent 的对账语义
 
-> §8.1 的团队 agent 安装（管理员直接装 + MQTT 通知 + daemon 对账）排在 **P1**：它依赖 P0 的表和 API，但不依赖 P2 的任何东西，而且是「统一管理」这个目标的主要兑现点。
+> **两个对账循环不能共用一个安装根目录。** 桌面端对的是登录成员的集合，daemon 对的是
+> 它承载的那个 agent 的集合，而两边都会删掉「不在自己期望集里」的包。共用
+> `~/.agents/skills` 的话，它们会在各自的 tick 上互删对方的 skill，永远收敛不了。
+> 所以 daemon 装到 `~/.amuxd/teams/<id>/cloud/skills`（team MCP / env 缓存的兄弟目录，
+> 在任何 git worktree 之外），并把这个根加进 `team_skill_roots()` 让 OpenCode 和
+> Claude 符号链接桥依然看得到。
+>
+> 另一处刻意的不对称：**daemon 侧不做脏改保护**。宿主机器上没有人有资格否决一次团队级
+> 决定，daemon 也没有 UI 可以问谁——服务端就是期望态。

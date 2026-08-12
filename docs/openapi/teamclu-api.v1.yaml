@@ -1977,6 +1977,55 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TeamSkillVersion" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/skills/{slug}/versions/{version}/revert:
+    post:
+      operationId: revertTeamSkillVersion
+      summary: Re-publish an earlier version as the new latest
+      description: >
+        The undo for a bad publish. Installs auto-follow `latestVersion`, so a
+        broken version reaches every member within one reconcile tick; without
+        this the only remedy is for the author to reconstruct the old package by
+        hand.
+
+
+        Note what this does *not* do: `latestVersion` never moves backwards.
+        Rolling it back would leave members whose `installedVersion` exceeds it,
+        and "is there an update" stops having an answer. The revert publishes
+        `latestVersion + 1` carrying the target version's content and its
+        metadata snapshot.
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamSkillSlug"
+        - name: version
+          in: path
+          required: true
+          description: The version whose content should become the new latest.
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                changelog:
+                  type: string
+                  description: Defaults to "Reverted to v{version}".
+      responses:
+        "201":
+          description: The newly published version carrying the old content.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSkillVersion" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: That version is already the latest.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /v1/teams/{teamId}/skills/{slug}/install:
     put:
       operationId: installTeamSkill
