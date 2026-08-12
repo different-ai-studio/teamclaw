@@ -16,6 +16,11 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use teamclu_skillpack::{
+    build_manifest, build_manifest_for, inspect, list_managed_paths, read_origin,
+    remove_managed_files, swap_managed_files, write_origin, write_registry_frontmatter, DirtyState,
+    RegistryFields, SkillOrigin, ORIGIN_VERSION,
+};
 use teamclu_types::skill_frontmatter::{write_frontmatter, FrontmatterValue};
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
@@ -26,9 +31,10 @@ use super::clawhub::{
     SOURCE_TEAM,
 };
 
-/// Order matters only for diff noise: a reinstall should not reshuffle the
-/// file. `name` and `description` stay first and keep their meaning so any
-/// reader that predates this feature still works.
+/// Key order for the *fork* rewrite below. The registry install path does not
+/// use this — it goes through `teamclu_skillpack::write_registry_frontmatter`,
+/// which owns the canonical order so the daemon's reconcile stamps byte-identical
+/// frontmatter.
 const FRONTMATTER_KEY_ORDER: &[&str] = &[
     "name",
     "description",
@@ -66,6 +72,9 @@ pub struct TeamSkillVersionPayload {
 pub struct TeamSkillInstallRequest {
     pub workspace_path: Option<String>,
     pub slug: String,
+    /// Which team's registry this came from. Recorded on disk so a reconcile for
+    /// a different team can tell this pack is not its business.
+    pub team_id: Option<String>,
     pub download_url: String,
     /// Bearer token for the Cloud API. Passed in because auth lives in the
     /// frontend's backend provider, not here.
@@ -79,6 +88,20 @@ pub struct TeamSkillInstallRequest {
     pub requires: Option<Vec<String>>,
     #[serde(default)]
     pub is_global: bool,
+    /// Overwrite a pack that has local edits. Set by the conflict UI's "discard
+    /// local changes"; never by the reconcile loop, which is exactly the caller
+    /// that must not be able to do this silently.
+    #[serde(default)]
+    pub force: bool,
+    /// Move an unrelated directory sitting at the target path into the trash
+    /// before installing, instead of writing over it.
+    ///
+    /// Set by the reconcile loop and by nothing else. Clicking install is a
+    /// decision about *this* path and may overwrite it; auto-follow on a machine
+    /// the user has just signed into is not — it can arrive seconds after login
+    /// and write over a skill they hand-wrote there, with nothing to undo.
+    #[serde(default)]
+    pub archive_unmanaged: bool,
 }
 
 /// Install by copying an existing on-disk skill directory (Share → auto-install
@@ -89,6 +112,7 @@ pub struct TeamSkillInstallRequest {
 pub struct TeamSkillInstallFromDirRequest {
     pub workspace_path: Option<String>,
     pub slug: String,
+    pub team_id: Option<String>,
     pub source_dir: String,
     pub version: i64,
     pub owner: Option<String>,
@@ -108,17 +132,6 @@ pub struct TeamSkillPackResult {
     pub size: u64,
 }
 
-struct FrontmatterFields<'a> {
-    slug: &'a str,
-    version: i64,
-    owner: Option<&'a str>,
-    category: Option<&'a str>,
-    summary: Option<&'a str>,
-    when_to_use: Option<&'a str>,
-    when_not_to_use: Option<&'a str>,
-    requires: Option<&'a Vec<String>>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamSkillInstallResult {
@@ -126,6 +139,9 @@ pub struct TeamSkillInstallResult {
     pub version: i64,
     pub path: String,
     pub frontmatter_written: bool,
+    /// Where an unrelated directory was moved before installing, if one was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_path: Option<String>,
 }
 
 fn scalar(value: &str) -> Option<FrontmatterValue> {
@@ -137,58 +153,26 @@ fn scalar(value: &str) -> Option<FrontmatterValue> {
     }
 }
 
-/// Rewrite SKILL.md's frontmatter with the registry's structured fields.
+/// Stamp the registry fields into SKILL.md.
 ///
-/// Returns false when the package has no SKILL.md at all — a broken package
-/// should surface as "installed but not usable" rather than failing the
-/// install, because the files are already on disk by this point and a hard
-/// error would leave the caller unsure what state it is in.
+/// The writing itself lives in `teamclu-skillpack` because the daemon's
+/// reconcile stamps the same fields for shared agents; if the two drifted, a
+/// skill's frontmatter would depend on which installer happened to run.
 fn write_registry_frontmatter_fields(
     target: &std::path::Path,
-    fields: &FrontmatterFields<'_>,
+    fields: &RegistryFields<'_>,
 ) -> Result<bool, String> {
-    let skill_md = target.join("SKILL.md");
-    if !skill_md.exists() {
-        return Ok(false);
-    }
-    let content = std::fs::read_to_string(&skill_md)
-        .map_err(|e| format!("Failed to read SKILL.md: {}", e))?;
-
-    let requires = fields
-        .requires
-        .filter(|items| !items.is_empty())
-        .map(|items| FrontmatterValue::List(items.clone()));
-
-    let updates: Vec<(&str, Option<FrontmatterValue>)> = vec![
-        ("name", scalar(fields.slug)),
-        ("description", fields.summary.and_then(scalar)),
-        ("owner", fields.owner.and_then(scalar)),
-        ("category", fields.category.and_then(scalar)),
-        ("when_to_use", fields.when_to_use.and_then(scalar)),
-        ("when_not_to_use", fields.when_not_to_use.and_then(scalar)),
-        ("requires", requires),
-        (
-            "version",
-            Some(FrontmatterValue::Scalar(fields.version.to_string())),
-        ),
-        (
-            "source",
-            Some(FrontmatterValue::Scalar(SOURCE_TEAM.to_owned())),
-        ),
-    ];
-
-    let out = write_frontmatter(&content, &updates, FRONTMATTER_KEY_ORDER);
-    std::fs::write(&skill_md, out).map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
-    Ok(true)
+    write_registry_frontmatter(target, fields)
+        .map_err(|e| format!("Failed to write SKILL.md: {}", e))
 }
 
-fn write_registry_frontmatter(
+fn write_install_frontmatter(
     target: &std::path::Path,
     req: &TeamSkillInstallRequest,
 ) -> Result<bool, String> {
     write_registry_frontmatter_fields(
         target,
-        &FrontmatterFields {
+        &RegistryFields {
             slug: &req.slug,
             version: req.version,
             owner: req.owner.as_deref(),
@@ -196,9 +180,127 @@ fn write_registry_frontmatter(
             summary: req.summary.as_deref(),
             when_to_use: req.when_to_use.as_deref(),
             when_not_to_use: req.when_not_to_use.as_deref(),
-            requires: req.requires.as_ref(),
+            requires: req.requires.as_deref(),
         },
     )
+}
+
+/// Returned instead of overwriting a pack that has local edits. The frontend
+/// matches on it to open the conflict UI, so it is a stable contract string,
+/// not a message.
+pub const DIRTY_CONFLICT_ERROR: &str = "team_skill_dirty_conflict";
+
+/// Compare the installed pack against the baseline recorded at install time.
+///
+/// A missing directory and a pack with no baseline both come back as
+/// `Unmanaged` — neither is evidence of an edit, and treating "I don't know"
+/// as "dirty" would wedge auto-follow on every pack installed by an older
+/// build.
+fn installed_state(target: &std::path::Path) -> DirtyState {
+    if !target.exists() {
+        return DirtyState::Unmanaged;
+    }
+    let baseline = read_origin(target).and_then(|o| o.files);
+    inspect(target, baseline.as_ref())
+}
+
+/// What to record about a pack we just laid down.
+struct InstalledStamp<'a> {
+    slug: &'a str,
+    version: i64,
+    /// Whose registry it came from. `None` only where the caller genuinely does
+    /// not know, which keeps the pack out of every team's removal set.
+    team_id: Option<&'a str>,
+    /// The files the package shipped, `/`-separated. `None` measures the whole
+    /// directory and is only correct where the directory *is* the package —
+    /// the publish path. On the download path it would adopt a script's own
+    /// cache into the baseline and pin the pack dirty forever.
+    shipped: Option<&'a [String]>,
+}
+
+/// Record what we just put on disk.
+///
+/// Call order is not negotiable: the frontmatter rewrite edits `SKILL.md`, so
+/// the manifest has to be built after it or every skill is born dirty; and
+/// `origin.json` is excluded from the manifest, so it has to be written after
+/// the manifest exists.
+fn stamp_installed_state(target: &std::path::Path, stamp: InstalledStamp<'_>) -> Result<(), String> {
+    let files = match stamp.shipped {
+        Some(rels) => build_manifest_for(target, rels),
+        None => build_manifest(target),
+    }
+    .map_err(|e| format!("Failed to record installed state: {}", e))?;
+    write_origin(
+        target,
+        &SkillOrigin {
+            version: ORIGIN_VERSION,
+            registry: SOURCE_TEAM.to_string(),
+            slug: stamp.slug.to_string(),
+            installed_version: stamp.version.to_string(),
+            installed_at: now_millis(),
+            team_id: stamp.team_id.map(str::to_string),
+            files: Some(files),
+        },
+    )
+    .map_err(|e| format!("Failed to write origin.json: {}", e))
+}
+
+/// Discarded packs land here — outside `~/.agents/skills` on purpose, so the
+/// skill loaders and the daemon's file watcher never see them.
+fn trash_dir() -> Result<std::path::PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "HOME directory not found".to_string())?;
+    Ok(home.join(".agents").join(".skill-trash"))
+}
+
+/// How long a discarded pack stays recoverable, and how many are kept.
+///
+/// The undo in the conflict UI lives for the length of a toast, so anything
+/// beyond that is insurance against a user who realises tomorrow. Keeping it
+/// forever is not more generous — skill packs carry binaries and reference
+/// material, and an unbounded directory nobody can see is how a few hundred
+/// megabytes accumulates in a home folder with no way to attribute it.
+const TRASH_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+const TRASH_MAX_ENTRIES: usize = 20;
+
+/// Drop trashed packs that are past the retention window or past the count.
+///
+/// Both bounds are needed. Age alone lets a bad afternoon leave fifty packs
+/// sitting there for a week; count alone lets two forgotten packs live forever.
+///
+/// Timestamps come from the directory name rather than mtime: the name is what
+/// we wrote, and `rename` preserves whatever mtime the pack already had, which
+/// can predate the discard by months. An entry whose name we cannot parse is
+/// left alone — it is not ours to guess about.
+fn prune_trash(trash: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(trash) else {
+        return;
+    };
+    let mut dated: Vec<(u64, std::path::PathBuf)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(stamp) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.rsplit_once('-'))
+            .and_then(|(_, ts)| ts.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        dated.push((stamp, path));
+    }
+
+    // Newest first, so the survivors are a prefix.
+    dated.sort_by_key(|(stamp, _)| std::cmp::Reverse(*stamp));
+    let now = now_millis();
+    for (index, (stamp, path)) in dated.into_iter().enumerate() {
+        if index < TRASH_MAX_ENTRIES && now.saturating_sub(stamp) < TRASH_TTL_MS {
+            continue;
+        }
+        let _ = std::fs::remove_dir_all(&path);
+    }
 }
 
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
@@ -222,6 +324,14 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
     Ok(())
 }
 
+/// Zip a skill directory for upload.
+///
+/// `.clawhub/` is left out. It is this machine's private record of what was
+/// installed here — including the full file manifest — and shipping it means
+/// every member downloads the publisher's bookkeeping and then overwrites it
+/// with their own on install. A package that carries one machine's install
+/// state is also the kind of thing that makes two installs of the "same"
+/// version differ.
 fn zip_skill_dir(dir: &std::path::Path) -> Result<Vec<u8>, String> {
     let cursor = std::io::Cursor::new(Vec::new());
     let mut writer = ZipWriter::new(cursor);
@@ -240,11 +350,26 @@ fn zip_skill_dir(dir: &std::path::Path) -> Result<Vec<u8>, String> {
             {
                 let entry = entry.map_err(|e| format!("Failed to read dir entry: {}", e))?;
                 let name = entry.file_name();
+                // Only the top-level bookkeeping dir is ours; one nested deeper
+                // belongs to the package, same rule the manifest walk uses.
+                if rel.as_os_str().is_empty() && name == teamclu_skillpack::ORIGIN_DIR {
+                    continue;
+                }
                 let child_rel = rel.join(&name);
                 add_tree(writer, opts, base, &child_rel)?;
             }
         } else if full.is_file() {
             let name = rel.to_string_lossy().replace('\\', "/");
+            let mut opts = opts;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = std::fs::metadata(&full) {
+                    // Carry the exec bit into the archive, or every member
+                    // downloads a script they cannot run.
+                    opts = opts.unix_permissions(meta.permissions().mode() & 0o777);
+                }
+            }
             writer
                 .start_file(name, opts)
                 .map_err(|e| format!("zip start: {}", e))?;
@@ -298,16 +423,52 @@ fn team_skill_install_blocking(
         .bytes()
         .map_err(|e| format!("Failed to read download body: {}", e))?;
 
-    // Reinstall is the normal path here (version bumps), so unlike ClawHub
-    // there is no force flag — the registry row is the source of truth for
-    // what should be on disk.
-    if target.exists() {
-        std::fs::remove_dir_all(&target)
-            .map_err(|e| format!("Failed to remove existing skill dir: {}", e))?;
+    // Auto-follow means this runs unattended, so a local edit has to stop it.
+    // The caller normally checks with `team_skill_inspect` first and shows the
+    // conflict UI; this is the backstop that makes it impossible to lose an
+    // edit by forgetting to ask.
+    if !req.force && installed_state(&target).is_dirty() {
+        return Err(DIRTY_CONFLICT_ERROR.to_string());
     }
-    extract_zip_to_dir(&zip_bytes, &target)?;
 
-    let frontmatter_written = write_registry_frontmatter(&target, &req)?;
+    // Something is here that we have no record of installing — a skill written
+    // straight into the skills root, most likely, that happens to share a team
+    // slug. Overwriting it is right when a person just clicked install; doing it
+    // unattended is not, so the reconcile asks for it to be set aside instead
+    // and the user gets an offer to keep it under another name.
+    let archived_path = if req.archive_unmanaged
+        && target.is_dir()
+        && read_origin(&target).is_none()
+        && std::fs::read_dir(&target).map(|mut d| d.next().is_some()).unwrap_or(false)
+    {
+        Some(move_to_trash(&target, &slug)?)
+    } else {
+        None
+    };
+
+    let staging =
+        tempfile::tempdir().map_err(|e| format!("Failed to create staging dir: {}", e))?;
+    extract_zip_to_dir(&zip_bytes, staging.path())?;
+
+    // Deletions are authorised only by a baseline we recorded ourselves at
+    // install time. Nothing else ever writes one — a directory with no record
+    // is reported `missing` and reinstalled rather than claimed.
+    let baseline = read_origin(&target).and_then(|o| o.files);
+    swap_managed_files(&target, staging.path(), baseline.as_ref())
+        .map_err(|e| format!("Failed to install skill files: {}", e))?;
+
+    let shipped = list_managed_paths(staging.path())
+        .map_err(|e| format!("Failed to list package files: {}", e))?;
+    let frontmatter_written = write_install_frontmatter(&target, &req)?;
+    stamp_installed_state(
+        &target,
+        InstalledStamp {
+            slug: &slug,
+            version: req.version,
+            team_id: req.team_id.as_deref(),
+            shipped: Some(&shipped),
+        },
+    )?;
 
     // Lockfile stays workspace-scoped for update checks, even though the pack
     // itself always lives under ~/.agents/skills.
@@ -334,6 +495,7 @@ fn team_skill_install_blocking(
         version: req.version,
         path: target.display().to_string(),
         frontmatter_written,
+        archived_path,
     })
 }
 
@@ -349,10 +511,14 @@ pub fn team_skill_uninstall(
 
     let skills = global_skills_dir()?;
     let target = skills.join(&slug);
-    if target.exists() {
-        std::fs::remove_dir_all(&target)
-            .map_err(|e| format!("Failed to remove skill directory: {}", e))?;
-    }
+    // Remove what we installed, not everything in the directory. The reconcile
+    // loop calls this unattended in response to an uninstall somebody performed
+    // on another machine, and the upgrade path two functions up deliberately
+    // preserves files the pack never owned — a background tick must not be the
+    // one operation that deletes the user's notes.
+    let baseline = read_origin(&target).and_then(|o| o.files);
+    remove_managed_files(&target, baseline.as_ref())
+        .map_err(|e| format!("Failed to remove skill directory: {}", e))?;
 
     if let Some(ws) = workspace_path.as_deref().filter(|s| !s.trim().is_empty()) {
         let mut lock = read_lockfile(ws);
@@ -523,15 +689,16 @@ pub async fn team_skill_install_from_dir(
         std::fs::create_dir_all(&skills)
             .map_err(|e| format!("Failed to create skills dir: {}", e))?;
         let target = skills.join(&slug);
-        if target.exists() {
-            std::fs::remove_dir_all(&target)
-                .map_err(|e| format!("Failed to remove existing skill dir: {}", e))?;
-        }
-        copy_dir_recursive(&source, &target)?;
+        // No dirty check here, unlike the download path: this *is* the author
+        // publishing their local edits, so the edits are the new version rather
+        // than something to protect from it.
+        let baseline = read_origin(&target).and_then(|o| o.files);
+        swap_managed_files(&target, &source, baseline.as_ref())
+            .map_err(|e| format!("Failed to install skill files: {}", e))?;
 
         let frontmatter_written = write_registry_frontmatter_fields(
             &target,
-            &FrontmatterFields {
+            &RegistryFields {
                 slug: &slug,
                 version: request.version,
                 owner: request.owner.as_deref(),
@@ -539,7 +706,22 @@ pub async fn team_skill_install_from_dir(
                 summary: request.summary.as_deref(),
                 when_to_use: request.when_to_use.as_deref(),
                 when_not_to_use: request.when_not_to_use.as_deref(),
-                requires: request.requires.as_ref(),
+                requires: request.requires.as_deref(),
+            },
+        )?;
+        // Re-baselining here is what keeps the author's own machine out of
+        // permanent conflict: without it, every publish leaves the publisher
+        // looking dirty against the version they just shipped.
+        //
+        // `shipped: None` on purpose — here the directory *is* the package, so
+        // measuring the whole thing is measuring exactly what was uploaded.
+        stamp_installed_state(
+            &target,
+            InstalledStamp {
+                slug: &slug,
+                version: request.version,
+                team_id: request.team_id.as_deref(),
+                shipped: None,
             },
         )?;
 
@@ -566,28 +748,435 @@ pub async fn team_skill_install_from_dir(
             version: request.version,
             path: target.display().to_string(),
             frontmatter_written,
+            archived_path: None,
         })
     })
     .await
     .map_err(|e| format!("team skill install_from_dir task failed: {}", e))?
 }
 
-/// Which team-registry skills are on disk, and at what version.
+/// Which team-registry packs are on this machine, and at what version.
 ///
-/// The frontend reconciles this against the server's install list. For a member
-/// this is only a display concern; for a `visibility=team` agent the server
-/// list is authoritative and this is what gets diffed against it.
+/// This is the left-hand side of the reconcile diff: the server's install rows
+/// are the desired state (§4), and this is what the machine actually has.
+///
+/// It reads each pack's own `origin.json` rather than the workspace lockfile,
+/// because the two disagree by construction. Packs are global
+/// (`~/.agents/skills/<slug>`) while lockfiles are per-workspace, so a lockfile
+/// is silent about a pack installed from a different workspace and can still
+/// name a version that another workspace has since moved past. Reconciling
+/// against a source that is structurally allowed to be wrong would produce
+/// exactly the phantom installs this whole change is meant to remove.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledTeamSkill {
+    pub slug: String,
+    pub version: String,
+    /// `None` for packs installed before the team was recorded. The caller must
+    /// treat those as un-removable: one flat directory serves every team, so
+    /// "I cannot tell whose this is" and "this is mine to delete" are very
+    /// different answers.
+    pub team_id: Option<String>,
+}
+
 #[tauri::command]
-pub fn team_skill_list_installed(workspace_path: String) -> Result<Vec<(String, String)>, String> {
-    let lock = read_lockfile(&workspace_path);
-    let mut out: Vec<(String, String)> = lock
-        .skills
-        .into_iter()
-        .filter(|(_, entry)| entry.source.as_deref() == Some(SOURCE_TEAM))
-        .map(|(slug, entry)| (slug, entry.version.unwrap_or_default()))
-        .collect();
-    out.sort();
+pub fn team_skill_list_installed() -> Result<Vec<InstalledTeamSkill>, String> {
+    let skills = global_skills_dir()?;
+    let Ok(entries) = std::fs::read_dir(&skills) else {
+        return Ok(Vec::new());
+    };
+
+    let mut out: Vec<InstalledTeamSkill> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(slug) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        match read_origin(&path) {
+            Some(origin) if origin.registry == SOURCE_TEAM => {
+                out.push(InstalledTeamSkill {
+                    slug: slug.to_string(),
+                    version: origin.installed_version,
+                    team_id: origin.team_id,
+                });
+            }
+            _ => {}
+        }
+    }
+    out.sort_by(|a, b| a.slug.cmp(&b.slug));
     Ok(out)
+}
+
+/// Where an installed pack lives. The publish-a-new-version flow packs the
+/// installed directory rather than the author's original personal folder —
+/// after the first share those diverge, and the one the team is running is the
+/// one whose edits should ship.
+#[tauri::command]
+pub fn team_skill_installed_dir(slug: String) -> Result<String, String> {
+    let slug = slug.trim().to_string();
+    validate_slug(&slug)?;
+    Ok(global_skills_dir()?.join(&slug).display().to_string())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSkillInspectResult {
+    pub slug: String,
+    /// `missing` | `clean` | `dirty` | `foreign`
+    pub state: String,
+    pub installed_version: Option<String>,
+    pub modified: Vec<String>,
+    pub deleted: Vec<String>,
+}
+
+/// Does this pack still look the way we installed it?
+///
+/// Three answers, and the distinctions matter more than the happy path:
+///
+/// **`foreign`** — the directory carries somebody else's `origin.json`
+/// (ClawHub, the marketplace). Every registry installs into the same
+/// `~/.agents/skills` root, so a slug collision is ordinary; stamping
+/// `registry: "team"` over it would hand another registry's pack to this
+/// reconcile loop, which would then overwrite it and later delete it. Report it
+/// and touch nothing.
+///
+/// **`missing`** — no pack of ours here. Either the directory does not exist, or
+/// it holds something with no team record: a skill the user wrote straight into
+/// the skills root, or a pack from a build that recorded nothing. Both answer
+/// the caller's real question the same way — there is nothing here we can prove
+/// we installed — and the reconcile responds by installing, which overwrites the
+/// files the package ships and leaves anything else in the directory alone.
+///
+/// This deliberately does **not** claim such a directory by writing a record
+/// over it. Doing that used to report it `clean` at the version the server
+/// happened to name, so a personal skill sitting at the pack's path was
+/// registered as that team version and auto-follow saw nothing left to do —
+/// content that was never the team's, pinned as the team's, permanently.
+#[tauri::command]
+pub fn team_skill_inspect(
+    slug: String,
+    expected_version: Option<i64>,
+    team_id: Option<String>,
+) -> Result<TeamSkillInspectResult, String> {
+    let _ = (expected_version, team_id);
+    let slug = slug.trim().to_string();
+    validate_slug(&slug)?;
+    let target = global_skills_dir()?.join(&slug);
+
+    let missing = |slug: String| TeamSkillInspectResult {
+        slug,
+        state: "missing".to_string(),
+        installed_version: None,
+        modified: Vec::new(),
+        deleted: Vec::new(),
+    };
+
+    if !target.exists() {
+        return Ok(missing(slug));
+    }
+
+    let origin = read_origin(&target);
+
+    if let Some(origin) = origin.as_ref().filter(|o| o.registry != SOURCE_TEAM) {
+        return Ok(TeamSkillInspectResult {
+            slug,
+            state: "foreign".to_string(),
+            installed_version: Some(origin.installed_version.clone()),
+            modified: Vec::new(),
+            deleted: Vec::new(),
+        });
+    }
+
+    if origin.as_ref().and_then(|o| o.files.as_ref()).is_none() {
+        return Ok(missing(slug));
+    }
+
+    let installed_version = origin.as_ref().map(|o| o.installed_version.clone());
+
+    let baseline = origin.and_then(|o| o.files);
+    match inspect(&target, baseline.as_ref()) {
+        DirtyState::Dirty { modified, deleted } => Ok(TeamSkillInspectResult {
+            slug,
+            state: "dirty".to_string(),
+            installed_version,
+            modified,
+            deleted,
+        }),
+        _ => Ok(TeamSkillInspectResult {
+            slug,
+            state: "clean".to_string(),
+            installed_version,
+            modified: Vec::new(),
+            deleted: Vec::new(),
+        }),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSkillFileDiff {
+    pub path: String,
+    /// `None` when the side is absent or not UTF-8.
+    pub baseline: Option<String>,
+    pub current: Option<String>,
+    pub binary: bool,
+}
+
+/// Reconstruct the installed baseline and diff it against what is on disk.
+///
+/// The baseline is not kept locally — it was overwritten in place — so it is
+/// rebuilt from the registry: download the *installed* version's package (not
+/// the latest one; the question is "what did I change", not "what did the team
+/// change") and run the identical frontmatter rewrite over it. Skipping that
+/// rewrite makes every file's frontmatter block show up as a change, which is
+/// the same trap as hashing the archive instead of the installed directory.
+#[tauri::command]
+pub async fn team_skill_diff(
+    request: TeamSkillInstallRequest,
+) -> Result<Vec<TeamSkillFileDiff>, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut request = request;
+        let slug = request.slug.trim().to_string();
+        validate_slug(&slug)?;
+        let target = global_skills_dir()?.join(&slug);
+
+        let (modified, deleted) = match installed_state(&target) {
+            DirtyState::Dirty { modified, deleted } => (modified, deleted),
+            _ => return Ok(Vec::new()),
+        };
+
+        // `owner` and `category` come from the pack's own frontmatter rather
+        // than from the caller's registry row. The caller can only pass the
+        // *current* row — the version snapshot carries neither field — so after
+        // an owner transfer or a category edit, rebuilding the baseline from it
+        // paints two frontmatter lines the user never touched as their changes,
+        // in the one dialog whose entire job is answering "did I change this?".
+        // Both lines are machine-written, so taking them from disk cannot hide
+        // a real edit worth showing.
+        if let Ok(current) = std::fs::read_to_string(target.join("SKILL.md")) {
+            let parsed = teamclu_types::skill_frontmatter::parse_frontmatter(&current);
+            if let Some(owner) = parsed.string("owner") {
+                request.owner = Some(owner.to_string());
+            }
+            if let Some(category) = parsed.string("category") {
+                request.category = Some(category.to_string());
+            }
+        }
+
+        let client = build_client()?;
+        let mut download = client.get(&request.download_url);
+        if let Some(token) = request.access_token.as_deref().filter(|t| !t.is_empty()) {
+            download = download.header("Authorization", format!("Bearer {}", token));
+        }
+        let resp = download
+            .send()
+            .map_err(|e| format!("Download failed: {}", e))?;
+        if !resp.status().is_success() {
+            return Err(format!("Download failed with status {}", resp.status()));
+        }
+        let zip_bytes = resp
+            .bytes()
+            .map_err(|e| format!("Failed to read download body: {}", e))?;
+
+        let staging =
+            tempfile::tempdir().map_err(|e| format!("Failed to create staging dir: {}", e))?;
+        extract_zip_to_dir(&zip_bytes, staging.path())?;
+        write_install_frontmatter(staging.path(), &request)?;
+
+        let read_text = |path: &std::path::Path| -> (Option<String>, bool) {
+            match std::fs::read(path) {
+                Ok(bytes) => match String::from_utf8(bytes) {
+                    Ok(text) => (Some(text), false),
+                    Err(_) => (None, true),
+                },
+                Err(_) => (None, false),
+            }
+        };
+
+        let mut out = Vec::new();
+        for rel in modified.into_iter().chain(deleted) {
+            let (baseline, baseline_binary) = read_text(&staging.path().join(&rel));
+            let (current, current_binary) = read_text(&target.join(&rel));
+            out.push(TeamSkillFileDiff {
+                path: rel,
+                baseline,
+                current,
+                binary: baseline_binary || current_binary,
+            });
+        }
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(out)
+    })
+    .await
+    .map_err(|e| format!("team skill diff task failed: {}", e))?
+}
+
+/// Move the installed pack aside so a clean copy can be laid down.
+///
+/// Returns the path it was moved to. Nothing is deleted: "discard my changes"
+/// is the one action in the conflict UI that cannot be re-derived, so it gets
+/// an undo instead of a confirmation dialog — the dialog interrupts everyone to
+/// protect the rare misclick, the undo protects the misclick without
+/// interrupting anyone.
+#[tauri::command]
+pub fn team_skill_discard_local(slug: String) -> Result<String, String> {
+    let slug = slug.trim().to_string();
+    validate_slug(&slug)?;
+    let target = global_skills_dir()?.join(&slug);
+    if !target.exists() {
+        return Err(format!("{} is not installed", slug));
+    }
+
+    move_to_trash(&target, &slug)
+}
+
+/// Move a skill directory into the trash and return where it went.
+///
+/// Every path that takes something away from the user goes through here rather
+/// than `remove_dir_all`, so "undo" is always a rename back rather than a
+/// restore from nothing.
+fn move_to_trash(target: &std::path::Path, slug: &str) -> Result<String, String> {
+    let trash = trash_dir()?;
+    std::fs::create_dir_all(&trash).map_err(|e| format!("Failed to create trash dir: {}", e))?;
+    let dest = trash.join(format!("{}-{}", slug, now_millis()));
+    std::fs::rename(target, &dest).map_err(|e| format!("Failed to move skill aside: {}", e))?;
+    // Swept here rather than on a timer: this is the only thing that ever adds
+    // to the directory, so it is the only place that can let it grow.
+    prune_trash(&trash);
+    Ok(dest.display().to_string())
+}
+
+/// Retire the personal original a skill was shared from.
+///
+/// Sharing copies the directory into the pack root and leaves the original
+/// where it was, so the slug now exists twice — and the pack root ranks below
+/// nearly every other skills root, meaning the copy the user goes on editing is
+/// the original while publish, dirty detection, and diff all read the pack. One
+/// name, one file is the only version of this that stays comprehensible.
+///
+/// Refuses rather than guesses in three cases: a source that resolves to the
+/// pack itself (nothing to retire, and removing it would delete what was just
+/// installed), a path outside the home directory, and a directory with no
+/// `SKILL.md` — none of which is a personal skill this app put somewhere.
+///
+/// Goes to the trash, never `remove_dir_all`: the caller offers an undo.
+#[tauri::command]
+pub fn team_skill_retire_personal(dir_path: String, slug: String) -> Result<String, String> {
+    let slug = slug.trim().to_string();
+    validate_slug(&slug)?;
+
+    let source = std::fs::canonicalize(dir_path.trim())
+        .map_err(|_| "Personal skill directory not found".to_string())?;
+    if !source.is_dir() || !source.join("SKILL.md").is_file() {
+        return Err("Not a skill directory".to_string());
+    }
+
+    let pack = global_skills_dir()?.join(&slug);
+    if std::fs::canonicalize(&pack).map(|p| p == source).unwrap_or(false) {
+        return Err("The shared copy is the original; nothing to retire".to_string());
+    }
+
+    let home = dirs::home_dir().ok_or_else(|| "HOME directory not found".to_string())?;
+    let home = std::fs::canonicalize(&home).unwrap_or(home);
+    if !source.starts_with(&home) {
+        return Err("Refusing to move a directory outside the home directory".to_string());
+    }
+
+    move_to_trash(&source, &slug)
+}
+
+/// Resolve a caller-supplied backup path, refusing anything that is not really
+/// inside our own trash.
+///
+/// The path arrives from the frontend and is used as the source of a `rename`
+/// into the skills directory, so a permissive check here is a way to move an
+/// arbitrary directory. `Path::starts_with` alone is not that check: it is
+/// purely lexical, so `<trash>/../../elsewhere` matches the prefix while naming
+/// somewhere else entirely. Canonicalising both sides collapses the `..`
+/// segments and resolves symlinks, and it fails outright on a path that does
+/// not exist — which is the other case this has to reject.
+fn resolve_trashed_source(
+    trash: &std::path::Path,
+    raw: &str,
+) -> Result<std::path::PathBuf, String> {
+    let reject = || "Not a restorable skill backup".to_string();
+    let source = std::fs::canonicalize(raw).map_err(|_| reject())?;
+    let root = std::fs::canonicalize(trash).map_err(|_| reject())?;
+    if !source.is_dir() || source == root || !source.starts_with(&root) {
+        return Err(reject());
+    }
+    Ok(source)
+}
+
+/// Undo a discard. The trashed copy wins over whatever is installed now, which
+/// is the point: the user asked for their edits back.
+#[tauri::command]
+pub fn team_skill_restore_trashed(trashed_path: String, slug: String) -> Result<String, String> {
+    let slug = slug.trim().to_string();
+    validate_slug(&slug)?;
+    let source = resolve_trashed_source(&trash_dir()?, trashed_path.trim())?;
+
+    let target = global_skills_dir()?.join(&slug);
+    if target.exists() {
+        std::fs::remove_dir_all(&target)
+            .map_err(|e| format!("Failed to clear skill dir: {}", e))?;
+    }
+    std::fs::rename(&source, &target).map_err(|e| format!("Failed to restore skill: {}", e))?;
+    Ok(target.display().to_string())
+}
+
+/// Copy the edited pack out to a personal skill under a new slug.
+///
+/// The rename is mandatory, not a nicety: local skills outrank team skills in
+/// the loader's source priority, so a fork keeping the original slug would
+/// shadow the team copy and quietly cancel the auto-follow it was supposed to
+/// let the user keep.
+#[tauri::command]
+pub fn team_skill_fork(slug: String, new_slug: String) -> Result<String, String> {
+    let slug = slug.trim().to_string();
+    let new_slug = new_slug.trim().to_string();
+    validate_slug(&slug)?;
+    validate_slug(&new_slug)?;
+    if slug == new_slug {
+        return Err("A fork needs a different slug".to_string());
+    }
+
+    let skills = global_skills_dir()?;
+    let source = skills.join(&slug);
+    if !source.is_dir() {
+        return Err(format!("{} is not installed", slug));
+    }
+    let target = skills.join(&new_slug);
+    if target.exists() {
+        return Err(format!("{} already exists", new_slug));
+    }
+    copy_dir_recursive(&source, &target)?;
+
+    // The copy is nobody's package now: drop the registry bookkeeping so it is
+    // never mistaken for something the reconcile loop should manage.
+    let origin_dir = target.join(teamclu_skillpack::ORIGIN_DIR);
+    if origin_dir.exists() {
+        std::fs::remove_dir_all(&origin_dir)
+            .map_err(|e| format!("Failed to clear fork bookkeeping: {}", e))?;
+    }
+
+    let skill_md = target.join("SKILL.md");
+    if skill_md.is_file() {
+        let content = std::fs::read_to_string(&skill_md)
+            .map_err(|e| format!("Failed to read SKILL.md: {}", e))?;
+        let updates: Vec<(&str, Option<FrontmatterValue>)> = vec![
+            ("name", scalar(&new_slug)),
+            ("version", None),
+            ("source", None),
+        ];
+        let out = write_frontmatter(&content, &updates, FRONTMATTER_KEY_ORDER);
+        std::fs::write(&skill_md, out).map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
+    }
+
+    Ok(target.display().to_string())
 }
 
 #[cfg(test)]
@@ -599,6 +1188,7 @@ mod tests {
         TeamSkillInstallRequest {
             workspace_path: None,
             slug: slug.to_string(),
+            team_id: Some("team-a".into()),
             download_url: String::new(),
             access_token: None,
             version: 3,
@@ -609,6 +1199,8 @@ mod tests {
             when_not_to_use: Some("不要用于本地开发\n不要用于 hotfix 流程".into()),
             requires: Some(vec!["macos".into()]),
             is_global: false,
+            force: false,
+            archive_unmanaged: false,
         }
     }
 
@@ -623,7 +1215,7 @@ mod tests {
         )
         .unwrap();
 
-        let wrote = write_registry_frontmatter(&skill, &request("deploy-check")).unwrap();
+        let wrote = write_install_frontmatter(&skill, &request("deploy-check")).unwrap();
         assert!(wrote);
 
         let out = std::fs::read_to_string(skill.join("SKILL.md")).unwrap();
@@ -647,7 +1239,74 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let skill = dir.path().join("empty");
         std::fs::create_dir_all(&skill).unwrap();
-        assert!(!write_registry_frontmatter(&skill, &request("empty")).unwrap());
+        assert!(!write_install_frontmatter(&skill, &request("empty")).unwrap());
+    }
+
+    #[test]
+    fn the_baseline_is_taken_after_the_frontmatter_rewrite() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let skill = dir.path().join("deploy-check");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: deploy-check\ndescription: old blurb\n---\nbody\n",
+        )
+        .unwrap();
+
+        // The real install order. Reversing these two lines is the bug this
+        // test exists for: a baseline taken before the rewrite describes the
+        // archive, not the disk, and every skill would be born in conflict.
+        write_install_frontmatter(&skill, &request("deploy-check")).unwrap();
+        stamp_installed_state(
+            &skill,
+            InstalledStamp {
+                slug: "deploy-check",
+                version: 3,
+                team_id: Some("team-a"),
+                shipped: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(installed_state(&skill), DirtyState::Clean);
+        let origin = read_origin(&skill).expect("origin");
+        assert_eq!(origin.installed_version, "3");
+        assert_eq!(origin.registry, SOURCE_TEAM);
+    }
+
+    #[test]
+    fn an_edit_after_install_is_caught() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let skill = dir.path().join("deploy-check");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: deploy-check\n---\nbody\n",
+        )
+        .unwrap();
+        write_install_frontmatter(&skill, &request("deploy-check")).unwrap();
+        stamp_installed_state(
+            &skill,
+            InstalledStamp {
+                slug: "deploy-check",
+                version: 3,
+                team_id: Some("team-a"),
+                shipped: None,
+            },
+        )
+        .unwrap();
+
+        let path = skill.join("SKILL.md");
+        let edited = std::fs::read_to_string(&path).unwrap() + "\nmy own note\n";
+        std::fs::write(&path, edited).unwrap();
+
+        match installed_state(&skill) {
+            DirtyState::Dirty { modified, deleted } => {
+                assert_eq!(modified, vec!["SKILL.md".to_string()]);
+                assert!(deleted.is_empty());
+            }
+            other => panic!("expected dirty, got {:?}", other),
+        }
     }
 
     #[test]
@@ -661,12 +1320,109 @@ mod tests {
         req.owner = None;
         req.when_not_to_use = Some("   ".into());
         req.requires = Some(vec![]);
-        write_registry_frontmatter(&skill, &req).unwrap();
+        write_install_frontmatter(&skill, &req).unwrap();
 
         let out = std::fs::read_to_string(skill.join("SKILL.md")).unwrap();
         let parsed = parse_frontmatter(&out);
         assert_eq!(parsed.string("owner"), None);
         assert_eq!(parsed.string("when_not_to_use"), None);
         assert!(parsed.data.get("requires").is_none());
+    }
+
+    fn trashed(trash: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let dir = trash.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("SKILL.md"), "body\n").unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_directory_with_no_team_record_is_not_claimed() {
+        // A skill the user wrote straight into the skills root, colliding with
+        // a team slug. Claiming it — writing a team record over it and calling
+        // it clean at whatever version the server named — registered their
+        // content as that team version, and auto-follow then saw nothing to do.
+        // Reporting it as ours-is-not-here lets the install overwrite instead,
+        // which is what the user asked for by installing.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let skill = dir.path().join("hand-written");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(skill.join("SKILL.md"), "mine, not the team's\n").unwrap();
+
+        assert_eq!(installed_state(&skill), DirtyState::Unmanaged);
+        assert!(read_origin(&skill).is_none(), "nothing was written over it");
+        // And the installer does not treat it as a local edit to protect, so an
+        // install proceeds and overwrites what the package ships.
+        assert!(!installed_state(&skill).is_dirty());
+    }
+
+    #[test]
+    fn a_real_backup_resolves() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let trash = tmp.path().join("trash");
+        let backup = trashed(&trash, "deploy-check-1000");
+        let resolved = resolve_trashed_source(&trash, backup.to_str().unwrap()).unwrap();
+        assert_eq!(resolved, std::fs::canonicalize(&backup).unwrap());
+    }
+
+    #[test]
+    fn a_traversal_out_of_the_trash_is_refused() {
+        // The lexical `starts_with` this replaced accepted exactly this path,
+        // which made the restore a way to move any directory on the machine
+        // into ~/.agents/skills.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let trash = tmp.path().join("trash");
+        std::fs::create_dir_all(&trash).unwrap();
+        let outside = tmp.path().join("not-trash");
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let escape = trash.join("..").join("not-trash");
+        assert!(escape.starts_with(&trash), "the lexical check still passes");
+        assert!(resolve_trashed_source(&trash, escape.to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn the_trash_root_itself_is_not_a_backup() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let trash = tmp.path().join("trash");
+        std::fs::create_dir_all(&trash).unwrap();
+        assert!(resolve_trashed_source(&trash, trash.to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn pruning_keeps_the_recent_and_drops_the_stale() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let trash = tmp.path().join("trash");
+        let now = now_millis();
+        let fresh = trashed(&trash, &format!("fresh-{}", now - 1000));
+        let old = trashed(&trash, &format!("old-{}", now - TRASH_TTL_MS - 1));
+        // A name with no parsable timestamp is somebody else's business.
+        let foreign = trashed(&trash, "not-ours");
+
+        prune_trash(&trash);
+
+        assert!(fresh.is_dir(), "a pack discarded seconds ago is still undoable");
+        assert!(!old.exists(), "a pack past the retention window is swept");
+        assert!(foreign.is_dir());
+    }
+
+    #[test]
+    fn pruning_bounds_the_count_even_when_everything_is_fresh() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let trash = tmp.path().join("trash");
+        let now = now_millis();
+        // Discarded in one sitting, so the age bound never fires and only the
+        // count can stop this directory from growing.
+        let dirs: Vec<_> = (0..TRASH_MAX_ENTRIES + 5)
+            .map(|i| trashed(&trash, &format!("skill-{}", now - i as u64)))
+            .collect();
+
+        prune_trash(&trash);
+
+        let left = std::fs::read_dir(&trash).unwrap().count();
+        assert_eq!(left, TRASH_MAX_ENTRIES);
+        // The newest survive; the oldest five are the ones that went.
+        assert!(dirs[0].is_dir());
+        assert!(!dirs[TRASH_MAX_ENTRIES + 4].exists());
     }
 }
