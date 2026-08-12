@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCurrentTeamStore, readCachedCurrentTeam } from "@/stores/current-team";
 import { getBackend } from "@/lib/backend";
@@ -8,6 +8,10 @@ import { resolveDefaultDisplayName } from "@/lib/default-display-name";
 import { DesktopOnboarding } from "./DesktopOnboarding";
 import { LoginScreen } from "./LoginScreen";
 import { SetupWizard } from "@/components/auth/SetupWizard";
+import { RoleStep } from "@/components/onboarding/RoleStep";
+import { SetupStep } from "@/components/onboarding/SetupStep";
+import { ModelStep } from "@/components/onboarding/ModelStep";
+import { useOnboardingStore } from "@/stores/onboarding";
 import { useSetupStore, setupPreviouslySatisfied } from "@/stores/setup";
 import { DaemonOnboardingWizard } from "@/components/auth/DaemonOnboardingWizard";
 import { TeamBootstrapErrorScreen } from "@/components/auth/TeamBootstrapErrorScreen";
@@ -73,6 +77,26 @@ export function AuthGate({ children }: AuthGateProps) {
   // background (effect below) to refresh the cache, and the daemon-onboarding
   // gate is the real backstop if a dependency actually went missing.
   const [setupAck, setSetupAck] = useState(() => devSkipSetup() || setupPreviouslySatisfied());
+
+  // First-run onboarding (#881). `onboardingSetupAck` is local rather than
+  // persisted: it only sequences the screens within one run.
+  const onboardingRole = useOnboardingStore((s) => s.role);
+  const onboardingDone = useOnboardingStore((s) => s.completed);
+  const setOnboardingRole = useOnboardingStore((s) => s.setRole);
+  const markOnboardingCompleted = useOnboardingStore((s) => s.markCompleted);
+  const [onboardingSetupAck, setOnboardingSetupAck] = useState(false);
+  // Whether a model step follows is decided here, when setup finishes, rather
+  // than as another render branch — that branch would have had to call
+  // `markCompleted` during render to skip itself.
+  //
+  // pi ships without credentials of its own, so a guided user who never
+  // connected a provider would land in an app that cannot answer them.
+  // Developers configure models in Settings on their own terms.
+  const finishSetupStep = useCallback(() => {
+    setOnboardingSetupAck(true);
+    const { role, runtime } = useOnboardingStore.getState();
+    if (!(role === "guided" && runtime === "pi")) markOnboardingCompleted();
+  }, [markOnboardingCompleted]);
 
   const daemonStatus = useDaemonOnboardingStore((s) => s.status);
   const daemonLoaded = useDaemonOnboardingStore((s) => s.loaded);
@@ -351,7 +375,31 @@ export function AuthGate({ children }: AuthGateProps) {
   // would stay empty through auth hydrate / team bootstrap / myTeams and
   // the side panel would flash white for seconds.
 
-  // First-run: in Tauri, ensure local prerequisites (amuxd/opencode) before auth.
+  // First-run onboarding (#881), ahead of auth: pick a setup style, get the
+  // runtime and local dependencies in place, and — on the guided path — connect
+  // a model. Provider credentials are device-level since #742, so that last
+  // step works with no account and no workspace.
+  //
+  // Returning users skip all of it: `onboardingDone` is set once the flow
+  // completes, and `setupRequiredSatisfied` covers installs that predate it.
+  if (isTauri() && !setupAck && !onboardingDone) {
+    if (!setupLoaded) {
+      return null;
+    }
+    if (!onboardingRole) {
+      removeStartupSkeleton();
+      return <RoleStep onDone={setOnboardingRole} />;
+    }
+    if (!onboardingSetupAck) {
+      removeStartupSkeleton();
+      return <SetupStep role={onboardingRole} onDone={finishSetupStep} />;
+    }
+    removeStartupSkeleton();
+    return <ModelStep onDone={markOnboardingCompleted} />;
+  }
+
+  // Pre-#881 installs that never ran the new flow still need their local
+  // prerequisites checked before auth.
   if (isTauri() && !setupAck) {
     if (!setupLoaded) {
       return null;

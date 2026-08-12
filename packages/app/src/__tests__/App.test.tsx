@@ -114,7 +114,6 @@ vi.mock('@/hooks/useAppInit', () => ({
   useWorkspaceRuntimeRefreshPoll: vi.fn(),
   useExternalLinkHandler: vi.fn(),
   useTauriBodyClass: vi.fn(),
-  useSetupGuide: () => ({ showSetupGuide: false, dependencies: [], handleRecheck: vi.fn(), handleSetupContinue: vi.fn() }),
   useTelemetryConsent: () => ({ showConsentDialog: false, setShowConsentDialog: vi.fn() }),
   useLayoutModeShortcut: vi.fn(),
 }))
@@ -152,7 +151,6 @@ vi.mock('@/components/panel', () => ({
 }))
 vi.mock('@/components/settings', () => ({ Settings: () => <div>settings</div> }))
 vi.mock('@/components/settings/FeedbackDialog', () => ({ FeedbackDialog: () => null }))
-vi.mock('@/components/SetupGuide', () => ({ SetupGuide: () => null }))
 vi.mock('@/components/telemetry/TelemetryConsentDialog', () => ({ TelemetryConsentDialog: () => null }))
 vi.mock('@/stores/session', () => ({
   useSessionStore: vi.fn((sel: (s: any) => any) => {

@@ -45,6 +45,31 @@ async function adoptAsDefaultAgentIfUnset(teamId: string, agentId: string): Prom
 export type OnboardingStatus = 'unknown' | 'needs-onboard' | 'mismatch' | 'starting' | 'ready' | 'error'
 export type Visibility = 'team' | 'personal'
 
+/**
+ * The distinct operations hiding behind `status === 'starting'` (#881).
+ *
+ * That one status used to cover five separate things — minting an invite,
+ * writing credentials, restarting the daemon, waiting for its HTTP port, and
+ * checking cloud auth — behind a single spinner, so a wedged step looked
+ * exactly like a fast one and a failure could only say "couldn't start".
+ */
+export type OnboardingStep =
+  | 'mint-invite'
+  | 'init-daemon'
+  | 'restart-daemon'
+  | 'await-daemon'
+  | 'cloud-auth'
+  | 'register-workspace'
+
+/** Ordered for display; `register-workspace` is best-effort and not shown. */
+export const ONBOARDING_STEPS: OnboardingStep[] = [
+  'mint-invite',
+  'init-daemon',
+  'restart-daemon',
+  'await-daemon',
+  'cloud-auth',
+]
+
 export type OwnedAgent = { agentId: string; displayName: string; visibility: string }
 
 /** Pure status from daemon-bound teamId vs the logged-in current teamId. */
@@ -72,6 +97,19 @@ type DaemonOnboardingState = {
   /** Last auto-heal failure (e.g. caller doesn't own the agent). Non-null
    * suppresses further automatic attempts; the banner offers a manual retry. */
   healError: string | null
+  /** Operation currently running, or null when nothing is in flight. */
+  step: OnboardingStep | null
+  /** Steps finished during this run, in the order they completed. */
+  completedSteps: OnboardingStep[]
+  /** Which step owns `error`. Lets the failure screen name it and offer the
+   * recovery that actually fits, instead of a bare Retry. */
+  failedStep: OnboardingStep | null
+  /** Epoch ms the current run began. The store keeps only the timestamp — a
+   * ticking counter here would re-render every subscriber once a second. */
+  runStartedAt: number | null
+  /** Set when the user actively created or bound an agent, so the wizard can
+   * confirm what happened instead of just vanishing. */
+  completedAgent: { agentId: string; displayName: string } | null
   refresh: (opts?: { forceIdentityRebind?: boolean; forceTeamRebind?: boolean }) => Promise<void>
   loadOwnedAgents: () => Promise<void>
   createNewAgent: (name: string, visibility: Visibility) => Promise<void>
@@ -98,10 +136,41 @@ function rememberDaemonIdentity(teamId: string): void {
   if (userId) writeDaemonOnboardingIdentity({ teamId, userId })
 }
 
+/** Start a fresh run: clear the previous run's step trail and failure. */
+function beginRun(): void {
+  useDaemonOnboardingStore.setState({
+    step: null,
+    completedSteps: [],
+    failedStep: null,
+    runStartedAt: Date.now(),
+  })
+}
+
+/**
+ * Mark `step` active, run `fn`, record it as done.
+ *
+ * On failure it records `failedStep` and rethrows unchanged, so every existing
+ * catch block keeps behaving exactly as it did.
+ */
+async function runStep<T>(step: OnboardingStep, fn: () => Promise<T>): Promise<T> {
+  useDaemonOnboardingStore.setState({ step })
+  try {
+    const result = await fn()
+    useDaemonOnboardingStore.setState((s) => ({
+      completedSteps: s.completedSteps.includes(step) ? s.completedSteps : [...s.completedSteps, step],
+      step: null,
+    }))
+    return result
+  } catch (e) {
+    useDaemonOnboardingStore.setState({ failedStep: step, step: null })
+    throw e
+  }
+}
+
 /** Run create-invite → amuxd init → install-service. Returns the claimed agentId. */
 async function onboard(teamId: string, displayName: string, targetActorId: string | null): Promise<string> {
   const { invoke } = await import('@tauri-apps/api/core')
-  const invite = await getBackend().teams.createTeamInvite({
+  const invite = await runStep('mint-invite', () => getBackend().teams.createTeamInvite({
     teamId,
     kind: 'agent',
     displayName,
@@ -110,7 +179,7 @@ async function onboard(teamId: string, displayName: string, targetActorId: strin
     // window avoids leaving orphan agent invites if init fails.
     ttlSeconds: 600,
     targetActorId,
-  })
+  }))
   // Carry this app's effective Cloud API endpoint into the invite so the daemon
   // talks to the same backend the desktop build/runtime resolved — otherwise it
   // falls back to its own hardcoded default and diverges in non-prod builds.
@@ -120,14 +189,16 @@ async function onboard(teamId: string, displayName: string, targetActorId: strin
   if (cloudApiUrl) {
     inviteUrl += `&cloud_api_url=${encodeURIComponent(cloudApiUrl)}`
   }
-  const result = await invoke<{ actorId: string; teamId: string }>('daemon_init', { inviteUrl })
+  const result = await runStep('init-daemon', () =>
+    invoke<{ actorId: string; teamId: string }>('daemon_init', { inviteUrl }),
+  )
   // `daemon_init` already claimed the invite and wrote fresh credentials — the
   // actor is onboarded to the team at this point. Restart the desktop-managed
   // amuxd so it reloads backend.toml. Failure here means credentials are on
   // disk but the running daemon may still hold the old identity — treat as
   // onboard failure. No `daemon_ensure_running` fallback: ensure is a no-op
   // when a (stale) daemon is already healthy, which would fake success.
-  await invoke('daemon_restart_managed')
+  await runStep('restart-daemon', () => invoke('daemon_restart_managed'))
   return result.actorId
 }
 
@@ -153,21 +224,36 @@ async function ensureHealthy(): Promise<boolean> {
   // Desktop-managed amuxd: restart the sidecar held by the desktop process
   // (compat command `daemon_install_service` now maps to the same restart).
   const { invoke } = await import('@tauri-apps/api/core')
-  try {
-    await invoke('daemon_ensure_running')
-  } catch {
+  // Both spawn attempts are best-effort — polling below is what decides the
+  // outcome — so this step is never the one blamed for a failure.
+  await runStep('restart-daemon', async () => {
     try {
-      await invoke('daemon_restart_managed')
+      await invoke('daemon_ensure_running')
     } catch {
-      /* fall through to polling */
+      try {
+        await invoke('daemon_restart_managed')
+      } catch {
+        /* fall through to polling */
+      }
     }
-  }
+  })
+  // The long one: up to 6s per attempt, and `refresh` runs it twice.
+  useDaemonOnboardingStore.setState({ step: 'await-daemon' })
   for (let i = 0; i < 12; i++) {
     await sleep(500)
     invalidateDaemonConnection()
     probe = await probeDaemonHttp()
-    if (probe.ok) return true
+    if (probe.ok) {
+      useDaemonOnboardingStore.setState((s) => ({
+        completedSteps: s.completedSteps.includes('await-daemon')
+          ? s.completedSteps
+          : [...s.completedSteps, 'await-daemon'],
+        step: null,
+      }))
+      return true
+    }
   }
+  useDaemonOnboardingStore.setState({ failedStep: 'await-daemon', step: null })
   return false
 }
 
@@ -209,6 +295,11 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
   cloudAuthExpired: false,
   healing: false,
   healError: null,
+  step: null,
+  completedSteps: [],
+  failedStep: null,
+  runStartedAt: null,
+  completedAgent: null,
 
   refresh: async (opts) => {
     if (!isTauri()) {
@@ -225,6 +316,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
         // The user explicitly chose another team. amuxd is single-team, so
         // keep the old Team's agent intact and provision a new local agent for
         // the target Team instead of making the user reset the whole daemon.
+        beginRun()
         set({ status: 'starting', loaded: true, busy: true, error: null })
         try {
           await onboard(currentTeamId, 'Local daemon', null)
@@ -276,6 +368,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
     if (identityChanged) {
       // Same team does not imply the same daemon authority. Rebind under the
       // newly selected linked account before it publishes commands/workspaces.
+      beginRun()
       set({ status: 'starting', loaded: true, busy: true, error: null })
       try {
         localActorId ??= await getLocalDaemonActorId()
@@ -312,6 +405,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
       await maybeRegisterDefaultWorkspace(currentTeamId)
       return
     }
+    beginRun()
     set({ status: 'starting', loaded: true, error: null })
     let ok = await ensureHealthy()
     if (!ok) ok = await ensureHealthy()
@@ -349,7 +443,8 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
   createNewAgent: async (name, visibility) => {
     const teamId = useCurrentTeamStore.getState().team?.id
     if (!teamId) { set({ error: 'no current team' }); return }
-    set({ busy: true, error: null })
+    beginRun()
+    set({ busy: true, error: null, completedAgent: null })
     try {
       const agentId = await onboard(teamId, name, null)
       rememberDaemonIdentity(teamId)
@@ -357,6 +452,9 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
         await getBackend().actors.makeAgentPersonal(agentId)
       }
       await adoptAsDefaultAgentIfUnset(teamId, agentId)
+      // Recorded before refresh so the wizard can confirm what was set up
+      // rather than simply disappearing once status flips to 'ready'.
+      set({ completedAgent: { agentId, displayName: name } })
       await get().refresh()
     } catch (e) {
       set({ error: String(e) })
@@ -368,11 +466,13 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
   bindExistingAgent: async (agentId, displayName) => {
     const teamId = useCurrentTeamStore.getState().team?.id
     if (!teamId) { set({ error: 'no current team' }); return }
-    set({ busy: true, error: null })
+    beginRun()
+    set({ busy: true, error: null, completedAgent: null })
     try {
       const claimedAgentId = await onboard(teamId, displayName, agentId)
       rememberDaemonIdentity(teamId)
       await adoptAsDefaultAgentIfUnset(teamId, claimedAgentId)
+      set({ completedAgent: { agentId: claimedAgentId, displayName } })
       await get().refresh()
     } catch (e) {
       set({ error: String(e) })
@@ -416,7 +516,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
 
   checkCloudSession: async (opts?: { allowRetryAfterHealError?: boolean }) => {
     if (!isTauri()) return
-    const status = await fetchDaemonCloudAuthStatus()
+    const status = await runStep('cloud-auth', fetchDaemonCloudAuthStatus)
     if (status !== 'expired') {
       // Healthy / unknown (older daemon or transient) — clear any stale banner.
       if (get().cloudAuthExpired) set({ cloudAuthExpired: false })

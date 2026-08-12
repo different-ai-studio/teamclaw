@@ -180,6 +180,37 @@ pub async fn setup_list_requirements<R: Runtime>(
     ])
 }
 
+/// Install status of every agent runtime the user can pick from (#881).
+///
+/// One `amuxd doctor` call covers both: opencode is always in the report, and
+/// passing `AMUXD_DOCTOR_LOCAL_AGENT=pi` adds pi alongside it. Probing them
+/// separately would mean paying for doctor twice (it is slow — it shells out
+/// and resolves binaries by absolute path).
+#[tauri::command]
+pub async fn setup_list_agent_runtimes<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Vec<RequirementStatus>, String> {
+    let doctor = read_doctor(&app, Some("pi")).await;
+    let status = |key: &str, title: &str| {
+        let node = doctor.as_ref().map(|d| &d[key]);
+        RequirementStatus {
+            id: key.to_owned(),
+            title: title.to_owned(),
+            optional: false,
+            present: node
+                .and_then(|r| r["satisfied"].as_bool())
+                .unwrap_or(false),
+            version: node
+                .and_then(|r| r["version"].as_str())
+                .map(|s| s.to_string()),
+        }
+    };
+    Ok(vec![
+        status("opencode", "OpenCode"),
+        status("pi", "Pi"),
+    ])
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetupProgress {

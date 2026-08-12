@@ -320,8 +320,6 @@
       "verifying": "Verifying…"
     },
     "onboarding": {
-      "tagline": "Choose how to enter TeamClu.",
-      "getStarted": "Get started",
       "setupTitle": "Choose setup",
       "setupDesc": "Try it first, sign in, join a team, or connect a self-hosted server.",
       "quickTrial": "Quick trial",
@@ -794,6 +792,38 @@
     "openAgentSettings": "Open agent settings"
   },
   "onboarding": {
+    "model": {
+      "title": "Connect a model",
+      "subtitle": "Pick a provider and paste its API key. You can add more later in Settings.",
+      "keyPlaceholder": "Paste the API key",
+      "connect": "Connect",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "failed": "Could not save that key. Check it and try again.",
+      "skip": "Skip for now"
+    },
+    "setup": {
+      "title": "Setting up your agent",
+      "developerSubtitle": "Pick the runtime this machine should use.",
+      "guidedSubtitle": "This only takes a moment.",
+      "runtime": "Agent runtime",
+      "install": "Install",
+      "installed": "installed",
+      "installing": "installing…",
+      "ready": "ready",
+      "missing": "not found",
+      "working": "Setting up…",
+      "continue": "Continue",
+      "switchToDeveloper": "Let me choose the runtime instead"
+    },
+    "role": {
+      "title": "How would you like to set up {{app}}?",
+      "subtitle": "You can change any of this later in Settings.",
+      "developerTitle": "I'll set it up myself",
+      "developerCaption": "Choose the agent runtime and review what gets installed.",
+      "guidedTitle": "Just get me started",
+      "guidedCaption": "Use the recommended setup and connect a model in one step."
+    },
     "common": {
       "back": "Back"
     }
@@ -973,34 +1003,6 @@
     "localDaemonAutomationAria": "Open automation tasks",
     "localDaemonRetrying": "Retrying…",
     "ideas": "Ideas"
-  },
-  "setup": {
-    "title": "Setup Required",
-    "copyCommand": "Copy command",
-    "required": "Required",
-    "optional": "Optional",
-    "recheck": "Re-check",
-    "getStarted": "Get Started",
-    "continue": "Continue",
-    "intro": "TeamClu needs a few tools to work properly. Please install the missing dependencies below.",
-    "optionalHint": "{{count}} optional {{singular}} missing. You can install {{pronoun}} later from Settings.",
-    "back": "Back",
-    "customize": "Customize",
-    "customizeIntro": "Choose which dependencies to install. Required tools are pre-selected.",
-    "customizeTitle": "Select Dependencies",
-    "installAllRequired": "Install All Required",
-    "installFailed": "{{count}} failed to install",
-    "installSelected": "Install Selected",
-    "installSuccess": "{{count}} installed successfully",
-    "installing": "Installing",
-    "installingIntro": "Please wait while dependencies are being installed...",
-    "installingTitle": "Installing Dependencies",
-    "passwordPrompt": "You may be prompted for your system password by macOS to complete the Homebrew installation.",
-    "resultsIntro": "Installation has finished. See the results below.",
-    "resultsTitle": "Installation Complete",
-    "retryFailed": "Retry Failed",
-    "skip": "Skip",
-    "waitingForOutput": "Waiting for output..."
   },
   "setupWizard": {
     "title": "Prepare runtime environment",
@@ -1635,9 +1637,36 @@
       }
     },
     "daemonOnboarding": {
+      "steps": {
+        "mint-invite": "Requesting credentials",
+        "init-daemon": "Writing local config",
+        "restart-daemon": "Restarting the local service",
+        "await-daemon": "Waiting for it to come up",
+        "cloud-auth": "Checking the cloud connection"
+      },
+      "slowHint": {
+        "mint-invite": "Waiting on the server. Check your network connection.",
+        "init-daemon": "Writing credentials to ~/.amuxd.",
+        "restart-daemon": "Waiting for the previous process to exit.",
+        "await-daemon": "The service is starting but has not answered yet.",
+        "cloud-auth": "Verifying this machine with the server."
+      },
+      "recovery": {
+        "mint-invite": "The server could not be reached. Check your connection, then try again.",
+        "init-daemon": "Credentials could not be written. A reset clears any half-written state.",
+        "restart-daemon": "The local service would not restart. A reset clears any half-written state.",
+        "await-daemon": "The service started but never answered. See ~/.amuxd/amuxd.managed.log.",
+        "cloud-auth": "This machine could not verify with the server."
+      },
+      "elapsed": "Still working — {{seconds}}s",
+      "stuckHint": "Taking longer than expected. Check ~/.amuxd/amuxd.managed.log for details.",
+      "errorAtStep": "Setup stopped at: {{step}}",
+      "reconnect": "Reconnect",
+      "doneTitle": "This machine is ready",
+      "doneAs": "Set up as {{name}}",
+      "continue": "Continue",
       "startingTitle": "Starting service…",
       "startingSubtitle": "This machine's agent is bound; making sure the local daemon is running.",
-      "starting": "Starting, please wait…",
       "errorTitle": "Can't start the local service",
       "errorSubtitle": "This machine's agent is bound, but the local daemon failed to start.",
       "startFailed": "Failed to start the local daemon. Make sure it can run on this machine, then retry.",
