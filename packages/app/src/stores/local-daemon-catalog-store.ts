@@ -89,6 +89,8 @@ export const useLocalDaemonCatalogStore = createZustand<LocalDaemonCatalogState>
 
 /** In-flight fetches, so N pills for one workspace share one request. */
 const inFlight = new Map<string, Promise<void>>()
+/** Latest forced refresh requested while a probe for the workspace is active. */
+const forcedFollowUps = new Map<string, { backendType?: string | null }>()
 
 function refreshDueAt(entry: LocalDaemonCatalogEntry): number {
   return entry.fetchedAt + (entry.status === 'ready' ? READY_REFRESH_MS : RETRY_REFRESH_MS)
@@ -123,7 +125,12 @@ export function ensureLocalDaemonCatalog(
 ): void {
   const path = workspacePath.trim()
   if (!path) return
-  if (inFlight.has(path)) return
+  if (inFlight.has(path)) {
+    if (options?.force === true) {
+      forcedFollowUps.set(path, { backendType })
+    }
+    return
+  }
 
   const store = useLocalDaemonCatalogStore.getState()
   if (
@@ -182,6 +189,11 @@ export function ensureLocalDaemonCatalog(
       })
     } finally {
       inFlight.delete(path)
+      const followUp = forcedFollowUps.get(path)
+      if (followUp) {
+        forcedFollowUps.delete(path)
+        ensureLocalDaemonCatalog(path, followUp.backendType, { force: true })
+      }
     }
   })()
 
@@ -191,5 +203,6 @@ export function ensureLocalDaemonCatalog(
 /** Test seam — drops cached entries and any in-flight dedupe state. */
 export function resetLocalDaemonCatalogForTests(): void {
   inFlight.clear()
+  forcedFollowUps.clear()
   useLocalDaemonCatalogStore.getState().clear()
 }
