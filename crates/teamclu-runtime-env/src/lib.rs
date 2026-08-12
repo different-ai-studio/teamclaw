@@ -50,7 +50,8 @@ pub use team_provider_sync::{
 };
 
 pub use storage_namespace::{
-    amuxd_home_for_brand, amuxd_home_from_env, brand_short_name_from_env, is_official_brand,
+    amuxd_home_for_brand, amuxd_home_from_env, brand_home_dir, brand_home_dir_from_env,
+    brand_short_name_from_env, is_official_brand,
     resolve_amuxd_dir_name, resolve_storage_dir_name, resolve_workspace_config_path,
     resolve_workspace_config_path_from_env, resolve_workspace_meta_path,
     resolve_workspace_meta_path_from_env, workspace_config_file_name, workspace_config_path,

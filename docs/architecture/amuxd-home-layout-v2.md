@@ -224,10 +224,17 @@ system_prompt = "…"
 | `<workspace>/teamclu-team` | daemon | 软链 → `~/.amuxd/teams/<id>/shared/teamclu-team`，**链接名跨品牌固定** |
 | `~/.opencode/bin/opencode` | opencode 安装器 | 官方二进制 |
 
-`~/.{brand}` 的目录名由**唯一**的品牌判据推导（§6），桌面端与 daemon 必须调用
-同一个 helper。旧代码里 `local-cache.db` 和 `cached-path.txt` 用工作区常量
-`TEAMCLU_DIR` 拼家目录名、`telemetry-consent.json` 直接硬编码 `.teamclu`——
-两者都不再允许。
+`~/.{brand}` 的目录名由**唯一**的品牌判据推导（§6）。两个家目录各有唯一入口，
+调用点不得自己 `home.join(...)` 拼：
+
+| 想要 | 调用 | 桌面端封装 |
+|---|---|---|
+| `~/.{brand}/` | `teamclu_runtime_env::brand_home_dir(brand)` | `commands::brand_home_dir()` |
+| `~/.amuxd*` | `amuxd_home_for_brand(brand)` / `amuxd_home_from_env()` | `commands::amuxd_home_dir()` |
+
+旧代码里 `local-cache.db` 和 `cached-path.txt` 用工作区常量 `TEAMCLU_DIR` 拼家
+目录名、`telemetry-consent.json` 直接硬编码 `.teamclu`、`apps_data_root()` 直接
+拼 `$HOME/.amuxd`——都不再允许。
 
 ---
 
@@ -305,6 +312,12 @@ betly 的家目录因此被劈成两半。
 
 棘轮**双向失败**：新增一个手写家目录会红，而清理干净后忘记把文件从 `DEBT` 里删掉
 **同样会红**。没有人被迫修剪的 allow 列表很快就不再有意义。
+
+> **它抓不到的一类：用常量拼错目录。** `local-cache.db` / `cached-path.txt` 曾用
+> `TEAMCLU_DIR`（工作区元数据名）当家目录名——源码里没有任何字面量，棘轮全程沉默。
+> 这一类只能靠"想要某个目录就调对应的 helper"来堵：
+> [`brand_home_dir`] 与 [`amuxd_home_for_brand`] 各自是唯一入口，
+> 不要在调用点自己 `home.join(...)` 拼。
 
 首版 `DEBT` 含 **46 个文件**（PR ② 清掉 `build.rs` 后），此后只许缩短。`OWNERS`（2 个：
 `storage_namespace.rs` 与棘轮自身）按设计豁免，不参与增减。

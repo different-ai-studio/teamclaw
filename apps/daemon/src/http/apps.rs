@@ -33,15 +33,14 @@ use super::state::HttpState;
 
 /// The daemon's data root for per-app checkouts: `<amuxd home>/apps`.
 ///
-/// Mirrors `DaemonConfig::config_dir()` (`~/.amuxd`) so app clones live under
-/// the same home the rest of the daemon uses. Falls back to `$HOME/.amuxd`, then
-/// `/tmp/.amuxd`, matching the daemon's own home resolution.
+/// It used to say it mirrored `DaemonConfig::config_dir()` while actually
+/// re-deriving `$HOME/.amuxd` by hand — so it honoured neither `$AMUXD_HOME`
+/// nor the brand, and a white-label daemon cloned apps into the official
+/// build's home. Call the real thing.
+///
+/// Still at the home root; `teams/<id>/state/apps/` is PR ④.
 pub fn apps_data_root() -> PathBuf {
-    dirs::home_dir()
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".amuxd")
-        .join("apps")
+    crate::config::DaemonConfig::config_dir().join("apps")
 }
 
 /// Resolve the clone target for a seed request.

@@ -1,14 +1,9 @@
 use std::path::PathBuf;
 
-const APP_CONFIG_DIR: &str = ".teamclu";
 const LEGACY_CONFIG_DIR: &str = "amux";
 const SERVER_CONFIG_FILE: &str = "config.json";
 const LEGACY_TEAMCLU_CONFIG_FILE: &str = "teamclu.json";
 const LEGACY_SERVER_CONFIG_FILE: &str = "server-config.json";
-
-fn config_base_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"))
-}
 
 fn legacy_config_base_dir() -> PathBuf {
     dirs::config_dir().unwrap_or_else(|| PathBuf::from("/tmp"))
@@ -18,16 +13,20 @@ fn legacy_config_base_dir() -> PathBuf {
 /// written. The Cloud API URL now comes solely from the frontend build config
 /// and MQTT from the Cloud API `/v1/config/bootstrap`; nothing reads these files
 /// anymore.
+///
+/// The first entry is brand-scoped: hardcoded to `~/.teamclu` it swept the
+/// official namespace no matter which build ran, so a white-label install could
+/// never clean its own leftover and would happily delete the official build's.
+/// The `teamclaw` / `amux` entries below stay literal — they are historical
+/// directory names, not this build's identity.
 fn deprecated_config_paths() -> Vec<PathBuf> {
     vec![
-        config_base_dir()
-            .join(APP_CONFIG_DIR)
-            .join(SERVER_CONFIG_FILE),
+        super::brand_home_dir().join(SERVER_CONFIG_FILE),
         legacy_config_base_dir()
-            .join("teamclaw")
+            .join(teamclu_runtime_env::LEGACY_BRAND_STORAGE_DIR)
             .join(LEGACY_TEAMCLU_CONFIG_FILE),
         legacy_config_base_dir()
-            .join("teamclaw")
+            .join(teamclu_runtime_env::LEGACY_BRAND_STORAGE_DIR)
             .join(LEGACY_SERVER_CONFIG_FILE),
         legacy_config_base_dir()
             .join(LEGACY_CONFIG_DIR)

@@ -21,33 +21,12 @@ fn default_format() -> &'static str {
     "opencode_compat"
 }
 
-fn dirs_next() -> Option<std::path::PathBuf> {
-    std::env::var("HOME")
-        .ok()
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            #[cfg(target_os = "windows")]
-            {
-                std::env::var("USERPROFILE")
-                    .ok()
-                    .map(std::path::PathBuf::from)
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                None
-            }
-        })
-}
-
 async fn get_db(state: &LocalCacheState) -> Result<LocalCacheStore, String> {
     let mut db_lock = state.db.lock().await;
     if let Some(ref db) = *db_lock {
         return Ok(db.clone());
     }
-    let home = dirs_next().ok_or("Failed to determine home directory")?;
-    let db_path = home
-        .join(crate::commands::TEAMCLU_DIR)
-        .join("local-cache.db");
+    let db_path = crate::commands::brand_home_dir().join("local-cache.db");
     let db = LocalCacheStore::new(&db_path).await?;
     *db_lock = Some(db.clone());
     Ok(db)

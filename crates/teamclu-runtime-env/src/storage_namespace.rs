@@ -147,6 +147,24 @@ pub fn amuxd_home_from_env() -> PathBuf {
     amuxd_home_for_brand(&brand_short_name_from_env())
 }
 
+/// `$HOME/.teamclu` (official) or `$HOME/.{brand}` — the **desktop's** home
+/// storage directory: personal secrets, `local-cache.db`, telemetry consent.
+///
+/// Sibling of the daemon's [`amuxd_home_for_brand`]; the two are owned by
+/// different processes (`docs/architecture/amuxd-home-layout-v2.md` §1) and must
+/// not be conflated. Every call site that wants this directory calls here —
+/// hand-assembling it from `TEAMCLU_DIR` (a *workspace* metadata constant) is
+/// how `local-cache.db` ended up in a different home than the secrets store.
+pub fn brand_home_dir(brand_short_name: &str) -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+    home.join(format!(".{}", resolve_storage_dir_name(brand_short_name)))
+}
+
+/// [`brand_home_dir`] for the brand this process was launched as.
+pub fn brand_home_dir_from_env() -> PathBuf {
+    brand_home_dir(&brand_short_name_from_env())
+}
+
 /// Legacy official Dev home dir (`teamclawdev`) when migrating an existing install.
 pub fn legacy_official_home_dir_name(short_name: &str) -> Option<&'static str> {
     if short_name == LEGACY_OFFICIAL_DEV_STORAGE_DIR {

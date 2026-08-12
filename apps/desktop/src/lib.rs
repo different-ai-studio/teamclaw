@@ -172,9 +172,7 @@ fn fix_path_env() {
 
     // Try cache first
     let home = std::env::var("HOME").unwrap_or_default();
-    let cache_path = std::path::PathBuf::from(&home)
-        .join(commands::TEAMCLU_DIR)
-        .join("cached-path.txt");
+    let cache_path = commands::brand_home_dir().join("cached-path.txt");
     let profile_mtime = get_shell_profile_mtime(&shell, &home);
 
     if let Some(cached) = read_path_cache(&cache_path, profile_mtime) {

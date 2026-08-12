@@ -75,6 +75,17 @@ pub fn amuxd_home_dir() -> std::path::PathBuf {
     teamclu_runtime_env::amuxd_home_for_brand(APP_SHORT_NAME)
 }
 
+/// This desktop brand's own home storage directory (`~/.teamclu` or `~/.<brand>`):
+/// personal secrets, `local-cache.db`, telemetry consent, the PATH cache.
+///
+/// Every call site that wants it comes here. Assembling it from [`TEAMCLU_DIR`]
+/// — a *workspace* metadata name that only coincides with this one for the
+/// official brand — is what put `local-cache.db` and the secrets store in
+/// different directories on a white-label build.
+pub fn brand_home_dir() -> std::path::PathBuf {
+    teamclu_runtime_env::brand_home_dir(APP_SHORT_NAME)
+}
+
 /// Stamp brand + `AMUXD_HOME` onto a shell sidecar so CLI (`init` / `clear` /
 /// `doctor`) reads the same state dir as the desktop-managed daemon.
 pub fn with_amuxd_brand_env(

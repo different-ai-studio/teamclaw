@@ -16,9 +16,10 @@ struct ConsentFile {
     state: ConsentState,
 }
 
+/// Brand-scoped: a white-label build stored the user's telemetry choice in the
+/// *official* namespace while this path was hardcoded.
 fn consent_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("home dir unavailable")?;
-    Ok(home.join(".teamclu").join("telemetry-consent.json"))
+    Ok(crate::commands::brand_home_dir().join("telemetry-consent.json"))
 }
 
 #[tauri::command]

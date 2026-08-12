@@ -8,13 +8,13 @@ const LEGACY_MIGRATION_MARKER_KEY: &str = "_localPersonalSecretsMigrationComplet
 
 /// Disk-based path for the legacy plaintext env blob written by older versions.
 /// Read-only now (kept as a one-time migration source); never written.
-fn env_blob_fallback_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| h.join(format!(".{}/env-blob.json", super::home_storage_dir_name())))
+fn env_blob_fallback_path() -> std::path::PathBuf {
+    super::brand_home_dir().join("env-blob.json")
 }
 
 /// Read the env blob from the disk fallback file.
 fn read_env_blob_from_disk() -> Option<serde_json::Map<String, serde_json::Value>> {
-    let path = env_blob_fallback_path()?;
+    let path = env_blob_fallback_path();
     let content = std::fs::read_to_string(&path).ok()?;
     let val: serde_json::Value = serde_json::from_str(&content).ok()?;
     match val {
