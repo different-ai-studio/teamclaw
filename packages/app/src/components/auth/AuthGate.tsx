@@ -8,6 +8,8 @@ import { resolveDefaultDisplayName } from "@/lib/default-display-name";
 import { DesktopOnboarding } from "./DesktopOnboarding";
 import { LoginScreen } from "./LoginScreen";
 import { SetupWizard } from "@/components/auth/SetupWizard";
+import { isLocaleLocked, availableLanguages } from "@/lib/i18n";
+import { LanguageStep } from "@/components/onboarding/LanguageStep";
 import { RoleStep } from "@/components/onboarding/RoleStep";
 import { SetupStep } from "@/components/onboarding/SetupStep";
 import { ModelStep } from "@/components/onboarding/ModelStep";
@@ -25,6 +27,10 @@ import { PendingInvitesDialog } from "@/components/auth/PendingInvitesDialog";
 import { GuestTeamDiscovery } from "@/components/auth/GuestTeamDiscovery";
 import { getDesktopDeviceIdOrNull } from "@/lib/backend/cloud-api/device-id";
 import type { MembershipTeam } from "@/lib/backend";
+
+/** A one-option "choice" is noise: single-locale builds skip the language step
+ *  entirely rather than showing a screen with nothing to decide. */
+const canChooseLanguage = !isLocaleLocked && availableLanguages.length > 1;
 
 interface AuthGateProps {
   children: React.ReactNode;
@@ -80,6 +86,8 @@ export function AuthGate({ children }: AuthGateProps) {
 
   // First-run onboarding (#881). `onboardingSetupAck` is local rather than
   // persisted: it only sequences the screens within one run.
+  const onboardingLanguageAck = useOnboardingStore((s) => s.languageAck);
+  const markOnboardingLanguageAck = useOnboardingStore((s) => s.markLanguageAck);
   const onboardingRole = useOnboardingStore((s) => s.role);
   const onboardingDone = useOnboardingStore((s) => s.completed);
   const setOnboardingRole = useOnboardingStore((s) => s.setRole);
@@ -388,6 +396,13 @@ export function AuthGate({ children }: AuthGateProps) {
   if (isTauri() && !setupAck && !onboardingDone) {
     if (!setupLoaded) {
       return null;
+    }
+    // Language first, alone. Everything below it is written in whichever
+    // language this answers, so it cannot share a screen with them. Skipped
+    // outright on single-locale builds, where there is nothing to ask.
+    if (!onboardingLanguageAck && canChooseLanguage) {
+      removeStartupSkeleton();
+      return <LanguageStep onDone={markOnboardingLanguageAck} />;
     }
     if (!onboardingRole) {
       removeStartupSkeleton();

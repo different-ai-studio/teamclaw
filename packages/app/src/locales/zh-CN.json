@@ -820,9 +820,11 @@
       "title": "想怎么配置 {{app}}？",
       "subtitle": "这些之后都能在设置里改。",
       "developerTitle": "我自己来",
-      "developerCaption": "自己选运行时，安装内容一览无余。",
+      "developerAudience": "适合开发者",
+      "developerCaption": "自己选运行时，装了什么一目了然。熟悉命令行就选这个。",
       "guidedTitle": "直接开始用",
-      "guidedCaption": "用推荐配置，顺手把模型连好。"
+      "guidedAudience": "新手推荐",
+      "guidedCaption": "用推荐配置，带你把一个模型连好。不用选，也不用手动装任何东西。"
     },
     "common": {
       "back": "上一步"

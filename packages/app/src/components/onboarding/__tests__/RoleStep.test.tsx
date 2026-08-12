@@ -3,29 +3,11 @@ import { render, screen, fireEvent } from '@testing-library/react'
 
 vi.mock('@/lib/version', () => ({ useAppVersion: () => '0.0.0-test' }))
 
-const { changeLanguage, localeState } = vi.hoisted(() => ({
-  changeLanguage: vi.fn(),
-  localeState: { locked: false, languages: ['en', 'zh-CN'] },
-}))
-vi.mock('@/lib/i18n', () => ({
-  changeLanguage,
-  getCurrentLanguage: () => 'zh-CN',
-  get isLocaleLocked() {
-    return localeState.locked
-  },
-  get availableLanguages() {
-    return localeState.languages
-  },
-}))
-
 import { RoleStep } from '../RoleStep'
 import { useOnboardingStore } from '@/stores/onboarding'
 
 describe('RoleStep', () => {
   beforeEach(() => {
-    localeState.locked = false
-    localeState.languages = ['en', 'zh-CN']
-    changeLanguage.mockClear()
     useOnboardingStore.getState().reset()
   })
 
@@ -34,6 +16,14 @@ describe('RoleStep', () => {
     render(<RoleStep onDone={() => {}} />)
     expect(screen.getByText('我自己来')).toBeInTheDocument()
     expect(screen.getByText('直接开始用')).toBeInTheDocument()
+  })
+
+  // The titles alone read as two equally valid moods. Saying who each one is for
+  // is the whole point of the screen — a first-timer must not have to guess.
+  it('says who each path is for', () => {
+    render(<RoleStep onDone={() => {}} />)
+    expect(screen.getByText('适合开发者')).toBeInTheDocument()
+    expect(screen.getByText('新手推荐')).toBeInTheDocument()
   })
 
   it.each([
@@ -47,17 +37,9 @@ describe('RoleStep', () => {
     expect(onDone).toHaveBeenCalledWith(role)
   })
 
-  it('offers a language switch when the build ships more than one locale', () => {
-    render(<RoleStep onDone={() => {}} />)
-    fireEvent.click(screen.getByText('English'))
-    expect(changeLanguage).toHaveBeenCalledWith('en')
-  })
-
-  // A one-option "choice" is noise, and switching would silently no-op because
-  // changeLanguage only applies locales present in the bundle.
-  it('hides the language switch on a single-locale build', () => {
-    localeState.locked = true
-    localeState.languages = ['zh-CN']
+  // Language moved to a dedicated step ahead of this one (LanguageStep): as a
+  // control on this screen it competed with the setup choice and got missed.
+  it('no longer carries a language switch', () => {
     render(<RoleStep onDone={() => {}} />)
     expect(screen.queryByText('English')).not.toBeInTheDocument()
     expect(screen.queryByText('中文')).not.toBeInTheDocument()

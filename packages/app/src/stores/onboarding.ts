@@ -18,6 +18,11 @@ export type OnboardingRole = 'developer' | 'guided'
 
 const ROLE_KEY = `${appStoragePrefix}-onboarding-role`
 const DONE_KEY = `${appStoragePrefix}-onboarding-done`
+/** The language step has been answered. Separate from the language itself:
+ *  `${appStoragePrefix}-language` records *what* was picked, this records
+ *  *that* it was asked, so a user who confirms the system default is not asked
+ *  again on the next launch. */
+const LANGUAGE_ACK_KEY = `${appStoragePrefix}-onboarding-language-ack`
 
 function readStored<T extends string>(key: string, valid: readonly T[]): T | null {
   try {
@@ -39,11 +44,14 @@ function write(key: string, value: string | null): void {
 }
 
 type OnboardingState = {
+  /** The language step has been answered at least once. */
+  languageAck: boolean
   role: OnboardingRole | null
   /** Runtime chosen on the setup step; null until the user gets there. */
   runtime: DaemonLocalAgent | null
   /** The whole first-run flow has been completed at least once. */
   completed: boolean
+  markLanguageAck: () => void
   setRole: (role: OnboardingRole) => void
   setRuntime: (runtime: DaemonLocalAgent) => void
   markCompleted: () => void
@@ -52,6 +60,13 @@ type OnboardingState = {
 }
 
 export const useOnboardingStore = create<OnboardingState>((set) => ({
+  languageAck: (() => {
+    try {
+      return localStorage.getItem(LANGUAGE_ACK_KEY) === '1'
+    } catch {
+      return false
+    }
+  })(),
   role: readStored<OnboardingRole>(ROLE_KEY, ['developer', 'guided']),
   runtime: null,
   completed: (() => {
@@ -61,6 +76,11 @@ export const useOnboardingStore = create<OnboardingState>((set) => ({
       return false
     }
   })(),
+
+  markLanguageAck: () => {
+    write(LANGUAGE_ACK_KEY, '1')
+    set({ languageAck: true })
+  },
 
   setRole: (role) => {
     write(ROLE_KEY, role)
@@ -80,6 +100,7 @@ export const useOnboardingStore = create<OnboardingState>((set) => ({
   reset: () => {
     write(ROLE_KEY, null)
     write(DONE_KEY, null)
-    set({ role: null, runtime: null, completed: false })
+    write(LANGUAGE_ACK_KEY, null)
+    set({ languageAck: false, role: null, runtime: null, completed: false })
   },
 }))

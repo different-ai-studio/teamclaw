@@ -820,9 +820,11 @@
       "title": "How would you like to set up {{app}}?",
       "subtitle": "You can change any of this later in Settings.",
       "developerTitle": "I'll set it up myself",
-      "developerCaption": "Choose the agent runtime and review what gets installed.",
+      "developerAudience": "For developers",
+      "developerCaption": "Choose the agent runtime yourself and review everything before it installs. Pick this if a terminal is familiar ground.",
       "guidedTitle": "Just get me started",
-      "guidedCaption": "Use the recommended setup and connect a model in one step."
+      "guidedAudience": "Recommended if this is new to you",
+      "guidedCaption": "We take the recommended setup and walk you through connecting one model. Nothing to choose, nothing to install by hand."
     },
     "common": {
       "back": "Back"
