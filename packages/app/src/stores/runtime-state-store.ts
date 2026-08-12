@@ -298,16 +298,25 @@ export function projectActorPresence(
   daemonActorId: string,
   presence: ActorPresence,
 ): RuntimeStateUpdate[] {
-  const catalogByWorktree = new Map(presence.worktrees.map((w) => [w.worktree, w]))
+  // Device-level, not per-worktree (#742). Looking the catalog up by
+  // `live.worktree` was the "multi-worktree device shows no models" bug: the
+  // key frequently did not match any published catalog, the lookup missed, and
+  // every session on that device reported an empty model list — which the
+  // session pill reads as "connecting" and never recovers from.
+  //
+  // `catalogModels` is already the device-wide union of everything probed for
+  // the active backend, so it is exactly the list to offer.
+  const models = presence.catalogModels
+  // Older daemons send only the per-worktree copies. Fall back to the first of
+  // those so this client keeps working against one until it is upgraded.
+  const legacy = presence.worktrees[0]
+  const defaultModel = presence.defaultModel || legacy?.defaultModel || ''
+  const availableCommands =
+    presence.availableCommands.length > 0
+      ? presence.availableCommands
+      : (legacy?.availableCommands ?? [])
 
   return presence.liveSessions.map((live) => {
-    const worktree = catalogByWorktree.get(live.worktree)
-    const models = worktree
-      ? worktree.modelIndices
-          .map((i) => presence.catalogModels[i])
-          .filter((m): m is NonNullable<typeof m> => !!m)
-      : []
-
     const info = create(RuntimeInfoSchema, {
       runtimeId: live.sessionId,
       agentType: presence.activeAgentType,
@@ -319,9 +328,9 @@ export function projectActorPresence(
       errorCode: live.errorCode,
       errorMessage: live.errorMessage,
       failedStage: live.failedStage,
-      currentModel: live.currentModel || (worktree?.defaultModel ?? ''),
+      currentModel: live.currentModel || defaultModel,
       availableModels: models,
-      availableCommands: worktree?.availableCommands ?? [],
+      availableCommands,
     })
 
     // Keyed by (actor, session), not by session alone. A daemon holds at most

@@ -171,6 +171,13 @@ impl ModelMru {
             .first()
             .map(String::as_str)
     }
+
+    /// Device-level DefaultModel for `backend` (#742 decision 4) — the head of
+    /// the device-wide MRU, with no directory in the key. This is what gateway
+    /// and cron now resolve to regardless of where they start.
+    pub fn default_model_for_backend(&self, backend: &str) -> Option<&str> {
+        self.recent_for(backend).first().map(String::as_str)
+    }
 }
 
 /// Move `id` to the front, returning whether the list actually changed.

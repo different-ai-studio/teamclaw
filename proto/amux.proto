@@ -354,6 +354,11 @@ message ActorPresence {
   // 8 worktrees held 563 entries but only 72 distinct models. Verbatim copies
   // cost ~33KB; union + indices costs ~5.3KB.
   repeated ModelInfo catalog_models = 6;
+  // Superseded by the device-level fields below (#742 decision 6). Still sent
+  // for one release so clients that read it keep working; stop sending only
+  // once `actor_client_versions` shows no active reporter below the version
+  // that reads `default_model` / `available_commands`. Reading this instead of
+  // the top-level fields yields an empty model list on multi-worktree devices.
   repeated WorktreeCatalog worktrees = 7;
 
   // Sessions this actor currently holds an Attachment for. Bounded by the
@@ -369,6 +374,22 @@ message ActorPresence {
   string default_workspace_id = 9;
   string default_worktree = 10;
   repeated ModelInfo default_workspace_models = 11;
+
+  // Device-level replacements for the per-worktree fields in WorktreeCatalog
+  // (#742 decisions 3-6). The catalog was never a property of a directory:
+  // auditing 15 worktrees on one device found every difference traced to the
+  // team gateway or to probe staleness, none to the directory itself. Keying
+  // by worktree only ever produced the "multi-worktree device reports no
+  // models" bug, since LiveSession could not supply the key clients looked up.
+  //
+  // `default_model` is a display fallback — the last model actually used on
+  // this device. The authoritative per-session model is
+  // `session_participants.model` (ADR-0005) and is unaffected.
+  //
+  // Numbered 12/13, not the 9/10 the decision note proposed: those were taken
+  // by the default-workspace fields above before this landed.
+  string default_model = 12;
+  repeated AcpAvailableCommand available_commands = 13;
 }
 
 // Availability of the actor's single global backend process (AgentHost).

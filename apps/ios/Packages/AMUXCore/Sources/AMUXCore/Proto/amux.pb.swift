@@ -1305,6 +1305,11 @@ public nonisolated struct Amux_ActorPresence: Sendable {
   /// cost ~33KB; union + indices costs ~5.3KB.
   public var catalogModels: [Amux_ModelInfo] = []
 
+  /// Superseded by the device-level fields below (#742 decision 6). Still sent
+  /// for one release so clients that read it keep working; stop sending only
+  /// once `actor_client_versions` shows no active reporter below the version
+  /// that reads `default_model` / `available_commands`. Reading this instead of
+  /// the top-level fields yields an empty model list on multi-worktree devices.
   public var worktrees: [Amux_WorktreeCatalog] = []
 
   /// Sessions this actor currently holds an Attachment for. Bounded by the
@@ -1322,6 +1327,23 @@ public nonisolated struct Amux_ActorPresence: Sendable {
   public var defaultWorktree: String = String()
 
   public var defaultWorkspaceModels: [Amux_ModelInfo] = []
+
+  /// Device-level replacements for the per-worktree fields in WorktreeCatalog
+  /// (#742 decisions 3-6). The catalog was never a property of a directory:
+  /// auditing 15 worktrees on one device found every difference traced to the
+  /// team gateway or to probe staleness, none to the directory itself. Keying
+  /// by worktree only ever produced the "multi-worktree device reports no
+  /// models" bug, since LiveSession could not supply the key clients looked up.
+  ///
+  /// `default_model` is a display fallback — the last model actually used on
+  /// this device. The authoritative per-session model is
+  /// `session_participants.model` (ADR-0005) and is unaffected.
+  ///
+  /// Numbered 12/13, not the 9/10 the decision note proposed: those were taken
+  /// by the default-workspace fields above before this landed.
+  public var defaultModel: String = String()
+
+  public var availableCommands: [Amux_AcpAvailableCommand] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3715,7 +3737,7 @@ nonisolated extension Amux_RemoveMember: SwiftProtobuf.Message, SwiftProtobuf._M
 
 nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ActorPresence"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}online\0\u{3}display_name\0\u{1}timestamp\0\u{3}active_agent_type\0\u{3}backend_health\0\u{3}catalog_models\0\u{1}worktrees\0\u{3}live_sessions\0\u{3}default_workspace_id\0\u{3}default_worktree\0\u{3}default_workspace_models\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}online\0\u{3}display_name\0\u{1}timestamp\0\u{3}active_agent_type\0\u{3}backend_health\0\u{3}catalog_models\0\u{1}worktrees\0\u{3}live_sessions\0\u{3}default_workspace_id\0\u{3}default_worktree\0\u{3}default_workspace_models\0\u{3}default_model\0\u{3}available_commands\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3734,6 +3756,8 @@ nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._
       case 9: try { try decoder.decodeSingularStringField(value: &self.defaultWorkspaceID) }()
       case 10: try { try decoder.decodeSingularStringField(value: &self.defaultWorktree) }()
       case 11: try { try decoder.decodeRepeatedMessageField(value: &self.defaultWorkspaceModels) }()
+      case 12: try { try decoder.decodeSingularStringField(value: &self.defaultModel) }()
+      case 13: try { try decoder.decodeRepeatedMessageField(value: &self.availableCommands) }()
       default: break
       }
     }
@@ -3773,6 +3797,12 @@ nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._
     if !self.defaultWorkspaceModels.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.defaultWorkspaceModels, fieldNumber: 11)
     }
+    if !self.defaultModel.isEmpty {
+      try visitor.visitSingularStringField(value: self.defaultModel, fieldNumber: 12)
+    }
+    if !self.availableCommands.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.availableCommands, fieldNumber: 13)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3788,6 +3818,8 @@ nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._
     if lhs.defaultWorkspaceID != rhs.defaultWorkspaceID {return false}
     if lhs.defaultWorktree != rhs.defaultWorktree {return false}
     if lhs.defaultWorkspaceModels != rhs.defaultWorkspaceModels {return false}
+    if lhs.defaultModel != rhs.defaultModel {return false}
+    if lhs.availableCommands != rhs.availableCommands {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
