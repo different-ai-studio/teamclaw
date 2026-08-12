@@ -49,12 +49,12 @@ struct TeamMcpFile {
 }
 
 #[derive(Debug, Deserialize)]
-struct CursorMcpServer {
-    command: Option<String>,
-    args: Option<Vec<String>>,
-    env: Option<HashMap<String, String>>,
-    url: Option<String>,
-    headers: Option<HashMap<String, String>>,
+pub(crate) struct CursorMcpServer {
+    pub command: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub env: Option<HashMap<String, String>>,
+    pub url: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
 }
 
 fn io_err(e: std::io::Error) -> WorkspaceControlError {
@@ -69,7 +69,7 @@ fn is_inherent(name: &str) -> bool {
     INHERENT_MCP_NAMES.contains(&name)
 }
 
-fn onboarded_team_id() -> Option<String> {
+pub(crate) fn onboarded_team_id() -> Option<String> {
     super::DaemonConfig::load(&super::DaemonConfig::default_path())
         .ok()
         .and_then(|cfg| {
@@ -104,7 +104,7 @@ fn team_mcp_dirs(workspace: &Path) -> Vec<PathBuf> {
     }
 }
 
-fn convert_cursor_server(server: &CursorMcpServer) -> McpServerConfig {
+pub(crate) fn convert_cursor_server(server: &CursorMcpServer) -> McpServerConfig {
     if server.url.is_some() {
         McpServerConfig {
             server_type: "remote".to_owned(),
@@ -145,10 +145,39 @@ fn convert_cursor_server(server: &CursorMcpServer) -> McpServerConfig {
 /// [`team_mcp_dirs`] for the ordering and why.
 pub fn scan_team_mcp(workspace: &Path) -> HashMap<String, McpServerConfig> {
     let mut team_servers = HashMap::new();
+    // Legacy first so it can never shadow the cloud file — see `team_mcp_dirs`.
     for mcp_dir in team_mcp_dirs(workspace) {
         scan_team_mcp_dir_into(&mcp_dir, &mut team_servers);
     }
+    if let Some(team_id) = onboarded_team_id() {
+        read_cloud_mcp_file_into(
+            &crate::runtime::team_cloud_config::team_cloud_mcp_file(&team_id),
+            &mut team_servers,
+        );
+    }
     team_servers
+}
+
+/// Read the cloud file, which is already in opencode's `mcp` shape.
+///
+/// Kept separate from the legacy scan because the two speak different formats:
+/// the synced `.mcp/*.json` files are Cursor's `mcpServers`, this one is what
+/// every runtime consumes directly.
+fn read_cloud_mcp_file_into(path: &Path, out: &mut HashMap<String, McpServerConfig>) {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return;
+    };
+    let Some(map) = json.get("mcp").and_then(|v| v.as_object()) else {
+        return;
+    };
+    for (name, raw) in map {
+        if let Ok(cfg) = serde_json::from_value::<McpServerConfig>(raw.clone()) {
+            out.insert(name.clone(), cfg);
+        }
+    }
 }
 
 fn scan_team_mcp_dir_into(mcp_dir: &Path, out: &mut HashMap<String, McpServerConfig>) {
@@ -275,70 +304,83 @@ pub fn filter_put_body(
         .collect()
 }
 
-/// Result of materializing team MCP entries into `opencode.json`.
+/// Result of reconciling a workspace's `opencode.json` against the team set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MaterializeTeamMcpOutcome {
+pub struct PruneTeamMcpOutcome {
     /// Whether `opencode.json` was rewritten.
     pub changed: bool,
-    /// Team MCP servers newly inserted (existing workspace/inherent entries are untouched).
-    pub added_count: usize,
+    /// Leftover team copies removed.
+    pub removed_count: usize,
 }
 
-/// Add team-only MCP entries into `opencode.json` for agent runtimes (workspace wins).
-pub fn materialize_team_mcp_for_runtime(
-    workspace: &Path,
-) -> Result<MaterializeTeamMcpOutcome, WorkspaceControlError> {
-    materialize_team_mcp_entries(workspace, &scan_team_mcp(workspace))
-}
-
-/// The applying half, taking the team map explicitly.
+/// Remove team MCP entries an older build copied into `opencode.json`.
 ///
-/// Split from [`materialize_team_mcp_for_runtime`] so it can be tested without a
-/// daemon config dir: resolving *where* team MCP comes from now goes through the
-/// cloud cache under `~/.amuxd`, which a unit test has no business creating.
-pub fn materialize_team_mcp_entries(
+/// Team servers used to be *materialised* into every workspace's config so the
+/// runtimes could see them. They are now read straight from
+/// `~/.amuxd/teams/<id>/cloud/mcp.json` by all four, which makes those copies
+/// worse than redundant: a workspace entry outranks the team's, so a leftover
+/// copy silently pins that server at whatever the team shipped the day it was
+/// written, and no team update can ever reach the machine again.
+///
+/// Only byte-identical copies go. An entry that differs from the team's is a
+/// deliberate local override — the one thing the workspace layer exists for —
+/// and outranking the team is exactly what it should keep doing.
+pub fn prune_materialised_team_mcp(
+    workspace: &Path,
+) -> Result<PruneTeamMcpOutcome, WorkspaceControlError> {
+    prune_materialised_team_mcp_entries(workspace, &scan_team_mcp(workspace))
+}
+
+/// The applying half, taking the team map explicitly so it is testable without
+/// a daemon config dir.
+pub fn prune_materialised_team_mcp_entries(
     workspace: &Path,
     team: &HashMap<String, McpServerConfig>,
-) -> Result<MaterializeTeamMcpOutcome, WorkspaceControlError> {
+) -> Result<PruneTeamMcpOutcome, WorkspaceControlError> {
     if team.is_empty() {
-        return Ok(MaterializeTeamMcpOutcome {
+        return Ok(PruneTeamMcpOutcome {
             changed: false,
-            added_count: 0,
+            removed_count: 0,
         });
     }
 
-    let mut added_count = 0usize;
+    let mut removed_count = 0usize;
     let changed =
         teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace, |json| {
-            let obj = json.as_object_mut().ok_or_else(|| {
-                OpencodeConfigError::Parse("opencode.json root is not an object".into())
-            })?;
-            if obj.get("$schema").is_none() && obj.is_empty() {
-                obj.insert(
-                    "$schema".to_string(),
-                    serde_json::json!("https://opencode.ai/config.json"),
-                );
-            }
-            let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
-            let mcp_obj = mcp
-                .as_object_mut()
-                .ok_or_else(|| OpencodeConfigError::Parse("mcp is not an object".into()))?;
+            let Some(obj) = json.as_object_mut() else {
+                return Ok(false);
+            };
+            let Some(mcp_obj) = obj.get_mut("mcp").and_then(|m| m.as_object_mut()) else {
+                return Ok(false);
+            };
 
-            for (name, cfg) in team {
-                if !mcp_obj.contains_key(name) {
-                    let value = serde_json::to_value(cfg)
-                        .map_err(|e| OpencodeConfigError::Parse(e.to_string()))?;
-                    mcp_obj.insert(name.clone(), value);
-                    added_count += 1;
-                }
+            let stale: Vec<String> = mcp_obj
+                .iter()
+                .filter(|(name, raw)| {
+                    if is_inherent(name) {
+                        return false;
+                    }
+                    let Some(team_cfg) = team.get(name.as_str()) else {
+                        return false;
+                    };
+                    serde_json::from_value::<McpServerConfig>((*raw).clone())
+                        .map(|local| configs_equal(&local, team_cfg))
+                        .unwrap_or(false)
+                })
+                .map(|(name, _)| name.clone())
+                .collect();
+
+            for name in &stale {
+                mcp_obj.remove(name);
+                removed_count += 1;
             }
-            Ok(added_count > 0)
+            Ok(removed_count > 0)
         })
         .map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
 
-    Ok(MaterializeTeamMcpOutcome {
+    Ok(PruneTeamMcpOutcome {
         changed,
-        added_count,
+        removed_count,
     })
 }
 
@@ -508,27 +550,61 @@ mod tests {
     }
 
     #[test]
-    fn materialize_adds_team_only_entries_without_overwriting_workspace() {
+    fn pruning_drops_a_leftover_team_copy_but_keeps_a_real_override() {
+        // The migration. An older build copied every team server into this file;
+        // the runtimes now read the team's own file, so a copy that still
+        // matches is dead weight that would outrank the source forever. A copy
+        // the user changed is the local override the workspace layer is for.
         let ws = tempfile::tempdir().unwrap();
         std::fs::write(
             ws.path().join("opencode.json"),
-            r#"{"mcp":{"shared":{"type":"local","enabled":true,"command":["npx","local"]}}}"#,
+            r#"{"mcp":{
+                "copied":{"type":"local","enabled":true,"command":["npx","team"]},
+                "overridden":{"type":"local","enabled":true,"command":["npx","mine"]},
+                "mine-only":{"type":"local","enabled":true,"command":["npx","solo"]}
+            }}"#,
         )
         .unwrap();
 
         let mut team = HashMap::new();
-        team.insert("team-a".to_owned(), local_cfg(&["npx", "a"]));
-        team.insert("shared".to_owned(), local_cfg(&["npx", "team"]));
+        team.insert("copied".to_owned(), local_cfg(&["npx", "team"]));
+        team.insert("overridden".to_owned(), local_cfg(&["npx", "team"]));
 
-        let outcome = materialize_team_mcp_entries(ws.path(), &team).unwrap();
+        let outcome = prune_materialised_team_mcp_entries(ws.path(), &team).unwrap();
         assert!(outcome.changed);
-        assert_eq!(outcome.added_count, 1);
+        assert_eq!(outcome.removed_count, 1);
 
         let persisted = read_persisted_mcp(ws.path()).unwrap();
-        assert_eq!(
-            persisted.get("shared").unwrap().command,
-            vec!["npx", "local"]
+        assert!(
+            !persisted.contains_key("copied"),
+            "an unmodified copy of the team entry is removed"
         );
-        assert_eq!(persisted.get("team-a").unwrap().command, vec!["npx", "a"]);
+        assert_eq!(
+            persisted.get("overridden").unwrap().command,
+            vec!["npx", "mine"],
+            "a changed entry is a deliberate override and stays"
+        );
+        assert_eq!(
+            persisted.get("mine-only").unwrap().command,
+            vec!["npx", "solo"],
+            "a server the team never had is untouched"
+        );
+    }
+
+    #[test]
+    fn pruning_leaves_an_inherent_server_alone_even_if_the_team_ships_one() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(
+            ws.path().join("opencode.json"),
+            r#"{"mcp":{"playwright":{"type":"local","enabled":true,"command":["npx","pw"]}}}"#,
+        )
+        .unwrap();
+        let mut team = HashMap::new();
+        team.insert("playwright".to_owned(), local_cfg(&["npx", "pw"]));
+
+        let outcome = prune_materialised_team_mcp_entries(ws.path(), &team).unwrap();
+
+        assert!(!outcome.changed);
+        assert!(read_persisted_mcp(ws.path()).unwrap().contains_key("playwright"));
     }
 }

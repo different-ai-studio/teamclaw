@@ -808,7 +808,9 @@ impl WorkspaceControlStore for OpenCodeCompatStore {
         let mut cfg = Self::read_opencode_json(&wpath)?;
         cfg.mcp = workspace_only;
         Self::write_opencode_json(&wpath, &cfg)?;
-        super::team_mcp::materialize_team_mcp_for_runtime(&wpath)?;
+        // Drop any team copy an older build left in this file; the runtimes read
+        // the team's own file now, and a leftover copy would outrank it forever.
+        super::team_mcp::prune_materialised_team_mcp(&wpath)?;
         // OpenCode re-reads mcp on next session start; a running session
         // needs a restart to pick up server changes.
         Ok(ApplyOutcome::RestartRequired)
