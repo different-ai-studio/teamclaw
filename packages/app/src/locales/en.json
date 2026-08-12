@@ -740,6 +740,16 @@
     "openAgentSettings": "Open agent settings"
   },
   "onboarding": {
+    "model": {
+      "title": "Connect a model",
+      "subtitle": "Pick a provider and paste its API key. You can add more later in Settings.",
+      "keyPlaceholder": "Paste the API key",
+      "connect": "Connect",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "failed": "Could not save that key. Check it and try again.",
+      "skip": "Skip for now"
+    },
     "setup": {
       "title": "Setting up your agent",
       "developerSubtitle": "Pick the runtime this machine should use.",

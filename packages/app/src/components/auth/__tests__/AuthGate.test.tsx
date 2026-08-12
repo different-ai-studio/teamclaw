@@ -90,6 +90,27 @@ vi.mock("../SetupWizard", () => ({
   ),
 }));
 
+// These cases exercise everything *after* first-run onboarding, so present a
+// machine that has already been through it. The onboarding gate itself is
+// covered in AuthGateOnboarding.test.tsx.
+const onboardingState = {
+  role: "developer" as const,
+  runtime: "opencode" as const,
+  completed: true,
+  setRole: vi.fn(),
+  markCompleted: vi.fn(),
+};
+vi.mock("@/stores/onboarding", () => ({
+  useOnboardingStore: Object.assign(
+    (selector: (s: typeof onboardingState) => unknown) => selector(onboardingState),
+    { getState: () => onboardingState },
+  ),
+}));
+
+vi.mock("@/components/onboarding/RoleStep", () => ({ RoleStep: () => <div>role step</div> }));
+vi.mock("@/components/onboarding/SetupStep", () => ({ SetupStep: () => <div>setup step</div> }));
+vi.mock("@/components/onboarding/ModelStep", () => ({ ModelStep: () => <div>model step</div> }));
+
 vi.mock("@/stores/daemon-onboarding", () => ({
   useDaemonOnboardingStore: (selector: (s: { status: string; loaded: boolean; refresh: () => Promise<void> }) => unknown) =>
     selector({ status: 'ready', loaded: true, refresh: async () => {} }),
