@@ -851,7 +851,7 @@ pub async fn get_mcp(
     require_scope(&principal, "workspace:read")?;
     let wpath = workspace_path_or_404(&workspace_id).await?;
     crate::runtime::supervisor::ensure_inherent_mcp(&wpath).map_err(map_control_err)?;
-    crate::config::team_mcp::materialize_team_mcp_for_runtime(&wpath).map_err(map_control_err)?;
+    crate::config::team_mcp::prune_materialised_team_mcp(&wpath).map_err(map_control_err)?;
     let store = resolve_store(&state)?;
     let servers = store.get_mcp(&workspace_id).map_err(map_control_err)?;
     Ok(Json(servers))
@@ -894,7 +894,7 @@ pub async fn get_mcp_tools(
     require_scope(&principal, "workspace:read")?;
     let wpath = workspace_path_or_404(&workspace_id).await?;
     crate::runtime::supervisor::ensure_inherent_mcp(&wpath).map_err(map_control_err)?;
-    crate::config::team_mcp::materialize_team_mcp_for_runtime(&wpath).map_err(map_control_err)?;
+    crate::config::team_mcp::prune_materialised_team_mcp(&wpath).map_err(map_control_err)?;
     let store = resolve_store(&state)?;
     let servers = store.get_mcp(&workspace_id).map_err(map_control_err)?;
     let response =
@@ -910,10 +910,14 @@ pub struct MaterializeTeamMcpResponse {
 
 /// `POST /v1/workspaces/:id/mcp/materialize-team`
 ///
-/// Materialize team-shared MCP definitions from `teamclu-team/.mcp/*.json`
-/// into this workspace's `opencode.json`. Only amuxd writes the file (atomic +
-/// process-local lock). Desktop/git join flows call this instead of touching
-/// `opencode.json` directly.
+/// No longer materialises anything: every runtime reads team MCP from
+/// `~/.amuxd/teams/<id>/cloud/mcp.json` directly. The route stays, and now does
+/// the inverse — clearing team copies an older build wrote into this
+/// workspace's `opencode.json`, where they would outrank the team's own file
+/// and freeze those servers at the version that was copied.
+///
+/// Kept rather than removed so a desktop that still calls it keeps working; it
+/// reports what it removed under the old field name.
 pub async fn materialize_team_mcp(
     principal: Principal,
     Path(workspace_id): Path<String>,
@@ -921,11 +925,11 @@ pub async fn materialize_team_mcp(
     require_scope(&principal, "workspace:write")?;
     let wpath = workspace_path_or_404(&workspace_id).await?;
     crate::runtime::supervisor::ensure_inherent_mcp(&wpath).map_err(map_control_err)?;
-    let outcome = crate::config::team_mcp::materialize_team_mcp_for_runtime(&wpath)
-        .map_err(map_control_err)?;
+    let outcome =
+        crate::config::team_mcp::prune_materialised_team_mcp(&wpath).map_err(map_control_err)?;
     Ok(Json(MaterializeTeamMcpResponse {
         changed: outcome.changed,
-        added_count: outcome.added_count,
+        added_count: outcome.removed_count,
     }))
 }
 

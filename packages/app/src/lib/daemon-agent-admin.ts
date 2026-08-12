@@ -1,6 +1,11 @@
 import * as React from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getBackend } from '@/lib/backend'
+import { useCurrentTeamStore } from '@/stores/current-team'
+import {
+  getKnownLocalDaemonActorId,
+  noteLocalDaemonActorId,
+} from '@/lib/local-daemon-identity'
 
 export type AgentPermissionLevel = 'view' | 'prompt' | 'admin'
 export type AgentVisibility = 'personal' | 'team'
@@ -66,25 +71,39 @@ export async function getLocalDaemonActorId(): Promise<string | null> {
   }
 }
 
-let localActorIdPromise: Promise<string | null> | null = null
+let inFlight: { teamId: string | null; promise: Promise<string | null> } | null = null
+
+function fetchAndNoteLocalDaemonActorId(teamId: string | null): Promise<string | null> {
+  if (inFlight && inFlight.teamId === teamId) return inFlight.promise
+  const promise = getLocalDaemonActorId()
+    .then((id) => {
+      noteLocalDaemonActorId(id)
+      return id
+    })
+    .finally(() => {
+      if (inFlight?.promise === promise) inFlight = null
+    })
+  inFlight = { teamId, promise }
+  return promise
+}
 
 /**
- * React hook wrapping {@link getLocalDaemonActorId} with a module-level cache
- * so multiple mounted components (e.g. one AgentPill per @-mentioned agent)
- * share a single `/v1/info` fetch instead of one each.
+ * This machine's current daemon actor id. Refetches when the active team
+ * changes; in-flight requests are shared, but the result is not kept as a
+ * process-lifetime cache.
  */
 export function useLocalDaemonActorId(): string | null {
-  const [actorId, setActorId] = React.useState<string | null>(null)
+  const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
+  const [actorId, setActorId] = React.useState<string | null>(() => getKnownLocalDaemonActorId())
   React.useEffect(() => {
-    if (!localActorIdPromise) localActorIdPromise = getLocalDaemonActorId()
     let cancelled = false
-    void localActorIdPromise.then((id) => {
+    void fetchAndNoteLocalDaemonActorId(teamId).then((id) => {
       if (!cancelled) setActorId(id)
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [teamId])
   return actorId
 }
 
