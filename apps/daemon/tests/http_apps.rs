@@ -17,6 +17,9 @@ mod config;
 mod claude_install;
 #[path = "../src/cursor_install/mod.rs"]
 mod cursor_install;
+// Same reason: `http::server` names `crate::device_id` for /v1/info.
+#[path = "../src/device_id.rs"]
+mod device_id;
 #[path = "../src/error.rs"]
 mod error;
 #[path = "../src/http/mod.rs"]

@@ -809,6 +809,7 @@
       "guidedSubtitle": "This only takes a moment.",
       "runtime": "Agent runtime",
       "install": "Install",
+      "notDetected": "Not detected on this machine",
       "installed": "installed",
       "installing": "installing…",
       "ready": "ready",

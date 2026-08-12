@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Loader2, AlertCircle, Download, Terminal, Cpu } from 'lucide-react'
+import { Check, Loader2, AlertCircle, Download, Terminal, Cpu, MousePointer2, Bot } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -14,7 +14,16 @@ const AMUXD_AUTO_INSTALL_MIN_MS = 2500
 const RUNTIME_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   opencode: Terminal,
   pi: Cpu,
+  cursor: MousePointer2,
+  'claude-code': Bot,
 }
+
+/**
+ * Runtimes this app can fetch. Mirrors `setup_install`'s match arms — Cursor and
+ * Claude Code are the user's own tools, so they are offered only when already on
+ * the machine and never carry an Install action.
+ */
+const INSTALLABLE_RUNTIMES = new Set(['opencode', 'pi'])
 
 /** A runtime is usable if installed, even when a pinned upgrade is pending. */
 function usable(r: RequirementStatus | undefined): boolean {
@@ -68,7 +77,7 @@ function RuntimeCard({
         <span className="font-mono text-[11px] text-faint">
           {runtime.version ?? t('onboarding.setup.installed', 'installed')}
         </span>
-      ) : (
+      ) : INSTALLABLE_RUNTIMES.has(runtime.id) ? (
         <button
           type="button"
           disabled={busy}
@@ -78,6 +87,10 @@ function RuntimeCard({
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
           {t('onboarding.setup.install', 'Install')}
         </button>
+      ) : (
+        <span className="text-[11px] text-faint">
+          {t('onboarding.setup.notDetected', 'Not detected on this machine')}
+        </span>
       )}
     </div>
   )
@@ -137,13 +150,26 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
     void listRequirements(selected)
   }, [listRequirements, selected])
 
+  // Cursor and Claude Code are the user's own tools: worth offering when they
+  // are already here, but there is nothing to show for them when they are not —
+  // no version, and no Install this app could perform.
+  const visibleRuntimes = React.useMemo(
+    () => agentRuntimes.filter((r) => INSTALLABLE_RUNTIMES.has(r.id) || usable(r)),
+    [agentRuntimes],
+  )
+
   // Guided users get whichever runtime is already on the machine — a working
   // install beats a fresh download. pi stays the default when neither is there.
   const autoPicked = React.useRef(false)
   React.useEffect(() => {
-    if (role !== 'guided' || autoPicked.current || agentRuntimes.length === 0) return
+    if (role !== 'guided' || autoPicked.current || visibleRuntimes.length === 0) return
     autoPicked.current = true
-    const preinstalled = agentRuntimes.find((r) => usable(r))
+    // Prefer a runtime this app owns end-to-end. Cursor/Claude Code can be
+    // "satisfied" while still depending on the user's own key and bridge, which
+    // is not what the guided path promises — take them only as a last resort.
+    const preinstalled =
+      visibleRuntimes.find((r) => usable(r) && INSTALLABLE_RUNTIMES.has(r.id)) ??
+      visibleRuntimes.find((r) => usable(r))
     if (preinstalled) {
       const id = preinstalled.id as DaemonLocalAgent
       setSelected(id)
@@ -152,7 +178,7 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
       // last moment is one more window for the two to disagree.
       setRuntime(id)
     }
-  }, [role, agentRuntimes, setRuntime])
+  }, [role, visibleRuntimes, setRuntime])
 
   const amuxd = requirements.find((r) => r.id === 'amuxd')
   const amuxdMissing = !!amuxd && !usable(amuxd)
@@ -175,7 +201,7 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
    * other moving part, so the whole window reads as hung. Anything that greys
    * the button out while the machine is still working spins.
    */
-  const busy = !!installing || amuxdMissing || (!runtimeReady && agentRuntimes.length > 0)
+  const busy = !!installing || amuxdMissing || (!runtimeReady && visibleRuntimes.length > 0)
 
   const pick = (id: DaemonLocalAgent) => {
     setSelected(id)
@@ -215,8 +241,8 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
             <span className="text-[11.5px] font-medium uppercase tracking-wide text-faint">
               {t('onboarding.setup.runtime', 'Agent runtime')}
             </span>
-            <div className="flex gap-2.5">
-              {agentRuntimes.map((r) => (
+            <div className="grid grid-cols-2 gap-2.5">
+              {visibleRuntimes.map((r) => (
                 <RuntimeCard
                   key={r.id}
                   runtime={r}
@@ -227,7 +253,7 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
                 />
               ))}
             </div>
-            {agentRuntimes.map((r) =>
+            {visibleRuntimes.map((r) =>
               errors[r.id] ? (
                 <p key={`${r.id}-err`} className="flex items-start gap-1.5 text-[11.5px] text-coral">
                   <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" />

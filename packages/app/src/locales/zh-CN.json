@@ -809,6 +809,7 @@
       "guidedSubtitle": "稍等片刻就好。",
       "runtime": "Agent 运行时",
       "install": "安装",
+      "notDetected": "本机未检测到",
       "installed": "已安装",
       "installing": "安装中…",
       "ready": "就绪",

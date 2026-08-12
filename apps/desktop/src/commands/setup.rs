@@ -87,13 +87,12 @@ pub(crate) async fn read_doctor<R: Runtime>(
 ) -> Option<serde_json::Value> {
     use tauri_plugin_shell::process::CommandEvent;
     use tauri_plugin_shell::ShellExt;
-    let mut command =
+    // `local_agent` is no longer passed to the sidecar: `amuxd doctor` reports
+    // every runtime in one pass now, so there is nothing left to select. Callers
+    // still name the runtime they care about and pick its key out of the result.
+    let _ = local_agent;
+    let command =
         crate::commands::with_amuxd_brand_env(app.shell().sidecar("amuxd").ok()?.args(["doctor"]));
-    // Reflect the build's target runtime (buildConfig.localAgent) so the wizard
-    // shows pi vs opencode status regardless of the current daemon.toml config.
-    if let Some(agent) = local_agent.map(str::trim).filter(|a| !a.is_empty()) {
-        command = command.env("AMUXD_DOCTOR_LOCAL_AGENT", agent);
-    }
     let (mut rx, _child) = command.spawn().ok()?;
     let mut buf = String::new();
     while let Some(event) = rx.recv().await {
@@ -182,21 +181,31 @@ pub async fn setup_list_requirements<R: Runtime>(
 
 /// Install status of every agent runtime the user can pick from (#881).
 ///
-/// One `amuxd doctor` call covers both: opencode is always in the report, and
-/// passing `AMUXD_DOCTOR_LOCAL_AGENT=pi` adds pi alongside it. Probing them
-/// separately would mean paying for doctor twice (it is slow — it shells out
-/// and resolves binaries by absolute path).
+/// One `amuxd doctor` call covers all four — the daemon reports every runtime
+/// in a single pass, concurrently. Probing them one at a time would mean paying
+/// for doctor four times (it is slow: it shells out and resolves binaries by
+/// absolute path).
+///
+/// Cursor and Claude Code are reported but not installable — `setup_install`
+/// has no arm for them, because they are the user's own tools rather than
+/// something this app fetches. The UI offers them only when already present;
+/// anything else would be an Install button that cannot install.
+///
+/// `id` is the `DaemonLocalAgent` value the rest of the stack uses, which is
+/// not always the doctor's key for it (`claude-code` vs `claude`).
 #[tauri::command]
 pub async fn setup_list_agent_runtimes<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<Vec<RequirementStatus>, String> {
-    let doctor = read_doctor(&app, Some("pi")).await;
-    let status = |key: &str, title: &str| {
+    let doctor = read_doctor(&app, None).await;
+    let status = |id: &str, key: &str, title: &str| {
         let node = doctor.as_ref().map(|d| &d[key]);
         RequirementStatus {
-            id: key.to_owned(),
+            id: id.to_owned(),
             title: title.to_owned(),
-            optional: false,
+            // `optional: true` marks a runtime the app cannot install, so the
+            // frontend can drop it when absent instead of offering a dead action.
+            optional: id == "cursor" || id == "claude-code",
             present: node
                 .and_then(|r| r["satisfied"].as_bool())
                 .unwrap_or(false),
@@ -206,8 +215,10 @@ pub async fn setup_list_agent_runtimes<R: Runtime>(
         }
     };
     Ok(vec![
-        status("opencode", "OpenCode"),
-        status("pi", "Pi"),
+        status("opencode", "opencode", "OpenCode"),
+        status("pi", "pi", "Pi"),
+        status("cursor", "cursor", "Cursor"),
+        status("claude-code", "claude", "Claude Code"),
     ])
 }
 
