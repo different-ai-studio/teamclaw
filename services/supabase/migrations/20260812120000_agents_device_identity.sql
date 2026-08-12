@@ -130,9 +130,18 @@ begin
     insert into amux.agents (id, owner_member_id, status, device_id, team_id)
     values (v_agent, v_caller, 'active', v_device, p_team_id);
 
+    -- `on conflict on constraint`, not `on conflict (agent_id, member_id)`: this
+    -- function's RETURNS TABLE puts an `agent_id` OUT variable in scope for the
+    -- whole body, and the inference clause is parsed as an expression — so the
+    -- bare column name matches both and Postgres raises
+    -- `column reference "agent_id" is ambiguous` at runtime. Naming the
+    -- constraint sidesteps the name resolution entirely.
+    --
+    -- Only the create path builds this row, so the failure showed up solely when
+    -- a user named a brand-new agent; every silent rebind skips this block.
     insert into amux.agent_member_access (agent_id, member_id, permission_level, granted_by_member_id)
     values (v_agent, v_caller, 'admin', v_caller)
-    on conflict (agent_id, member_id) do update
+    on conflict on constraint agent_member_access_agent_id_member_id_key do update
       set permission_level = 'admin', updated_at = now();
 
     v_created := true;
