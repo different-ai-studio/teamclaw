@@ -1220,11 +1220,16 @@ function App() {
       }
     }
 
-    // Cold start — link that launched the app
-    getCurrent().then((urls) => { if (urls) handle(urls); }).catch(() => {});
+    // Cold start — link that launched the app. Requires deep-link:default in
+    // apps/desktop/capabilities (getCurrent is an invoke; onOpenUrl is not).
+    getCurrent()
+      .then((urls) => { if (urls) handle(urls); })
+      .catch((err) => { console.warn("[invite] getCurrent failed", err); });
 
     // Hot delivery while app is already open
-    onOpenUrl(handle).then((u) => { unlisten = u; }).catch(() => {});
+    onOpenUrl(handle)
+      .then((u) => { unlisten = u; })
+      .catch((err) => { console.warn("[invite] onOpenUrl failed", err); });
 
     return () => { unlisten?.(); };
   }, []);
@@ -1243,11 +1248,16 @@ function App() {
       }
     }
 
-    // Cold start — link that launched the app
-    getCurrent().then((urls) => { if (urls) handle(urls); }).catch(() => {});
+    // Cold start — macOS delivers RunEvent::Opened before the webview listens,
+    // so the URL is only recoverable via getCurrent (needs deep-link:default).
+    getCurrent()
+      .then((urls) => { if (urls) handle(urls); })
+      .catch((err) => { console.warn("[session-deeplink] getCurrent failed", err); });
 
     // Hot delivery while app is already open
-    onOpenUrl(handle).then((u) => { unlisten = u; }).catch(() => {});
+    onOpenUrl(handle)
+      .then((u) => { unlisten = u; })
+      .catch((err) => { console.warn("[session-deeplink] onOpenUrl failed", err); });
 
     return () => { unlisten?.(); };
   }, []);
