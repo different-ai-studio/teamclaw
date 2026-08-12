@@ -153,17 +153,16 @@ describe('daemon-onboarding refresh() orchestration', () => {
     expect(h.invokeCalls).toEqual(['get_daemon_team_id'])
   })
 
-  it('reprovisions a new local actor when the user explicitly switches teams', async () => {
+  it('does not auto-provision a local actor on team mismatch', async () => {
     h.currentTeam = { id: 't1' }
     h.daemonTeam = 't2'
-    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
 
-    await useDaemonOnboardingStore.getState().refresh({ forceTeamRebind: true })
+    await useDaemonOnboardingStore.getState().refresh()
 
-    expect(h.createInviteCalls).toHaveLength(1)
-    expect(h.createInviteCalls[0]).toMatchObject({ targetActorId: null, kind: 'agent' })
-    expect(h.invokeCalls).toContain('daemon_init')
-    expect(h.invokeCalls).toContain('daemon_restart_managed')
+    expect(useDaemonOnboardingStore.getState().status).toBe('mismatch')
+    expect(h.createInviteCalls).toHaveLength(0)
+    expect(h.invokeCalls).not.toContain('daemon_init')
+    expect(h.invokeCalls).toEqual(['get_daemon_team_id'])
   })
 
   it('ready when team matches and the daemon is already healthy', async () => {

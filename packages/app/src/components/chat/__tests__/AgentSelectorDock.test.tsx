@@ -45,9 +45,11 @@ vi.mock('@/lib/teamclu/ensure-agent-runtime', () => ({
 }))
 
 vi.mock('@/stores/current-team', () => ({
-  useCurrentTeamStore: {
-    getState: () => ({ team: { id: 'team-1' } }),
-  },
+  useCurrentTeamStore: Object.assign(
+    (selector: (s: { team: { id: string } }) => unknown) =>
+      selector({ team: { id: 'team-1' } }),
+    { getState: () => ({ team: { id: 'team-1' } }) },
+  ),
 }))
 
 vi.mock('@/stores/session-list-store', () => ({

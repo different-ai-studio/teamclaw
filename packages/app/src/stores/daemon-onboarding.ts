@@ -38,7 +38,7 @@ async function adoptAsDefaultAgentIfUnset(teamId: string, agentId: string): Prom
 
 // 'unknown'        — no current team yet (don't block)
 // 'needs-onboard'  — daemon not bound to any team -> interactive wizard
-// 'mismatch'       — daemon bound to a different team -> force reset wizard
+// 'mismatch'       — daemon bound to a different team -> create-or-bind wizard
 // 'starting'       — onboarded to this team but daemon down/token-stale -> auto-recovering
 // 'ready'          — onboarded to this team, running, token valid
 // 'error'          — auto-recovery failed -> show retry
@@ -72,7 +72,7 @@ type DaemonOnboardingState = {
   /** Last auto-heal failure (e.g. caller doesn't own the agent). Non-null
    * suppresses further automatic attempts; the banner offers a manual retry. */
   healError: string | null
-  refresh: (opts?: { forceIdentityRebind?: boolean; forceTeamRebind?: boolean }) => Promise<void>
+  refresh: (opts?: { forceIdentityRebind?: boolean }) => Promise<void>
   loadOwnedAgents: () => Promise<void>
   createNewAgent: (name: string, visibility: Visibility) => Promise<void>
   bindExistingAgent: (agentId: string, displayName: string) => Promise<void>
@@ -221,27 +221,10 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
     markStartup('daemon-teamid:end')
     const base = computeOnboardingStatus(dTeam, currentTeamId)
     if (base !== 'ready') {
-      if (base === 'mismatch' && opts?.forceTeamRebind && currentTeamId) {
-        // The user explicitly chose another team. amuxd is single-team, so
-        // keep the old Team's agent intact and provision a new local agent for
-        // the target Team instead of making the user reset the whole daemon.
-        set({ status: 'starting', loaded: true, busy: true, error: null })
-        try {
-          await onboard(currentTeamId, 'Local daemon', null)
-          rememberDaemonIdentity(currentTeamId)
-          invalidateDaemonConnection()
-        } catch (e) {
-          set({ status: 'error', loaded: true, error: String(e) })
-          return
-        } finally {
-          set({ busy: false })
-        }
-        // Re-read daemon.toml and health after init/restart before releasing
-        // the auth gate to the chat UI.
-        await get().refresh()
-        return
-      }
       // unknown / needs-onboard / mismatch — team-level, handled by the wizard.
+      // Mismatch used to auto-provision a new "Local daemon" when switching
+      // teams; that silently created extra agents. The wizard now offers
+      // create-or-bind instead of forceReset.
       set({ status: base, loaded: true })
       markStartup('daemon-refresh:end')
       return

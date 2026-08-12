@@ -360,7 +360,7 @@ export function useEngagedAgentUiStates(
       cancelled = true
       clearInterval(interval)
     }
-  }, [])
+  }, [teamId])
 
   React.useEffect(() => {
     const interval = setInterval(() => tick(), 1_000)

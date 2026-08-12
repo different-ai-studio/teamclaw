@@ -54,7 +54,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export function DaemonOnboardingWizard({ onDone }: { onDone: () => void }) {
   const { t } = useTranslation()
-  const { status, busy, error, ownedAgents, refresh, loadOwnedAgents, createNewAgent, bindExistingAgent, forceReset } =
+  const { status, busy, error, ownedAgents, refresh, loadOwnedAgents, createNewAgent, bindExistingAgent } =
     useDaemonOnboardingStore()
   const [mode, setMode] = React.useState<'new' | 'bind'>('new')
   const [name, setName] = React.useState('')
@@ -90,6 +90,12 @@ export function DaemonOnboardingWizard({ onDone }: { onDone: () => void }) {
   React.useEffect(() => {
     if (mode === 'bind') void loadOwnedAgents()
   }, [mode, loadOwnedAgents])
+
+  // Switching teams lands on mismatch; default to bind so the user can pick
+  // an existing agent (e.g. KFC) instead of creating another "Local daemon".
+  React.useEffect(() => {
+    if (status === 'mismatch') setMode('bind')
+  }, [status])
 
   // Auto-recovery in progress (onboarded but daemon was down / token stale).
   if (status === 'starting') {
@@ -145,38 +151,26 @@ export function DaemonOnboardingWizard({ onDone }: { onDone: () => void }) {
     )
   }
 
-  if (status === 'mismatch') {
-    return (
-      <Shell
-        title={t('settings.daemonOnboarding.mismatchTitle', "This machine's agent belongs to another team")}
-        subtitle={t(
-          'settings.daemonOnboarding.mismatchSubtitle',
-          "The signed-in team doesn't match the team this machine's daemon is bound to. It needs to be reset and re-initialized.",
-        )}
-      >
-        {error && <ErrorLine error={error} />}
-        <Button
-          className="mt-1 h-10 w-full rounded-[10px] bg-coral text-coral-foreground hover:opacity-90"
-          disabled={busy}
-          onClick={() => void forceReset()}
-        >
-          {busy ? (
-            <Spinner label={t('settings.daemonOnboarding.resetting', 'Resetting…')} />
-          ) : (
-            t('settings.daemonOnboarding.resetReinit', 'Reset and re-initialize')
-          )}
-        </Button>
-      </Shell>
-    )
-  }
+  const isMismatch = status === 'mismatch'
 
   return (
     <Shell
-      title={t('settings.daemonOnboarding.initTitle', "Set up this machine's agent")}
-      subtitle={t(
-        'settings.daemonOnboarding.initSubtitle',
-        'Create a new agent, or bind this machine to one you already have.',
-      )}
+      title={
+        isMismatch
+          ? t('settings.daemonOnboarding.mismatchTitle', "This machine's agent belongs to another team")
+          : t('settings.daemonOnboarding.initTitle', "Set up this machine's agent")
+      }
+      subtitle={
+        isMismatch
+          ? t(
+              'settings.daemonOnboarding.mismatchSubtitle',
+              'This machine is bound to another team. Create a new agent for the current team, or bind one you already own.',
+            )
+          : t(
+              'settings.daemonOnboarding.initSubtitle',
+              'Create a new agent, or bind this machine to one you already have.',
+            )
+      }
     >
       <Segmented
         value={mode}
