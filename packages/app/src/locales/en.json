@@ -268,8 +268,6 @@
       "verifying": "Verifying…"
     },
     "onboarding": {
-      "tagline": "Choose how to enter TeamClu.",
-      "getStarted": "Get started",
       "setupTitle": "Choose setup",
       "setupDesc": "Try it first, sign in, join a team, or connect a self-hosted server.",
       "quickTrial": "Quick trial",
@@ -921,34 +919,6 @@
     "localDaemonAutomationAria": "Open automation tasks",
     "localDaemonRetrying": "Retrying…",
     "ideas": "Ideas"
-  },
-  "setup": {
-    "title": "Setup Required",
-    "copyCommand": "Copy command",
-    "required": "Required",
-    "optional": "Optional",
-    "recheck": "Re-check",
-    "getStarted": "Get Started",
-    "continue": "Continue",
-    "intro": "TeamClu needs a few tools to work properly. Please install the missing dependencies below.",
-    "optionalHint": "{{count}} optional {{singular}} missing. You can install {{pronoun}} later from Settings.",
-    "back": "Back",
-    "customize": "Customize",
-    "customizeIntro": "Choose which dependencies to install. Required tools are pre-selected.",
-    "customizeTitle": "Select Dependencies",
-    "installAllRequired": "Install All Required",
-    "installFailed": "{{count}} failed to install",
-    "installSelected": "Install Selected",
-    "installSuccess": "{{count}} installed successfully",
-    "installing": "Installing",
-    "installingIntro": "Please wait while dependencies are being installed...",
-    "installingTitle": "Installing Dependencies",
-    "passwordPrompt": "You may be prompted for your system password by macOS to complete the Homebrew installation.",
-    "resultsIntro": "Installation has finished. See the results below.",
-    "resultsTitle": "Installation Complete",
-    "retryFailed": "Retry Failed",
-    "skip": "Skip",
-    "waitingForOutput": "Waiting for output..."
   },
   "setupWizard": {
     "title": "Prepare runtime environment",

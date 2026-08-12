@@ -188,8 +188,6 @@ vi.mock('@/stores/deps', () => ({
     checked: false,
     checkDependencies: vi.fn().mockResolvedValue([]),
   }),
-  getSetupDecision: () => 'skip',
-  markSetupCompleted: vi.fn(),
 }))
 
 vi.mock('@/stores/telemetry', () => ({
@@ -318,15 +316,6 @@ describe('useLayoutModeShortcut', () => {
     const { useLayoutModeShortcut } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useLayoutModeShortcut())
     expect(result.current).toBeUndefined()
-  })
-})
-
-describe('useSetupGuide', () => {
-  it('returns showSetupGuide as false initially', async () => {
-    const { useSetupGuide } = await import('@/hooks/useAppInit')
-    const { result } = renderHook(() => useSetupGuide(false))
-    expect(result.current.showSetupGuide).toBe(false)
-    expect(result.current.dependencies).toEqual([])
   })
 })
 

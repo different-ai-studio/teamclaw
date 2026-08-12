@@ -268,8 +268,6 @@
       "verifying": "验证中…"
     },
     "onboarding": {
-      "tagline": "先选择进入 TeamClu 的方式。",
-      "getStarted": "开始使用",
       "setupTitle": "选择启动方式",
       "setupDesc": "可以先试用，也可以登录、加入团队，或连接自建服务。",
       "quickTrial": "快速试用",
@@ -921,34 +919,6 @@
     "localDaemonAutomationAria": "打开自动化任务",
     "localDaemonRetrying": "正在重试…",
     "ideas": "想法"
-  },
-  "setup": {
-    "title": "需要设置",
-    "copyCommand": "复制命令",
-    "required": "必需",
-    "optional": "可选",
-    "recheck": "重新检查",
-    "getStarted": "开始使用",
-    "continue": "继续",
-    "intro": "TeamClu 需要一些工具才能正常工作。请安装以下缺失的依赖项。",
-    "optionalHint": "缺少 {{count}} 个可选{{singular}}。您可以从设置中稍后安装{{pronoun}}。",
-    "back": "返回",
-    "customize": "自定义",
-    "customizeIntro": "选择要安装的依赖。必需工具已预先选中。",
-    "customizeTitle": "选择依赖",
-    "installAllRequired": "安装所有必需项",
-    "installFailed": "{{count}} 项安装失败",
-    "installSelected": "安装所选项",
-    "installSuccess": "{{count}} 项已成功安装",
-    "installing": "安装中",
-    "installingIntro": "正在安装依赖，请稍候...",
-    "installingTitle": "正在安装依赖",
-    "passwordPrompt": "macOS 可能会要求输入系统密码，以完成 Homebrew 安装。",
-    "resultsIntro": "安装已完成。请查看下方结果。",
-    "resultsTitle": "安装完成",
-    "retryFailed": "重试失败项",
-    "skip": "跳过",
-    "waitingForOutput": "等待输出..."
   },
   "setupWizard": {
     "title": "准备运行环境",

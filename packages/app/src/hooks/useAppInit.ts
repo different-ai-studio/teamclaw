@@ -10,7 +10,7 @@
  *  - Dependency check + setup guide visibility
  *  - Telemetry consent dialog
  */
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import i18n from "@/lib/i18n";
 import { capabilities } from "@/lib/platform";
 import { isTauri } from "@/lib/utils";
@@ -20,7 +20,6 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { useChannelsStore } from "@/stores/channels";
 import { useGitReposStore } from "@/stores/git-repos";
 import { useUIStore } from "@/stores/ui";
-import { useDepsStore, getSetupDecision, markSetupCompleted } from "@/stores/deps";
 import { useTelemetryStore } from "@/stores/telemetry";
 import { useTeamMembersStore } from "@/stores/team-members";
 import { useShortcutsStore } from "@/stores/shortcuts";
@@ -33,7 +32,7 @@ import { useTeamModeStore } from "@/stores/team-mode";
 import { useTeamShareStore } from "@/stores/team-share";
 import { useOssSyncStore } from "@/stores/oss-sync";
 import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
-import { appStoragePrefix, DEFAULT_WORKSPACE_PATH, TEAM_REPO_DIR } from "@/lib/build-config";
+import { DEFAULT_WORKSPACE_PATH, TEAM_REPO_DIR } from "@/lib/build-config";
 import { WORKSPACE_STORAGE_KEY } from "@/stores/workspace";
 import { markStartup } from "@/lib/startup-perf";
 
@@ -717,70 +716,10 @@ export function useTauriBodyClass() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dependency check / setup guide
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function useSetupGuide(workspaceReady: boolean) {
-  const [showSetupGuide, setShowSetupGuide] = useState(false);
-  const {
-    dependencies,
-    checkDependencies,
-  } = useDepsStore();
-  const depsResultRef = useRef<{ checked: boolean; hasRequiredMissing: boolean }>({
-    checked: false,
-    hasRequiredMissing: false,
-  });
-  const setupDecisionRef = useRef(getSetupDecision());
-
-  // Dependency check — deferred until workspace is ready to avoid CPU contention
-  useEffect(() => {
-    const debugForceSetup = (() => {
-      try {
-        return localStorage.getItem(`${appStoragePrefix}-debug-force-setup`) === "1";
-      } catch {
-        return false;
-      }
-    })();
-
-    if (!isTauri() && !debugForceSetup) return;
-
-    const decision = setupDecisionRef.current;
-
-    if (decision === "skip") {
-      depsResultRef.current = { checked: true, hasRequiredMissing: false };
-      return;
-    }
-
-    // Wait for workspace to be ready before checking deps (reduces startup CPU contention)
-    if (!workspaceReady && isTauri()) return;
-
-    console.log("[Setup] Checking dependencies (decision:", decision, ")");
-    checkDependencies().then((result) => {
-      const hasRequiredMissing = result.some((d) => d.required && !d.installed);
-      depsResultRef.current = { checked: true, hasRequiredMissing };
-      if (hasRequiredMissing && (decision === "show" || decision === "silent-check")) {
-        setShowSetupGuide(true);
-      }
-    });
-  }, [workspaceReady, checkDependencies]);
-
-  const handleRecheck = useCallback(async () => {
-    return checkDependencies();
-  }, [checkDependencies]);
-
-  const handleSetupContinue = useCallback(() => {
-    markSetupCompleted();
-    setShowSetupGuide(false);
-  }, []);
-
-  return { showSetupGuide, dependencies, handleRecheck, handleSetupContinue };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Telemetry consent dialog
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function useTelemetryConsent(showSetupGuide: boolean) {
+export function useTelemetryConsent() {
   const [showConsentDialog, setShowConsentDialog] = useState(false);
   const embedMode = useUIStore((s) => s.embedMode);
   const telemetryConsent = useTelemetryStore((s) => s.consent);
@@ -792,12 +731,14 @@ export function useTelemetryConsent(showSetupGuide: boolean) {
   }, [telemetryInit]);
 
   // Extension embed skips the consent dialog; desktop keeps the first-run prompt.
+  // No setup-guide gate any more: first-run onboarding now finishes in AuthGate
+  // before this component mounts (#881), so nothing is left covering the screen.
   useEffect(() => {
     if (embedMode) return;
-    if (!showSetupGuide && telemetryInitialized && telemetryConsent === "undecided") {
+    if (telemetryInitialized && telemetryConsent === "undecided") {
       setShowConsentDialog(true);
     }
-  }, [embedMode, showSetupGuide, telemetryInitialized, telemetryConsent]);
+  }, [embedMode, telemetryInitialized, telemetryConsent]);
 
   return { showConsentDialog, setShowConsentDialog };
 }

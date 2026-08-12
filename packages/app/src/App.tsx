@@ -41,7 +41,6 @@ import {
   useOpenCodePreload,
   useExternalLinkHandler,
   useTauriBodyClass,
-  useSetupGuide,
   useTelemetryConsent,
 } from "@/hooks/useAppInit";
 import { useDesktopNotifications } from "@/hooks/useDesktopNotifications";
@@ -77,10 +76,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { SetupGuide } from "@/components/SetupGuide";
 import { TelemetryConsentDialog } from "@/components/telemetry/TelemetryConsentDialog";
-import { WelcomeScreen } from "@/components/auth/WelcomeScreen";
-import { hasSeenWelcome, markWelcomeSeen } from "@/stores/deps";
 import { RuntimeRefreshWorkspaceBanner } from "@/components/workspace/RuntimeRefreshBanner";
 import { useSessionStore } from "@/stores/session";
 import { useSessionListStore } from "@/stores/session-list-store";
@@ -1262,72 +1258,41 @@ function App() {
     void openSessionFromDeeplink(pending.sessionId);
   }, [authSession]);
 
-  // Extracted hooks — initialization, setup guide, telemetry consent
+  // Extracted hooks — initialization, telemetry consent
   useTauriBodyClass();
   useOpenCodePreload();
-  const workspacePath = useWorkspaceStore((s) => s.workspacePath);
-  const daemonHttpReady = useWorkspaceStore((s) => s.daemonHttpReady);
-  const setupReady = !workspacePath || daemonHttpReady || !isTauri();
-  const { showSetupGuide, dependencies, handleRecheck, handleSetupContinue } = useSetupGuide(setupReady);
-  const { showConsentDialog, setShowConsentDialog } = useTelemetryConsent(showSetupGuide);
+  const { showConsentDialog, setShowConsentDialog } = useTelemetryConsent();
 
-  // First-run welcome — the very first screen, shown before dependency setup.
-  // Dismissing it (Get started) is what unblocks the dependency initialization.
-  const [welcomeAck, setWelcomeAck] = useState(() => !isTauri() || hasSeenWelcome());
-  const showWelcome = isTauri() && !welcomeAck;
-
-  // Welcome / dependency-setup are immediately-interactive first-run screens — if
-  // either shows, hand off from the static skeleton right away (AppContent owns
-  // the removal on the normal path; this covers the screens that render instead).
-  useEffect(() => {
-    if (showWelcome || showSetupGuide) removeStartupSkeleton();
-  }, [showWelcome, showSetupGuide]);
-
-  const mainContent = showWelcome ? (
-    <WelcomeScreen
-      onContinue={() => {
-        markWelcomeSeen();
-        setWelcomeAck(true);
-      }}
-    />
-  ) : (
+  // First-run onboarding (welcome, dependency setup, role, model) all lives in
+  // AuthGate now, ahead of this component — see #881. By the time App renders,
+  // the user is through it.
+  const mainContent = (
     <>
-      {showSetupGuide && (
-        <SetupGuide
-          dependencies={dependencies}
-          onRecheck={handleRecheck}
-          onContinue={handleSetupContinue}
-        />
-      )}
-      {!showSetupGuide && (
-        <>
-          <SidebarProvider
-            style={
-              {
-                "--sidebar-width": "220px",
-                "--session-list-width": "280px",
-              } as React.CSSProperties
-            }
-          >
-            <AppContent />
-          </SidebarProvider>
-          <Toaster
-            position="top-center"
-            offset={40}
-            toastOptions={{
-              className: '!bg-popover !text-popover-foreground !border-border !shadow-md !rounded-md !text-xs !py-2 !px-3 !min-h-0 !gap-1.5',
-              descriptionClassName: '!text-muted-foreground !text-[11px]',
-            }}
-          />
-          <UpdateDialogContainer />
-          <CloseToTrayHost />
-          <NewSessionDialog />
-          <TelemetryConsentDialog
-            open={showConsentDialog}
-            onComplete={() => setShowConsentDialog(false)}
-          />
-        </>
-      )}
+      <SidebarProvider
+        style={
+          {
+            "--sidebar-width": "220px",
+            "--session-list-width": "280px",
+          } as React.CSSProperties
+        }
+      >
+        <AppContent />
+      </SidebarProvider>
+      <Toaster
+        position="top-center"
+        offset={40}
+        toastOptions={{
+          className: '!bg-popover !text-popover-foreground !border-border !shadow-md !rounded-md !text-xs !py-2 !px-3 !min-h-0 !gap-1.5',
+          descriptionClassName: '!text-muted-foreground !text-[11px]',
+        }}
+      />
+      <UpdateDialogContainer />
+      <CloseToTrayHost />
+      <NewSessionDialog />
+      <TelemetryConsentDialog
+        open={showConsentDialog}
+        onComplete={() => setShowConsentDialog(false)}
+      />
     </>
   )
 
