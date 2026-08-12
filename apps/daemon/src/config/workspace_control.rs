@@ -643,6 +643,105 @@ impl Default for OpenCodeCompatStore {
     }
 }
 
+/// Fold a save request into the entry to persist, seeded from whatever is
+/// already configured for that provider.
+///
+/// An empty `api_key` means "leave the stored key alone" — the settings UI
+/// sends it that way when the user edits a base URL or model list without
+/// re-typing their secret.
+fn build_provider_entry(
+    seed: Option<OcProviderEntry>,
+    req: ProviderAuthRequest,
+) -> Result<OcProviderEntry, WorkspaceControlError> {
+    let mut entry = seed.unwrap_or_default();
+
+    let api_key = if req.api_key.trim().is_empty() {
+        entry
+            .options
+            .get("apiKey")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_owned()
+    } else {
+        req.api_key
+    };
+    if api_key.trim().is_empty() {
+        return Err(WorkspaceControlError::InvalidInput(
+            "api_key must not be empty".to_owned(),
+        ));
+    }
+
+    if let Some(name) = req.display_name.as_ref() {
+        entry.name = Some(name.clone());
+    }
+    if entry.npm.is_none() && (req.display_name.is_some() || req.base_url.is_some()) {
+        entry.npm = Some("@ai-sdk/openai-compatible".to_owned());
+    }
+    entry
+        .options
+        .insert("apiKey".to_owned(), serde_json::Value::String(api_key));
+    if let Some(base_url) = req.base_url {
+        entry
+            .options
+            .insert("baseURL".to_owned(), serde_json::Value::String(base_url));
+    }
+    for model in req.models {
+        let model_val = serde_json::json!({
+            "name": model.model_name.unwrap_or_else(|| model.model_id.clone()),
+        });
+        entry.models.insert(model.model_id, model_val);
+    }
+    Ok(entry)
+}
+
+/// Device-level provider API (#742) — no workspace involved.
+///
+/// This is what lets the desktop configure a model provider *before* a
+/// workspace exists, which first-run onboarding needs: the user picks a
+/// provider and pastes a key on their way in, long before any project
+/// directory has been resolved.
+///
+/// Unlike the workspace-scoped view these functions deliberately do NOT merge
+/// the daemon-reconciled `provider.team` entry: team credentials are not the
+/// user's to configure, and there is no team context here anyway.
+pub fn device_providers() -> Result<Vec<ProviderInfo>, WorkspaceControlError> {
+    let entries = OpenCodeCompatStore::read_global_opencode_json()?.provider;
+    Ok(entries
+        .iter()
+        .map(|(id, entry)| ProviderInfo {
+            id: id.clone(),
+            display_name: entry.name.clone().unwrap_or_else(|| id.clone()),
+            authenticated: OpenCodeCompatStore::provider_entry_authenticated(entry),
+            base_url: entry
+                .options
+                .get("baseURL")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned),
+            models: entry.models.keys().cloned().collect(),
+        })
+        .collect())
+}
+
+pub fn put_device_provider_auth(
+    provider_id: &str,
+    req: ProviderAuthRequest,
+) -> Result<ApplyOutcome, WorkspaceControlError> {
+    let seed = OpenCodeCompatStore::read_global_opencode_json()?
+        .provider
+        .get(provider_id)
+        .cloned();
+    let entry = build_provider_entry(seed, req)?;
+    OpenCodeCompatStore::put_global_provider(provider_id, &entry)?;
+    Ok(ApplyOutcome::RestartRequired)
+}
+
+pub fn delete_device_provider_auth(
+    provider_id: &str,
+) -> Result<ApplyOutcome, WorkspaceControlError> {
+    OpenCodeCompatStore::remove_global_provider(provider_id)?;
+    Ok(ApplyOutcome::RestartRequired)
+}
+
 impl WorkspaceControlStore for OpenCodeCompatStore {
     fn get_providers(
         &self,
@@ -682,49 +781,13 @@ impl WorkspaceControlStore for OpenCodeCompatStore {
     ) -> Result<ApplyOutcome, WorkspaceControlError> {
         let wpath = self.workspace_path(workspace_id)?;
         let _lock = self.write_lock.lock().unwrap();
-        let merged = Self::merged_provider_entries(&wpath)?;
-
         // Seed from the merged view so a pre-#742 workspace entry is carried
         // forward (base URL, model list) rather than silently reset when the
         // user re-saves it into the global config.
-        let mut entry = merged.get(provider_id).cloned().unwrap_or_default();
-
-        let api_key = if req.api_key.trim().is_empty() {
-            entry
-                .options
-                .get("apiKey")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_owned()
-        } else {
-            req.api_key
-        };
-        if api_key.trim().is_empty() {
-            return Err(WorkspaceControlError::InvalidInput(
-                "api_key must not be empty".to_owned(),
-            ));
-        }
-
-        if let Some(name) = req.display_name.as_ref() {
-            entry.name = Some(name.clone());
-        }
-        if entry.npm.is_none() && (req.display_name.is_some() || req.base_url.is_some()) {
-            entry.npm = Some("@ai-sdk/openai-compatible".to_owned());
-        }
-        entry
-            .options
-            .insert("apiKey".to_owned(), serde_json::Value::String(api_key));
-        if let Some(base_url) = req.base_url {
-            entry
-                .options
-                .insert("baseURL".to_owned(), serde_json::Value::String(base_url));
-        }
-        for model in req.models {
-            let model_val = serde_json::json!({
-                "name": model.model_name.unwrap_or_else(|| model.model_id.clone()),
-            });
-            entry.models.insert(model.model_id, model_val);
-        }
+        let seed = Self::merged_provider_entries(&wpath)?
+            .get(provider_id)
+            .cloned();
+        let entry = build_provider_entry(seed, req)?;
 
         // #742: provider credentials are device-level, never per-workspace — the
         // workspace copy is a git repo and used to leak API keys into commits.
@@ -1332,6 +1395,78 @@ mod tests {
         );
         let global = std::fs::read_to_string(home.path().join("opencode.json")).unwrap();
         assert!(global.contains("sk-secret"));
+    }
+
+    /// The device-level API is what first-run onboarding uses, so it has to work
+    /// with no workspace anywhere in sight.
+    #[test]
+    fn device_provider_auth_round_trips_without_a_workspace() {
+        let _iso = isolate_global_config();
+
+        assert!(device_providers().unwrap().is_empty());
+
+        put_device_provider_auth(
+            "my-llm",
+            ProviderAuthRequest {
+                api_key: "sk-device".to_owned(),
+                base_url: Some("https://api.example.com/v1".to_owned()),
+                display_name: Some("My LLM".to_owned()),
+                models: vec![ProviderModelConfig {
+                    model_id: "gpt-4".to_owned(),
+                    model_name: Some("GPT-4".to_owned()),
+                }],
+            },
+        )
+        .unwrap();
+
+        let providers = device_providers().unwrap();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].id, "my-llm");
+        assert_eq!(providers[0].display_name, "My LLM");
+        assert!(providers[0].authenticated);
+        assert!(providers[0].models.contains(&"gpt-4".to_owned()));
+
+        delete_device_provider_auth("my-llm").unwrap();
+        assert!(device_providers().unwrap().is_empty());
+    }
+
+    /// Team credentials are daemon-reconciled and not the user's to configure,
+    /// so the device-level list must not surface them.
+    #[test]
+    fn device_providers_excludes_the_workspace_team_entry() {
+        let _iso = isolate_global_config();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("opencode.json"),
+            r#"{ "provider": { "team": { "options": { "apiKey": "sk-team" } } } }"#,
+        )
+        .unwrap();
+
+        put_device_provider_auth(
+            "mine",
+            ProviderAuthRequest {
+                api_key: "sk-mine".to_owned(),
+                base_url: None,
+                display_name: None,
+                models: vec![],
+            },
+        )
+        .unwrap();
+
+        let device = device_providers().unwrap();
+        assert_eq!(device.len(), 1);
+        assert_eq!(device[0].id, "mine");
+
+        // The workspace-scoped view still shows both.
+        let store = make_store();
+        let ids: Vec<_> = store
+            .get_providers(&ws_id(dir.path()))
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        assert!(ids.contains(&"team".to_owned()));
+        assert!(ids.contains(&"mine".to_owned()));
     }
 
     /// A provider configured before the cutover stays usable, and disconnecting

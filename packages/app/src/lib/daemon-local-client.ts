@@ -669,6 +669,36 @@ export async function getDaemonModelCatalog(
   return result.ok ? result.data : null
 }
 
+/**
+ * Device-level provider auth (#742) — credentials belong to the machine, not to
+ * a directory, so this needs no workspace. Onboarding uses it to configure a
+ * model provider before any project has been chosen.
+ */
+export async function putDaemonDeviceProviderAuth(
+  providerId: string,
+  req: DaemonProviderAuthRequest,
+): Promise<DaemonApplyOutcome> {
+  const result = await daemonFetch<{ outcome: DaemonApplyOutcome }>(
+    `/v1/providers/${encodeURIComponent(providerId)}/auth`,
+    { method: 'POST', body: JSON.stringify(req) },
+  )
+  if (!result.ok) {
+    const { detail } = problemDetailFromErrorBody(result.error)
+    throw new Error(detail || `Failed to save provider auth (${result.status})`)
+  }
+  return result.data.outcome
+}
+
+export async function deleteDaemonDeviceProviderAuth(
+  providerId: string,
+): Promise<DaemonApplyOutcome | null> {
+  const result = await daemonFetch<{ outcome: DaemonApplyOutcome }>(
+    `/v1/providers/${encodeURIComponent(providerId)}/auth`,
+    { method: 'DELETE' },
+  )
+  return result.ok ? result.data.outcome : null
+}
+
 export async function putDaemonProviderAuth(
   workspaceId: string,
   providerId: string,
