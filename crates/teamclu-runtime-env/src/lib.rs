@@ -13,6 +13,10 @@ pub mod team_crypto;
 pub mod team_provider;
 pub mod team_provider_sync;
 
+/// Ratchet keeping home-directory names spelled in `storage_namespace` only.
+/// Test-only: it scans the repo and has no runtime surface.
+#[cfg(test)]
+mod storage_lint;
 #[cfg(test)]
 pub mod test_util;
 

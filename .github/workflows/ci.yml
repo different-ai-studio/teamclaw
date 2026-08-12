@@ -197,6 +197,13 @@ jobs:
       - name: Run amuxd unit tests
         run: cargo test -p amuxd --locked
 
+      # Owns the storage-namespace rules every runtime resolves paths through,
+      # including the ratchet that keeps `~/.amuxd` / `~/.teamclu` spelled in
+      # one place (docs/architecture/amuxd-home-layout-v2.md §8). Its tests were
+      # never run by CI before.
+      - name: Run teamclu-runtime-env unit tests
+        run: cargo test -p teamclu-runtime-env --locked
+
   daemon-windows:
     name: Daemon (Windows)
     runs-on: windows-latest

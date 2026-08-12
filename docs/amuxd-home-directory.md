@@ -1,5 +1,13 @@
 # `~/.amuxd` 目录说明
 
+> **本文描述的是 v1 布局，正在被替换。** 目标布局与规则见
+> [`architecture/amuxd-home-layout-v2.md`](./architecture/amuxd-home-layout-v2.md)（规范性），
+> 决策依据见 [ADR-0006](./adr/0006-daemon-state-is-team-scoped.md)。
+> v2 落地后本文会重写为面向用户的说明。
+>
+> 本文已知过期之处：`workspaces.toml` 早已没有写入方；`team-secrets/` 那句
+> "故意不放在 `teams/<id>/` 下" 的理由在当前代码里不再成立（v2 会把它下沉）。
+
 本机 Agent Daemon（`amuxd`）的家目录。桌面版安装 / onboard 后，长期运行的二进制、身份配置、团队共享内容、运行时索引都落在这里。
 
 路径：`$HOME/.amuxd`（Windows 同理，在用户主目录下）。

@@ -19,6 +19,20 @@ pub const BRAND_SHORT_NAME_ENV: &str = "TEAMCLU_BRAND_SHORT_NAME";
 /// When unset, derived from [`BRAND_SHORT_NAME_ENV`] via [`amuxd_home_from_env`].
 pub const AMUXD_HOME_ENV: &str = "AMUXD_HOME";
 
+/// The only entries allowed directly inside the amuxd home (`~/.amuxd`).
+///
+/// Normative spec: `docs/architecture/amuxd-home-layout-v2.md` §1. That
+/// document's directory tree and this constant are kept item-for-item aligned;
+/// when they disagree the document wins and the same PR restores the match.
+///
+/// Adding an entry means answering one question first: *should this value change
+/// when the team changes?* Yes → `teams/<id>/state/`. No, and it is a cache →
+/// `cache/`. No, and it belongs to the process → `run/`. Otherwise it very
+/// likely does not belong in the daemon home at all.
+///
+/// Sorted, so the layout test can compare against a sorted directory listing.
+pub const ROOT_ALLOWLIST: &[&str] = &["cache", "daemon.toml", "device-id", "logs", "run", "teams"];
+
 /// Folder name under `$HOME` for official amuxd state (`~/.amuxd`).
 pub const OFFICIAL_AMUXD_DIR_NAME: &str = "amuxd";
 
