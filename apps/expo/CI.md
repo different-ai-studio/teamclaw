@@ -27,6 +27,23 @@ Google and Apple sign-in (`teamclu://auth/callback` against the allow-listed
 `teamclu://auth-callback`) lived here undetected, with test fixtures that
 asserted the *broken* value.
 
+## The suite needs Node ≥ 24
+
+`src/test/helpers/memory-db.ts` runs the cache tests against a real database
+via `node:sqlite`, so the schema, constraints and ordering under test are
+SQLite's own rather than a fake's. That built-in does not exist before Node
+22.5 and stays behind `--experimental-sqlite` until 23.4.
+
+The `Lint, Typecheck & Test` job was pinned to Node 20 while every other
+workflow used `lts/*`. The moment these tests landed, four suites — `session-cache`,
+`session-detail-cache`, `streaming-snapshot`, `team-cache` — failed at *import*
+with `No such built-in module: node:sqlite`, reddening CI on main for three
+commits. A suite that fails to load takes its whole file down, so the failure
+read as four broken features rather than one missing runtime.
+
+CI is now on `lts/*` and the root `engines.node` says `>=24.0.0`, so a dev on an
+older Node gets a warning at install rather than that error at test time.
+
 ## Two fixes worth keeping a record of
 
 ### `<WebView>` — every prop was `never`

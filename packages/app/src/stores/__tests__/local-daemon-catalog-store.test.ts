@@ -173,6 +173,42 @@ describe('ensureLocalDaemonCatalog', () => {
     expect(fetchLocalDaemonCatalog).toHaveBeenCalledTimes(1)
   })
 
+  it('runs a forced follow-up probe after an in-flight request settles', async () => {
+    let resolveFirst!: (value: {
+      status: 'models'
+      backend: string
+      models: Array<{ id: string }>
+      recentModels: string[]
+    }) => void
+    fetchLocalDaemonCatalog
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveFirst = resolve
+      }))
+      .mockResolvedValueOnce({
+        status: 'models',
+        backend: 'claude-code',
+        models: [{ id: 'claude/sonnet' }],
+        recentModels: [],
+      })
+
+    ensureLocalDaemonCatalog('/w1', 'opencode')
+    ensureLocalDaemonCatalog('/w1', 'claude-code', { force: true })
+
+    expect(fetchLocalDaemonCatalog).toHaveBeenCalledTimes(1)
+    resolveFirst({
+      status: 'models',
+      backend: 'opencode',
+      models: [{ id: 'opencode/big-pickle' }],
+      recentModels: [],
+    })
+    await settled()
+    await settled()
+
+    expect(fetchLocalDaemonCatalog).toHaveBeenCalledTimes(2)
+    expect(fetchLocalDaemonCatalog).toHaveBeenLastCalledWith('/w1', 'claude-code')
+    expect(read('/w1').models.map((model) => model.id)).toEqual(['claude/sonnet'])
+  })
+
   it('survives a throwing probe without breaking the pill it feeds', async () => {
     fetchLocalDaemonCatalog.mockRejectedValueOnce(new Error('daemon exploded'))
     ensureLocalDaemonCatalog('/w1')

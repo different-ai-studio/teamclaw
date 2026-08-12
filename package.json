@@ -1,6 +1,6 @@
 {
   "name": "teamclu",
-  "version": "0.4.1-beta.4",
+  "version": "0.4.1-beta.6",
   "private": true,
   "description": "TeamClu - AI Agent Desktop Platform",
   "scripts": {
@@ -50,6 +50,8 @@
     "test:unit": "pnpm --filter @teamclu/app test:unit",
     "test:expo": "pnpm --filter @teamclu/expo test",
     "typecheck:expo": "pnpm --filter @teamclu/expo typecheck",
+    "test:extension": "pnpm --filter @teamclu/extension test",
+    "typecheck:extension": "pnpm --filter @teamclu/extension typecheck",
     "test:scripts": "node --test scripts/lib/*.test.js",
     "test:smoke": "vitest run --config vitest.config.v2-e2e.ts tests/v2-e2e/pr",
     "test:e2e": "pnpm test:e2e:v2:pr",
@@ -75,7 +77,7 @@
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=24.0.0"
   },
   "pnpm": {
     "overrides": {

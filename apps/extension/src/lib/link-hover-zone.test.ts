@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { isLinkHoverTargetVisible, isPointerInHoverKeepZone } from './link-hover-zone'
+import {
+  isLinkHoverTargetVisible,
+  isPointerInHoverKeepZone,
+  type ElementVisibilityProbe,
+} from './link-hover-zone'
 
 describe('isPointerInHoverKeepZone', () => {
   const linkRight = { left: 40, top: 100, right: 140, bottom: 120, width: 100, height: 20 }
@@ -26,7 +30,7 @@ describe('isPointerInHoverKeepZone', () => {
 describe('isLinkHoverTargetVisible', () => {
   const visible = {
     isConnected: true,
-    rect: { width: 80, height: 20 } as DOMRect,
+    rect: { width: 80, height: 20 },
     display: 'inline',
     visibility: 'visible',
     opacity: '1',
@@ -37,7 +41,7 @@ describe('isLinkHoverTargetVisible', () => {
     expect(
       isLinkHoverTargetVisible({} as Element, () => ({
         ...visible,
-        rect: { width: 0, height: 0 } as DOMRect,
+        rect: { width: 0, height: 0 },
       })),
     ).toBe(false)
   })

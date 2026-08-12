@@ -110,6 +110,7 @@
     "aptabase:allow-track-event",
     "log:default",
     "window-state:default",
-    "mcp:default"
+    "mcp:default",
+    "deep-link:default"
   ]
 }

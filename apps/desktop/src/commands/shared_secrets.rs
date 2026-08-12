@@ -30,7 +30,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 
 use super::shared_secrets_crypto::{
-    decrypt_secret, derive_key, encrypt_secret, EncryptedEnvelope, SecretEntry, SecretMeta,
+    decrypt_secret_for_team, derive_key, encrypt_secret, EncryptedEnvelope, SecretEntry, SecretMeta,
 };
 
 // ---------------------------------------------------------------------------
@@ -46,6 +46,10 @@ pub const SECRETS_DIR: &str = "_secrets";
 pub struct SharedSecretsState {
     pub secrets: Mutex<HashMap<String, SecretEntry>>,
     pub derived_key: Mutex<Option<[u8; 32]>>,
+    /// Raw team secret hex — needed so reads can fall back to the pre-rename
+    /// HKDF salt via [`decrypt_secret_for_team`]. Encrypt still uses
+    /// [`derived_key`] (current salt only).
+    pub team_secret: Mutex<Option<String>>,
     pub team_dir: Mutex<Option<PathBuf>>,
 }
 
@@ -54,6 +58,7 @@ impl Default for SharedSecretsState {
         Self {
             secrets: Mutex::new(HashMap::new()),
             derived_key: Mutex::new(None),
+            team_secret: Mutex::new(None),
             team_dir: Mutex::new(None),
         }
     }
@@ -127,6 +132,13 @@ pub fn init_shared_secrets(
         *dk = Some(key);
     }
     {
+        let mut ts = state
+            .team_secret
+            .lock()
+            .map_err(|e| format!("init_shared_secrets: lock team_secret: {e}"))?;
+        *ts = Some(team_secret.to_string());
+    }
+    {
         let mut td = state
             .team_dir
             .lock()
@@ -152,12 +164,13 @@ pub fn load_all_secrets(state: &SharedSecretsState) -> Result<(), String> {
         td.clone()
             .ok_or_else(|| "load_all_secrets: team_dir not set".to_string())?
     };
-    let derived_key = {
-        let dk = state
-            .derived_key
+    let team_secret = {
+        let ts = state
+            .team_secret
             .lock()
-            .map_err(|e| format!("load_all_secrets: lock derived_key: {e}"))?;
-        dk.ok_or_else(|| "load_all_secrets: derived_key not set".to_string())?
+            .map_err(|e| format!("load_all_secrets: lock team_secret: {e}"))?;
+        ts.clone()
+            .ok_or_else(|| "load_all_secrets: team_secret not set".to_string())?
     };
 
     let dir = team_dir.join(SECRETS_DIR);
@@ -222,7 +235,7 @@ pub fn load_all_secrets(state: &SharedSecretsState) -> Result<(), String> {
             }
         };
 
-        match decrypt_secret(&envelope, &derived_key) {
+        match decrypt_secret_for_team(&envelope, &team_secret) {
             Ok(secret) => {
                 log::info!("shared_secrets: loaded secret '{}'", secret.key_id);
                 new_map.insert(secret.key_id.clone(), secret);
@@ -357,11 +370,20 @@ fn ensure_derived_key(
         "Missing team encryption key for this workspace (not initialized). Configure it under Settings → Daemon → General, then try again.".to_string()
     })?;
     let derived_key = derive_key(&env_secret)?;
-    let mut dk = state
-        .derived_key
-        .lock()
-        .map_err(|e| format!("ensure_derived_key: lock derived_key: {e}"))?;
-    *dk = Some(derived_key);
+    {
+        let mut dk = state
+            .derived_key
+            .lock()
+            .map_err(|e| format!("ensure_derived_key: lock derived_key: {e}"))?;
+        *dk = Some(derived_key);
+    }
+    {
+        let mut ts = state
+            .team_secret
+            .lock()
+            .map_err(|e| format!("ensure_derived_key: lock team_secret: {e}"))?;
+        *ts = Some(env_secret);
+    }
     Ok(derived_key)
 }
 
@@ -585,7 +607,15 @@ pub(crate) async fn refresh_team_secrets_from_cloud(
     let Some(team_id) = team_id.map(str::trim).filter(|id| !id.is_empty()) else {
         return Ok(Vec::new());
     };
-    let derived_key = ensure_derived_key(state, workspace_path, Some(team_id))?;
+    let _derived_key = ensure_derived_key(state, workspace_path, Some(team_id))?;
+    let team_secret = {
+        let ts = state
+            .team_secret
+            .lock()
+            .map_err(|e| format!("refresh_team_secrets_from_cloud: lock team_secret: {e}"))?;
+        ts.clone()
+            .ok_or_else(|| "refresh_team_secrets_from_cloud: team_secret not set".to_string())?
+    };
     let Some(client) = fc_client_for(workspace_path, access_token, cloud_api_url) else {
         return Ok(Vec::new());
     };
@@ -624,7 +654,7 @@ pub(crate) async fn refresh_team_secrets_from_cloud(
         };
         // Undecryptable rows are skipped, not fatal: a key rotation would
         // otherwise make the whole list unreadable instead of just its stale part.
-        match decrypt_secret(&envelope, &derived_key) {
+        match decrypt_secret_for_team(&envelope, &team_secret) {
             Ok(entry) => {
                 fetched.insert(key_id.to_string(), entry);
             }
@@ -681,7 +711,7 @@ pub(crate) async fn team_listings_from_cloud(
             created_by: e.created_by.clone(),
             updated_by: e.updated_by.clone(),
             updated_at: e.updated_at.clone(),
-            // Everything here came back from `decrypt_secret`, so by construction
+            // Everything here came back from `decrypt_secret_for_team`, so by construction
             // it decrypted.
             decrypted: true,
             key_mismatch: false,

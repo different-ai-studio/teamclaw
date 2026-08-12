@@ -22,6 +22,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { encodeWorkspaceId, putDaemonSkill } from '@/lib/daemon-local-client'
@@ -41,6 +49,8 @@ import {
   type TeamSkillVersion,
 } from '@/lib/backend/cloud-api/team-skills'
 import { useIsDark } from './use-is-dark'
+
+type SkillConfirmAction = 'delete' | 'uninstall'
 
 const CodeEditor = lazy(() => import('@/components/editors/CodeEditor'))
 const DiffRenderer = lazy(() =>
@@ -841,6 +851,7 @@ export function SkillDetail({ slug }: { slug: string }) {
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
   const installSkill = useTeamShareBrowserStore((s) => s.installSkill)
   const uninstallSkill = useTeamShareBrowserStore((s) => s.uninstallSkill)
+  const deletePersonalSkill = useTeamShareBrowserStore((s) => s.deletePersonalSkill)
   const sharePersonalSkill = useTeamShareBrowserStore((s) => s.sharePersonalSkill)
   const publishSkillVersion = useTeamShareBrowserStore((s) => s.publishSkillVersion)
   const discardLocalSkill = useTeamShareBrowserStore((s) => s.discardLocalSkill)
@@ -872,6 +883,7 @@ export function SkillDetail({ slug }: { slug: string }) {
   const [diffOpen, setDiffOpen] = React.useState(false)
   const [diffs, setDiffs] = React.useState<TeamSkillFileDiff[] | null>(null)
   const [diffLoading, setDiffLoading] = React.useState(false)
+  const [confirmAction, setConfirmAction] = React.useState<SkillConfirmAction | null>(null)
   const [versions, setVersions] = React.useState<TeamSkillVersion[]>([])
   const [versionsLoading, setVersionsLoading] = React.useState(false)
   const [ownerLabel, setOwnerLabel] = React.useState<string | null>(null)
@@ -965,6 +977,7 @@ export function SkillDetail({ slug }: { slug: string }) {
   const runUninstall = React.useCallback(async () => {
     if (!item || busy) return
     setBusy(true)
+    setConfirmAction(null)
     try {
       await uninstallSkill(item.slug)
       toast.success(t('teamShare.skillUninstalled', 'Uninstalled'))
@@ -978,6 +991,24 @@ export function SkillDetail({ slug }: { slug: string }) {
       setBusy(false)
     }
   }, [item, busy, uninstallSkill, t])
+
+  const runDelete = React.useCallback(async () => {
+    if (!item || busy) return
+    setBusy(true)
+    setConfirmAction(null)
+    try {
+      await deletePersonalSkill(item.slug)
+      toast.success(t('teamShare.skillDeleted', 'Deleted'))
+    } catch (e) {
+      toast.error(
+        t('teamShare.skillDeleteFailed', 'Delete failed: {{msg}}', {
+          msg: e instanceof Error ? e.message : String(e),
+        }),
+      )
+    } finally {
+      setBusy(false)
+    }
+  }, [item, busy, deletePersonalSkill, t])
 
   const runShare = React.useCallback(
     async (input: {
@@ -1288,7 +1319,7 @@ export function SkillDetail({ slug }: { slug: string }) {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => void runUninstall()}
+              onClick={() => setConfirmAction('uninstall')}
               disabled={busy}
               className="h-8 gap-1.5 text-[13px] text-muted-foreground hover:text-foreground"
             >
@@ -1299,15 +1330,27 @@ export function SkillDetail({ slug }: { slug: string }) {
         )}
 
         {isPersonal && (
-          <Button
-            type="button"
-            onClick={() => setShareOpen(true)}
-            disabled={busy}
-            className="h-8 gap-1.5 bg-coral text-[13px] font-semibold text-white hover:bg-coral/90"
-          >
-            <Share2 className="h-3.5 w-3.5" />
-            {t('teamShare.skillShare', 'Share')}
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setConfirmAction('delete')}
+              disabled={busy}
+              className="h-8 gap-1.5 text-[13px] text-muted-foreground hover:text-foreground"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t('teamShare.skillDelete', 'Delete')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              disabled={busy}
+              className="h-8 gap-1.5 bg-coral text-[13px] font-semibold text-white hover:bg-coral/90"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              {t('teamShare.skillShare', 'Share')}
+            </Button>
+          </>
         )}
 
         {canEdit && (
@@ -1522,6 +1565,63 @@ export function SkillDetail({ slug }: { slug: string }) {
           onClose={() => setDiffOpen(false)}
         />
       )}
+
+      <Dialog
+        open={confirmAction !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setConfirmAction(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {confirmAction === 'delete'
+                ? t('teamShare.skillDeleteTitle', 'Delete Skill')
+                : t('teamShare.skillUninstallTitle', 'Uninstall Skill')}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmAction === 'delete'
+                ? t(
+                    'teamShare.skillDeleteConfirm',
+                    'Are you sure you want to delete "{{name}}"? This permanently removes the skill from disk and cannot be undone.',
+                    { name: item.name },
+                  )
+                : t(
+                    'teamShare.skillUninstallConfirm',
+                    'Uninstall "{{name}}"? You can install it again from Team Available later.',
+                    { name: item.name },
+                  )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setConfirmAction(null)}
+            >
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy}
+              onClick={() =>
+                void (confirmAction === 'delete' ? runDelete() : runUninstall())
+              }
+            >
+              {busy ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              {confirmAction === 'delete'
+                ? t('teamShare.skillDelete', 'Delete')
+                : t('teamShare.skillUninstall', 'Uninstall')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

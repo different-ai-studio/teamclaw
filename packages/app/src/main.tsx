@@ -20,6 +20,7 @@ import { initJwtBridge } from './lib/jwt-bridge'
 import { installConsoleCapture } from './lib/console-capture'
 import { markStartup } from './lib/startup-perf'
 import { removeStartupSkeleton } from './lib/utils'
+import { E2E_BUILD } from './lib/e2e/v2-control-active'
 
 markStartup('main:start')
 
@@ -134,9 +135,25 @@ createRoot(document.getElementById('root')!).render(
       ) : (
         <>
           <SidePanelHostGateOverlay />
-          <AuthGate>
+          {/*
+            An E2E build mounts App without AuthGate. The harness never signs
+            in — it drives the app over the MCP socket and seeds sessions,
+            actors and messages straight into the stores — so there is no
+            session for the gate to pass. Inside AuthGate, App simply never
+            mounts at the login screen, and it takes the tauri-plugin-mcp
+            listeners and the `window.__TEAMCLU_V2_E2E__` control surface down
+            with it, leaving the harness with nothing to talk to.
+
+            `E2E_BUILD` is a build-time constant: a normal build folds this to
+            the AuthGate branch and the bundler drops the other one.
+          */}
+          {E2E_BUILD ? (
             <App />
-          </AuthGate>
+          ) : (
+            <AuthGate>
+              <App />
+            </AuthGate>
+          )}
         </>
       )}
     </ErrorBoundary>

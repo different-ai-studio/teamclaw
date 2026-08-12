@@ -38,6 +38,27 @@ const TEAMCLU_APP_PATH =
 const TAURI_MCP_SOCKET =
   process.env.TAURI_MCP_SOCKET || '/tmp/tauri-mcp.sock';
 
+/**
+ * The plugin authenticates every request. When no token is configured it
+ * generates a random one (`PluginConfig` in tauri-plugin-mcp-local/src/lib.rs)
+ * and writes it to a `<socket>.token` sidecar, 0600, for clients to discover —
+ * the plugin's own TypeScript MCP server does exactly this on connect.
+ *
+ * Read it per call rather than once at module load: the token is minted when
+ * the app starts, which is *after* this module is imported.
+ */
+function readAuthToken(): string | null {
+  try {
+    const token = readFileSync(`${TAURI_MCP_SOCKET}.token`, 'utf8').trim();
+    return token.length > 0 ? token : null;
+  } catch {
+    // No sidecar — the app is either not up yet or was built with
+    // `insecure_no_auth`. Send the request unauthenticated and let the plugin
+    // decide; an auth-enabled plugin answers with a clear auth error.
+    return null;
+  }
+}
+
 let _processId: string | null = null;
 let _osPid: number | null = null;
 let _appProcess: ChildProcess | null = null;
@@ -72,7 +93,13 @@ function socketCall(command: string, payload: Record<string, unknown> = {}): Pro
     }
 
     client.on('connect', () => {
-      const msg = JSON.stringify({ command, payload }) + '\n';
+      const authToken = readAuthToken();
+      // `authToken`, not `auth_token`: SocketRequest is `rename_all = "camelCase"`.
+      // A snake_case key is silently ignored by serde and the request is then
+      // rejected as unauthenticated.
+      const msg = JSON.stringify(
+        authToken ? { command, payload, authToken } : { command, payload },
+      ) + '\n';
       client.write(msg);
     });
 

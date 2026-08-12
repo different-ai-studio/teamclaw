@@ -23,6 +23,14 @@ import { useProviderStore } from '@/stores/provider'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTeamModeStore } from '@/stores/team-mode'
 import { TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
+import {
+  catalogModelsForProvider,
+  groupCatalogModelsByProvider,
+} from '@/lib/group-catalog-models-by-provider'
+import {
+  ensureLocalDaemonCatalog,
+  useLocalDaemonCatalogStore,
+} from '@/stores/local-daemon-catalog-store'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -82,7 +90,6 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
   const devUnlocked = useTeamModeStore((s) => s.devUnlocked)
   const providers = useProviderStore((s) => s.providers)
   const providersLoading = useProviderStore((s) => s.providersLoading)
-  const configuredProviders = useProviderStore((s) => s.configuredProviders)
   const refreshProviders = useProviderStore((s) => s.refreshProviders)
   const refreshConfiguredProviders = useProviderStore((s) => s.refreshConfiguredProviders)
   const authMethods = useProviderStore((s) => s.authMethods)
@@ -98,6 +105,17 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
   const removeCustomProvider = useProviderStore((s) => s.removeCustomProvider)
   const disconnectProvider = useProviderStore((s) => s.disconnectProvider)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+  const catalogEntry = useLocalDaemonCatalogStore((s) =>
+    workspacePath ? s.byWorkspacePath[workspacePath] : undefined,
+  )
+  const catalogModels = React.useMemo(
+    () => catalogEntry?.models ?? [],
+    [catalogEntry?.models],
+  )
+  const catalogIsLoading =
+    !catalogEntry || catalogEntry.status === 'pending' || catalogEntry.fetchedAt === 0
+  const catalogLoadFailed =
+    catalogEntry?.status === 'error' || catalogEntry?.status === 'unknown'
 
   // Dialog state for connecting a provider
   const [connectDialogOpen, setConnectDialogOpen] = React.useState(false)
@@ -149,15 +167,31 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
     const connected: typeof providers = []
     const mainstream: typeof providers = []
     const others: typeof providers = []
+    const mergedProviders = [...providers]
+    const knownProviderIds = new Set(providers.map((provider) => provider.id))
 
-    for (const p of providers) {
+    for (const group of groupCatalogModelsByProvider(catalogModels)) {
+      if (
+        group.providerId !== TEAM_SHARED_PROVIDER_ID &&
+        !knownProviderIds.has(group.providerId)
+      ) {
+        mergedProviders.push({
+          id: group.providerId,
+          name: group.providerId,
+          configured: false,
+        })
+      }
+    }
+
+    for (const p of mergedProviders) {
       // The team-shared provider is rendered as its own pinned card below.
       if (p.id === TEAM_SHARED_PROVIDER_ID) continue
       if (p.configured) {
         connected.push(p)
       } else if (
         customProviderIds.includes(p.id) ||
-        MAINSTREAM_PROVIDER_IDS.has(p.id.toLowerCase())
+        MAINSTREAM_PROVIDER_IDS.has(p.id.toLowerCase()) ||
+        catalogModelsForProvider(catalogModels, p.id).length > 0
       ) {
         mainstream.push(p)
       } else {
@@ -171,16 +205,22 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
         : [...connected, ...mainstream],
       hiddenCount: others.length,
     }
-  }, [providers, showAllProviders, customProviderIds])
+  }, [providers, showAllProviders, customProviderIds, catalogModels])
 
   const refreshAllProviders = React.useCallback(async () => {
     await Promise.all([refreshProviders(), refreshConfiguredProviders(), refreshAuthMethods()])
   }, [refreshProviders, refreshConfiguredProviders, refreshAuthMethods])
 
+  const refreshModelCatalog = React.useCallback(() => {
+    if (!workspacePath) return
+    ensureLocalDaemonCatalog(workspacePath, 'opencode', { force: true })
+  }, [workspacePath])
+
   React.useEffect(() => {
     void refreshAllProviders()
     if (workspacePath) {
       refreshCustomProviderIds(workspacePath)
+      ensureLocalDaemonCatalog(workspacePath, 'opencode')
     }
   }, [refreshAllProviders, refreshCustomProviderIds, workspacePath])
 
@@ -210,6 +250,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
       setConnectDialogOpen(false)
       setApiKeyInput('')
       await refreshAllProviders()
+      refreshModelCatalog()
     }
     setIsConnecting(false)
   }
@@ -241,6 +282,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
           setOAuthMethodType(null)
           setOAuthCodeInput('')
           void refreshAllProviders()
+          refreshModelCatalog()
         }
       })
     }
@@ -260,6 +302,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
         setOAuthMethodType(null)
         setOAuthCodeInput('')
         await refreshAllProviders()
+        refreshModelCatalog()
       }
     } finally {
       setIsConnecting(false)
@@ -277,17 +320,19 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
   }
 
   const handleProviderClick = (providerId: string, configured: boolean, providerName: string) => {
-    if (configured) {
+    if (canExpandProvider(providerId, configured)) {
       setSelectedProviderId(selectedProviderId === providerId ? null : providerId)
-    } else {
-      handleConnectClick(providerId, providerName)
+      return
     }
+    if (configured) return
+    handleConnectClick(providerId, providerName)
   }
 
-  const getProviderModels = (providerId: string) => {
-    const cp = configuredProviders.find((p) => p.id === providerId)
-    return cp?.models || []
-  }
+  const getProviderModels = (providerId: string) =>
+    catalogModelsForProvider(catalogModels, providerId)
+
+  const canExpandProvider = (providerId: string, _configured: boolean) =>
+    catalogModelsForProvider(catalogModels, providerId).length > 0
 
   const [isRefreshing, setIsRefreshing] = React.useState(false)
 
@@ -297,6 +342,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
     if (workspacePath) {
       await refreshCustomProviderIds(workspacePath)
     }
+    refreshModelCatalog()
     setIsRefreshing(false)
   }
 
@@ -410,6 +456,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
           setCustomModels([{ modelId: '', modelName: '', contextLimit: '', outputLimit: '' }])
           await refreshAllProviders()
           await refreshCustomProviderIds(workspacePath)
+          refreshModelCatalog()
         }
       } else {
         // Add new provider
@@ -424,6 +471,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
           setCustomModels([{ modelId: '', modelName: '', contextLimit: '', outputLimit: '' }])
           await refreshAllProviders()
           await refreshCustomProviderIds(workspacePath)
+          refreshModelCatalog()
         }
       }
     } finally {
@@ -456,6 +504,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
         setDeletingProviderId(null)
         await refreshAllProviders()
         await refreshCustomProviderIds(workspacePath)
+        refreshModelCatalog()
       }
     } finally {
       setIsDeleting(false)
@@ -471,6 +520,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
       if (success) {
         setDisconnectingProviderId(null)
         setDisconnectingProviderName('')
+        refreshModelCatalog()
       }
     } finally {
       setIsDisconnecting(false)
@@ -585,7 +635,8 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
           {visibleProviders.map((p) => {
             const isConnected = p.configured
             const isExpanded = selectedProviderId === p.id
-            const models = isConnected ? getProviderModels(p.id) : []
+            const models = getProviderModels(p.id)
+            const canExpand = canExpandProvider(p.id, isConnected)
 
             return (
               <SettingCard key={p.id} className={cn(
@@ -615,9 +666,13 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {isConnected
-                          ? t('settings.llm.modelsAvailable', { count: models.length, defaultValue: `${models.length} model${models.length !== 1 ? 's' : ''} available` })
-                          : t('settings.llm.notConnected', 'Not connected')}
+                        {catalogIsLoading
+                          ? t('settings.llm.modelsLoading', 'Loading models...')
+                          : catalogLoadFailed
+                            ? t('settings.llm.modelsUnavailable', 'Models could not be loaded')
+                            : models.length > 0 || isConnected
+                              ? t('settings.llm.modelsAvailable', { count: models.length, defaultValue: `${models.length} model${models.length !== 1 ? 's' : ''} available` })
+                              : t('settings.llm.notConnected', 'Not connected')}
                       </p>
                     </div>
                   </div>
@@ -696,7 +751,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
                         {t('settings.llm.connect', 'Connect')}
                       </Button>
                     )}
-                    {isConnected && (
+                    {canExpand && (
                       <ChevronRight className={cn(
                         "h-4 w-4 text-muted-foreground transition-transform",
                         isExpanded && "rotate-90"
@@ -705,8 +760,8 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
                   </div>
                 </div>
 
-                {/* Expanded model list for connected provider */}
-                {isConnected && isExpanded && models.length > 0 && (
+                {/* Expanded model list for catalog-backed provider */}
+                {canExpand && isExpanded && models.length > 0 && (
                   <div className="mt-4 pt-4 border-t space-y-1.5">
                     <p className="text-xs font-medium text-muted-foreground mb-2">{t('settings.llm.availableModels', 'Available Models')}</p>
                     {models.map((m) => (
@@ -734,7 +789,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
             </button>
           )}
 
-          {providers.length === 0 && !providersLoading && (
+          {visibleProviders.length === 0 && !providersLoading && (
             <SettingCard>
               <div className="text-center py-6 text-muted-foreground">
                 <Plug className="h-8 w-8 mx-auto mb-2 opacity-50" />

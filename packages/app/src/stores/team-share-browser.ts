@@ -35,12 +35,14 @@ import type {
 import type { TeamMcpServer, TeamMcpServerWrite } from '@/lib/backend/cloud-api/team-mcp'
 import {
   encodeWorkspaceId,
+  deleteDaemonSkill,
   getDaemonMcp,
   getDaemonMcpTools,
   materializeDaemonTeamMcp,
   type DaemonMcpServerConfig,
   type DaemonMcpServerProbeResult,
 } from '@/lib/daemon-local-client'
+import { SKILLS_CHANGED_EVENT } from '@/hooks/useAppInit'
 
 /** The four browsable team-shared content kinds. */
 export type TeamShareSection = 'skills' | 'mcp' | 'env' | 'knowledge'
@@ -157,6 +159,8 @@ interface TeamShareBrowserState {
   setSubjectActor: (actorId: string | null) => Promise<void>
   installSkill: (slug: string) => Promise<void>
   uninstallSkill: (slug: string) => Promise<void>
+  /** Remove a personal skill directory from disk (not a team-registry delete). */
+  deletePersonalSkill: (slug: string) => Promise<void>
   /** Install a team MCP server for yourself — there is no install-for-others. */
   installMcp: (name: string) => Promise<void>
   uninstallMcp: (name: string) => Promise<void>
@@ -739,7 +743,34 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     await getBackend().teamSkills.uninstallTeamSkill(teamId, slug, {
       ...(subjectActorId ? { actorId: subjectActorId } : {}),
     })
+    if (get().selectedId.skills === slug) get().select('skills', null)
     await get().loadSection('skills', { force: true })
+  },
+
+  deletePersonalSkill: async (slug) => {
+    const wsPath = workspacePath()
+    if (!wsPath) throw new Error('no workspace')
+    const skill = get().skills.items.find((s) => s.slug === slug)
+    if (!skill || skill.kind !== 'personal') {
+      throw new Error(`${slug} is not a personal skill`)
+    }
+    if (!skill.dirPath || !skill.filename) {
+      throw new Error('personal skill has no directory on disk')
+    }
+
+    const deleted = await deleteDaemonSkill(
+      encodeWorkspaceId(wsPath),
+      skill.filename,
+      skill.dirPath,
+    )
+    if (!deleted) {
+      const { remove } = await import('@tauri-apps/plugin-fs')
+      await remove(`${skill.dirPath}/${skill.filename}`, { recursive: true })
+    }
+
+    if (get().selectedId.skills === slug) get().select('skills', null)
+    await get().loadSection('skills', { force: true })
+    window.dispatchEvent(new CustomEvent(SKILLS_CHANGED_EVENT))
   },
 
   installMcp: async (name) => {

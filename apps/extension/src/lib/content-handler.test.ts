@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { handleContentMessage } from './content-handler'
+import { isPageContext } from './messages'
 import type { NavigateContext } from './browser-tools/navigate'
 
 const doc = { title: 'T', location: { href: 'u' }, body: { innerText: 'B' } } as unknown as Document
@@ -58,8 +59,11 @@ describe('handleContentMessage', () => {
   it('returns a page-context for request-page', () => {
     const navigate = createNavigateContext('https://example.com/page')
     const out = handleContentMessage({ type: 'request-page' }, { doc, navigate, getSelection })
-    expect(out?.type).toBe('page-context')
-    expect(out?.payload.text).toBe('B')
+    // handleContentMessage returns a union; narrow through the shipped guard so
+    // this asserts the real discrimination rather than casting past it.
+    expect(out !== null && isPageContext(out)).toBe(true)
+    if (!out || !isPageContext(out)) throw new Error('expected a page-context message')
+    expect(out.payload.text).toBe('B')
   })
   it('returns null for unrelated messages', () => {
     const navigate = createNavigateContext('https://example.com/page')

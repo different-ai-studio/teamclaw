@@ -30,10 +30,19 @@ const mocks = vi.hoisted(() => {
     setWorkspace: vi.fn(),
   }
   const teamModeState = { teamModeType: null as string | null, teamModelConfig: null as null | { model: string; modelName: string; baseUrl: string }, devUnlocked: false, teamModelOptions: [] as Array<{ id: string; name: string }>, switchTeamModel: vi.fn() }
+  const catalogState = {
+    byWorkspacePath: {} as Record<
+      string,
+      { status: string; models: Array<{ id: string; displayName: string }>; recentModels: string[]; fetchedAt: number }
+    >,
+  }
+  const ensureLocalDaemonCatalog = vi.fn()
   return {
     providerState,
     workspaceState,
     teamModeState,
+    catalogState,
+    ensureLocalDaemonCatalog,
     shellOpen: vi.fn(),
     dialogOpen: vi.fn(),
   }
@@ -61,6 +70,10 @@ vi.mock('@/stores/team-mode', () => ({
     return sel(mocks.teamModeState)
   }),
 }))
+vi.mock('@/stores/local-daemon-catalog-store', () => ({
+  useLocalDaemonCatalogStore: vi.fn((sel: (s: any) => any) => sel(mocks.catalogState)),
+  ensureLocalDaemonCatalog: mocks.ensureLocalDaemonCatalog,
+}))
 vi.mock('@/lib/team-permissions', () => ({
   useTeamPermissions: () => ({ role: 'owner', isOwner: true, canManageTeam: true, canEditFiles: true }),
 }))
@@ -84,6 +97,8 @@ describe('LLMSection', () => {
     mocks.providerState.configuredProviders = []
     mocks.providerState.customProviderIds = []
     mocks.providerState.authMethods = {}
+    mocks.catalogState.byWorkspacePath = {}
+    mocks.ensureLocalDaemonCatalog.mockReset()
     mocks.workspaceState.workspacePath = '/test'
     mocks.workspaceState.openCodeReady = true
     mocks.workspaceState.daemonHttpReady = true
@@ -116,6 +131,221 @@ describe('LLMSection', () => {
       expect(mocks.providerState.refreshConfiguredProviders).toHaveBeenCalled()
       expect(mocks.providerState.refreshAuthMethods).toHaveBeenCalled()
     })
+  })
+
+  it('seeds the local model-catalog on mount for the current workspace', async () => {
+    render(<LLMSection />)
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode')
+    })
+  })
+
+  it('force-refetches model-catalog when the refresh control is used', async () => {
+    mocks.providerState.providers = [{ id: 'openai', name: 'OpenAI', configured: true }]
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }))
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
+  it('force-refetches model-catalog after connecting a provider', async () => {
+    mocks.providerState.providers = [{ id: 'openai', name: 'OpenAI', configured: false }]
+    mocks.providerState.connectProvider.mockResolvedValueOnce(true)
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    fireEvent.change(screen.getByPlaceholderText('sk-...'), { target: { value: 'sk-test' } })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Connect' }).at(-1)!)
+
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
+  it('force-refetches model-catalog after disconnecting a provider', async () => {
+    mocks.providerState.providers = [{ id: 'openai', name: 'OpenAI', configured: true }]
+    mocks.providerState.disconnectProvider.mockResolvedValueOnce(true)
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByTitle('Disconnect provider'))
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }))
+
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
+  it('force-refetches model-catalog after adding a custom provider', async () => {
+    mocks.providerState.addCustomProvider.mockResolvedValueOnce('custom-openai')
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Custom' }))
+    fireEvent.change(screen.getByPlaceholderText('e.g. My OpenAI Proxy'), {
+      target: { value: 'Custom OpenAI' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('e.g. https://api.openai.com/v1'), {
+      target: { value: 'https://api.example.test/v1' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('sk-...'), {
+      target: { value: 'sk-test' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('e.g. gpt-4o'), {
+      target: { value: 'custom-model' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Provider' }))
+
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
+  it('force-refetches model-catalog after updating a custom provider', async () => {
+    mocks.providerState.providers = [{ id: 'custom-openai', name: 'Custom OpenAI', configured: true }]
+    mocks.providerState.customProviderIds = ['custom-openai']
+    mocks.providerState.getCustomProvider.mockResolvedValueOnce({
+      name: 'Custom OpenAI',
+      baseURL: 'https://api.example.test/v1',
+      models: [{ modelId: 'custom-model', modelName: 'Custom Model' }],
+    })
+    mocks.providerState.updateCustomProvider.mockResolvedValueOnce(true)
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByTitle('Edit custom provider'))
+    expect(await screen.findByDisplayValue('Custom OpenAI')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Update Provider' }))
+
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
+  it('force-refetches model-catalog after removing a custom provider', async () => {
+    mocks.providerState.providers = [{ id: 'custom-openai', name: 'Custom OpenAI', configured: true }]
+    mocks.providerState.customProviderIds = ['custom-openai']
+    mocks.providerState.removeCustomProvider.mockResolvedValueOnce(true)
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByTitle('Remove custom provider'))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
+  it('lists catalog models for an unconnected provider and allows expand', async () => {
+    mocks.providerState.providers = [{ id: 'opencode', name: 'OpenCode', configured: false }]
+    mocks.catalogState.byWorkspacePath['/test'] = {
+      status: 'ready',
+      models: [
+        { id: 'opencode/qwen3.6-plus-free', displayName: 'OpenCode Zen/Qwen3.6 Plus Free' },
+      ],
+      recentModels: [],
+      fetchedAt: Date.now(),
+    }
+
+    render(<LLMSection />)
+
+    expect(screen.getByText(/1 model/i)).toBeTruthy()
+    fireEvent.click(screen.getByText('OpenCode'))
+    expect(await screen.findByText('OpenCode Zen/Qwen3.6 Plus Free')).toBeTruthy()
+    expect(screen.getByText('opencode/qwen3.6-plus-free')).toBeTruthy()
+  })
+
+  it('uses catalog display names for a connected provider (not configuredProviders bare ids)', async () => {
+    mocks.providerState.providers = [{ id: 'anthropic', name: 'Anthropic', configured: true }]
+    mocks.providerState.configuredProviders = [
+      { id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-sonnet-4', name: 'claude-sonnet-4' }] },
+    ]
+    mocks.catalogState.byWorkspacePath['/test'] = {
+      status: 'ready',
+      models: [
+        { id: 'anthropic/claude-sonnet-4', displayName: 'Claude Sonnet 4' },
+      ],
+      recentModels: [],
+      fetchedAt: Date.now(),
+    }
+
+    render(<LLMSection />)
+    fireEvent.click(screen.getByText('Anthropic'))
+    expect(await screen.findByText('Claude Sonnet 4')).toBeTruthy()
+    expect(screen.getByText('anthropic/claude-sonnet-4')).toBeTruthy()
+    expect(screen.queryByText('claude-sonnet-4')).toBeNull()
+  })
+
+  it.each([
+    ['pending', 0],
+    ['ready', 0],
+  ])('shows a loading subtitle for an unsettled %s catalog', (status, fetchedAt) => {
+    mocks.providerState.providers = [{ id: 'openai', name: 'OpenAI', configured: true }]
+    mocks.catalogState.byWorkspacePath['/test'] = {
+      status,
+      models: [],
+      recentModels: [],
+      fetchedAt,
+    }
+
+    const { container } = render(<LLMSection />)
+
+    expect(screen.getByText('Loading models...')).toBeTruthy()
+    expect(screen.queryByText(/0 models available/i)).toBeNull()
+    expect(container.querySelector('svg.lucide-chevron-right')).toBeNull()
+  })
+
+  it.each(['error', 'unknown'])(
+    'shows an unavailable hint and no expansion control for a %s catalog',
+    (status) => {
+      mocks.providerState.providers = [{ id: 'openai', name: 'OpenAI', configured: true }]
+      mocks.catalogState.byWorkspacePath['/test'] = {
+        status,
+        models: [],
+        recentModels: [],
+        fetchedAt: Date.now(),
+      }
+
+      const { container } = render(<LLMSection />)
+
+      expect(screen.getByText('Models could not be loaded')).toBeTruthy()
+      expect(screen.queryByText(/0 models available/i)).toBeNull()
+      expect(container.querySelector('svg.lucide-chevron-right')).toBeNull()
+
+      fireEvent.click(screen.getByText('OpenAI'))
+      expect(screen.queryByText('Connect OpenAI')).toBeNull()
+    },
+  )
+
+  it('merges catalog-only providers into the list when /providers omitted them', async () => {
+    mocks.providerState.providers = []
+    mocks.catalogState.byWorkspacePath['/test'] = {
+      status: 'ready',
+      models: [{ id: 'opencode/gpt-5-nano', displayName: 'GPT-5 Nano' }],
+      recentModels: [],
+      fetchedAt: Date.now(),
+    }
+
+    render(<LLMSection />)
+    expect(screen.getByText('opencode')).toBeTruthy()
+    expect(screen.queryByText('No providers available')).toBeNull()
   })
 
   it('shows no providers message when empty', () => {

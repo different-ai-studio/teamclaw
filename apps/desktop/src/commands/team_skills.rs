@@ -224,7 +224,10 @@ struct InstalledStamp<'a> {
 /// the manifest has to be built after it or every skill is born dirty; and
 /// `origin.json` is excluded from the manifest, so it has to be written after
 /// the manifest exists.
-fn stamp_installed_state(target: &std::path::Path, stamp: InstalledStamp<'_>) -> Result<(), String> {
+fn stamp_installed_state(
+    target: &std::path::Path,
+    stamp: InstalledStamp<'_>,
+) -> Result<(), String> {
     let files = match stamp.shipped {
         Some(rels) => build_manifest_for(target, rels),
         None => build_manifest(target),
@@ -439,7 +442,9 @@ fn team_skill_install_blocking(
     let archived_path = if req.archive_unmanaged
         && target.is_dir()
         && read_origin(&target).is_none()
-        && std::fs::read_dir(&target).map(|mut d| d.next().is_some()).unwrap_or(false)
+        && std::fs::read_dir(&target)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false)
     {
         Some(move_to_trash(&target, &slug)?)
     } else {
@@ -1075,7 +1080,10 @@ pub fn team_skill_retire_personal(dir_path: String, slug: String) -> Result<Stri
     }
 
     let pack = global_skills_dir()?.join(&slug);
-    if std::fs::canonicalize(&pack).map(|p| p == source).unwrap_or(false) {
+    if std::fs::canonicalize(&pack)
+        .map(|p| p == source)
+        .unwrap_or(false)
+    {
         return Err("The shared copy is the original; nothing to retire".to_string());
     }
 
@@ -1401,7 +1409,10 @@ mod tests {
 
         prune_trash(&trash);
 
-        assert!(fresh.is_dir(), "a pack discarded seconds ago is still undoable");
+        assert!(
+            fresh.is_dir(),
+            "a pack discarded seconds ago is still undoable"
+        );
         assert!(!old.exists(), "a pack past the retention window is swept");
         assert!(foreign.is_dir());
     }

@@ -32,6 +32,15 @@ pub fn decrypt_secret(
     team_crypto::decrypt_secret(envelope, derived_key).map_err(|e| format!("decrypt_secret: {e}"))
 }
 
+/// Decrypt under the team secret, accepting both current and pre-rename HKDF salts.
+pub fn decrypt_secret_for_team(
+    envelope: &EncryptedEnvelope,
+    team_secret: &str,
+) -> Result<SecretEntry, String> {
+    team_crypto::decrypt_secret_for_team(envelope, team_secret)
+        .map_err(|e| format!("decrypt_secret_for_team: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

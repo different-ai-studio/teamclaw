@@ -1166,13 +1166,22 @@ function App() {
   useTrayMenuLocaleSync()
   useAppMenuOpenSettings()
 
-  // ── Initialize tauri-plugin-mcp event listeners (dev only) ──
+  // ── Initialize tauri-plugin-mcp event listeners (dev + E2E builds) ──
+  // The plugin's `execute_js` works by emitting an `execute-js` event and
+  // waiting for `execute-js-response`; these listeners are what answers it.
+  // Without them every executeJs call from the test harness times out, so an
+  // E2E build needs them even though vite built it in production mode.
   useEffect(() => {
-    if (!isTauri() || import.meta.env.PROD) return;
-    // Dynamic import — module only exists in Tauri dev; externalized in prod builds
+    if (!isTauri()) return;
+    if (import.meta.env.PROD && !E2E_BUILD) return;
+    // Deliberately NOT `/* @vite-ignore */`: that leaves the specifier
+    // unanalyzed, so neither the stub alias nor the E2E bundling below can
+    // apply and the webview is handed a bare specifier it cannot resolve.
+    // Normal builds alias this to a no-op stub; an E2E build bundles the real
+    // package.
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    import(/* @vite-ignore */ 'tauri-plugin-mcp').then((mod: { setupPluginListeners?: () => void }) => {
+    import('tauri-plugin-mcp').then((mod: { setupPluginListeners?: () => void }) => {
       mod.setupPluginListeners?.();
       console.log('[App] tauri-plugin-mcp listeners initialized');
     }).catch(() => {});
@@ -1222,11 +1231,16 @@ function App() {
       }
     }
 
-    // Cold start — link that launched the app
-    getCurrent().then((urls) => { if (urls) handle(urls); }).catch(() => {});
+    // Cold start — link that launched the app. Requires deep-link:default in
+    // apps/desktop/capabilities (getCurrent is an invoke; onOpenUrl is not).
+    getCurrent()
+      .then((urls) => { if (urls) handle(urls); })
+      .catch((err) => { console.warn("[invite] getCurrent failed", err); });
 
     // Hot delivery while app is already open
-    onOpenUrl(handle).then((u) => { unlisten = u; }).catch(() => {});
+    onOpenUrl(handle)
+      .then((u) => { unlisten = u; })
+      .catch((err) => { console.warn("[invite] onOpenUrl failed", err); });
 
     return () => { unlisten?.(); };
   }, []);
@@ -1245,11 +1259,16 @@ function App() {
       }
     }
 
-    // Cold start — link that launched the app
-    getCurrent().then((urls) => { if (urls) handle(urls); }).catch(() => {});
+    // Cold start — macOS delivers RunEvent::Opened before the webview listens,
+    // so the URL is only recoverable via getCurrent (needs deep-link:default).
+    getCurrent()
+      .then((urls) => { if (urls) handle(urls); })
+      .catch((err) => { console.warn("[session-deeplink] getCurrent failed", err); });
 
     // Hot delivery while app is already open
-    onOpenUrl(handle).then((u) => { unlisten = u; }).catch(() => {});
+    onOpenUrl(handle)
+      .then((u) => { unlisten = u; })
+      .catch((err) => { console.warn("[session-deeplink] onOpenUrl failed", err); });
 
     return () => { unlisten?.(); };
   }, []);
@@ -1275,7 +1294,10 @@ function App() {
 
   // First-run welcome — the very first screen, shown before dependency setup.
   // Dismissing it (Get started) is what unblocks the dependency initialization.
-  const [welcomeAck, setWelcomeAck] = useState(() => !isTauri() || hasSeenWelcome());
+  // E2E: the harness drives the chat UI directly, so the first-run welcome is
+  // just a screen it can never get past — it seeds state rather than clicking
+  // through onboarding.
+  const [welcomeAck, setWelcomeAck] = useState(() => E2E_BUILD || !isTauri() || hasSeenWelcome());
   const showWelcome = isTauri() && !welcomeAck;
 
   // Welcome / dependency-setup are immediately-interactive first-run screens — if

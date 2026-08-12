@@ -1,12 +1,20 @@
+/**
+ * The four edges the corridor math actually reads. Declaring the full
+ * DOMRectReadOnly would also demand x/y/toJSON, which nothing here touches and
+ * which a caller (or a test) would have to fabricate. A real DOMRect still
+ * satisfies this.
+ */
+export type RectEdges = Pick<DOMRectReadOnly, 'left' | 'right' | 'top' | 'bottom'>
+
 /** Link + gap + affordance button — keeps hover open while crossing the bridge. */
 export function isPointerInHoverKeepZone(
   x: number,
   y: number,
-  linkRect: DOMRectReadOnly,
-  hostRect: DOMRectReadOnly,
+  linkRect: RectEdges,
+  hostRect: RectEdges,
   padding = 6,
 ): boolean {
-  const inPadded = (r: DOMRectReadOnly) =>
+  const inPadded = (r: RectEdges) =>
     x >= r.left - padding && x <= r.right + padding && y >= r.top - padding && y <= r.bottom + padding
 
   if (inPadded(linkRect) || inPadded(hostRect)) return true
@@ -22,7 +30,8 @@ export function isPointerInHoverKeepZone(
 
 export type ElementVisibilityProbe = {
   isConnected: boolean
-  rect: DOMRectReadOnly
+  /** Only the extent is read — a collapsed box means the link is not hoverable. */
+  rect: Pick<DOMRectReadOnly, 'width' | 'height'>
   display: string
   visibility: string
   opacity: string

@@ -198,14 +198,12 @@ fn load_team_env_metas_from_dir(secrets_dir: &Path, env_secret: &str) -> Vec<Tea
 
     // A malformed team secret (wrong length / non-hex) can't decrypt anything;
     // fall back to key-only listings for the whole directory. A secret *was*
-    // present, so mark these as a key mismatch.
-    let key = match derive_key(env_secret) {
-        Ok(key) => key,
-        Err(e) => {
-            warn!(dir = %secrets_dir.display(), "env_catalog: invalid team secret, listing keys only: {e}");
-            return load_team_env_keys_from_dir(secrets_dir, true);
-        }
-    };
+    // present, so mark these as a key mismatch. Per-file decrypt goes through
+    // `decrypt_secret_for_team` so pre-rename (teamclaw salt) envelopes still open.
+    if let Err(e) = derive_key(env_secret) {
+        warn!(dir = %secrets_dir.display(), "env_catalog: invalid team secret, listing keys only: {e}");
+        return load_team_env_keys_from_dir(secrets_dir, true);
+    }
 
     let read_dir = match std::fs::read_dir(secrets_dir) {
         Ok(read_dir) => read_dir,
@@ -246,7 +244,7 @@ fn load_team_env_metas_from_dir(secrets_dir: &Path, env_secret: &str) -> Vec<Tea
                 continue;
             }
         };
-        let secret = match team_crypto::decrypt_secret(&envelope, &key) {
+        let secret = match team_crypto::decrypt_secret_for_team(&envelope, env_secret) {
             Ok(secret) => secret,
             Err(e) => {
                 warn!(path = %path.display(), "env_catalog: failed to decrypt team secret file: {e}");
