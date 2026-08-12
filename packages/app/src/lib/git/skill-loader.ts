@@ -288,17 +288,26 @@ export async function loadAllSkills(
   // Workspace (project) > Global (user)
   // Within workspace: local > claude > clawhub > shared > team > builtin
   // Within global: global-teamclu > global-claude > global-agent
+  //
+  // `global-agent` (~/.agents/skills) is the exception to that ordering: it is
+  // where team packs are installed, so it sits ahead of every personal root
+  // instead of last among the global ones. A team skill is a team standard, and
+  // a member keeping a same-named file of their own must not silently decide
+  // what the team's procedure is on their machine — which is also the only
+  // reading consistent with auto-follow. Keep this in step with the daemon's
+  // `skill_dir_specs` ranks; two loaders disagreeing about which copy is real
+  // is the bug this table exists to prevent.
   const priorityOrder: Record<SkillSource, number> = {
     local: 0,
     claude: 1,
-    clawhub: 2,
-    shared: 3,
-    team: 4,
-    builtin: 5,
-    plugin: 6,
-    'global-teamclu': 7,
-    'global-claude': 8,
-    'global-agent': 9,
+    'global-agent': 2,
+    clawhub: 3,
+    shared: 4,
+    team: 5,
+    builtin: 6,
+    plugin: 7,
+    'global-teamclu': 8,
+    'global-claude': 9,
     personal: 10,
   }
   const seen = new Map<string, SkillWithSource>()

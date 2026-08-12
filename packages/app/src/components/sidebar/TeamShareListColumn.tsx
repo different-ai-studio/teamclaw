@@ -169,6 +169,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const setCreating = useTeamShareBrowserStore((s) => s.setCreating)
 
   const skills = useTeamShareBrowserStore((s) => s.skills)
+  const localState = useTeamShareBrowserStore((s) => s.skillLocalState)
   const mcp = useTeamShareBrowserStore((s) => s.mcp)
   const knowledge = useTeamShareBrowserStore((s) => s.knowledge)
   const teamSecrets = useEnvVarsStore((s) => s.teamSecrets)
@@ -233,7 +234,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
           } else if (s.latestVersion) metaParts.push(`v${s.latestVersion}`)
         }
         return {
-          id: s.slug,
+          id: s.id,
           kind: s.kind,
           icon: Sparkles,
           iconTint: 'bg-coral/10 text-coral',
@@ -247,12 +248,34 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
               </span>
             ) : undefined,
           dimmed: s.status === 'deprecated',
+          // Three states, and only one of them is asking for anything.
+          //
+          // Behind on version is a transitional state that resolves itself
+          // within a reconcile tick, so it stays as quiet as "installed" —
+          // rendering it as an alert would train people to ignore alerts. A
+          // local edit is different: auto-follow has stopped and will not
+          // restart until a human decides, so it gets full ink in a column
+          // where everything else is muted. That contrast is the emphasis;
+          // coral is the brand accent, not a warning colour (AGENTS.md).
           trailing:
             s.kind === 'team-installed' ? (
-              s.hasUpdate ? (
+              localState[s.slug]?.state === 'foreign' ? (
+                <AlertTriangle
+                  className="h-[15px] w-[15px] text-foreground"
+                  aria-label={t(
+                    'teamShare.skillForeign',
+                    'A skill from another source already owns this name',
+                  )}
+                />
+              ) : localState[s.slug]?.state === 'dirty' ? (
+                <AlertTriangle
+                  className="h-[15px] w-[15px] text-foreground"
+                  aria-label={t('teamShare.skillConflict', 'Local changes — update paused')}
+                />
+              ) : s.hasUpdate ? (
                 <ArrowUpCircle
-                  className="h-[15px] w-[15px] text-coral"
-                  aria-label={t('teamShare.skillHasUpdate', 'Update available')}
+                  className="h-[15px] w-[15px] text-muted-foreground"
+                  aria-label={t('teamShare.skillUpdating', 'Updating…')}
                 />
               ) : (
                 <Check
@@ -263,7 +286,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             ) : undefined,
         }
       })
-  }, [section, q, skills.items, t])
+  }, [section, q, skills.items, localState, t])
 
   const skillGroups = React.useMemo(() => {
     const available = skillRows.filter((r) => r.kind === 'team-available')

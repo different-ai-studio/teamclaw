@@ -79,6 +79,19 @@ const localAgentSections: Section[] = [
   { id: 'deps', label: 'Dependencies', labelKey: 'settings.nav.deps', icon: Package },
 ]
 
+/**
+ * Temporarily hidden from the nav.
+ *
+ * Both read the skills inventory through the daemon scan, whose source labels
+ * and de-duplication are being reworked alongside the team skills registry —
+ * until that settles they show a view of "which copy of a skill is real" that
+ * disagrees with the team-share panel.
+ *
+ * The sections, their routes, and their registry entries are all left intact:
+ * deleting this set is the whole of putting them back.
+ */
+const HIDDEN_LOCAL_AGENT_SECTIONS = new Set<SettingsSection>(['roles', 'rolesSkills'])
+
 function UpdateButton() {
   const { t } = useTranslation()
   const update = useUpdaterStore(s => s.update)
@@ -146,7 +159,10 @@ export function Settings(_props?: SettingsProps) {
     daemonSections.filter(s => s.id !== 'channels' || hasAnyChannel(features.channels)),
     [features]
   )
-  const filteredLocalAgentSections = React.useMemo(() => localAgentSections, [])
+  const filteredLocalAgentSections = React.useMemo(
+    () => localAgentSections.filter(s => !HIDDEN_LOCAL_AGENT_SECTIONS.has(s.id)),
+    [],
+  )
 
   type AccordionGroup = 'client' | 'daemon' | 'localAgent'
   const groupForSection = (id: SettingsSection): AccordionGroup => {

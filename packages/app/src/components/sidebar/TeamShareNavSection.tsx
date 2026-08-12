@@ -24,10 +24,21 @@ interface RowProps {
   icon: React.ComponentType<{ className?: string }>
   active: boolean
   count: number
+  /** Items in this section that have stopped and need a decision. */
+  needsAttention?: number
+  attentionLabel?: string
   onClick: () => void
 }
 
-function SectionRow({ label, icon: Icon, active, count, onClick }: RowProps) {
+function SectionRow({
+  label,
+  icon: Icon,
+  active,
+  count,
+  needsAttention = 0,
+  attentionLabel,
+  onClick,
+}: RowProps) {
   return (
     <button
       type="button"
@@ -41,6 +52,19 @@ function SectionRow({ label, icon: Icon, active, count, onClick }: RowProps) {
     >
       <Icon className={cn('h-[15px] w-[15px] shrink-0', active ? 'text-foreground' : 'text-muted-foreground')} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
+      {/*
+        The one thing in this panel that reaches out. Auto-follow means a member
+        may never open the skills section, so a paused update has no other way
+        to be noticed — a full-ink dot against a faint count is enough contrast
+        to register without spending the brand accent on it.
+      */}
+      {needsAttention > 0 && (
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground"
+          aria-label={attentionLabel}
+          title={attentionLabel}
+        />
+      )}
       <span className="shrink-0 font-mono text-[11px] tabular-nums text-faint">{count}</span>
     </button>
   )
@@ -57,6 +81,12 @@ export function TeamShareNavSection() {
   const mcpCount = useTeamShareBrowserStore((s) => s.mcp.items.length)
   const envCount = useTeamShareBrowserStore((s) => s.envCount)
   const knowledgeCount = useTeamShareBrowserStore((s) => s.knowledge.items.length)
+  const skillLocalState = useTeamShareBrowserStore((s) => s.skillLocalState)
+
+  const skillConflicts = React.useMemo(
+    () => Object.values(skillLocalState).filter((s) => s.state === 'dirty').length,
+    [skillLocalState],
+  )
 
   const counts: Record<TeamShareSection, number> = {
     skills: skillsCount,
@@ -86,6 +116,10 @@ export function TeamShareNavSection() {
           icon={def.icon}
           active={filter.kind === 'teamShare' && filter.section === def.section}
           count={counts[def.section]}
+          needsAttention={def.section === 'skills' ? skillConflicts : 0}
+          attentionLabel={t('teamShare.skillConflictCount', '{{count}} skill needs a decision', {
+            count: skillConflicts,
+          })}
           onClick={() => handleSelect(def.section)}
         />
       ))}
