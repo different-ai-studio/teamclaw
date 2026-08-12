@@ -21,6 +21,10 @@ beta-devtools = ["tauri/devtools"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 serde_json = "1"
+# `build.rs` stamps TEAMCLU_DIR / CONFIG_FILE_NAME. Those names come from the
+# one brand table (`storage_namespace`), never a second copy here — the copies
+# are what split betly's home state across two directories.
+teamclu-runtime-env = { path = "../../crates/teamclu-runtime-env" }
 
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "unstable", "tray-icon"] }

@@ -436,13 +436,19 @@ mod tests {
         );
     }
 
+    /// This pass is for the official build only, and "official" is now exactly
+    /// one name (ADR-0006). The pre-rebrand spellings deliberately no longer
+    /// qualify: `.teamclaw` is both this migration's *source* directory and
+    /// betly's own canonical metadata directory, so while betly counted as
+    /// official it re-merged its own live config into `.teamclu/` on every
+    /// workspace open — with `move_tree` keeping the legacy tree as a backup,
+    /// forever, so the two copies just drifted.
     #[test]
-    fn legacy_brand_short_name_still_counts_as_official() {
-        // betly ships `shortName: "teamclaw"`; losing this reclassifies every
-        // betly install as white-label and strands its state.
-        assert!(is_official_brand("teamclaw"));
-        assert!(is_official_brand("teamclawdev"));
+    fn migration_runs_for_the_official_brand_only() {
         assert!(is_official_brand("teamclu"));
+
+        assert!(!is_official_brand("teamclaw"));
+        assert!(!is_official_brand("teamclawdev"));
         assert!(!is_official_brand("copilot361"));
     }
 }

@@ -82,6 +82,6 @@ Dev"）。移除它对本仓库产出的任何构建都是 no-op，且不影响�
 - `teams/<id>/shared/teamclu-team/` 的路径变化由 `ensure_workspace_link()` 惰性
   修复；workspace 侧的 `teamclu-team` 软链名不变
 - 护栏：根目录白名单单元测试 + 禁止 `.amuxd` / `.teamclu` 字面量出现在
-  `teamclu-runtime-env` 之外的棘轮测试（首版 47 个文件的 `DEBT` 清单，此后只许
+  `teamclu-runtime-env` 之外的棘轮测试（首版 46 个文件的 `DEBT` 清单，此后只许
   缩短；清理干净却忘记从清单删除同样会红）。两者跑在
   `cargo test -p teamclu-runtime-env`——该 crate 的测试此前从未进过 CI

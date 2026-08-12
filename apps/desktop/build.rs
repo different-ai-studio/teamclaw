@@ -121,17 +121,12 @@ fn main() {
     println!("cargo:rustc-env=APP_SHORT_NAME={}", short_name);
     println!("cargo:warning=Using APP_SHORT_NAME={}", short_name);
 
-    let is_official = short_name == "teamclu" || short_name == "teamcludev";
-    let teamclu_dir = if is_official {
-        ".teamclu".to_string()
-    } else {
-        format!(".{}", short_name)
-    };
-    let config_file_name = if is_official {
-        "teamclu.json".to_string()
-    } else {
-        format!("{}.json", short_name)
-    };
+    // Resolved by the one brand table, not a second copy of the rule. This file
+    // used to carry its own `is_official` list that disagreed with
+    // `storage_namespace`'s, which is how a betly build ended up reading secrets
+    // from `~/.teamclu` while writing its cache to `~/.teamclaw`.
+    let teamclu_dir = teamclu_runtime_env::workspace_meta_dir_name(&short_name);
+    let config_file_name = teamclu_runtime_env::workspace_config_file_name(&short_name);
     println!("cargo:rustc-env=TEAMCLU_DIR={}", teamclu_dir);
     println!("cargo:rustc-env=CONFIG_FILE_NAME={}", config_file_name);
 

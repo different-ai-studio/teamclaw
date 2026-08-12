@@ -1,8 +1,8 @@
 # amuxd 家目录布局 v2（规范）
 
 > 状态：规范性文档。本文的目录树**就是验收标准**，与
-> `daemon::config::layout::ROOT_ALLOWLIST` 逐项对齐；两者不一致时以本文为准，
-> 并在同一个 PR 里改回一致。
+> `teamclu_runtime_env::storage_namespace::ROOT_ALLOWLIST` 逐项对齐；两者不一致
+> 时以本文为准，并在同一个 PR 里改回一致。
 >
 > 决策依据见 [ADR-0006](../adr/0006-daemon-state-is-team-scoped.md)。
 > 面向用户的说明见 [`../amuxd-home-directory.md`](../amuxd-home-directory.md)。
@@ -246,12 +246,21 @@ teamclu.json        ← 官方          {brand}.json       ← 白标
 
 解析顺序不变：`$AMUXD_HOME` → `$TEAMCLU_BRAND_SHORT_NAME` → 上表。
 
-这个判据**只允许有一个实现**，在 `teamclu-runtime-env`。`apps/desktop/build.rs`
-与 `packages/app/src/lib/build-config.ts` 改为消费从它生成的常量，不得各自维护
-名单——旧代码三处实现两处互相矛盾，betly 的家目录因此被劈成两半。
+这个判据**只允许有一个实现**，在 `teamclu-runtime-env::storage_namespace`。
+`apps/desktop/build.rs` 把它作为 build-dependency 直接调用；
+`packages/app/src/lib/build-config.ts` 因为是另一条工具链，镜像那一个字符串，
+由 `__tests__/brand-parity.test.ts` 读 Rust 源码守住镜像——为一个字符串搭 codegen
+不划算，但一个"Rust 侧一动就红"的测试是值得的。旧代码三处实现两处互相矛盾，
+betly 的家目录因此被劈成两半。
 
 `LEGACY_BRAND_STORAGE_DIR` 一类常量保留，但降级为**清理清单的输入**（§7），不再
 参与品牌解析。
+
+> **需要在本仓库之外完成的一步：** betly 的 `shortName` 目前是 `teamclaw`，
+> 它与 `LEGACY_BRAND_WORKSPACE_META_DIR`（`.teamclaw`）同名，而官方构建会主动
+> 消费那个目录。必须在私有 branding 仓把 betly 的 `shortName` 改成 `betly`，
+> 本仓库的改动无法代劳。在那一步完成之前，betly 构建的家目录会是
+> `~/.teamclaw` / `~/.amuxd-teamclaw`，与官方的 legacy 清理清单重叠。
 
 ---
 
@@ -297,7 +306,7 @@ teamclu.json        ← 官方          {brand}.json       ← 白标
 棘轮**双向失败**：新增一个手写家目录会红，而清理干净后忘记把文件从 `DEBT` 里删掉
 **同样会红**。没有人被迫修剪的 allow 列表很快就不再有意义。
 
-首版 `DEBT` 含 **47 个文件**（现状），此后只许缩短。`OWNERS`（2 个：
+首版 `DEBT` 含 **46 个文件**（PR ② 清掉 `build.rs` 后），此后只许缩短。`OWNERS`（2 个：
 `storage_namespace.rs` 与棘轮自身）按设计豁免，不参与增减。
 
 这两条测试跑在 `cargo test -p teamclu-runtime-env`——该 crate 的测试**此前从未

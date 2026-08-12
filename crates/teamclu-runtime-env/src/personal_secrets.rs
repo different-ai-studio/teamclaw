@@ -107,7 +107,8 @@ pub fn load_personal_env() -> anyhow::Result<HashMap<String, String>> {
 }
 
 /// Load decrypted personal env vars for a build `brand_short_name` (`teamclu`,
-/// `teamcludev`, `copilot361`, …). Official brands resolve to `~/.teamclu/secrets`.
+/// `copilot361`, …). Only `teamclu` resolves to `~/.teamclu/secrets`; every
+/// other name gets `~/.{brand}/secrets` (see [`crate::is_official_brand`]).
 pub fn load_personal_env_for_brand(brand_short_name: &str) -> anyhow::Result<HashMap<String, String>> {
     load_personal_env_for_storage_dir(resolve_storage_dir_name(brand_short_name))
 }
