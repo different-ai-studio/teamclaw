@@ -158,27 +158,21 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
     [agentRuntimes],
   )
 
-  // Guided users get whichever runtime is already on the machine — a working
-  // install beats a fresh download. pi stays the default when neither is there.
-  const autoPicked = React.useRef(false)
+  // Guided is always pi, installed if absent.
+  //
+  // It used to adopt whichever runtime happened to be on the machine ("a working
+  // install beats a fresh download"), which made the outcome depend on the
+  // machine's history: anyone who had ever installed OpenCode silently got
+  // OpenCode. The guided path promises no choices, so it has to land somewhere
+  // predictable — and pi is the one this app installs and drives end to end.
   React.useEffect(() => {
-    if (role !== 'guided' || autoPicked.current || visibleRuntimes.length === 0) return
-    autoPicked.current = true
-    // Prefer a runtime this app owns end-to-end. Cursor/Claude Code can be
-    // "satisfied" while still depending on the user's own key and bridge, which
-    // is not what the guided path promises — take them only as a last resort.
-    const preinstalled =
-      visibleRuntimes.find((r) => usable(r) && INSTALLABLE_RUNTIMES.has(r.id)) ??
-      visibleRuntimes.find((r) => usable(r))
-    if (preinstalled) {
-      const id = preinstalled.id as DaemonLocalAgent
-      setSelected(id)
-      // Mirror it into the store right away rather than waiting for Continue —
-      // the next step branches on this value, and leaving it null until the
-      // last moment is one more window for the two to disagree.
-      setRuntime(id)
-    }
-  }, [role, visibleRuntimes, setRuntime])
+    if (role !== 'guided') return
+    setSelected('pi')
+    // Mirror into the store right away rather than waiting for Continue — the
+    // next step branches on this value, and leaving it stale until the last
+    // moment is one more window for the two to disagree.
+    setRuntime('pi')
+  }, [role, setRuntime])
 
   const amuxd = requirements.find((r) => r.id === 'amuxd')
   const amuxdMissing = !!amuxd && !usable(amuxd)
@@ -188,6 +182,18 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
     amuxdTriggered.current = true
     void install('amuxd', { minDurationMs: AMUXD_AUTO_INSTALL_MIN_MS })
   }, [loaded, amuxdMissing, install])
+
+  // Same treatment for pi on the guided path: promising "no choices" and then
+  // stopping at a runtime the user has to install by hand is the same dead end
+  // twice over — they were never offered the choice that would have avoided it.
+  const pi = agentRuntimes.find((r) => r.id === 'pi')
+  const piMissing = role === 'guided' && !!pi && !usable(pi)
+  const piTriggered = React.useRef(false)
+  React.useEffect(() => {
+    if (!piMissing || piTriggered.current) return
+    piTriggered.current = true
+    void install('pi')
+  }, [piMissing, install])
 
   const selectedRuntime = agentRuntimes.find((r) => r.id === selected)
   const runtimeReady = usable(selectedRuntime)
@@ -201,7 +207,7 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
    * other moving part, so the whole window reads as hung. Anything that greys
    * the button out while the machine is still working spins.
    */
-  const busy = !!installing || amuxdMissing || (!runtimeReady && visibleRuntimes.length > 0)
+  const busy = !!installing || amuxdMissing || piMissing || (!runtimeReady && visibleRuntimes.length > 0)
 
   const pick = (id: DaemonLocalAgent) => {
     setSelected(id)
@@ -264,12 +270,21 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
           </div>
         ) : (
           selectedRuntime && (
-            <DependencyRow req={selectedRuntime} installing={installing === selectedRuntime.id} />
+            // `|| piMissing` covers the gap between "we know it is missing" and
+            // "the install effect has fired": without it the row sits on a red
+            // "not found" for a beat, which reads as a failure rather than as
+            // the work this screen just promised.
+            <DependencyRow
+              req={selectedRuntime}
+              installing={installing === selectedRuntime.id || piMissing}
+            />
           )
         )}
 
         <div className="flex flex-col gap-2">
-          {amuxd && <DependencyRow req={amuxd} installing={installing === 'amuxd'} />}
+          {amuxd && (
+            <DependencyRow req={amuxd} installing={installing === 'amuxd' || amuxdMissing} />
+          )}
           {/* git is `optional: true` from the backend; only developers need to
               know it is missing, and even for them it never blocks. */}
           {role === 'developer' &&
@@ -278,12 +293,17 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
               .map((r) => <DependencyRow key={r.id} req={r} installing={installing === r.id} />)}
         </div>
 
-        {errors.amuxd && (
-          <p className="flex items-start gap-1.5 text-[11.5px] text-coral">
-            <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" />
-            <span className="min-w-0 break-words">{errors.amuxd}</span>
-          </p>
-        )}
+        {/* The runtime error matters most on the guided path: nothing there is
+            user-initiated, so a failed auto-install has no other way to surface
+            (the developer screen already prints per-runtime errors above). */}
+        {[errors.amuxd, role === 'guided' ? errors[selected] : null]
+          .filter(Boolean)
+          .map((message, i) => (
+            <p key={i} className="flex items-start gap-1.5 text-[11.5px] text-coral">
+              <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 break-words">{message}</span>
+            </p>
+          ))}
 
         <Button
           className="h-10 w-full rounded-[10px] bg-coral text-coral-foreground hover:opacity-90"

@@ -59,8 +59,10 @@ describe('SetupStep', () => {
     expect(screen.getByRole('button', { name: '继续' })).toBeEnabled()
   })
 
-  // A working install beats a fresh download.
-  it('reuses an already-installed runtime on the guided path', async () => {
+  // The guided path promises no choices, so it has to land somewhere
+  // predictable. Adopting whatever was already installed made the outcome depend
+  // on the machine's history: anyone who had ever installed OpenCode got it.
+  it('always lands on pi for the guided path, even with another runtime installed', async () => {
     seed({
       agentRuntimes: [
         req('opencode', { title: 'OpenCode' }),
@@ -68,7 +70,33 @@ describe('SetupStep', () => {
       ],
     })
     render(<SetupStep role="guided" onDone={() => {}} />)
-    await vi.waitFor(() => expect(useOnboardingStore.getState().runtime).toBe('opencode'))
+    await vi.waitFor(() => expect(useOnboardingStore.getState().runtime).toBe('pi'))
+  })
+
+  // Landing on pi and then stopping at "install it yourself" would be the same
+  // dead end the guided path exists to avoid.
+  it('installs pi itself when the guided path finds it missing', async () => {
+    const install = vi.fn(async () => {})
+    seed({
+      agentRuntimes: [
+        req('opencode', { title: 'OpenCode' }),
+        req('pi', { title: 'Pi', present: false, version: null }),
+      ],
+      install,
+    })
+    render(<SetupStep role="guided" onDone={() => {}} />)
+    await vi.waitFor(() => expect(install).toHaveBeenCalledWith('pi'))
+  })
+
+  // Nothing on the guided screen is user-initiated, so a failed auto-install has
+  // no other way to reach the user.
+  it('surfaces a runtime install failure on the guided path', () => {
+    seed({
+      agentRuntimes: [req('opencode', { title: 'OpenCode' }), req('pi', { title: 'Pi' })],
+      errors: { pi: 'pi install boom' },
+    })
+    render(<SetupStep role="guided" onDone={() => {}} />)
+    expect(screen.getByText('pi install boom')).toBeInTheDocument()
   })
 
   it('blocks continuing until amuxd is present', () => {
