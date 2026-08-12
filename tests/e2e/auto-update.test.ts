@@ -31,30 +31,31 @@ describe('Auto Update - Configuration', () => {
     expect(config.plugins.updater.pubkey).toBeTruthy();
     expect(config.plugins.updater.endpoints).toBeInstanceOf(Array);
     expect(config.plugins.updater.endpoints.length).toBeGreaterThan(0);
-    expect(config.plugins.updater.endpoints).toEqual(
-      expect.arrayContaining([
-        expect.stringMatching(/^(?:__OSS_BASE_URL__|https:\/\/teamclu\.ucar\.cc)\/releases\/latest\.json$/),
-      ]),
-    );
+    // No OSS endpoint is asserted here. An `__OSS_BASE_URL__` entry only ever
+    // reaches this file when a brand config supplies it *and* OSS_BASE_URL is
+    // set — scripts/update-tauri-config.js substitutes the placeholder and drops
+    // any entry still holding it. The checked-in config has never carried one,
+    // so the old arrayContaining assertion described a brand build, not this repo.
     expect(config.plugins.updater.endpoints).toContain('https://github.com/different-ai-studio/teamclu/releases/latest/download/latest.json');
     expect(config.bundle.createUpdaterArtifacts).toBe(true);
   });
 
-  it('build config exports updater configuration to Rust', () => {
-    const buildConfigPath = path.resolve(repoRoot, 'build.config.local.json');
-    const tauriConfigPath = path.resolve(repoRoot, 'apps', 'desktop', 'tauri.conf.json');
-    const buildConfig = JSON.parse(fs.readFileSync(buildConfigPath, 'utf-8'));
-    const tauriConfig = JSON.parse(fs.readFileSync(tauriConfigPath, 'utf-8'));
-    const buildUpdater = buildConfig.app?.updater;
-    const buildEndpoints = Array.isArray(buildUpdater?.endpoints)
-      ? buildUpdater.endpoints
-      : [buildUpdater?.endpoint].filter(Boolean);
-
-    expect(buildEndpoints.length).toBeGreaterThan(0);
-    expect(tauriConfig.plugins.updater.endpoints).toEqual(buildEndpoints);
-    expect(buildUpdater?.pubkey).toBe(
-      tauriConfig.plugins.updater.pubkey,
+  // The old "build config exports updater configuration to Rust" test read
+  // `build.config.local.json`, which does not exist: vite dropped it from the
+  // merge chain in f56d0ea9 so BUILD_ENV is the single way to switch
+  // environments, and build.rs deliberately mirrors that. No checked-in config
+  // carries `app.updater` any more — tauri.conf.json holds the defaults (the
+  // test above) and a brand supplies overrides from the private branding repo.
+  // What stayed testable is that build.rs still consumes `app.updater` at all.
+  it('build.rs exports app.updater endpoints and pubkey to the Rust build', () => {
+    const buildRs = fs.readFileSync(
+      path.resolve(repoRoot, 'apps', 'desktop', 'build.rs'),
+      'utf-8',
     );
+
+    expect(buildRs).toContain('UPDATER_ENDPOINTS');
+    expect(buildRs).toContain('UPDATER_PUBKEY');
+    expect(buildRs).toContain('["app"]["updater"]["pubkey"]');
   });
 
   it('Cargo.toml has updater and process plugins', () => {
@@ -88,10 +89,28 @@ describe('Auto Update - Configuration', () => {
     expect(workflow).toContain('TAURI_SIGNING_PRIVATE_KEY_PASSWORD');
     expect(workflow).toContain('aarch64-apple-darwin');
     expect(workflow).toContain('pnpm');
-    expect(workflow).toContain("bucket.put_object_from_file(");
-    expect(workflow).toContain("'releases/latest.json'");
-    expect(workflow).toContain("platforms");
-    expect(workflow).toContain("entry['url'] =");
+    // The manifest is no longer assembled by hand and pushed to OSS — the
+    // assertions for `bucket.put_object_from_file(` / `'releases/latest.json'` /
+    // `entry['url'] =` described a flow that now lives in release-oss.yml.
+    // tauri-action publishes latest.json to the GitHub release instead, so what
+    // matters is that the tag it releases under is the one the updater polls.
+    expect(workflow).toContain('tagName:');
+  });
+
+  it('the updater endpoint points at the release tauri-action publishes', () => {
+    const tauriConfig = JSON.parse(
+      fs.readFileSync(
+        path.resolve(repoRoot, 'apps', 'desktop', 'tauri.conf.json'),
+        'utf-8',
+      ),
+    );
+
+    // tauri-action attaches latest.json to the GitHub release; a `releases/latest/download`
+    // endpoint is what makes the shipped app find it. These two drifting apart
+    // is silent — the app just never sees an update.
+    for (const endpoint of tauriConfig.plugins.updater.endpoints) {
+      expect(endpoint).toContain('/releases/latest/download/latest.json');
+    }
   });
 });
 
