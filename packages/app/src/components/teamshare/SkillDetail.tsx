@@ -945,12 +945,19 @@ export function SkillDetail({ slug }: { slug: string }) {
       })
       if (saved === null) throw new Error('daemon rejected the update')
       await loadSection('skills', { force: true })
+      // Re-check the pack against its baseline right away. Saving is what makes
+      // a team pack differ from the version it was installed at, and "differs"
+      // is the state the conflict bar renders — which is where the only entry
+      // to publishing a new version lives. Leaving it to the next reconcile
+      // tick meant the author saved, saw nothing change, found no way to share
+      // the edit, and waited up to ten minutes to be told there was one.
+      await reconcileSkills().catch(() => {})
     } catch (e) {
       toast.error(t('teamShare.saveFailed', 'Save failed: {{msg}}', { msg: e instanceof Error ? e.message : String(e) }))
     } finally {
       setSaving(false)
     }
-  }, [item, workspacePath, saving, content, loadSection, t])
+  }, [item, workspacePath, saving, content, loadSection, reconcileSkills, t])
 
   const runInstall = React.useCallback(async () => {
     if (!item || busy) return
