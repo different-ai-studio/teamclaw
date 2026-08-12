@@ -7,7 +7,14 @@ import tailwindcss from '@tailwindcss/vite'
 import { visualizer } from 'rollup-plugin-visualizer'
 
 const tauriPluginMcpPath = path.resolve(__dirname, '../../.tauri-plugin-mcp')
-const useTauriPluginMcpStub = !existsSync(path.join(tauriPluginMcpPath, 'package.json'))
+// An E2E build is driven through the plugin's socket, so it needs the real
+// package bundled in: the stub's `setupPluginListeners` is a no-op, and an
+// externalized bare specifier does not resolve inside the webview — either way
+// `execute_js` gets no answer and the whole harness times out. The npm
+// dependency provides the same listeners as the linked dev checkout.
+const isTauriMcpE2EBuild = process.env.VITE_TEAMCLU_E2E === 'true'
+const useTauriPluginMcpStub =
+  !isTauriMcpE2EBuild && !existsSync(path.join(tauriPluginMcpPath, 'package.json'))
 
 // --- Build config: read build.config.json + optional environment/local overrides ---
 function readJSON(filePath: string): Record<string, unknown> | null {
@@ -203,8 +210,9 @@ export default defineConfig({
     sourcemap: !!process.env.TAURI_DEBUG,
     // Chunk splitting strategy (Vite 8 / Rolldown requires manualChunks as a function)
     rollupOptions: {
-      // tauri-plugin-mcp is dev-only (linked from .tauri-plugin-mcp/, gitignored)
-      external: ['tauri-plugin-mcp'],
+      // tauri-plugin-mcp is dev-only (linked from .tauri-plugin-mcp/, gitignored).
+      // An E2E build is the exception — see isTauriMcpE2EBuild above.
+      external: isTauriMcpE2EBuild ? [] : ['tauri-plugin-mcp'],
       output: {
         manualChunks(id) {
           const groups: Record<string, string[]> = {
