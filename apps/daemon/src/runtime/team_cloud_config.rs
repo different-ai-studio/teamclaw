@@ -57,7 +57,7 @@ const TEAM_CLOUD_TTL: Duration = Duration::from_secs(60);
 /// Name of the single team-MCP cache file. One file rather than one per server
 /// so a fetch lands atomically: a partial rename sequence must never be able to
 /// present half a team's servers as the whole set.
-const MCP_CACHE_FILE: &str = "team.json";
+const MCP_CACHE_FILE: &str = "mcp.json";
 
 pub struct TeamCloudConfigResolver {
     backend: Arc<dyn Backend>,
@@ -183,6 +183,17 @@ async fn record_refresh(
     }
 }
 
+/// The single team-MCP file every runtime reads.
+///
+/// Written in opencode's own config shape (`{"mcp": {...}}`) rather than the
+/// server's Cursor shape, because that is what lets one file serve all four
+/// runtimes: `opencode serve` is pointed at it with `OPENCODE_CONFIG` and
+/// merges it itself, and the sidecar runtimes (claude / cursor / pi) already
+/// know how to read an opencode `mcp` map.
+pub fn team_cloud_mcp_file(team_id: &str) -> PathBuf {
+    global_team_cloud_dir(team_id).join(MCP_CACHE_FILE)
+}
+
 pub fn team_cloud_mcp_dir(team_id: &str) -> PathBuf {
     global_team_cloud_dir(team_id).join(".mcp")
 }
@@ -278,7 +289,28 @@ impl TeamCloudConfigResolver {
             return None;
         }
 
-        let path = team_cloud_mcp_dir(team_id).join(MCP_CACHE_FILE);
+        // Convert on the way in, not on the way out. Every reader then sees
+        // opencode's shape and nobody has to know the registry speaks Cursor's.
+        let servers: std::collections::HashMap<String, serde_json::Value> = config
+            .get("mcpServers")
+            .and_then(|v| v.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(name, raw)| {
+                        let parsed: crate::config::team_mcp::CursorMcpServer =
+                            serde_json::from_value(raw.clone()).ok()?;
+                        let converted = crate::config::team_mcp::convert_cursor_server(&parsed);
+                        Some((name.clone(), serde_json::to_value(converted).ok()?))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let config = serde_json::json!({
+            "$schema": "https://opencode.ai/config.json",
+            "mcp": servers,
+        });
+
+        let path = team_cloud_mcp_file(team_id);
         let body = match serde_json::to_string_pretty(&config) {
             Ok(s) => s,
             Err(e) => {

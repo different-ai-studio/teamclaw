@@ -1,12 +1,16 @@
 //! Workspace MCP manifest → `@cursor/sdk` `AgentOptions.mcpServers`.
 //!
-//! Two sources, merged (remote-tools wins on a name clash):
+//! Three sources, merged in this order (later wins a name clash):
 //!
-//! 1. `mcp_config_path` — the host-level `remote-tools-host.json` written by
+//! 1. `~/.amuxd/teams/<id>/cloud/mcp.json` — the team registry's servers, in
+//!    opencode's own `mcp` shape. The same file `opencode serve` is pointed at
+//!    with `OPENCODE_CONFIG`, so all four runtimes read one source and nothing
+//!    is copied into the user's workspace config to get there.
+//! 2. `<worktree>/opencode.json` `mcp` map — the user's own servers and local
+//!    overrides of team ones.
+//! 3. `mcp_config_path` — the host-level `remote-tools-host.json` written by
 //!    `remote_tools::mcp_config`, shape `{"mcpServers": {name: {command, args}}}`.
-//! 2. `<worktree>/opencode.json` `mcp` map — the MCP SSOT (team + inherent +
-//!    user servers all merge into it), same source pi bridges through its
-//!    extension.
+//!    Daemon-owned, so it wins outright.
 //!
 //! The SDK wants `Record<string, McpServerConfig>` (`options.d.ts:235`) where a
 //! stdio entry is `{type:"stdio", command: string, args: string[], env}` — note
@@ -123,9 +127,27 @@ fn read_json(path: &Path) -> Option<Value> {
 /// Assemble every MCP server a cursor session should see. Missing or malformed
 /// files contribute nothing rather than failing the attach.
 pub fn assemble(worktree: &str, mcp_config_path: Option<&Path>) -> McpServers {
-    let mut out = read_json(&Path::new(worktree).join("opencode.json"))
+    // Team servers first, so a same-named workspace entry overwrites them
+    // below. That is the same precedence `opencode serve` applies to the file
+    // we hand it via `OPENCODE_CONFIG`, and the same one the merged view has
+    // always documented: a local override beats the team's copy, because a
+    // server definition carries machine-specific paths and ports that only the
+    // person at that machine can be right about.
+    //
+    // Read straight from the cloud file rather than from whatever a
+    // materialise step last copied into the workspace: one source, no step in
+    // between that can drift or be overwritten.
+    let mut out = crate::config::team_mcp::onboarded_team_id()
+        .map(|id| crate::runtime::team_cloud_config::team_cloud_mcp_file(&id))
+        .and_then(|p| read_json(&p))
         .map(|v| servers_from_opencode_value(&v))
         .unwrap_or_default();
+    for (name, cfg) in read_json(&Path::new(worktree).join("opencode.json"))
+        .map(|v| servers_from_opencode_value(&v))
+        .unwrap_or_default()
+    {
+        out.insert(name, cfg);
+    }
     // remote-tools is daemon-owned; it wins over a same-named workspace entry.
     if let Some(extra) = mcp_config_path
         .and_then(read_json)
