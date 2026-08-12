@@ -1277,6 +1277,8 @@
       "refreshing": "刷新中...",
       "custom": "自定义",
       "modelsAvailable": "{{count}} 个模型可用",
+      "modelsLoading": "正在加载模型...",
+      "modelsUnavailable": "模型加载失败",
       "notConnected": "未连接",
       "removeCustomTooltip": "移除自定义提供商",
       "editCustomTooltip": "编辑自定义提供商",
