@@ -327,6 +327,7 @@ dependencies = [
  "teamclu-gateway",
  "teamclu-proto",
  "teamclu-runtime-env",
+ "teamclu-skillpack",
  "teamclu-transport",
  "teamclu-types",
  "tempfile",
@@ -10697,6 +10698,7 @@ dependencies = [
  "teamclu-proto",
  "teamclu-rag",
  "teamclu-runtime-env",
+ "teamclu-skillpack",
  "teamclu-transport",
  "teamclu-types",
  "tempfile",
@@ -10833,6 +10835,17 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "teamclu-skillpack"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "teamclu-types",
+ "tempfile",
 ]
 
 [[package]]
