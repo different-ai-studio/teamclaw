@@ -222,6 +222,27 @@ impl ServeSupervisor {
         }
     }
 
+    fn register_spawned_group(
+        &self,
+        child: &mut tokio::process::Child,
+        pgid: u32,
+    ) -> crate::error::Result<()> {
+        self.registry
+            .register(&self.generation_id, pgid)
+            .map_err(|error| {
+                if !kill_serve_tree(child, pgid) {
+                    warn!(
+                        generation_id = %self.generation_id,
+                        pgid,
+                        "unregistered opencode serve group survived spawn cleanup"
+                    );
+                }
+                crate::error::AmuxError::Agent(format!(
+                    "register opencode serve process group: {error}"
+                ))
+            })
+    }
+
     async fn spawn(&self) -> crate::error::Result<ServeClient> {
         let configured = self.binary_override.lock().clone();
         let binary = crate::opencode_install::resolve_binary(configured.as_deref());
@@ -297,14 +318,7 @@ impl ServeSupervisor {
                 "spawned opencode serve did not expose a process id".into(),
             )
         })?;
-        self.registry
-            .register(&self.generation_id, pgid)
-            .map_err(|error| {
-                let _ = child.start_kill();
-                crate::error::AmuxError::Agent(format!(
-                    "register opencode serve process group: {error}"
-                ))
-            })?;
+        self.register_spawned_group(&mut child, pgid)?;
 
         if let Some(stdout) = child.stdout.take() {
             tokio::spawn(async move {
@@ -464,6 +478,42 @@ fn process_group_alive(pgid: i32) -> bool {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn registration_failure_reaps_spawned_process_group() {
+        use std::os::unix::process::CommandExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let blocked_parent = dir.path().join("not-a-directory");
+        std::fs::write(&blocked_parent, "file").unwrap();
+        let registry = Arc::new(super::super::process_registry::ServeProcessRegistry::new(
+            blocked_parent.join("opencode-pgids.json"),
+        ));
+        let revision =
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&HashMap::new());
+        let serve = ServeSupervisor::new(
+            "gen-a".to_string(),
+            registry.clone(),
+            HashMap::new(),
+            revision,
+        );
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30 & wait")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pgid = child.id().unwrap();
+
+        let error = serve.register_spawned_group(&mut child, pgid).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("register opencode serve process group"));
+        assert!(!process_group_alive(i32::try_from(pgid).unwrap()));
+        assert!(!registry.snapshot().contains_key("gen-a"));
+    }
 
     #[test]
     fn constructor_captures_immutable_process_environment() {
