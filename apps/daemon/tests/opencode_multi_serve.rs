@@ -506,6 +506,7 @@ async fn concurrent_serves_share_state_without_locking_or_event_leakage() {
         opencode_version(&binary).unwrap()
     );
     println!("VALIDATION_PLATFORM={}", platform().unwrap());
+    println!("VALIDATION_MODEL={model}");
     println!(
         "VALIDATION_RSS_MIB={}",
         rss.iter()
