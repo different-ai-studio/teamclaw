@@ -1179,6 +1179,19 @@ export interface DaemonUnresolvedConfigPlaceholder {
   key: string
 }
 
+export interface DaemonDomainHostStats {
+  current_generation: string | null
+  current_lifecycle: string | null
+  current_revision: string | null
+  requested_revision: string | null
+  current_routes: number
+  draining_generations: number
+  draining_routes: number
+  idle_age: { secs: number; nanos: number } | null
+  queued_acquisitions: number
+  last_error: string | null
+}
+
 export interface DaemonEnvActivationDiagnostics {
   personal_env_var_count: number
   personal_blob_user_var_count: number
@@ -1191,6 +1204,7 @@ export interface DaemonEnvActivationDiagnostics {
   active_runtime_count: number
   workspace_has_active_turn: boolean
   refresh: DaemonRuntimeRefresh
+  host_pool: DaemonDomainHostStats
   host_env_shadowed_keys: string[]
   resolved_env_fingerprint: string | null
   active_env_fingerprint: string | null

@@ -41,6 +41,18 @@ const baseActivation: DaemonEnvActivationDiagnostics = {
     last_detected_at: null,
     last_error: null,
   },
+  host_pool: {
+    current_generation: 'gen-1',
+    current_lifecycle: 'ready',
+    current_revision: 'rev-1',
+    requested_revision: 'rev-1',
+    current_routes: 0,
+    draining_generations: 0,
+    draining_routes: 0,
+    idle_age: null,
+    queued_acquisitions: 0,
+    last_error: null,
+  },
   host_env_shadowed_keys: [],
   resolved_env_fingerprint: 'abc',
   active_env_fingerprint: 'abc',
@@ -216,6 +228,39 @@ describe('normalizeDaemonEnvActivationDiagnostics', () => {
       override_keys: ['API_KEY'],
       activation_status: 'blocked',
     })
+  })
+
+  it('derives capacity blockers from a camelCase hostPool without explicit blockers', () => {
+    const normalized = normalizeDaemonEnvActivationDiagnostics({
+      hostPool: {
+        currentGeneration: 'gen-7',
+        currentLifecycle: 'starting',
+        currentRevision: 'rev-1',
+        requestedRevision: 'rev-2',
+        currentRoutes: 6,
+        drainingGenerations: 1,
+        drainingRoutes: 2,
+        idleAge: null,
+        queuedAcquisitions: 2,
+        lastError: 'OpenCode host capacity timed out (6 active, 1 draining, 2 queued)',
+      },
+    } as unknown as Partial<DaemonEnvActivationDiagnostics>)
+
+    expect(normalized?.host_pool).toMatchObject({
+      current_generation: 'gen-7',
+      current_lifecycle: 'starting',
+      queued_acquisitions: 2,
+    })
+    const messages = normalized?.blockers.map((blocker) =>
+      formatEnvActivationBlocker(t, blocker),
+    )
+    expect(messages).toEqual(expect.arrayContaining([
+      expect.stringContaining('Workspace runtime generation is starting'),
+      expect.stringContaining('New sessions are waiting for local runtime capacity'),
+      expect.stringContaining('2 queued'),
+      expect.stringContaining('Timed out waiting for local runtime capacity'),
+      expect.stringContaining('6 active'),
+    ]))
   })
 
   it('returns null for null input', () => {
