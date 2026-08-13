@@ -22,6 +22,7 @@ pub mod client;
 mod env_snapshot_policy;
 mod envelope;
 mod events;
+pub mod host_pool;
 pub mod process_registry;
 pub mod supervisor;
 pub mod translate;
