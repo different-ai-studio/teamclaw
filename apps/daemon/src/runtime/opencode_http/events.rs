@@ -15,7 +15,7 @@ use tracing::{debug, info, warn};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 
-use super::host_pool::HostGeneration;
+use super::host_pool::{HostGeneration, HostLifecycle};
 use super::translate;
 #[cfg(test)]
 use super::ServeSupervisor;
@@ -37,6 +37,9 @@ pub(super) fn supervisor_for_route(
 
 /// Ensure a running SSE task for `directory` (canonicalized by the caller).
 pub(super) fn ensure_sse_task(shared: &Arc<HostGeneration>, directory: &str) {
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        return;
+    }
     let mut tasks = shared.sse_tasks.lock();
     if let Some(handle) = tasks.get(directory) {
         if !handle.is_finished() {
@@ -54,6 +57,10 @@ pub(super) fn ensure_sse_task(shared: &Arc<HostGeneration>, directory: &str) {
 async fn sse_loop(shared: Arc<HostGeneration>, directory: String) {
     let mut backoff = BACKOFF_MIN;
     loop {
+        if shared.lifecycle() == HostLifecycle::Stopped {
+            shared.mark_sse_disconnected(&directory);
+            return;
+        }
         shared.mark_sse_disconnected(&directory);
         let client = match shared.serve.ensure().await {
             Ok(c) => c,
@@ -126,6 +133,9 @@ async fn sse_loop(shared: Arc<HostGeneration>, directory: String) {
 /// carries `time.completed`), the missed `session.idle` is synthesized so the
 /// turn closes instead of hanging until the watchdog aborts it as stalled.
 async fn reconcile_turns_after_reconnect(shared: Arc<HostGeneration>, directory: String) {
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        return;
+    }
     let session_ids: Vec<String> = {
         let routes = shared.routes.lock();
         routes
@@ -137,6 +147,9 @@ async fn reconcile_turns_after_reconnect(shared: Arc<HostGeneration>, directory:
             .collect()
     };
     if session_ids.is_empty() {
+        return;
+    }
+    if shared.lifecycle() == HostLifecycle::Stopped {
         return;
     }
     let client = match shared.serve.ensure().await {
@@ -828,5 +841,33 @@ async fn handle_session_idle(shared: &Arc<HostGeneration>, session_id: &str) {
         let _ = event_tx
             .send(AcpEventFrame::new(session_id, ev).with_reply_to(reply_to))
             .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
+
+    #[tokio::test]
+    async fn stopped_generation_sse_loop_exits_before_ensuring_serve() {
+        let generation = HostGeneration::test_for_routing(
+            "stopped-sse",
+            IsolationDomainKey::Workspace("stopped-sse".to_string()),
+            ProcessEnvRevision::from_bindings(&HashMap::new()),
+        );
+        generation
+            .serve
+            .set_binary_hint("/definitely/missing/opencode");
+        generation.test_mark_stopped();
+
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            sse_loop(generation, "/ws".to_string()),
+        )
+        .await
+        .expect("stopped generation must exit without attempting serve.ensure()");
     }
 }

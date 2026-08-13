@@ -71,6 +71,16 @@ impl HostGeneration {
         self.route_count.load(Ordering::Acquire)
     }
 
+    fn abort_sse_tasks(&self) -> Vec<String> {
+        let tasks = std::mem::take(&mut *self.sse_tasks.lock());
+        let mut directories = Vec::with_capacity(tasks.len());
+        for (directory, task) in tasks {
+            task.abort();
+            directories.push(directory);
+        }
+        directories
+    }
+
     fn reserve_route(self: &Arc<Self>, pool: &OpenCodeHostPool) -> HostLease {
         self.route_count.fetch_add(1, Ordering::AcqRel);
         *self.idle_since.lock() = None;
@@ -114,6 +124,11 @@ impl HostGeneration {
             pool: Weak::new(),
             generation: Arc::downgrade(self),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_mark_stopped(&self) {
+        *self.lifecycle.write() = HostLifecycle::Stopped;
     }
 }
 
@@ -596,13 +611,21 @@ impl OpenCodeHostPool {
         if generation.lifecycle() == HostLifecycle::Stopped {
             return true;
         }
+        let previous_lifecycle = generation.lifecycle();
+        *generation.lifecycle.write() = HostLifecycle::Stopped;
+        let sse_directories = generation.abort_sse_tasks();
         match self.factory.stop(generation) {
             ShutdownOutcome::Idle | ShutdownOutcome::Stopped => {
-                *generation.lifecycle.write() = HostLifecycle::Stopped;
                 self.release_capacity();
                 true
             }
-            ShutdownOutcome::Survived { .. } => false,
+            ShutdownOutcome::Survived { .. } => {
+                *generation.lifecycle.write() = previous_lifecycle;
+                for directory in sse_directories {
+                    super::events::ensure_sse_task(generation, &directory);
+                }
+                false
+            }
         }
     }
 
@@ -1220,6 +1243,131 @@ mod tests {
             3,
             "a surviving process group must block a fourth spawn"
         );
+    }
+
+    #[tokio::test]
+    async fn stopping_generation_aborts_its_sse_tasks_before_factory_stop() {
+        struct NotifyOnDrop(Option<tokio::sync::oneshot::Sender<()>>);
+
+        impl Drop for NotifyOnDrop {
+            fn drop(&mut self) {
+                if let Some(tx) = self.0.take() {
+                    let _ = tx.send(());
+                }
+            }
+        }
+
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let lease = pool
+            .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let generation = Arc::clone(&lease.generation);
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        generation.sse_tasks.lock().insert(
+            "/ws".to_string(),
+            tokio::spawn(async move {
+                let _guard = NotifyOnDrop(Some(dropped_tx));
+                let _ = started_tx.send(());
+                std::future::pending::<()>().await;
+            }),
+        );
+        started_rx.await.expect("SSE task should start");
+        drop(lease);
+
+        pool.shutdown_all().await;
+
+        tokio::time::timeout(Duration::from_millis(100), dropped_rx)
+            .await
+            .expect("SSE task should be aborted when its generation stops")
+            .expect("SSE task drop notification should be delivered");
+        assert_eq!(generation.lifecycle(), HostLifecycle::Stopped);
+        assert!(generation.sse_tasks.lock().is_empty());
+        assert_eq!(factory.stopped(), vec![generation.generation_id.clone()]);
+    }
+
+    #[tokio::test]
+    async fn draining_generation_keeps_sse_until_its_last_route_releases() {
+        struct NotifyOnDrop(Option<tokio::sync::oneshot::Sender<()>>);
+
+        impl Drop for NotifyOnDrop {
+            fn drop(&mut self) {
+                if let Some(tx) = self.0.take() {
+                    let _ = tx.send(());
+                }
+            }
+        }
+
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory);
+        let a = pool
+            .acquire(domain("same"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let generation_a = Arc::clone(&a.generation);
+        let (a_dropped_tx, a_dropped_rx) = tokio::sync::oneshot::channel();
+        let (a_started_tx, a_started_rx) = tokio::sync::oneshot::channel();
+        generation_a.sse_tasks.lock().insert(
+            "/a".to_string(),
+            tokio::spawn(async move {
+                let _guard = NotifyOnDrop(Some(a_dropped_tx));
+                let _ = a_started_tx.send(());
+                std::future::pending::<()>().await;
+            }),
+        );
+        a_started_rx
+            .await
+            .expect("generation A SSE task should start");
+
+        let b = pool
+            .acquire(domain("same"), revision("2"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let generation_b = Arc::clone(&b.generation);
+        let (b_dropped_tx, mut b_dropped_rx) = tokio::sync::oneshot::channel();
+        let (b_started_tx, b_started_rx) = tokio::sync::oneshot::channel();
+        generation_b.sse_tasks.lock().insert(
+            "/b".to_string(),
+            tokio::spawn(async move {
+                let _guard = NotifyOnDrop(Some(b_dropped_tx));
+                let _ = b_started_tx.send(());
+                std::future::pending::<()>().await;
+            }),
+        );
+        b_started_rx
+            .await
+            .expect("generation B SSE task should start");
+
+        assert_eq!(generation_a.lifecycle(), HostLifecycle::Draining);
+        assert_eq!(
+            pool.stats_for(&domain("same")).current_generation,
+            Some(generation_b.generation_id.clone())
+        );
+        assert!(
+            !generation_a.sse_tasks.lock()["/a"].is_finished(),
+            "draining generation with a live route keeps its SSE task"
+        );
+
+        drop(a);
+
+        tokio::time::timeout(Duration::from_millis(100), a_dropped_rx)
+            .await
+            .expect("retired generation A should abort its SSE task")
+            .expect("generation A task drop notification should be delivered");
+        assert_eq!(generation_a.lifecycle(), HostLifecycle::Stopped);
+        assert!(
+            b_dropped_rx.try_recv().is_err(),
+            "stopping generation A must not abort current generation B's SSE task"
+        );
+
+        drop(b);
+        pool.shutdown_all().await;
+        tokio::time::timeout(Duration::from_millis(100), &mut b_dropped_rx)
+            .await
+            .expect("generation B should abort during pool shutdown")
+            .expect("generation B task drop notification should be delivered");
     }
 
     #[tokio::test]

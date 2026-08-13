@@ -1756,6 +1756,11 @@ mod spawn_path_tests {
 
 #[cfg(test)]
 mod pool_tests {
+    #[cfg(unix)]
+    use std::io::Write;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
     use super::*;
     use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
 
@@ -1794,6 +1799,42 @@ mod pool_tests {
         }
     }
 
+    async fn wait_until(mut condition: impl FnMut() -> bool) {
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !condition() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("command loop did not reach the expected state");
+    }
+
+    #[cfg(unix)]
+    fn install_blocking_fake_serve(
+        generation: &Arc<host_pool::HostGeneration>,
+    ) -> (tempfile::TempPath, std::path::PathBuf) {
+        let marker = tempfile::NamedTempFile::new()
+            .expect("temporary fake-serve marker")
+            .into_temp_path();
+        let marker_path = marker.to_path_buf();
+        std::fs::remove_file(&marker_path).expect("remove initial marker file");
+        let mut script = tempfile::NamedTempFile::new().expect("temporary fake-serve script");
+        writeln!(
+            script,
+            "#!/bin/sh\nprintf started > '{}'\nsleep 60",
+            marker_path.display()
+        )
+        .unwrap();
+        let mut permissions = script.as_file().metadata().unwrap().permissions();
+        permissions.set_mode(0o755);
+        script.as_file().set_permissions(permissions).unwrap();
+        let script = script.into_temp_path();
+        generation
+            .serve
+            .set_binary_hint(script.to_string_lossy().as_ref());
+        (script, marker_path)
+    }
+
     #[tokio::test]
     async fn duplicate_session_commands_stay_on_their_generation() {
         let a = generation("gen-a");
@@ -1827,19 +1868,92 @@ mod pool_tests {
         );
     }
 
-    #[test]
-    fn permission_ids_are_generation_local() {
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn permission_commands_resolve_only_the_sender_generation() {
         let a = generation("gen-a");
         let b = generation("gen-b");
+        let (_fake_serve, marker) = install_blocking_fake_serve(&a);
+        a.routes.lock().insert("ses_same".into(), test_route("/a"));
+        b.routes.lock().insert("ses_same".into(), test_route("/b"));
         a.permissions
             .lock()
             .insert("perm-1".into(), "ses_same".into());
+        let a_tx = command_sender_for_generation(Arc::clone(&a));
+        let b_tx = command_sender_for_generation(Arc::clone(&b));
+
+        b_tx.send(AcpCommand::ResolvePermission {
+            request_id: "perm-1".into(),
+            granted: true,
+            option_id: None,
+        })
+        .await
+        .unwrap();
+        b_tx.send(AcpCommand::SetModel {
+            acp_session_id: "ses_same".into(),
+            model_id: "provider/b-barrier".into(),
+        })
+        .await
+        .unwrap();
+        wait_until(|| b.routes.lock()["ses_same"].model.is_some()).await;
 
         assert_eq!(
             a.permissions.lock().get("perm-1").map(String::as_str),
             Some("ses_same")
         );
-        assert!(!b.permissions.lock().contains_key("perm-1"));
+        a_tx.send(AcpCommand::ResolvePermission {
+            request_id: "perm-1".into(),
+            granted: true,
+            option_id: None,
+        })
+        .await
+        .unwrap();
+        wait_until(|| !a.permissions.lock().contains_key("perm-1")).await;
+        wait_until(|| marker.exists()).await;
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn question_commands_answer_only_the_sender_generation() {
+        let a = generation("gen-a");
+        let b = generation("gen-b");
+        let (_fake_serve, marker) = install_blocking_fake_serve(&a);
+        a.routes.lock().insert("ses_same".into(), test_route("/a"));
+        b.routes.lock().insert("ses_same".into(), test_route("/b"));
+        a.questions
+            .lock()
+            .insert("question-1".into(), "ses_same".into());
+        let a_tx = command_sender_for_generation(Arc::clone(&a));
+        let b_tx = command_sender_for_generation(Arc::clone(&b));
+
+        b_tx.send(AcpCommand::AnswerQuestion {
+            request_id: "question-1".into(),
+            answers_json: "[]".into(),
+            reject: false,
+        })
+        .await
+        .unwrap();
+        b_tx.send(AcpCommand::SetModel {
+            acp_session_id: "ses_same".into(),
+            model_id: "provider/b-barrier".into(),
+        })
+        .await
+        .unwrap();
+        wait_until(|| b.routes.lock()["ses_same"].model.is_some()).await;
+
+        assert_eq!(
+            a.questions.lock().get("question-1").map(String::as_str),
+            Some("ses_same")
+        );
+        a_tx.send(AcpCommand::AnswerQuestion {
+            request_id: "question-1".into(),
+            answers_json: "[]".into(),
+            reject: false,
+        })
+        .await
+        .unwrap();
+        wait_until(|| !a.questions.lock().contains_key("question-1")).await;
+        wait_until(|| marker.exists()).await;
     }
 
     #[tokio::test]
@@ -1850,8 +1964,16 @@ mod pool_tests {
         let _b_lease = b.test_route_lease();
         a.routes.lock().insert("ses_same".into(), test_route("/a"));
         b.routes.lock().insert("ses_same".into(), test_route("/b"));
+        let a_tx = command_sender_for_generation(Arc::clone(&a));
+        let (ack_tx, ack_rx) = oneshot::channel();
 
-        detach_generation_route(&a, "ses_same").await;
+        a_tx.send(AcpCommand::DetachSession {
+            acp_session_id: "ses_same".into(),
+            ack: Some(ack_tx),
+        })
+        .await
+        .unwrap();
+        ack_rx.await.unwrap();
         drop(a_lease);
 
         assert!(!a.routes.lock().contains_key("ses_same"));
@@ -1875,6 +1997,49 @@ mod pool_tests {
             &events::supervisor_for_route(&a, "ses_same").unwrap(),
             &b.serve
         ));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn prompt_and_cancel_commands_do_not_mutate_duplicate_route_on_other_generation() {
+        let a = generation("gen-a");
+        let b = generation("gen-b");
+        let (_fake_serve, marker) = install_blocking_fake_serve(&a);
+        a.routes.lock().insert("ses_same".into(), test_route("/a"));
+        b.routes.lock().insert("ses_same".into(), test_route("/b"));
+        b.routes.lock().get_mut("ses_same").unwrap().model =
+            client::split_model_id("provider/model-b");
+        let a_prompt_tx = command_sender_for_generation(Arc::clone(&a));
+        let a_cancel_tx = command_sender_for_generation(Arc::clone(&a));
+
+        a_prompt_tx
+            .send(AcpCommand::Prompt {
+                acp_session_id: "ses_same".into(),
+                text: "generation A only".into(),
+                attachment_urls: Vec::new(),
+                requester_actor_id: Some("actor-a".into()),
+                reply_to_message_id: Some("message-a".into()),
+            })
+            .await
+            .unwrap();
+        wait_until(|| a.routes.lock()["ses_same"].turn_active).await;
+        wait_until(|| marker.exists()).await;
+        a_cancel_tx
+            .send(AcpCommand::Cancel {
+                acp_session_id: "ses_same".into(),
+            })
+            .await
+            .unwrap();
+        tokio::task::yield_now().await;
+
+        let routes = b.routes.lock();
+        let route = &routes["ses_same"];
+        assert!(!route.turn_active);
+        assert_eq!(route.turn_seq, 0);
+        assert_eq!(route.turn_requester, None);
+        assert_eq!(route.turn_reply_to, None);
+        assert!(route.tools_in_flight.is_empty());
+        assert_eq!(route.model.as_ref().unwrap().model_id, "model-b");
     }
 
     #[test]
