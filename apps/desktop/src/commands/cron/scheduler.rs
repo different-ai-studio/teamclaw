@@ -490,6 +490,7 @@ impl CronScheduler {
             execution_workspace.as_deref(),
             wt_guard.path.as_deref(),
         );
+        let workspace_root = execution_workspace.as_deref();
 
         // Eagerly create the cloud session and stamp its id into the run record
         // now — before the (cold-starting) ACP runtime spawn inside prompt-await
@@ -556,6 +557,7 @@ impl CronScheduler {
                 message: &job.payload.message,
                 job_name: Some(&job.name),
                 working_directory: working_directory.as_deref().map(str::as_ref),
+                workspace_root,
                 model_override: model_param.as_ref().map(|(p, m)| {
                     crate::commands::cron::amuxd_client::ModelOverride {
                         provider: p,

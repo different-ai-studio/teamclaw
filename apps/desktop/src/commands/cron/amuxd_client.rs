@@ -26,6 +26,8 @@ pub struct PromptAwaitRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_directory: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_root: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model_override: Option<ModelOverride<'a>>,
     /// Backend the job pins, e.g. "opencode" | "claude" | "codex". When `None`
     /// the field is omitted and amuxd falls back to its `default_agent_type`
@@ -436,6 +438,7 @@ mod tests {
                 message: "hi",
                 job_name: None,
                 working_directory: None,
+                workspace_root: None,
                 model_override: None,
                 agent_type: None,
                 permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
@@ -473,6 +476,7 @@ mod tests {
                 message: "hi",
                 job_name: None,
                 working_directory: None,
+                workspace_root: None,
                 model_override: None,
                 agent_type: None,
                 permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
@@ -487,7 +491,11 @@ mod tests {
     async fn includes_optional_fields_when_set() {
         let sock_path = mock_server(|req| {
             assert_eq!(req["job_name"].as_str(), Some("Nightly digest"));
-            assert_eq!(req["working_directory"].as_str(), Some("/tmp/wt"));
+            assert_eq!(
+                req["working_directory"].as_str(),
+                Some("/repo/.worktrees/cron-j1-r1")
+            );
+            assert_eq!(req["workspace_root"].as_str(), Some("/repo"));
             assert_eq!(
                 req["model_override"]["provider"].as_str(),
                 Some("anthropic")
@@ -510,7 +518,8 @@ mod tests {
                 session_key: "cron/j1/r1",
                 message: "hi",
                 job_name: Some("Nightly digest"),
-                working_directory: Some("/tmp/wt"),
+                working_directory: Some("/repo/.worktrees/cron-j1-r1"),
+                workspace_root: Some("/repo"),
                 model_override: Some(ModelOverride {
                     provider: "anthropic",
                     model: "sonnet",
@@ -539,6 +548,7 @@ mod tests {
                 message: "hi",
                 job_name: None,
                 working_directory: None,
+                workspace_root: None,
                 model_override: None,
                 agent_type: None,
                 permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
@@ -569,6 +579,7 @@ mod tests {
                 message: "hi",
                 job_name: None,
                 working_directory: None,
+                workspace_root: None,
                 model_override: None,
                 agent_type: None,
                 permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
@@ -591,6 +602,7 @@ mod tests {
                 message: "hi",
                 job_name: None,
                 working_directory: None,
+                workspace_root: None,
                 model_override: None,
                 agent_type: None,
                 permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
@@ -618,6 +630,7 @@ mod tests {
                 message: "hi",
                 job_name: None,
                 working_directory: None,
+                workspace_root: None,
                 model_override: None,
                 agent_type: None,
                 permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,

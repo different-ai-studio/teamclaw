@@ -2,11 +2,123 @@ use std::path::Path;
 
 use teamclu_runtime_env::ManagedLlmState;
 
-use crate::runtime::SpawnRuntimeEnv;
+use crate::runtime::execution_context::{ExecutionContext, IsolationDomainKey, WorkspaceIdentity};
+use crate::runtime::{PermissionPolicy, SpawnRuntimeEnv};
 
 use super::DaemonServer;
 
 impl DaemonServer {
+    pub(super) async fn assemble_execution_context(
+        &self,
+        working_directory: &str,
+        workspace_root_hint: Option<&str>,
+        workspace_id_hint: Option<&str>,
+        is_gateway: bool,
+        permission: Option<PermissionPolicy>,
+    ) -> Result<ExecutionContext, String> {
+        let team_id = self.config.team_id.as_deref();
+        let workspace = if let Some(workspace_id) =
+            workspace_id_hint.filter(|id| !id.trim().is_empty())
+        {
+            let resolved = self
+                .workspace_resolver
+                .resolve(workspace_id)
+                .await
+                .map_err(|e| format!("workspace identity resolution failed: {e}"))?;
+            let identity = self
+                .workspace_resolver
+                .resolve_identity_for_path(Path::new(&resolved.path), resolved.team_id.as_deref())
+                .await
+                .ok_or_else(|| {
+                    format!(
+                        "workspace identity resolution failed: ambiguous or invalid workspace {workspace_id}"
+                    )
+                })?;
+            if identity.workspace_id != workspace_id {
+                return Err(format!(
+                    "workspace identity mismatch: expected {workspace_id}, resolved {}",
+                    identity.workspace_id
+                ));
+            }
+            identity
+        } else if let Some(root) = workspace_root_hint.filter(|root| !root.trim().is_empty()) {
+            self.workspace_resolver
+                .resolve_identity_for_path(Path::new(root), team_id)
+                .await
+                .ok_or_else(|| {
+                    format!(
+                        "workspace identity resolution failed for parent root {}",
+                        Path::new(root).display()
+                    )
+                })?
+        } else if !working_directory.trim().is_empty() {
+            self.workspace_resolver
+                .resolve_identity_for_path(Path::new(working_directory), team_id)
+                .await
+                .ok_or_else(|| {
+                    format!(
+                        "workspace identity resolution failed for working directory {}",
+                        Path::new(working_directory).display()
+                    )
+                })?
+        } else {
+            self.workspace_resolver
+                .resolve_default_workspace(team_id, &self.actor_id)
+                .await
+                .ok_or_else(|| {
+                    "no working directory: configure a default workspace in Daemon > Workspace settings"
+                        .to_string()
+                })?
+        };
+
+        let working_directory = if working_directory.trim().is_empty() {
+            workspace.workspace_root.clone()
+        } else {
+            Path::new(working_directory).to_path_buf()
+        };
+        let mut spawn_env = self
+            .assemble_workspace_execution_env(&workspace, &working_directory)
+            .await?;
+        spawn_env.is_gateway = is_gateway;
+        spawn_env.permission = permission;
+
+        Ok(ExecutionContext {
+            isolation_domain: IsolationDomainKey::Workspace(workspace.workspace_id.clone()),
+            workspace: Some(workspace),
+            working_directory,
+            spawn_env,
+        })
+    }
+
+    async fn assemble_workspace_execution_env(
+        &self,
+        workspace: &WorkspaceIdentity,
+        working_directory: &Path,
+    ) -> Result<SpawnRuntimeEnv, String> {
+        let managed_llm = match workspace.team_id.as_deref() {
+            Some(team_id) => self.resolve_managed_llm(team_id).await,
+            None => ManagedLlmState::Unknown,
+        };
+        let cloud_token_file = self
+            .backend
+            .cloud_auth_health()
+            .map(|_| crate::config::DaemonConfig::cloud_token_path())
+            .map(|path| path.to_string_lossy().into_owned());
+
+        self.suppress_internal_opencode_writes(working_directory.to_string_lossy().as_ref());
+        crate::runtime::supervisor::materialize_inherent_mcp_for_spawn(working_directory)
+            .map_err(|e| format!("materialize_inherent_mcp_for_spawn failed: {e}"))?;
+        crate::runtime::env_assembly::assemble_spawn_runtime_env(
+            &workspace.workspace_root,
+            workspace.team_id.as_deref(),
+            &self.config.actor.id,
+            &self.config.actor.name,
+            cloud_token_file.as_deref(),
+            &managed_llm,
+        )
+        .map_err(|e| format!("assemble_runtime_env failed: {e}"))
+    }
+
     /// Team ID is resolved from the cloud workspace row by UUID; on a cold resolver cache (e.g. right after daemon restart) a bare-agent spawn with an empty workspace_id yields None team_id until the cache warms — intentional under the cloud-source-of-truth / no-local-store design.
     pub(super) async fn resolve_workspace_team_id(&self, workspace_id: &str) -> Option<String> {
         let fallback = || {

@@ -8,6 +8,7 @@ use uuid::Uuid;
 use super::agent_runtime_state::PerAgentRuntimeState;
 use super::backend::{agent_type_for_local_agent, create_backend, AgentBackend};
 use super::builtin_commands::builtin_commands;
+use super::execution_context::{ExecutionContext, IsolationDomainKey};
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
 
@@ -1568,12 +1569,19 @@ impl RuntimeManager {
             title,
             None,
             None,
-            None,
-            None,
-            SpawnRuntimeEnv {
-                is_gateway: true,
-                ..SpawnRuntimeEnv::default()
+            ExecutionContext {
+                isolation_domain: IsolationDomainKey::UnscopedAgent {
+                    team_id: team_id.to_string(),
+                    actor_id: logical_session_id.to_string(),
+                },
+                workspace: None,
+                working_directory: PathBuf::new(),
+                spawn_env: SpawnRuntimeEnv {
+                    is_gateway: true,
+                    ..SpawnRuntimeEnv::default()
+                },
             },
+            None,
         )
         .await
     }
@@ -1595,7 +1603,7 @@ impl RuntimeManager {
         _title: &str,
         model_override: Option<(String, String)>,
         remote_session_id: Option<&str>,
-        working_directory: Option<&str>,
+        context: ExecutionContext,
         // Backend to run on. `None` falls back to `default_agent_type` (the
         // gateway path and "auto" cron selection); cron jobs that pin a backend
         // pass `Some(..)` so a job created for Claude does not run on OpenCode
@@ -1606,8 +1614,13 @@ impl RuntimeManager {
         // start does not launch the shared `opencode serve` without any
         // provider credentials; `is_gateway` must stay true on whatever is
         // passed.
-        spawn_env: SpawnRuntimeEnv,
     ) -> crate::error::Result<String> {
+        let ExecutionContext {
+            isolation_domain: _isolation_domain,
+            workspace: _workspace,
+            working_directory,
+            spawn_env,
+        } = context;
         // Gateway sessions don't yet have a "real" workspace concept — they
         // run against a freshly-created scratch dir so the ACP process has a
         // valid cwd. Future work can wire this through `default_workspace_id`
@@ -1618,20 +1631,20 @@ impl RuntimeManager {
         // mkdir caller-supplied paths; the caller's lifecycle code owns that.
         // `None` keeps the legacy throwaway behavior so other gateway callers
         // (channels/agent_handle.rs etc.) are unaffected.
-        let worktree = match working_directory {
-            Some(wd) => wd.to_string(),
-            None => {
-                let scratch = format!(
-                    "/tmp/amuxd-gateway-{}",
-                    Uuid::new_v4().to_string()[..8].to_string()
-                );
-                std::fs::create_dir_all(&scratch).map_err(|e| {
-                    crate::error::AmuxError::Agent(format!(
-                        "create_gateway_session: mkdir {scratch}: {e}"
-                    ))
-                })?;
-                scratch
-            }
+        let has_working_directory = !working_directory.as_os_str().is_empty();
+        let worktree = if has_working_directory {
+            working_directory.to_string_lossy().into_owned()
+        } else {
+            let scratch = format!(
+                "/tmp/amuxd-gateway-{}",
+                Uuid::new_v4().to_string()[..8].to_string()
+            );
+            std::fs::create_dir_all(&scratch).map_err(|e| {
+                crate::error::AmuxError::Agent(format!(
+                    "create_gateway_session: mkdir {scratch}: {e}"
+                ))
+            })?;
+            scratch
         };
 
         // Resolve the initial model against the backend that will actually
@@ -1745,7 +1758,7 @@ impl RuntimeManager {
             ));
         }
 
-        if working_directory.is_some() {
+        if has_working_directory {
             if let Err(e) = super::workspace_runtime::apply_workspace_system_instructions(
                 self,
                 &agent_id,
@@ -2900,12 +2913,19 @@ mod tests {
                 "SeaTalk DM",
                 None,
                 Some("f8346f4d-62a5-4fdc-b8fc-8cb0e9ee4d93"),
-                None,
-                None,
-                SpawnRuntimeEnv {
-                    is_gateway: true,
-                    ..SpawnRuntimeEnv::default()
+                ExecutionContext {
+                    isolation_domain: IsolationDomainKey::UnscopedAgent {
+                        team_id: "team-1".into(),
+                        actor_id: "logical-acp-hex".into(),
+                    },
+                    workspace: None,
+                    working_directory: PathBuf::new(),
+                    spawn_env: SpawnRuntimeEnv {
+                        is_gateway: true,
+                        ..SpawnRuntimeEnv::default()
+                    },
                 },
+                None,
             )
             .await
             .expect("should reuse, not re-attach");

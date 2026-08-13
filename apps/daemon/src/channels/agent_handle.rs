@@ -472,6 +472,36 @@ impl AmuxdAgentHandle {
         };
         let (workspace_dir, agent_type) = self.resolve_spawn_target(session, &binding).await;
         let spawn_env = self.assemble_spawn_env(workspace_dir.as_deref()).await;
+        let workspace = match workspace_dir.as_deref() {
+            Some(path) => {
+                self.workspace_resolver
+                    .resolve_identity_for_path(std::path::Path::new(path), Some(&self.team_id))
+                    .await
+            }
+            None => None,
+        };
+        let isolation_domain = workspace
+            .as_ref()
+            .map(|workspace| {
+                crate::runtime::execution_context::IsolationDomainKey::Workspace(
+                    workspace.workspace_id.clone(),
+                )
+            })
+            .unwrap_or_else(|| {
+                crate::runtime::execution_context::IsolationDomainKey::UnscopedAgent {
+                    team_id: self.team_id.clone(),
+                    actor_id: session.to_string(),
+                }
+            });
+        let context = crate::runtime::execution_context::ExecutionContext {
+            isolation_domain,
+            workspace,
+            working_directory: workspace_dir
+                .as_deref()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_default(),
+            spawn_env,
+        };
         let real = {
             let mut mgr = self.manager.lock().await;
             mgr.create_gateway_session_with_model(
@@ -481,9 +511,8 @@ impl AmuxdAgentHandle {
                 "Gateway session",
                 model_arg,
                 remote_session_id.as_deref(),
-                workspace_dir.as_deref(),
+                context,
                 agent_type,
-                spawn_env,
             )
             .await
             .map_err(|e| AgentError::Create(e.to_string()))?

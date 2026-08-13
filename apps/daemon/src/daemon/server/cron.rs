@@ -136,14 +136,20 @@ impl DaemonServer {
     ) -> anyhow::Result<(String, String, String, Duration)> {
         let parsed = parse_prompt_await_payload(payload)?;
 
-        let working_directory = match parsed.working_directory.filter(|s| !s.is_empty()) {
-            Some(dir) => dir.to_string(),
-            None => self.resolve_cron_default_workspace().await.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no working directory: configure a default workspace in Daemon > Workspace settings"
-                )
-            })?,
-        };
+        let permission = crate::runtime::PermissionPolicy::from_wire(
+            parsed.permission_mode,
+            crate::runtime::PermissionPolicy::Full,
+        );
+        let context = self
+            .assemble_execution_context(
+                parsed.working_directory.unwrap_or_default(),
+                parsed.workspace_root,
+                None,
+                true,
+                Some(permission),
+            )
+            .await
+            .map_err(anyhow::Error::msg)?;
 
         // The daemon must have been onboarded (team_id present) before any
         // cron prompt can be honored — the gateway-session model expects a
@@ -200,28 +206,8 @@ impl DaemonServer {
                     "cron",                                    // title (display only)
                     parsed.model_override.clone(),
                     Some(&sb_sid), // bind AgentReply to the cloud session
-                    Some(working_directory.as_str()),
+                    context,
                     agent_type_override,
-                    // Unchanged from before this parameter existed. Cron has
-                    // the same cold-start exposure as the gateway did (a
-                    // cron-first launch starts `opencode serve` with no team
-                    // providers), but resolving a cron job's workspace_id —
-                    // which is what the team-LLM lookup keys on — is a
-                    // separate piece of work.
-                    crate::runtime::SpawnRuntimeEnv {
-                        is_gateway: true,
-                        // Cron runs unattended: nobody can answer a permission
-                        // prompt, and a pending one is not seen as a stalled
-                        // turn, so an "ask" job simply burns its timeout. Full
-                        // access is the default; a job may still opt back into
-                        // asking, which is only useful when a human is
-                        // watching the session live.
-                        permission: Some(crate::runtime::PermissionPolicy::from_wire(
-                            parsed.permission_mode,
-                            crate::runtime::PermissionPolicy::Full,
-                        )),
-                        ..Default::default()
-                    },
                 )
                 .await
                 .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))?;
@@ -812,7 +798,10 @@ mod tests {
     use crate::backend::{AgentDefaults, Backend, WorkspaceRow};
     use crate::daemon::server::tests::test_server_with_cloud_api;
     use crate::daemon::server::DaemonServer;
+    use crate::runtime::execution_context::IsolationDomainKey;
+    use crate::runtime::PermissionPolicy;
     use std::sync::Arc;
+    use teamclu_runtime_env::team_crypto::{self, SecretEntry};
 
     #[test]
     fn cron_job_id_parsed_from_session_key() {
@@ -869,6 +858,87 @@ mod tests {
             .await
             .expect("should resolve agent default workspace");
         assert_eq!(resolved, dir.path().to_string_lossy().to_string());
+    }
+
+    #[tokio::test]
+    async fn resolve_cron_default_workspace_context_inherits_parent_domain_and_full_environment() {
+        let workspace = tempfile::tempdir().unwrap();
+        let worktree = workspace.path().join(".worktrees/cron-j1-r1");
+        std::fs::create_dir_all(&worktree).unwrap();
+
+        let team_secret = "6a".repeat(32);
+        let config_dir = workspace.path().join(".teamclu");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("teamclu.json"),
+            serde_json::json!({ "team": { "envSecret": team_secret } }).to_string(),
+        )
+        .unwrap();
+        let secrets_dir = workspace.path().join("teamclu-team/_secrets");
+        std::fs::create_dir_all(&secrets_dir).unwrap();
+        let key = team_crypto::derive_key(&team_secret).unwrap();
+        let envelope = team_crypto::encrypt_secret(
+            &SecretEntry {
+                key_id: "cron_parent_workspace_sentinel".into(),
+                key: "from-parent".into(),
+                ..Default::default()
+            },
+            &key,
+        )
+        .unwrap();
+        std::fs::write(
+            secrets_dir.join("cron_parent_workspace_sentinel.enc.json"),
+            serde_json::to_vec(&envelope).unwrap(),
+        )
+        .unwrap();
+
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        {
+            let mut state = mock.state();
+            state.workspaces_by_id.insert(
+                "ws-default".into(),
+                WorkspaceRow {
+                    id: "ws-default".into(),
+                    team_id: "team-test".into(),
+                    path: Some(workspace.path().to_string_lossy().into_owned()),
+                    archived: false,
+                    agent_id: None,
+                },
+            );
+        }
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let test_server = test_server_with_cloud_api(backend);
+
+        let context = test_server
+            .server
+            .assemble_execution_context(
+                worktree.to_string_lossy().as_ref(),
+                Some(workspace.path().to_string_lossy().as_ref()),
+                None,
+                true,
+                Some(PermissionPolicy::Full),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            context.isolation_domain,
+            IsolationDomainKey::Workspace("ws-default".into())
+        );
+        assert_eq!(context.working_directory, worktree);
+        assert_eq!(
+            context
+                .spawn_env
+                .extra_env
+                .get("CRON_PARENT_WORKSPACE_SENTINEL")
+                .map(String::as_str),
+            Some("from-parent")
+        );
+        assert!(context.spawn_env.is_gateway);
+        assert_eq!(
+            context.spawn_env.permission_policy(),
+            PermissionPolicy::Full
+        );
     }
 
     #[tokio::test]
