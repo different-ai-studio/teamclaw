@@ -17,7 +17,20 @@ pub struct DaemonConfig {
     pub transport: Option<TransportConfig>,
     #[serde(default)]
     pub agents: AgentsConfig,
-    #[serde(default)]
+    /// Which `teams/<id>/` directory this daemon currently works out of.
+    ///
+    /// Serialized as `active_team`: it is a **pointer**, not an identity. The
+    /// team's identity (`team_id` + `actor_id`) lives in that directory's
+    /// `state/backend.toml` and only there; this field exists so the daemon
+    /// knows which directory to look in. For a claimed daemon the pointer and
+    /// `backend.toml`'s `team_id` carry the same UUID by construction — the
+    /// file sits inside the directory the pointer names — and
+    /// `DaemonServer::new` rejects the pair when they disagree, which can only
+    /// mean a `backend.toml` was hand-copied into the wrong team directory.
+    ///
+    /// Kept as `team_id` in Rust because that is what it is to every reader;
+    /// the on-disk name says what is different about it.
+    #[serde(default, rename = "active_team", alias = "team_id")]
     pub team_id: Option<String>,
     #[serde(default)]
     pub channels: ChannelsConfig,
@@ -212,6 +225,18 @@ pub const BOOTSTRAP_ACTOR_NAME: &str = "amuxd (unclaimed)";
 pub struct ActorConfig {
     /// Actor id — the routing identity for this daemon. Used in topic
     /// paths `amux/{team}/{actor}/...`.
+    ///
+    /// **In-memory only.** On disk this value has exactly one owner:
+    /// `teams/<id>/state/backend.toml` (`[cloud_api] actor_id`). It used to be
+    /// persisted here too — onboarding wrote both files in one pass and nothing
+    /// ever re-checked them, so a drift silently authenticated as one actor
+    /// while publishing under another's topics. `DaemonServer::new` now
+    /// hydrates this field from the backend config; an unclaimed daemon gets a
+    /// per-boot placeholder, which is safe because an unclaimed daemon never
+    /// connects MQTT (empty broker + placeholder client).
+    ///
+    /// Still *deserialized* if present so old fixtures parse; never serialized.
+    #[serde(default, skip_serializing)]
     pub id: String,
     /// Human-friendly host/daemon label (e.g. machine name).
     pub name: String,
@@ -570,8 +595,10 @@ impl DaemonConfig {
     /// `broker_url` is deliberately empty: the daemon resolves the broker from
     /// `/v1/config/bootstrap` once it has credentials, and runs MQTT on a
     /// placeholder client until then. `actor.id` is a locally-minted
-    /// placeholder — onboarding overwrites it with the cloud's actor_id, which
-    /// MQTT topic ACLs are keyed on.
+    /// placeholder that lives only in memory (the field is never serialized):
+    /// a placeholder identity that rotates per boot costs nothing, because an
+    /// unclaimed daemon never connects MQTT. The real actor_id arrives with
+    /// onboarding, in `backend.toml`, and is hydrated from there.
     pub fn bootstrap() -> Self {
         Self {
             actor: ActorConfig {
@@ -599,10 +626,6 @@ impl DaemonConfig {
     /// Load `path`, or synthesize and persist a [`bootstrap`](Self::bootstrap)
     /// config when it does not exist.
     ///
-    /// Persisting immediately is what makes the placeholder `actor.id` stable
-    /// across restarts. Deriving it via `#[serde(default)]` instead would mint
-    /// a fresh id on every boot and silently re-key MQTT topic ACLs.
-    ///
     /// An existing-but-unparseable config still errors — only true absence
     /// bootstraps.
     pub fn load_or_bootstrap(path: &Path) -> crate::error::Result<Self> {
@@ -613,7 +636,6 @@ impl DaemonConfig {
         config.save(path)?;
         tracing::info!(
             path = %path.display(),
-            actor_id = %config.actor.id,
             "no daemon.toml — wrote a fresh unconfigured one"
         );
         Ok(config)
@@ -847,21 +869,49 @@ mod tests {
         assert!(!cfg.actor.id.is_empty());
     }
 
+    /// The identity has one owner on disk (`backend.toml`), so `daemon.toml`
+    /// must never grow an `actor.id` back — that is the duplicate that used to
+    /// let auth and MQTT routing disagree. The file key is `active_team`, not
+    /// `team_id`: a pointer to a directory, not an identity.
     #[test]
-    fn load_or_bootstrap_persists_a_stable_actor_id() {
+    fn save_persists_the_pointer_but_never_the_actor_id() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.toml");
 
-        let first = DaemonConfig::load_or_bootstrap(&path).unwrap();
-        assert!(
-            path.exists(),
-            "bootstrap must persist, or the id would drift"
-        );
+        let mut cfg = DaemonConfig::bootstrap();
+        cfg.team_id = Some("team-1".to_string());
+        cfg.save(&path).unwrap();
 
-        // The whole point of persisting: a second start reuses the same actor
-        // id rather than silently re-keying MQTT topic ACLs.
-        let second = DaemonConfig::load_or_bootstrap(&path).unwrap();
-        assert_eq!(first.actor.id, second.actor.id);
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !written.contains("id ="),
+            "actor.id must not be persisted; daemon.toml:\n{written}"
+        );
+        assert!(written.contains("active_team = \"team-1\""), "{written}");
+
+        let loaded = DaemonConfig::load(&path).unwrap();
+        assert_eq!(loaded.team_id.as_deref(), Some("team-1"));
+        assert!(
+            loaded.actor.id.is_empty(),
+            "a loaded config carries no identity until the backend hydrates it"
+        );
+    }
+
+    /// Interim v2 files (and old fixtures) spell the pointer `team_id`; the
+    /// alias keeps them readable.
+    #[test]
+    fn team_id_spelling_still_parses_as_the_pointer() {
+        let cfg: DaemonConfig = toml::from_str(
+            r#"
+team_id = "team-9"
+[actor]
+name = "Mac"
+[mqtt]
+broker_url = ""
+"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.team_id.as_deref(), Some("team-9"));
     }
 
     #[test]

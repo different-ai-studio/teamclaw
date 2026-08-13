@@ -548,24 +548,29 @@ impl crate::http::setup::OnboardingService for DaemonOnboarding {
     }
 }
 
-/// Reject `daemon.toml` and `backend.toml` when they disagree on routing identity.
-/// Auth always uses `backend.toml`; MQTT topics and session routing use
-/// `daemon.toml` `[actor].id` — continuing with a mismatch authenticates as one
-/// actor while publishing presence and commands under another actor's topics.
-fn validate_config_identity(
-    config: &DaemonConfig,
+/// Adopt the backend's routing identity into the in-memory config.
+///
+/// `backend.toml` is the only owner of `actor_id` on disk; `daemon.toml`
+/// carries a pointer (`active_team`) and no identity at all. This replaces the
+/// old `validate_config_identity`, which existed to catch the two files
+/// drifting apart — with one owner there is nothing left to drift, except the
+/// one structural mistake still worth rejecting: a `backend.toml` whose
+/// `team_id` disagrees with the directory it sits in, which can only mean the
+/// file was hand-copied into the wrong `teams/<id>/`.
+fn hydrate_identity_from_backend(
+    config: &mut DaemonConfig,
     backend: &dyn Backend,
 ) -> crate::error::Result<()> {
-    let daemon_team_id = config.team_id.as_deref().unwrap_or("<none>");
-    if daemon_team_id != backend.team_id() || config.actor.id != backend.actor_id() {
+    let pointer = config.team_id.as_deref().unwrap_or("<none>");
+    if pointer != backend.team_id() {
         return Err(crate::error::AmuxError::Config(format!(
-            "daemon/backend identity mismatch: daemon.toml team_id={daemon_team_id}, actor_id={}; \
-             backend.toml team_id={}, actor_id={}. Stop amuxd and run `amuxd init` to re-onboard",
-            config.actor.id,
+            "active_team points at {pointer} but teams/{pointer}/state/backend.toml says \
+             team_id={} — that backend.toml belongs to a different team's directory. \
+             Stop amuxd and run `amuxd init` to re-onboard",
             backend.team_id(),
-            backend.actor_id(),
         )));
     }
+    config.actor.id = backend.actor_id().to_string();
     Ok(())
 }
 
@@ -619,14 +624,17 @@ impl DaemonServer {
         });
         let backend: Arc<dyn Backend> = deferred_backend.clone();
 
-        let actor_id = backend.actor_id().to_string();
-
-        // Identity can't disagree before onboarding writes it — an unclaimed
-        // daemon reports an empty actor_id, which is not a mismatch worth
-        // warning about.
+        // Routing identity: from the backend when claimed; a per-boot
+        // placeholder otherwise. The placeholder never reaches a broker — an
+        // unclaimed daemon has an empty broker URL and runs the placeholder
+        // MQTT client — it exists so log lines and in-process consumers always
+        // have *some* stable id for this run.
         if deferred_backend.is_claimed() {
-            validate_config_identity(&config, backend.as_ref())?;
+            hydrate_identity_from_backend(&mut config, backend.as_ref())?;
+        } else if config.actor.id.trim().is_empty() {
+            config.actor.id = uuid::Uuid::new_v4().to_string();
         }
+        let actor_id = backend.actor_id().to_string();
 
         // Best-effort token — `run()`'s outer loop retries before MQTT connect.
         let token = initial_access_token(&backend).await;
@@ -1494,28 +1502,40 @@ impl DaemonServer {
                     crate::config::DaemonConfig::load(&crate::config::DaemonConfig::default_path())
                 {
                     if let Some(team_id) = fresh.team_id {
-                        info!(%team_id, "adopted team_id from daemon.toml (self-heal)");
-                        self.config.team_id = Some(team_id);
-
-                        // Onboarding rewrites actor.id too. A daemon that
-                        // bootstrapped its own config booted with a locally
-                        // minted placeholder, and EMQX keys its topic ACLs on
-                        // the cloud actor_id — connecting under the placeholder
-                        // is denied. Adopt it in the same pass so the reconnect
-                        // below uses the identity the broker expects.
-                        //
-                        // Only the MQTT identity converges here: the topics and
-                        // client are rebuilt each cycle. Startup-captured consumers
-                        // (teamclu::SessionManager) still hold the old id,
-                        // which is why POST /v1/setup/claim reports
-                        // requiresRestart for a daemon that booted unclaimed.
-                        if fresh.actor.id != self.config.actor.id {
-                            info!(
-                                previous_actor_id = %self.config.actor.id,
-                                actor_id = %fresh.actor.id,
-                                "adopted actor.id from daemon.toml (self-heal)"
-                            );
-                            self.config.actor.id = fresh.actor.id;
+                        // The pointer alone is not an identity: EMQX keys its
+                        // topic ACLs on the cloud actor_id, and that lives in
+                        // the team's backend.toml. Onboarding writes the
+                        // credentials before it points daemon.toml at them, so
+                        // a readable pointer with an unreadable backend.toml is
+                        // onboarding caught mid-write — skip the cycle and
+                        // re-check rather than adopt half an identity.
+                        match ProviderConfig::load_from_path(&ProviderConfig::path_for_team(
+                            &team_id,
+                        )) {
+                            Ok(ProviderConfig::CloudApi(cloud)) => {
+                                info!(
+                                    %team_id,
+                                    actor_id = %cloud.actor_id,
+                                    "adopted team + identity from backend.toml (self-heal)"
+                                );
+                                self.config.team_id = Some(team_id);
+                                // Only the MQTT identity converges here: the
+                                // topics and client are rebuilt each cycle.
+                                // Startup-captured consumers
+                                // (teamclu::SessionManager) still hold the old
+                                // id, which is why POST /v1/setup/claim reports
+                                // requiresRestart for a daemon that booted
+                                // unclaimed.
+                                self.config.actor.id = cloud.actor_id;
+                            }
+                            Err(e) => {
+                                warn!(
+                                    %team_id,
+                                    error = %e,
+                                    "daemon.toml names a team whose backend.toml is unreadable; \
+                                     re-checking next cycle"
+                                );
+                            }
                         }
                     }
                 }
@@ -3411,25 +3431,25 @@ pub(crate) mod tests {
         assert_eq!(backend.actor_id(), "agent-actor");
     }
 
+    /// The backend is the identity's only owner: hydration copies its actor_id
+    /// into the in-memory config unconditionally. The one rejected shape is a
+    /// pointer naming one team while the backend.toml inside that directory
+    /// says another — a file in the wrong directory, not a drifted copy.
     #[test]
-    fn config_identity_validation_rejects_split_team_and_actor() {
-        let mut config = test_config();
-        config.team_id = Some("team-config-test".to_string());
+    fn hydration_adopts_backend_actor_and_rejects_a_misplaced_backend_toml() {
         let backend = test_cloud_api();
 
-        let error = validate_config_identity(&config, backend.as_ref()).unwrap_err();
+        let mut config = test_config();
+        config.team_id = Some("team-test".to_string());
+        hydrate_identity_from_backend(&mut config, backend.as_ref()).unwrap();
+        assert_eq!(config.actor.id, "agent-actor");
 
+        let mut config = test_config();
+        config.team_id = Some("team-config-test".to_string());
+        let error = hydrate_identity_from_backend(&mut config, backend.as_ref()).unwrap_err();
         let message = error.to_string();
-        assert!(
-            message.contains("daemon.toml team_id=team-config-test"),
-            "{message}"
-        );
-        assert!(
-            message.contains("backend.toml team_id=team-test"),
-            "{message}"
-        );
-        assert!(message.contains("actor_id=actor-config-test"), "{message}");
-        assert!(message.contains("actor_id=agent-actor"), "{message}");
+        assert!(message.contains("team-config-test"), "{message}");
+        assert!(message.contains("team_id=team-test"), "{message}");
     }
 
     #[test]

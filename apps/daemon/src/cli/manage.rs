@@ -69,11 +69,18 @@ fn show_status() -> anyhow::Result<()> {
     let onboarded = match DaemonConfig::load(&config_path) {
         Ok(cfg) => {
             println!("Onboarded: yes");
-            if !cfg.actor.id.trim().is_empty() {
-                println!("  actor_id: {}", cfg.actor.id);
-            }
             if let Some(team) = cfg.team_id.as_deref() {
                 println!("  team_id:  {team}");
+                // The identity lives with the team's credentials, not in
+                // daemon.toml — that file only points at the team directory.
+                match crate::provider_config::ProviderConfig::load_from_path(
+                    &crate::provider_config::ProviderConfig::path_for_team(team),
+                ) {
+                    Ok(crate::provider_config::ProviderConfig::CloudApi(cloud)) => {
+                        println!("  actor_id: {}", cloud.actor_id);
+                    }
+                    Err(e) => println!("  actor_id: (backend.toml unreadable: {e})"),
+                }
             }
             println!("  actor name: {}", cfg.actor.name);
             true
@@ -585,7 +592,9 @@ fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
         if auto_sync { "enabled" } else { "disabled" }
     );
     if !auto_sync {
-        println!("  Cloud share-mode may still be enabled; this daemon skips automatic git/OSS sync.");
+        println!(
+            "  Cloud share-mode may still be enabled; this daemon skips automatic git/OSS sync."
+        );
         println!("  Use manual sync below or `amuxd config set team_share.auto_sync true`.");
     }
 
@@ -600,11 +609,7 @@ fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
     } else {
         "Enable local auto_sync".to_string()
     };
-    let items = [
-        toggle_label.as_str(),
-        "Trigger manual sync now",
-        "Back",
-    ];
+    let items = [toggle_label.as_str(), "Trigger manual sync now", "Back"];
     let choice = Select::with_theme(theme)
         .with_prompt("Sync menu")
         .items(&items)
@@ -671,7 +676,9 @@ fn trigger_manual_sync(theme: &ColorfulTheme, team_id: &str) -> anyhow::Result<(
     match trigger_sync_via_http(&workspace, team_id, true) {
         Ok(status) => {
             if status.skipped {
-                println!("Sync skipped (auto_sync disabled — this should not happen for manual sync).");
+                println!(
+                    "Sync skipped (auto_sync disabled — this should not happen for manual sync)."
+                );
                 return Ok(());
             }
             println!("✓ Sync finished.");

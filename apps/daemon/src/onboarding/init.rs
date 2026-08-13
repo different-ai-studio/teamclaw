@@ -234,9 +234,12 @@ fn daemon_config_for_invite(
     invite: &ParsedInvite,
 ) -> DaemonConfig {
     let mut daemon_cfg = existing.unwrap_or_else(|| default_daemon_config(display_name, actor_id));
-    // actor.id IS the actor_id — the Cloud API access-token hook embeds ACL
-    // rules under the `amux/{team}/{actor}/...` topic namespace, so any other
-    // value makes EMQX reject the daemon's CONNECT (LWT topic denied).
+    // In-memory convergence only: `actor.id` never reaches daemon.toml (the
+    // field is skip_serializing; the team's backend.toml is the identity's one
+    // owner on disk). It still matters for the process that called init — the
+    // Cloud API access-token hook embeds ACL rules under the
+    // `amux/{team}/{actor}/...` topic namespace, so a running daemon must
+    // converge on the claimed actor_id before its next CONNECT.
     daemon_cfg.actor.id = actor_id.to_string();
     // Replace the placeholder left by a daemon that booted unclaimed, so
     // presence doesn't announce it. An operator-chosen name is preserved.

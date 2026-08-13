@@ -81,8 +81,10 @@ pub async fn get_daemon_http_info() -> Result<Option<DaemonHttpInfo>, String> {
 /// Minimal view of `~/.amuxd/daemon.toml` — just the field we surface.
 #[derive(Debug, serde::Deserialize)]
 struct DaemonConfigTeam {
-    #[serde(default)]
-    team_id: Option<String>,
+    /// `active_team` on disk (the daemon's team-directory pointer); the alias
+    /// reads configs written before the rename.
+    #[serde(default, alias = "team_id")]
+    active_team: Option<String>,
 }
 
 /// The team this machine's daemon is onboarded to, read from
@@ -103,7 +105,7 @@ pub async fn get_daemon_team_id() -> Result<Option<String>, String> {
     };
     let parsed: DaemonConfigTeam = toml::from_str(&body).map_err(|e| e.to_string())?;
     Ok(parsed
-        .team_id
+        .active_team
         .map(|t| t.trim().to_owned())
         .filter(|t| !t.is_empty()))
 }
@@ -121,12 +123,28 @@ struct BackendConfig {
     cloud_api: Option<BackendCloudApi>,
 }
 
-/// The daemon's actor_id, read from `~/.amuxd/backend.toml` (`[cloud_api]
-/// actor_id`). This is the single routing identity persisted by `amuxd init`.
+/// The daemon's actor_id, read from the active team's
+/// `teams/<id>/state/backend.toml` (`[cloud_api] actor_id`) — the file's only
+/// home since the layout sank credentials into the team directory, and the only
+/// place this identity is persisted at all: `daemon.toml` carries just the
+/// `active_team` pointer this function follows.
 /// Returns an empty string when the daemon hasn't been onboarded (no config /
 /// no actor_id) or the file can't be read — callers treat empty as "not ready".
 pub(crate) fn read_daemon_actor_id() -> String {
-    let config_path = amuxd_dir().join("backend.toml");
+    let Some(team) = std::fs::read_to_string(amuxd_dir().join("daemon.toml"))
+        .ok()
+        .and_then(|body| toml::from_str::<DaemonConfigTeam>(&body).ok())
+        .and_then(|cfg| cfg.active_team)
+        .map(|t| t.trim().to_owned())
+        .filter(|t| !t.is_empty())
+    else {
+        return String::new();
+    };
+    let config_path = amuxd_dir()
+        .join("teams")
+        .join(team)
+        .join("state")
+        .join("backend.toml");
 
     let body = match std::fs::read_to_string(&config_path) {
         Ok(s) => s,

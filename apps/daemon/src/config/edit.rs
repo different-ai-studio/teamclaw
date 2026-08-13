@@ -419,7 +419,10 @@ broker_url = "mqtts://broker.example"
 "#;
         std::fs::write(&path, original).unwrap();
 
-        let err = super::unset_config_value(&path, "device.id").unwrap_err();
+        // `name` is the required actor field now — `id` grew a serde default
+        // when it stopped being persisted (backend.toml owns the identity), so
+        // unsetting it no longer fails validation.
+        let err = super::unset_config_value(&path, "device.name").unwrap_err();
 
         assert!(err.to_string().contains("validate"));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);

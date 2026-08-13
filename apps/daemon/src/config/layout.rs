@@ -105,8 +105,9 @@ fn team_slug(team_id: &str) -> &str {
 /// unrelated field of the config stopped parsing.
 #[derive(serde::Deserialize)]
 struct ActiveTeamProbe {
-    #[serde(default)]
-    team_id: Option<String>,
+    /// `active_team` on disk; `team_id` was the interim spelling.
+    #[serde(default, alias = "team_id")]
+    active_team: Option<String>,
 }
 
 /// The team this daemon is currently claimed by, or [`UNCLAIMED_TEAM`].
@@ -118,7 +119,7 @@ pub fn active_team() -> String {
     std::fs::read_to_string(root().join("daemon.toml"))
         .ok()
         .and_then(|body| toml::from_str::<ActiveTeamProbe>(&body).ok())
-        .and_then(|probe| probe.team_id)
+        .and_then(|probe| probe.active_team)
         .map(|id| id.trim().to_string())
         .filter(|id| !id.is_empty())
         .unwrap_or_else(|| UNCLAIMED_TEAM.to_string())
@@ -288,12 +289,16 @@ mod tests {
 
         assert_eq!(active_team(), UNCLAIMED_TEAM);
 
-        std::fs::write(home.path().join("daemon.toml"), "team_id = \"team-a\"\n").unwrap();
+        std::fs::write(
+            home.path().join("daemon.toml"),
+            "active_team = \"team-a\"\n",
+        )
+        .unwrap();
         assert_eq!(active_team(), "team-a");
 
         // A config that no longer parses must not take path resolution down
         // with it — an unclaimed daemon still has to boot and serve setup.
-        std::fs::write(home.path().join("daemon.toml"), "team_id = [").unwrap();
+        std::fs::write(home.path().join("daemon.toml"), "active_team = [").unwrap();
         assert_eq!(active_team(), UNCLAIMED_TEAM);
     }
 
