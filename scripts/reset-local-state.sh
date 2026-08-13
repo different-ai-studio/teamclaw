@@ -11,11 +11,14 @@
 #   scripts/reset-local-state.sh -y --short-name copilot361 --app-id com.copilot361.app
 #   scripts/reset-local-state.sh -y --keep-workspace      # skip <workspace>/.teamclu
 #   scripts/reset-local-state.sh -y --keep-opencode      # skip global OpenCode dirs
+#   scripts/reset-local-state.sh -y --purge-workspaces   # delete workspace dirs whole
 #
 # Does NOT delete:
 #   - Cloud account / team data (Supabase / Cloud API)
 #   - Workspace content outside `.teamclu/` and the `<short>-team` symlink
-#   - The workspace directory itself
+#   - The workspace directory itself — unless --purge-workspaces, which removes
+#     the whole directory when it carries a workspace marker (opencode.json /
+#     teamclaw.json, a `.<brand>` dir, a `<brand>-team` link, or `knowledge/`)
 #
 # Covers the amuxd home-layout v2 (`docs/architecture/amuxd-home-layout-v2.md`):
 #   - white-label daemon homes `~/.amuxd-<brand>` next to the official `~/.amuxd`
@@ -41,6 +44,7 @@ yes_mode=0
 dry_run=0
 include_workspace=1
 include_opencode=1
+purge_workspaces=0
 explicit_workspace=0
 brand_only=0
 cli_app_id=""
@@ -71,6 +75,9 @@ Options:
   -n, --dry-run             Print paths that would be removed; do not delete
   --include-workspace       Also remove workspace .teamclu dirs (default: on)
   --keep-workspace          Do not remove <workspace>/.teamclu
+  --purge-workspaces        Remove the whole workspace directory (content included),
+                            only when it carries a workspace marker; unmarked
+                            directories fall back to dot-dir cleanup
   --workspace PATH          Extra workspace whose .teamclu/ dir to remove (repeatable)
   --app-id ID               Limit reset to one brand (e.g. com.copilot361.app)
   --short-name NAME         Limit reset to one brand (e.g. copilot361)
@@ -107,6 +114,7 @@ while [[ $# -gt 0 ]]; do
     -n|--dry-run) dry_run=1 ;;
     --include-workspace) include_workspace=1 ;;
     --keep-workspace) include_workspace=0 ;;
+    --purge-workspaces) purge_workspaces=1; include_workspace=1 ;;
     --include-opencode) include_opencode=1 ;;
     --keep-opencode) include_opencode=0 ;;
     --workspace)
@@ -527,6 +535,21 @@ is_valid_workspace_path() {
   [[ -n "$ws" && "$ws" == /* && "$ws" != "/" ]]
 }
 
+# Guard for --purge-workspaces: only delete a directory whole when it carries
+# something the app itself wrote there. A brand-named directory without any
+# marker is presumed to be the user's own and only gets dot-dir cleanup.
+looks_like_workspace() {
+  local ws="$1"
+  local short_name
+  [[ -d "$ws" ]] || return 1
+  [[ -f "$ws/opencode.json" || -f "$ws/teamclaw.json" || -f "$ws/teamclu.json" ]] && return 0
+  [[ -d "$ws/knowledge" ]] && return 0
+  for short_name in "${BRAND_SHORT_NAMES[@]}"; do
+    [[ -d "$ws/.$short_name" || -L "$ws/$short_name-team" ]] && return 0
+  done
+  return 1
+}
+
 webkit_localstorage_roots_for_brand() {
   local app_id="$1"
   local short_name="$2"
@@ -631,6 +654,15 @@ collect_workspace_dot_dir_targets() {
 
   local link
   for ws in "${unique_ws[@]}"; do
+    if [[ "$purge_workspaces" -eq 1 ]]; then
+      if looks_like_workspace "$ws"; then
+        TARGETS+=("$ws")
+        continue
+      fi
+      if [[ -d "$ws" ]]; then
+        echo "  note: ${ws} has no workspace marker — keeping the directory, cleaning dot-dirs only" >&2
+      fi
+    fi
     for short_name in "${BRAND_SHORT_NAMES[@]}"; do
       dot="$(resolve_workspace_dot_dir "$ws" "$short_name")"
       TARGETS+=("$dot")
