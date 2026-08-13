@@ -369,4 +369,37 @@ mod tests {
             ProcessEnvRevision::from_bindings(&captures[0].extra_env)
         );
     }
+
+    #[tokio::test]
+    async fn stored_workspace_scoped_gateway_resume_lookup_failure_does_not_attach_bare_env() {
+        let workspace = tempfile::tempdir().unwrap();
+        let backend: Arc<dyn Backend> =
+            Arc::new(MockBackend::with_identity("team-test", "agent-actor"));
+        let mut fixture = test_server_with_cloud_api(backend);
+        let captures = {
+            let mut manager = fixture.server.agents.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        let mut stored = make_stored_session(
+            "runtime-gateway",
+            "session-gateway",
+            amux::AgentType::Opencode,
+            "gateway:wecom://bot/chat",
+            1,
+        );
+        stored.worktree = workspace.path().to_string_lossy().into_owned();
+        fixture.server.sessions.upsert(stored);
+
+        assert!(
+            !fixture
+                .server
+                .resume_historical_runtimes_for_session("session-gateway", None)
+                .await,
+            "workspace-scoped stored gateway must fail closed when identity lookup fails"
+        );
+        assert!(
+            captures.lock().unwrap().is_empty(),
+            "failed workspace lookup must not attach with UnscopedAgent and bare env"
+        );
+    }
 }

@@ -186,8 +186,8 @@ mod execution_context_tests {
         let backend = Arc::new(MockBackend::default());
         let assembler = assembler(backend, "team-a", "actor-a");
         let scratch = std::env::temp_dir().join(format!(
-            "amuxd-gateway-test-{}",
-            uuid::Uuid::new_v4().simple()
+            "amuxd-gateway-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
         ));
 
         let context = assembler
@@ -262,18 +262,21 @@ impl ExecutionContextAssembler {
                 .await;
         }
 
-        if self
-            .workspace_resolver
-            .resolve_identity_for_path(Path::new(working_directory), self.configured_team_id())
-            .await
-            .is_some()
-        {
-            self.assemble(working_directory, None, None, true, None)
-                .await
-        } else {
-            self.assemble_unscoped_gateway(Some(Path::new(working_directory)))
-                .await
+        let working_directory = Path::new(working_directory);
+        if is_daemon_gateway_scratch_directory(working_directory) {
+            return self
+                .assemble_unscoped_gateway(Some(working_directory))
+                .await;
         }
+
+        self.assemble(
+            working_directory.to_string_lossy().as_ref(),
+            None,
+            None,
+            true,
+            None,
+        )
+        .await
     }
 
     pub(crate) async fn assemble(
@@ -419,6 +422,22 @@ impl ExecutionContextAssembler {
         )
         .map_err(|e| format!("assemble_runtime_env failed: {e}"))
     }
+}
+
+fn is_daemon_gateway_scratch_directory(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let Some(suffix) = name.strip_prefix("amuxd-gateway-") else {
+        return false;
+    };
+    if suffix.len() != 8 || !suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return false;
+    }
+
+    path.parent().is_some_and(|parent| {
+        parent == Path::new("/tmp") || parent == std::env::temp_dir().as_path()
+    })
 }
 
 #[async_trait::async_trait]
