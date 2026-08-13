@@ -1306,7 +1306,11 @@ mod tests {
         let expected = seed_skill(ws.path(), ".claude/skills", "dup", "claude");
 
         let state = scan_roles_skills_state(ws.path()).unwrap();
-        let rows: Vec<_> = state.skills.iter().filter(|s| s.filename == "dup").collect();
+        let rows: Vec<_> = state
+            .skills
+            .iter()
+            .filter(|s| s.filename == "dup")
+            .collect();
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].dir_path, expected.to_string_lossy());
@@ -1554,4 +1558,3 @@ mod tests {
         assert!(!ws.path().join(".teamclu/skills/brand-skill").exists());
     }
 }
-

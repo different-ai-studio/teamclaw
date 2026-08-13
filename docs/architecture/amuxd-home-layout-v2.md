@@ -22,15 +22,23 @@
 > | ④c | 旧路径一次性清理 + 删除全部迁移代码 + `amuxd clear` 重写 | ✅ |
 > | ⑤-C | 身份去重：`backend.toml` 独占 `actor_id`，`daemon.toml` 只剩 `active_team` 指针 | ✅ |
 > | ⑤-D | 日志三合一 + 轮换（`logs/amuxd.log`，32 MiB × 3，`[log]` 可调） | ✅ |
-> | ⑤-A | `team.toml` 拆分：`[channels]` / `[team_share]` / `local_agent` 下沉 + 凭证入 `secrets.enc` | ⬜ |
+> | ⑤-A | `team.toml` 拆分：`[channels]` / `[team_share]` / `local_agent` 下沉 + 凭证入 `secrets.enc` | ✅ |
+> | ⑤-A′ | `agents.{cursor,claude}.api_key` 出 daemon.toml 入个人密钥库 | ⬜ |
 >
 > ⑤ 里原列的"device-id 改名与边界"已作废，理由见 §3.2；`amuxd clear` 重写
 > 提前并入 ④c，因为删掉 `legacy_config_dir` 时它是唯一的剩余调用方。
 >
-> **⑤-A 未开始**：§4.3 的 `team.toml` 仍是目标态——`daemon.toml` 今天仍持有
-> `[channels]`、`[team_share]` 和 `agents.local_agent`，桌面端 gateway 设置
-> 也仍直接读写 `daemon.toml` 的 `[channels]` 段。这一刀同时动 7 个 channel
-> 的凭证装载路径和桌面端 gateway 命令，需要真实网关环境联测，不与 C/D 混算。
+> ⑤-A 已落地，与 §4.3 的两点偏差：(1) 凭证按 §4.3 存进 `secrets.enc`
+> （`TeamSecrets.channel_secrets`，键为 `channels.wecom.bots[<bot_id>].secret`
+> 形式——按 bot_id 而非数组下标，删 bot 不会把别人的密钥错配过去）；保存时
+> **空字符串凭证 = 保留已存值**，桌面表单因此不需要回显明文。(2)
+> `config/edit.rs::is_secret_key` 的 channels 分支**保留**而非删除——合并视图
+> 的 HTTP 列表仍靠它打码。编辑面按 key 在 `edit.rs` 内部路由（`channels.*` /
+> `team_share.*` / `agents.local_agent` → team.toml），HTTP/CLI/前端契约零改动。
+>
+> **⑤-A 未经真实网关联测**：wecom 回调、多 bot 轮换等只有单测覆盖，发布前需要
+> 一次真机验证。⑤-A′（api_key 出 toml）未做：`agents.cursor.api_key` 仍在
+> daemon.toml，牵动桌面 CursorLLMSection 与 `amuxd manage` 的 LLM 菜单。
 
 ---
 

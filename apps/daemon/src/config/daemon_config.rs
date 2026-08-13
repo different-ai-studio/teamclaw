@@ -32,7 +32,10 @@ pub struct DaemonConfig {
     /// the on-disk name says what is different about it.
     #[serde(default, rename = "active_team", alias = "team_id")]
     pub team_id: Option<String>,
-    #[serde(default)]
+    /// Team-scoped; lives in `teams/<id>/state/team.toml` and is hydrated from
+    /// there (`config::team_config::hydrate`). Never serialized here — a
+    /// `[channels]` section in daemon.toml is simply ignored.
+    #[serde(skip)]
     pub channels: ChannelsConfig,
     /// Detach an Attachment whose `last_active_at` is older than this many
     /// seconds. `None` means the built-in default, not "disabled" — see
@@ -58,7 +61,8 @@ pub struct DaemonConfig {
     /// is unchanged; this only gates timer / workspace-registration / runtime
     /// triggers on this daemon. Manual sync via `POST /v1/team/sync` with
     /// `forceSync: true` still runs.
-    #[serde(default)]
+    /// Team-scoped; lives in team.toml, hydrated like `channels`.
+    #[serde(skip)]
     pub team_share: TeamShareConfig,
     /// `logs/amuxd.log` rotation. Consumed by a probe in `crate::logging`
     /// before the full config loads; declared here so `save()` round-trips a
@@ -302,7 +306,10 @@ pub struct AgentsConfig {
     /// backend — claude-code/codex additionally require their `[agents.*]`
     /// config section to be present; an unrunnable selection resolves to
     /// `AgentType::Unknown` rather than silently falling back to opencode.
-    #[serde(default = "default_local_agent")]
+    /// Team-scoped (the team decides which runtime its agents run), so it
+    /// lives in `teams/<id>/state/team.toml` and is hydrated from there.
+    /// Never read from or written to daemon.toml.
+    #[serde(skip, default = "default_local_agent")]
     pub local_agent: String,
     #[serde(default)]
     pub claude_code: Option<AgentBackendConfig>,
@@ -400,6 +407,8 @@ pub struct ChannelsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordChannel {
     pub enabled: bool,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub bot_token: String,
     #[serde(default)]
     pub default_username: Option<String>,
@@ -414,6 +423,8 @@ pub struct WeComBot {
     #[serde(default = "default_true")]
     pub enabled: bool,
     pub bot_id: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub secret: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding_aes_key: Option<String>,
@@ -469,12 +480,16 @@ impl WeComChannel {
 pub struct FeishuChannel {
     pub enabled: bool,
     pub app_id: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub app_secret: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KookChannel {
     pub enabled: bool,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub bot_token: String,
 }
 
@@ -482,6 +497,8 @@ pub struct KookChannel {
 pub struct WeChatChannel {
     pub enabled: bool,
     pub ilink_account: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub ilink_token: String,
 }
 
@@ -489,6 +506,8 @@ pub struct WeChatChannel {
 pub struct SeaTalkChannel {
     pub enabled: bool,
     pub app_id: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub app_secret: String,
     /// `websocket` (default) or `webhook`
     #[serde(default = "default_seatalk_mode")]
@@ -523,10 +542,14 @@ pub struct EmailChannel {
     pub imap_host: String,
     pub imap_port: u16,
     pub imap_user: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub imap_pass: String,
     pub smtp_host: String,
     pub smtp_port: u16,
     pub smtp_user: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub smtp_pass: String,
     #[serde(default)]
     pub allowed_senders: Vec<String>,
@@ -568,11 +591,9 @@ impl DaemonConfig {
         self.team_share.auto_sync
     }
 
-    /// Load `daemon.toml` and read [`TeamShareConfig::auto_sync`].
+    /// Read [`TeamShareConfig::auto_sync`] from the active team's team.toml.
     pub fn team_share_auto_sync_enabled_from_disk() -> bool {
-        Self::load(&Self::default_path())
-            .map(|c| c.team_share_auto_sync_enabled())
-            .unwrap_or(true)
+        super::team_config::load_active().team_share.auto_sync
     }
 }
 
@@ -742,6 +763,8 @@ mod channels_tests {
     use super::*;
     #[test]
     fn channels_roundtrip_wecom() {
+        // `[channels]` moved to team.toml (config::team_config); daemon.toml
+        // must now *ignore* the section instead of owning it.
         let toml_src = r#"
 [actor]
 id = "d1"
@@ -760,9 +783,17 @@ bot_id = "b1"
 secret = "s"
 encoding_aes_key = "k"
 "#;
+        let team: crate::config::team_config::TeamFileConfig = toml::from_str(
+            "[channels.wecom]\nenabled = true\nbot_id = \"b1\"\nsecret = \"s\"\nencoding_aes_key = \"k\"\n",
+        )
+        .unwrap();
+        assert_eq!(team.channels.wecom.as_ref().unwrap().bot_id, "b1");
+
         let cfg: DaemonConfig = toml::from_str(toml_src).unwrap();
-        assert!(cfg.channels.wecom.is_some());
-        assert_eq!(cfg.channels.wecom.as_ref().unwrap().bot_id, "b1");
+        assert!(
+            cfg.channels.wecom.is_none(),
+            "daemon.toml's [channels] must be ignored, not adopted"
+        );
         assert_eq!(
             cfg.agents
                 .opencode

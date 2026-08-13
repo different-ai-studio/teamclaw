@@ -85,9 +85,11 @@ teams/<team_id>/
 └── state/                 # daemon 私有，永不同步
 ```
 
-`state/` 里有：云端凭证（`backend.toml`）、本团队的加密主密钥与密文
-（`secret.key` / `secrets.enc`）、成员缓存、runtime 索引（`runtimes.toml`）、
-会话（`sessions/`）、事件历史、MCP 配置、附件、app 检出。
+`state/` 里有：云端凭证（`backend.toml`）、团队级配置（`team.toml`——
+channels / team_share / local_agent，**凭证字段不落这里**，bot token 等存在
+`secrets.enc` 里）、本团队的加密主密钥与密文（`secret.key` / `secrets.enc`）、
+成员缓存、runtime 索引（`runtimes.toml`）、会话（`sessions/`）、事件历史、
+MCP 配置、附件、app 检出。
 
 **只有 `shared/` 会被同步。** 往团队目录里加文件会不会被推上云？只要不在
 `shared/` 下面，答案恒为不会。

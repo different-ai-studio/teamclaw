@@ -354,8 +354,10 @@ fn set_local_agent_interactive(theme: &ColorfulTheme) -> anyhow::Result<()> {
 
 fn load_daemon_config() -> anyhow::Result<(DaemonConfig, PathBuf)> {
     let path = DaemonConfig::default_path();
-    let cfg = DaemonConfig::load_or_bootstrap(&path)
+    let mut cfg = DaemonConfig::load_or_bootstrap(&path)
         .map_err(|e| anyhow::anyhow!("load {}: {e}", path.display()))?;
+    // local_agent / team_share / channels live in the team's team.toml.
+    crate::config::team_config::hydrate(&mut cfg);
     Ok((cfg, path))
 }
 
@@ -569,6 +571,7 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
         } else {
             Some(git_branch)
         },
+        channel_secrets: Default::default(),
     };
     store
         .merge(&team_id, &incoming)

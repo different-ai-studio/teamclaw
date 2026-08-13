@@ -192,13 +192,17 @@ impl DaemonServer {
     /// crash the daemon — partial reloads (e.g. config parsed but one
     /// channel fails to start) are acceptable.
     pub(crate) async fn reload_channels(&mut self) {
-        let fresh_cfg = match DaemonConfig::load(&self.config_path) {
+        let mut fresh_cfg = match DaemonConfig::load(&self.config_path) {
             Ok(c) => c,
             Err(e) => {
                 error!("channel-reload: failed to read config: {e:?}");
                 return;
             }
         };
+        // daemon.toml no longer carries the team half; without this the reload
+        // would replace a working channel config with the empty default.
+        crate::config::team_config::hydrate(&mut fresh_cfg);
+        fresh_cfg.actor.id = self.config.actor.id.clone();
 
         if let Some(mgr) = self.channel_mgr.take() {
             info!("channel-reload: shutting down current channel manager");
@@ -411,8 +415,10 @@ impl DaemonServer {
             return;
         }
 
-        if let Err(e) = self.config.save(&self.config_path) {
-            error!("channel-save: failed to persist daemon.toml: {e:?}");
+        // Channels are team-scoped: the structure lands in team.toml and the
+        // credentials in the team's secret store, never in daemon.toml.
+        if let Err(e) = crate::config::team_config::persist_from(&self.config) {
+            error!("channel-save: failed to persist team.toml: {e:?}");
             return;
         }
 

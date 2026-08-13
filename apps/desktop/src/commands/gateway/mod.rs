@@ -56,19 +56,27 @@ pub(crate) fn sock_path() -> PathBuf {
     crate::commands::amuxd_run_dir().join("amuxd.sock")
 }
 
-fn daemon_config_path() -> PathBuf {
-    let path = crate::commands::amuxd_home_dir().join("daemon.toml");
-    let legacy_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("amux")
-        .join("daemon.toml");
-    if !path.exists() && legacy_path.exists() {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::copy(&legacy_path, &path);
+/// The active team's `team.toml`, resolved through daemon.toml's
+/// `active_team` pointer. `None` when the daemon has no team yet.
+fn team_config_path() -> Option<PathBuf> {
+    #[derive(serde::Deserialize)]
+    struct Probe {
+        #[serde(default, alias = "team_id")]
+        active_team: Option<String>,
     }
-    path
+    let home = crate::commands::amuxd_home_dir();
+    let team = std::fs::read_to_string(home.join("daemon.toml"))
+        .ok()
+        .and_then(|body| toml::from_str::<Probe>(&body).ok())
+        .and_then(|p| p.active_team)
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())?;
+    Some(
+        home.join("teams")
+            .join(team)
+            .join("state")
+            .join("team.toml"),
+    )
 }
 
 /// List the six known channel platforms with their `enabled` / `connected`
@@ -129,9 +137,14 @@ pub async fn list_wecom_bots_status() -> Result<Vec<WeComBotStatus>, String> {
     }
 }
 
-/// Load a persisted channel config from daemon.toml. This is local-only data:
-/// secrets already live on this machine, and the settings UI needs to
-/// rehydrate forms after the panel is closed and reopened.
+/// Load a persisted channel config from the active team's `team.toml`, so the
+/// settings UI can rehydrate forms after the panel is closed and reopened.
+///
+/// Credential fields come back **empty**: the daemon splits them into the
+/// team's encrypted secret store on save and this read does not decrypt.
+/// Saving a form with an empty credential keeps the stored value (the
+/// daemon's save treats empty-string secrets as "unchanged"), so round-trips
+/// through this read are lossless.
 #[tauri::command]
 pub fn load_channel_config(platform: String) -> Result<Option<serde_json::Value>, String> {
     if !matches!(
@@ -141,7 +154,9 @@ pub fn load_channel_config(platform: String) -> Result<Option<serde_json::Value>
         return Err(format!("unknown platform: {platform}"));
     }
 
-    let path = daemon_config_path();
+    let Some(path) = team_config_path() else {
+        return Ok(None);
+    };
     if !path.exists() {
         return Ok(None);
     }

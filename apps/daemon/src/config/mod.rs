@@ -8,6 +8,7 @@ mod model_mru;
 pub mod provider_auth;
 mod roles_skills;
 mod session_store;
+pub mod team_config;
 pub mod team_mcp;
 pub mod workspace_control;
 mod workspace_instructions;
@@ -18,7 +19,8 @@ mod workspace_resolver;
 pub use daemon_config::{
     ActorConfig, AgentBackendConfig, AgentsConfig, ClaudeAgentConfig, CursorAgentConfig,
     DaemonConfig, DiscordChannel, EmailChannel, FeishuChannel, HttpConfig, KookChannel, MqttConfig,
-    SeaTalkChannel, TeamShareConfig, TransportKind, WeChatChannel, WeComChannel, BOOTSTRAP_ACTOR_NAME,
+    SeaTalkChannel, TeamShareConfig, TransportKind, WeChatChannel, WeComChannel,
+    BOOTSTRAP_ACTOR_NAME,
 };
 // Constructed only by the test suite (runtime_resolution / server tests).
 #[cfg(test)]

@@ -57,6 +57,13 @@ pub struct TeamSecrets {
     /// `share-mode`, so the desktop delivers it here at enable time.
     #[serde(default)]
     pub git_branch: Option<String>,
+    /// Channel credentials (bot tokens, app secrets, …), keyed by their dotted
+    /// path in team.toml with array elements keyed by `bot_id`
+    /// (`channels.wecom.bots[b-1].secret`). Written by
+    /// `config::team_config::save_value`, which strips these out of the
+    /// plaintext team.toml; nothing else writes this map.
+    #[serde(default)]
+    pub channel_secrets: std::collections::BTreeMap<String, String>,
 }
 
 /// The team secret is HKDF input keying material, not an opaque token: it must
@@ -294,6 +301,7 @@ mod tests {
             user_jwt: Some("jwt-abc".into()),
             git_credential: None,
             git_branch: Some("release".into()),
+            channel_secrets: Default::default(),
         };
         store.save("team-x", &secrets).unwrap();
         let loaded = store.load("team-x").unwrap();
@@ -324,6 +332,7 @@ mod tests {
                 user_jwt: None,
                 git_credential: None,
                 git_branch: None,
+                channel_secrets: Default::default(),
             },
         )
         .unwrap();
@@ -350,6 +359,7 @@ mod tests {
                     user_jwt: None,
                     git_credential: None,
                     git_branch: None,
+                    channel_secrets: Default::default(),
                 },
             )
             .unwrap();

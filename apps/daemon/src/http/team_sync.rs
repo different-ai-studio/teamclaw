@@ -202,6 +202,7 @@ pub async fn set_secrets(
         user_jwt: body.user_jwt,
         git_credential: body.git_credential,
         git_branch: body.git_branch,
+        channel_secrets: Default::default(),
     };
     state
         .sync_dispatcher

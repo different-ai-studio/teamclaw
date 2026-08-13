@@ -389,13 +389,14 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
-        let config_path = tmp.path().join("daemon.toml");
-        let mut cfg = crate::config::DaemonConfig::bootstrap();
-        cfg.team_share.auto_sync = false;
-        cfg.save(&config_path).unwrap();
-
+        // auto_sync lives in the (unclaimed) team's team.toml now, so the env
+        // must point at the temp home *before* the toggle is written.
         let orig = std::env::var("AMUXD_HOME").ok();
         std::env::set_var("AMUXD_HOME", tmp.path());
+        let mut team = crate::config::team_config::TeamFileConfig::default();
+        team.team_share.auto_sync = false;
+        crate::config::team_config::save_typed(&crate::config::layout::active_team(), &team)
+            .unwrap();
 
         let (d, _backend) = dispatcher_with_mock(&tmp);
         let st = d
@@ -426,13 +427,13 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
-        let config_path = tmp.path().join("daemon.toml");
-        let mut cfg = crate::config::DaemonConfig::bootstrap();
-        cfg.team_share.auto_sync = true;
-        cfg.save(&config_path).unwrap();
-
         let orig = std::env::var("AMUXD_HOME").ok();
         std::env::set_var("AMUXD_HOME", tmp.path());
+        // The toggle lives in team.toml now (see the sibling test above).
+        let mut team = crate::config::team_config::TeamFileConfig::default();
+        team.team_share.auto_sync = true;
+        crate::config::team_config::save_typed(&crate::config::layout::active_team(), &team)
+            .unwrap();
 
         let store = SecretStore::with_base(tmp.path().to_path_buf());
         let d = SyncDispatcher::new(store, None);
@@ -448,8 +449,9 @@ mod tests {
             .await;
         assert!(err_st.last_error.is_some());
 
-        cfg.team_share.auto_sync = false;
-        cfg.save(&config_path).unwrap();
+        team.team_share.auto_sync = false;
+        crate::config::team_config::save_typed(&crate::config::layout::active_team(), &team)
+            .unwrap();
 
         let st = d
             .sync_team(
