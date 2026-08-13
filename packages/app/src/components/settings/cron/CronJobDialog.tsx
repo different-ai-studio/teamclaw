@@ -12,7 +12,6 @@ import {
   SlidersHorizontal,
   Timer,
   Send,
-  GitBranch,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -202,10 +201,7 @@ export function CronJobDialog({
       if (editJob) {
         const next = jobToFormState(editJob)
         setForm(next)
-        setAdvancedOptionsOpen(
-          next.deliveryEnabled ||
-            next.useWorktree,
-        )
+        setAdvancedOptionsOpen(next.deliveryEnabled)
       } else {
         setForm(defaultFormState)
         setAdvancedOptionsOpen(false)
@@ -292,7 +288,7 @@ export function CronJobDialog({
     setError(null)
 
     const payloadForm =
-      activeScope === 'global' ? { ...form, useWorktree: false } : form
+      form
 
     try {
       if (editJob) {
@@ -686,47 +682,6 @@ export function CronJobDialog({
                 />
               </div>
 
-              {/* Worktree isolation — workspace-scoped only */}
-              <div
-                className={cn(
-                  'flex items-center justify-between',
-                  activeScope === 'global' && 'opacity-50',
-                )}
-              >
-                <div>
-                  <label className="text-[13px] font-medium">{t('settings.cron.useWorktree', 'Run in isolated worktree')}</label>
-                  <p className="text-xs text-muted-foreground">
-                    {activeScope === 'global'
-                      ? t(
-                          'settings.cron.useWorktreeGlobalDisabled',
-                          'Not available for global tasks — use Workspace tasks.',
-                        )
-                      : t('settings.cron.useWorktreeDesc', 'Execute in a temporary git worktree copy')}
-                  </p>
-                </div>
-                <ToggleSwitch
-                  enabled={activeScope !== 'global' && form.useWorktree}
-                  onChange={(v) => {
-                    if (activeScope === 'global') return
-                    update({ useWorktree: v })
-                  }}
-                />
-              </div>
-
-              {activeScope !== 'global' && form.useWorktree && (
-                <div className="space-y-2 pl-4 border-l-2 border-muted">
-                  <label className="text-[13px] font-medium flex items-center gap-1.5">
-                    <GitBranch className="h-3.5 w-3.5" />
-                    {t('settings.cron.worktreeBranch', 'Branch')}
-                  </label>
-                  <Input
-                    value={form.worktreeBranch}
-                    onChange={(e) => update({ worktreeBranch: e.target.value })}
-                    placeholder={t('settings.cron.worktreeBranchPlaceholder', 'main')}
-                    className="font-mono text-xs"
-                  />
-                </div>
-              )}
             </div>
 
             {/* Section 4: Delivery */}

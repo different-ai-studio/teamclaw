@@ -10,7 +10,7 @@ const workspace = vi.hoisted(() => ({
   workspacePath: null as string | null,
 }))
 const teamShare = vi.hoisted(() => ({
-  mode: null as 'oss' | 'managed_git' | 'custom_git' | null,
+  mode: null as 'oss' | null,
   refresh: vi.fn(),
 }))
 
@@ -57,9 +57,6 @@ vi.mock('@/lib/team-permissions', () => ({
 
 vi.mock('../team/TeamDefaultAgentConfig', () => ({
   TeamDefaultAgentConfig: () => <div data-testid="default-agent-config">agent</div>,
-}))
-vi.mock('../team/TeamGitConfig', () => ({
-  TeamGitConfig: () => <div data-testid="git-config">git</div>,
 }))
 vi.mock('../team/TeamOssSyncStatus', () => ({
   TeamOssSyncStatus: () => <div data-testid="oss-status">oss</div>,
@@ -109,16 +106,6 @@ describe('TeamSection share-mode gating', () => {
     workspace.workspacePath = '/ws'
     render(<TeamSection />)
     expect(await screen.findByTestId('not-enabled')).toBeTruthy()
-    expect(screen.queryByTestId('git-config')).toBeNull()
-    expect(screen.queryByTestId('oss-status')).toBeNull()
-  })
-
-  it('shows the Git config for a locked git share mode', async () => {
-    teamShare.mode = 'managed_git'
-    currentTeam.teamId = 'team-1'
-    workspace.workspacePath = '/ws'
-    render(<TeamSection />)
-    expect(await screen.findByTestId('git-config')).toBeTruthy()
     expect(screen.queryByTestId('oss-status')).toBeNull()
   })
 
@@ -127,8 +114,6 @@ describe('TeamSection share-mode gating', () => {
     teamShare.mode = null
     teamShare.refresh = vi.fn().mockResolvedValue({
       mode: null,
-      gitRemoteUrl: 'https://git.example.com/orphan.git',
-      gitAuthKind: 'https_token',
       enabledAt: null,
     })
     currentTeam.teamId = 'team-1'

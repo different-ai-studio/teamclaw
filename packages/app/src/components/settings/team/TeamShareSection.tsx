@@ -18,11 +18,9 @@ interface Props {
   onConfigured?: () => void | Promise<void>
 }
 
-// OSS is a brand token; the git modes resolve through i18n at render time.
-const MODE_LABEL_KEY: Record<Exclude<ShareMode, null>, string | null> = {
-  oss: null,
-  managed_git: 'settings.teamShare.modeManagedGitLabel',
-  custom_git: 'settings.teamShare.modeCustomGitLabel',
+// OSS is a brand token, so it is not translated.
+const MODE_LABEL: Record<Exclude<ShareMode, null>, string> = {
+  oss: 'OSS',
 }
 
 /**
@@ -94,18 +92,8 @@ export function TeamShareSection({
         <div className="space-y-1">
           <p className="text-[12.5px]">
             {t('settings.teamShare.enabledPrefix')}
-            <span className="ml-1 font-medium">
-              {MODE_LABEL_KEY[status.mode]
-                ? t(MODE_LABEL_KEY[status.mode]!)
-                : 'OSS'}
-            </span>
+            <span className="ml-1 font-medium">{MODE_LABEL[status.mode]}</span>
           </p>
-          {status.gitRemoteUrl && (
-            <p className="text-[12px] text-muted-foreground break-all">
-              {t('settings.teamShare.repositoryPrefix')}
-              {status.gitRemoteUrl}
-            </p>
-          )}
           {status.globalPath && (
             <p className="text-[12px] text-muted-foreground break-all">
               {t('settings.teamShare.globalSyncDirPrefix')}

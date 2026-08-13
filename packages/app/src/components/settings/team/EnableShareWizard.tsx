@@ -12,20 +12,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { useTeamShareStore, type EnableShareResult } from '@/stores/team-share'
+import { useTeamShareStore } from '@/stores/team-share'
 import { humanizeFcError } from '@/lib/fc-error'
-
-type Mode = 'oss' | 'managed_git' | 'custom_git'
-type AuthKind = 'ssh_key' | 'https_token'
 
 interface Props {
   open: boolean
@@ -35,6 +23,13 @@ interface Props {
   onSuccess?: () => void
 }
 
+/**
+ * Confirmation dialog for locking a team into OSS share mode.
+ *
+ * It used to be a three-way picker (OSS / managed git / self-hosted git). Git
+ * share is gone, so the only remaining decision is whether to enable at all —
+ * and that decision is irreversible, which is what this dialog is now for.
+ */
 export function EnableShareWizard({
   open,
   onOpenChange,
@@ -43,56 +38,19 @@ export function EnableShareWizard({
   onSuccess,
 }: Props) {
   const { t } = useTranslation()
-  const [mode, setMode] = useState<Mode>('oss')
-  const [remoteUrl, setRemoteUrl] = useState('')
-  const [authKind, setAuthKind] = useState<AuthKind>('ssh_key')
-  const [credential, setCredential] = useState('')
-  const [branch, setBranch] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const enableOss = useTeamShareStore((s) => s.enableOss)
-  const enableManagedGit = useTeamShareStore((s) => s.enableManagedGit)
-  const enableCustomGit = useTeamShareStore((s) => s.enableCustomGit)
-
-  // For SSH the credential is optional: an empty key means "use this machine's
-  // ~/.ssh / ssh-agent" (the daemon falls back to local SSH). HTTPS always needs
-  // a token.
-  const customGitValid =
-    mode !== 'custom_git' ||
-    (remoteUrl.trim().length > 0 &&
-      (authKind === 'ssh_key' || credential.trim().length > 0))
-  const canSubmit = !submitting && customGitValid
-
-  function reset() {
-    setMode('oss')
-    setRemoteUrl('')
-    setAuthKind('ssh_key')
-    setCredential('')
-    setBranch('')
-    setError(null)
-  }
 
   async function handleSubmit() {
-    if (!canSubmit) return
+    if (submitting) return
     setSubmitting(true)
     setError(null)
     try {
       // Team encryption key is configured under Daemon → General, not here.
-      // Pass undefined so enable mint/auto-generates when needed.
-      let res: EnableShareResult
-      if (mode === 'oss') {
-        res = await enableOss(teamId, workspacePath)
-      } else if (mode === 'managed_git') {
-        res = await enableManagedGit(teamId, workspacePath)
-      } else {
-        res = await enableCustomGit(teamId, workspacePath, {
-          remoteUrl: remoteUrl.trim(),
-          authKind: authKind,
-          credential: credential.trim(),
-          branch: branch.trim() || undefined,
-        })
-      }
+      // Pass undefined so enable mints/auto-generates when needed.
+      const res = await enableOss(teamId, workspacePath)
       // Share is on server-side, so the wizard is done and closes — but the
       // daemon may not have taken the secret, which leaves shared env vars
       // dead. Hold the toast open: this needs a retry, not a glance.
@@ -104,7 +62,7 @@ export function EnableShareWizard({
         })
       }
       onSuccess?.()
-      reset()
+      setError(null)
       onOpenChange(false)
     } catch (e) {
       setError(humanizeFcError(e))
@@ -129,107 +87,9 @@ export function EnableShareWizard({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto py-2 pr-1">
-          <fieldset className="space-y-2">
-            <legend className="text-[12.5px] font-medium text-foreground">
-              {t('settings.teamShare.shareModeLegend')}
-            </legend>
-            <ModeRadio
-              value="oss"
-              checked={mode === 'oss'}
-              onChange={() => setMode('oss')}
-              label="OSS"
-              desc={t('settings.teamShare.modeOssDesc')}
-            />
-            <ModeRadio
-              value="managed_git"
-              checked={mode === 'managed_git'}
-              onChange={() => setMode('managed_git')}
-              label={t('settings.teamShare.modeManagedGitLabel')}
-              desc={t('settings.teamShare.modeManagedGitDesc')}
-            />
-            <ModeRadio
-              value="custom_git"
-              checked={mode === 'custom_git'}
-              onChange={() => setMode('custom_git')}
-              label={t('settings.teamShare.modeCustomGitLabel')}
-              desc={t('settings.teamShare.modeCustomGitDesc')}
-            />
-          </fieldset>
-
-          {mode === 'custom_git' && (
-            <div className="space-y-3 rounded-md border border-border-soft bg-surface p-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="share-remote-url">
-                  {t('settings.teamShare.remoteUrlLabel')}
-                </Label>
-                <Input
-                  id="share-remote-url"
-                  placeholder="git@github.com:org/repo.git"
-                  value={remoteUrl}
-                  onChange={(e) => setRemoteUrl(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="share-auth-kind">
-                  {t('settings.teamShare.authKindLabel')}
-                </Label>
-                <Select
-                  value={authKind}
-                  onValueChange={(v) => setAuthKind(v as AuthKind)}
-                >
-                  <SelectTrigger
-                    id="share-auth-kind"
-                    className="h-9 bg-transparent text-[13px] shadow-xs"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ssh_key">
-                      {t('settings.teamShare.sshPrivateKey')}
-                    </SelectItem>
-                    <SelectItem value="https_token">HTTPS Token</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="share-credential">
-                  {authKind === 'ssh_key'
-                    ? t('settings.teamShare.sshKeyLabelOptional')
-                    : 'HTTPS Token'}
-                </Label>
-                <textarea
-                  id="share-credential"
-                  className="min-h-[80px] w-full break-all rounded-md border border-input bg-transparent p-2 font-mono text-[12px]"
-                  placeholder={
-                    authKind === 'ssh_key'
-                      ? t('settings.teamShare.sshKeyPlaceholder')
-                      : t('settings.teamShare.tokenPlaceholder')
-                  }
-                  value={credential}
-                  onChange={(e) => setCredential(e.target.value)}
-                />
-                {authKind === 'ssh_key' && (
-                  <p className="text-[11px] text-muted-foreground">
-                    {t('settings.teamShare.sshLocalHint')}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="share-branch">
-                  {t('settings.teamShare.branchLabel')}
-                </Label>
-                <Input
-                  id="share-branch"
-                  placeholder="main"
-                  value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
+          <p className="text-[13px] text-muted-foreground">
+            {t('settings.teamShare.modeOssDesc')}
+          </p>
 
           <p className="text-[12px] text-amber-600">
             {t('settings.teamShare.lockWarning')}
@@ -246,43 +106,12 @@ export function EnableShareWizard({
           >
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSubmit} disabled={!canSubmit}>
+          <Button onClick={handleSubmit} disabled={submitting}>
             {submitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
             {t('settings.teamShare.confirmEnable')}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function ModeRadio({
-  value,
-  checked,
-  onChange,
-  label,
-  desc,
-}: {
-  value: string
-  checked: boolean
-  onChange: () => void
-  label: string
-  desc: string
-}) {
-  return (
-    <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border-soft bg-surface p-2.5 hover:bg-panel">
-      <input
-        type="radio"
-        name="share-mode"
-        value={value}
-        checked={checked}
-        onChange={onChange}
-        className="mt-1"
-      />
-      <div className="flex-1">
-        <div className="text-[13px] font-medium">{label}</div>
-        <div className="text-[12px] text-muted-foreground">{desc}</div>
-      </div>
-    </label>
   )
 }

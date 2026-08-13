@@ -62,8 +62,8 @@ import {
 import { SettingCard, SectionHeader } from './shared'
 import type { SkillPermission, SkillPermissionMap } from '@/lib/opencode/config'
 import { resolveSkillPermission } from '@/lib/opencode/config'
-import type { SkillSource } from '@/lib/git/types'
-import { INHERENT_SKILL_NAMES } from '@/lib/git/types'
+import type { SkillSource } from '@/lib/skills/types'
+import { INHERENT_SKILL_NAMES } from '@/lib/skills/types'
 import { SkillsMarketplace } from './SkillsMarketplace'
 import { SkillsDiagnosticsDialog } from './SkillsDiagnosticsDialog'
 

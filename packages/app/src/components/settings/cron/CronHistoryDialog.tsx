@@ -11,7 +11,6 @@ import {
   Loader2,
   History,
   Send,
-  GitBranch,
   MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -133,13 +132,6 @@ export function RunRecordCard({
         <p className="text-xs text-muted-foreground">
           <Clock className="h-3 w-3 inline mr-1" />
           {t('settings.cron.lastHeartbeat', 'Last heartbeat')}: {formatRelativeTime(run.lastHeartbeatAt!)}
-        </p>
-      )}
-
-      {run.worktreePath && (
-        <p className="text-xs text-muted-foreground">
-          <GitBranch className="h-3 w-3 inline mr-1" />
-          {run.worktreePath}
         </p>
       )}
 

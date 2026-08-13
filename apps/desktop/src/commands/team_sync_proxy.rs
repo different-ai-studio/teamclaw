@@ -2,7 +2,7 @@
 //!
 //! The daemon owns team-sync now: it stores team secrets, materializes the
 //! global team directory + per-workspace `teamclu-team` symlink, runs the
-//! actual git/OSS sync, and surfaces conflicts/versions. The desktop only
+//! actual OSS sync, and surfaces conflicts/versions. The desktop only
 //! *delivers* the secrets and *triggers* link/sync over the daemon's local
 //! HTTP server.
 //!
@@ -15,7 +15,7 @@
 //! Endpoints (all loopback, bearer-scoped):
 //!   - `POST /v1/team/sync`              `{ workspacePath }`            scope `workspace:write`
 //!   - `GET  /v1/team/sync/status?teamId`                              scope `workspace:read`
-//!   - `POST /v1/team/secrets`           `{ teamId, ossTeamSecret?, gitCredential?, gitBranch? }` scope `workspace:write`
+//!   - `POST /v1/team/secrets`           `{ teamId, ossTeamSecret? }`   scope `workspace:write`
 //!   - `POST /v1/team/link`              `{ path }`                    scope `workspace:write`
 //!   - `GET  /v1/team/conflicts?teamId`                               scope `workspace:read`
 //!   - `POST /v1/team/conflicts/resolve` `{ teamId, path, choice }`   scope `workspace:write`
@@ -166,10 +166,9 @@ fn urlencode(value: &str) -> String {
 
 // ─── typed helpers ─────────────────────────────────────────────────────────
 
-/// `POST /v1/team/sync` `{ workspacePath, forceWipeNonGit?, forceSync? }` — trigger a team sync.
+/// `POST /v1/team/sync` `{ workspacePath, forceSync? }` — trigger a team sync.
 pub async fn daemon_team_sync(
     workspace_path: &str,
-    force_wipe_non_git: bool,
     force_sync: bool,
 ) -> Result<serde_json::Value, String> {
     daemon_request(
@@ -179,7 +178,6 @@ pub async fn daemon_team_sync(
         &["workspace:write"],
         Some(&serde_json::json!({
             "workspacePath": workspace_path,
-            "forceWipeNonGit": force_wipe_non_git,
             "forceSync": force_sync,
         })),
     )
@@ -198,17 +196,6 @@ pub async fn daemon_team_cloud_reconcile(team_id: &str) -> Result<(), String> {
         Some(&serde_json::json!({ "teamId": team_id })),
     )
     .await
-}
-
-/// Stable daemon problem+json code when the global team dir is not a git repo.
-pub const TEAM_SHARED_DIR_NOT_GIT_CODE: &str = "team_shared_dir_not_git";
-
-fn daemon_error_code(message: &str) -> Option<String> {
-    let json_start = message.find('{')?;
-    let json: serde_json::Value = serde_json::from_str(&message[json_start..]).ok()?;
-    json.get("code")
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
 }
 
 /// `GET /v1/team/sync/status?teamId=<id>` — current sync status.
@@ -255,24 +242,15 @@ pub async fn daemon_team_env_available(team_id: &str) -> Result<bool, String> {
 
 /// `POST /v1/team/secrets` — deliver team secret material to the daemon.
 ///
-/// `None` fields are omitted from the body. `authKind` is intentionally NOT
-/// sent — the daemon learns it from FC.
+/// `None` fields are omitted from the body.
 pub async fn daemon_team_secrets(
     team_id: &str,
     oss_team_secret: Option<&str>,
-    git_credential: Option<&str>,
-    git_branch: Option<&str>,
 ) -> Result<(), String> {
     let mut body = serde_json::Map::new();
     body.insert("teamId".to_string(), serde_json::json!(team_id));
     if let Some(v) = oss_team_secret {
         body.insert("ossTeamSecret".to_string(), serde_json::json!(v));
-    }
-    if let Some(v) = git_credential {
-        body.insert("gitCredential".to_string(), serde_json::json!(v));
-    }
-    if let Some(v) = git_branch {
-        body.insert("gitBranch".to_string(), serde_json::json!(v));
     }
     daemon_request_unit(
         reqwest::Method::POST,
@@ -458,7 +436,7 @@ async fn redeliver_local_team_secret(team_id: &str, workspace_path: &str) -> boo
     let Some(secret) = local_team_secret_for_redelivery(workspace_path, team_id) else {
         return false;
     };
-    if daemon_team_secrets(team_id, Some(&secret), None, None)
+    if daemon_team_secrets(team_id, Some(&secret))
         .await
         .is_err()
     {
@@ -479,7 +457,7 @@ pub async fn oss_sync_now(
     workspace_path: String,
     team_id: String,
 ) -> Result<serde_json::Value, String> {
-    let mut status = daemon_team_sync(&workspace_path, false, true).await?;
+    let mut status = daemon_team_sync(&workspace_path, true).await?;
     // Self-heal: if the daemon reports it has no team secret, re-deliver the
     // locally-stored one and retry the sync once.
     if status
@@ -488,7 +466,7 @@ pub async fn oss_sync_now(
         .is_some_and(is_missing_team_secret_error)
         && redeliver_local_team_secret(&team_id, &workspace_path).await
     {
-        status = daemon_team_sync(&workspace_path, false, true).await?;
+        status = daemon_team_sync(&workspace_path, true).await?;
     }
     let pick = |k: &str| status.get(k).and_then(|v| v.as_u64()).unwrap_or(0);
     Ok(serde_json::json!({
@@ -520,7 +498,7 @@ pub async fn oss_sync_status(
         .is_some_and(is_missing_team_secret_error)
         && redeliver_local_team_secret(&team_id, &workspace_path).await
     {
-        let _ = daemon_team_sync(&workspace_path, false, true).await;
+        let _ = daemon_team_sync(&workspace_path, true).await;
         return daemon_team_sync_status(&team_id).await;
     }
     Ok(status)
@@ -581,15 +559,6 @@ pub async fn oss_sync_resolve_conflict(
     daemon_team_resolve_conflict(&team_id, &path, &choice).await
 }
 
-fn is_not_git_repo_error(msg: &str) -> bool {
-    msg.starts_with(TEAM_SHARED_DIR_NOT_GIT_CODE)
-}
-
-fn team_sync_needs_confirmation(err: &str) -> bool {
-    daemon_error_code(err).as_deref() == Some(TEAM_SHARED_DIR_NOT_GIT_CODE)
-        || err.contains(TEAM_SHARED_DIR_NOT_GIT_CODE)
-}
-
 fn team_sync_success_payload() -> serde_json::Value {
     serde_json::json!({
         "success": true,
@@ -602,10 +571,9 @@ fn team_sync_success_payload() -> serde_json::Value {
 
 async fn invoke_daemon_team_sync(
     workspace_path: &str,
-    force_wipe_non_git: bool,
     force_sync: bool,
 ) -> Result<serde_json::Value, String> {
-    match daemon_team_sync(workspace_path, force_wipe_non_git, force_sync).await {
+    match daemon_team_sync(workspace_path, force_sync).await {
         Ok(resp) => {
             if resp.get("skipped").and_then(|v| v.as_bool()) == Some(true) {
                 return Ok(serde_json::json!({
@@ -620,16 +588,6 @@ async fn invoke_daemon_team_sync(
             team_sync_error_from_status(&resp)?;
             Ok(team_sync_success_payload())
         }
-        Err(err) if !force_wipe_non_git && team_sync_needs_confirmation(&err) => {
-            Ok(serde_json::json!({
-                "success": false,
-                "message": "The local team shared directory exists but is not a git repository.",
-                "needsConfirmation": true,
-                "confirmKind": "wipeNonGitDir",
-                "newFiles": [],
-                "totalBytes": 0,
-            }))
-        }
         Err(err) => Err(err),
     }
 }
@@ -640,11 +598,6 @@ fn team_sync_error_from_status(status: &serde_json::Value) -> Result<(), String>
         .and_then(|v| v.as_str())
         .filter(|s| !s.trim().is_empty())
     {
-        if is_not_git_repo_error(err) {
-            return Err(format!(
-                "daemon /v1/team/sync 422 Unprocessable Entity: {{\"code\":\"{TEAM_SHARED_DIR_NOT_GIT_CODE}\",\"detail\":\"{err}\"}}"
-            ));
-        }
         return Err(err.to_string());
     }
     if status
@@ -655,90 +608,24 @@ fn team_sync_error_from_status(status: &serde_json::Value) -> Result<(), String>
     {
         return Err(
             "team share is not enabled for the daemon's team (share_mode unset). \
-             Re-bind amuxd to the current team if you switched teams, then enable Git share again."
+             Re-bind amuxd to the current team if you switched teams, then enable team share again."
                 .to_string(),
         );
     }
     Ok(())
 }
 
-/// `team_sync_repo(workspace?, force?)` (team.rs) → proxy to the daemon sync.
-///
-/// Returns a `TeamGitResult`-shaped object so existing callers keep working.
+/// `team_sync_repo(workspace?, forceSync?)` (team.rs) → proxy to the daemon sync.
 #[tauri::command]
 pub async fn team_sync_repo(
     workspace_path: Option<String>,
-    force: Option<bool>,
     force_sync: Option<bool>,
 ) -> Result<serde_json::Value, String> {
-    let force_wipe = force.unwrap_or(false);
     let force_sync = force_sync.unwrap_or(false);
     let workspace_path = workspace_path
         .filter(|p| !p.is_empty())
         .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?;
-    invoke_daemon_team_sync(&workspace_path, force_wipe, force_sync).await
-}
-
-/// `team_shared_git_sync(config, force?)` → proxy to the daemon sync.
-///
-/// The frontend passes the legacy `config` object (with `workspacePath`); we
-/// only need `workspacePath` to trigger the daemon, the rest is daemon-owned.
-/// When `force=true`, a non-git local team dir is deleted and re-cloned.
-#[tauri::command]
-pub async fn team_shared_git_sync(
-    config: serde_json::Value,
-    force: Option<bool>,
-    force_sync: Option<bool>,
-) -> Result<serde_json::Value, String> {
-    let force_wipe = force.unwrap_or(false);
-    let force_sync = force_sync.unwrap_or(false);
-    let workspace_path = config
-        .get("workspacePath")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "config.workspacePath is required".to_string())?;
-    invoke_daemon_team_sync(workspace_path, force_wipe, force_sync).await
-}
-
-/// `team_shared_git_validate(config)` → daemon sync status (best effort).
-///
-/// Returns the daemon status JSON. Phase 3 aligns the TS type; existing callers
-/// that only check for success will still observe a non-error result.
-#[tauri::command]
-pub async fn team_shared_git_validate(
-    config: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    // The daemon keys status by team, not by the legacy git config. We don't
-    // have a teamId here, so return a trivially-ok status shape rather than
-    // failing — the daemon owns real validation during link/sync.
-    let _ = config;
-    Ok(serde_json::json!({
-        "sharedDirPath": "",
-        "exists": true,
-        "isGitRepo": true,
-        "remoteUrl": null,
-        "branch": null,
-        "dirty": false,
-        "ahead": 0,
-        "behind": 0,
-    }))
-}
-
-/// `team_shared_git_setup(config)` → no-op success.
-///
-/// Setup is owned by the daemon now (team-share enable + `/v1/team/link`).
-#[tauri::command]
-pub async fn team_shared_git_setup(config: serde_json::Value) -> Result<serde_json::Value, String> {
-    let _ = config;
-    Ok(serde_json::json!({
-        "sharedDirPath": "",
-        "exists": true,
-        "isGitRepo": true,
-        "remoteUrl": null,
-        "branch": null,
-        "dirty": false,
-        "ahead": 0,
-        "behind": 0,
-    }))
+    invoke_daemon_team_sync(&workspace_path, force_sync).await
 }
 
 // ─── sync_mode commands (FC-direct; moved verbatim from oss_sync/mod.rs) ──────
@@ -760,7 +647,7 @@ pub async fn oss_sync_set_team_sync_mode(
     mode: String,
     access_token: String,
 ) -> Result<String, String> {
-    if mode != "git" && mode != "oss" {
+    if mode != "oss" {
         return Err(format!("invalid sync_mode: {}", mode));
     }
 

@@ -4,17 +4,11 @@
 //! `oss_sync::oss_sync_create_team` Tauri command. It does ONLY the
 //! `POST /v1/teams` call and returns `{ team_id, team_slug }`.
 //!
-//! Secret generation, OSS / Git directory setup, and writes to
+//! Secret generation, OSS directory setup, and writes to
 //! `.teamclu/teamclu.json` (e.g. `oss_team_id`, `share_mode`,
 //! `ai_gateway_endpoint`) are intentionally NOT performed here. Those
-//! responsibilities move to the `enable_oss` / `enable_managed_git` /
-//! `enable_custom_git` commands in Task 6 (`team_share::enable`).
-//!
-//! Submodules:
-//!   - `enable`     — placeholder for Task 6 (enable_* + secret entry).
-//!   - `custom_git` — placeholder for Task 7 (SSH/HTTPS credential bridge).
+//! responsibilities live in the `enable_oss` command (`team_share::enable`).
 
-pub mod custom_git;
 pub mod disconnect;
 pub mod enable;
 pub mod join;
@@ -23,10 +17,8 @@ pub mod join;
 pub use disconnect::team_disconnect_repo;
 #[allow(unused_imports)]
 pub use enable::{
-    enable_custom_git_impl, enable_managed_git_impl, enable_oss_impl, get_share_status_impl,
-    set_team_secret_impl, team_share_enable_custom_git, team_share_enable_managed_git,
-    team_share_enable_oss, team_share_get_status, team_share_set_team_secret, team_sync_paths,
-    EnableShareResult, GitEnableInput,
+    enable_oss_impl, get_share_status_impl, set_team_secret_impl, team_share_enable_oss,
+    team_share_get_status, team_share_set_team_secret, team_sync_paths, EnableShareResult,
 };
 #[allow(unused_imports)]
 pub use join::{team_share_join_existing, team_share_join_existing_impl, JoinExistingResult};

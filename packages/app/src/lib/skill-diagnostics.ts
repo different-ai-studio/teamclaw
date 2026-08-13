@@ -1,6 +1,6 @@
 import { exists, readDir } from '@tauri-apps/plugin-fs'
-import { loadAllSkills, getSkillDirectories } from '@/lib/git/skill-loader'
-import type { SkillSource } from '@/lib/git/types'
+import { loadAllSkills, getSkillDirectories } from '@/lib/skills/loader'
+import type { SkillSource } from '@/lib/skills/types'
 import { loadRolesSkillsWorkspaceStateFromFs } from '@/lib/roles/loader'
 import {
   encodeWorkspaceId,

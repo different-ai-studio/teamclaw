@@ -103,9 +103,8 @@ pub fn build(state: HttpState) -> Router {
             "/v1/agent/default-workspace",
             get(workspaces::get_default_workspace),
         )
-        // App-repo seeding: clone empty managed-git repo, write starter
-        // template, first commit + push. Kicked by the desktop after the cloud
-        // API creates the app's repo.
+        // App seeding: write the starter template into the app's checkout.
+        // Kicked by the desktop after the cloud API creates the app.
         .route("/v1/apps/seed", post(apps::seed_app))
         // App build: pnpm build + zip `.output`, upload artifact to a presigned
         // OSS PUT URL. Kicked by the cloud deploy orchestration.

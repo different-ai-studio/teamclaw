@@ -1,6 +1,6 @@
 import * as React from 'react'
 import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
-import { Search, GitBranch, ChevronsDownUp, Undo2, LocateFixed, X, RefreshCw } from 'lucide-react'
+import { Search, ChevronsDownUp, Undo2, LocateFixed, X, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -41,8 +41,8 @@ interface FileBrowserProps {
   rootPaths?: string[]
   /** Display labels for rootPaths entries (same order). Falls back to directory basename. */
   rootLabels?: string[]
-  /** Hide git status indicators and git-specific toolbar buttons */
-  hideGitStatus?: boolean
+  /** Hide the reveal-active-file and undo toolbar buttons (custom roots) */
+  hideFileActions?: boolean
   /** Extra action icons shown in the panel toolbar's collapsed state (e.g. New Note, New Folder) */
   actionIcons?: React.ReactNode
   /** When set, shows an InlineInput at the top of the file tree for root-level creation */
@@ -53,13 +53,11 @@ interface FileBrowserProps {
   hideToolbar?: boolean
   filterText?: string
   onFilterTextChange?: (value: string) => void
-  gitChangedOnly?: boolean
-  onGitChangedOnlyChange?: (value: boolean) => void
   searchExpanded?: boolean
   onSearchExpandedChange?: (value: boolean) => void
 }
 
-export function FileBrowser({ className, variant = 'default', rootPath, rootPaths, rootLabels, hideGitStatus = false, actionIcons, rootCreating, onRootCreateConfirm, onRootCreateCancel, hideToolbar = false, filterText: controlledFilterText, onFilterTextChange, gitChangedOnly: controlledGitChangedOnly, onGitChangedOnlyChange, searchExpanded: controlledSearchExpanded, onSearchExpandedChange }: FileBrowserProps) {
+export function FileBrowser({ className, variant = 'default', rootPath, rootPaths, rootLabels, hideFileActions = false, actionIcons, rootCreating, onRootCreateConfirm, onRootCreateCancel, hideToolbar = false, filterText: controlledFilterText, onFilterTextChange, searchExpanded: controlledSearchExpanded, onSearchExpandedChange }: FileBrowserProps) {
   const { t } = useTranslation()
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const isPanelOpen = useWorkspaceStore(s => s.isPanelOpen)
@@ -72,9 +70,6 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
   const filterText = controlledFilterText ?? internalFilterText
   const setFilterText = onFilterTextChange ?? setInternalFilterText
   const deferredFilterText = React.useDeferredValue(filterText)
-  const [internalGitChangedOnly, setInternalGitChangedOnly] = React.useState(false)
-  const gitChangedOnly = controlledGitChangedOnly ?? internalGitChangedOnly
-  const setGitChangedOnly = onGitChangedOnlyChange ?? setInternalGitChangedOnly
   const [internalSearchExpanded, setInternalSearchExpanded] = React.useState(false)
   const searchExpanded = controlledSearchExpanded ?? internalSearchExpanded
   const setSearchExpanded = onSearchExpandedChange ?? setInternalSearchExpanded
@@ -261,28 +256,6 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
               {/* OSS team-share sync now — only when this workspace is OSS-synced */}
               {ossSyncButton}
 
-              {/* Git filter — only for git-tracked directories */}
-              {!hideGitStatus && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setGitChangedOnly(!gitChangedOnly)}
-                      className={cn(
-                        iconButtonClass,
-                        gitChangedOnly && 'bg-primary/10 text-primary',
-                      )}
-                    >
-                      <GitBranch className="h-3.5 w-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {gitChangedOnly
-                      ? t('fileExplorer.showAll', 'Show all files')
-                      : t('fileExplorer.showGitChanged', 'Show git changed files only')}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-
               {/* Collapse all */}
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -293,8 +266,8 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
                 <TooltipContent side="bottom">{t('fileExplorer.collapseAll', 'Collapse All')}</TooltipContent>
               </Tooltip>
 
-              {/* Locate active file — only for git-tracked directories */}
-              {!hideGitStatus && (
+              {/* Locate active file */}
+              {!hideFileActions && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -313,8 +286,8 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
                 </Tooltip>
               )}
 
-              {/* Undo — only for git-tracked directories when undo stack is non-empty */}
-              {!hideGitStatus && undoStack.length > 0 && (
+              {/* Undo — when the undo stack is non-empty */}
+              {!hideFileActions && undoStack.length > 0 && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button onClick={handleUndo} className={iconButtonClass}>
@@ -344,26 +317,6 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
               />
             </div>
             {ossSyncButton}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setGitChangedOnly(!gitChangedOnly)}
-                  className={cn(
-                    'flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0',
-                    gitChangedOnly
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
-                >
-                  <GitBranch className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {gitChangedOnly
-                  ? t('fileExplorer.showAll', 'Show all files')
-                  : t('fileExplorer.showGitChanged', 'Show git changed files only')}
-              </TooltipContent>
-            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -418,7 +371,7 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
       <ScrollAreaPrimitive.Root className="flex-1 relative overflow-hidden">
         <ScrollAreaPrimitive.Viewport className="h-full w-full">
           <div className="py-1 min-w-max">
-            <FileTree filterText={deferredFilterText} gitChangedOnly={gitChangedOnly} nodes={effectiveTree} hideGitStatus={isCustomRoot || hideGitStatus} rootCreating={rootCreating} onRootCreateConfirm={onRootCreateConfirm} onRootCreateCancel={onRootCreateCancel} />
+            <FileTree filterText={deferredFilterText} nodes={effectiveTree} rootCreating={rootCreating} onRootCreateConfirm={onRootCreateConfirm} onRootCreateCancel={onRootCreateCancel} />
           </div>
         </ScrollAreaPrimitive.Viewport>
         <ScrollBar orientation="vertical" />

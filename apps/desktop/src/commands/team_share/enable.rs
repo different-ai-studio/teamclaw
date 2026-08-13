@@ -1,12 +1,10 @@
-//! Task 6 — `enable_oss` / `enable_managed_git` / `enable_custom_git`
-//! / `set_team_secret` / `get_share_status` commands.
+//! `enable_oss` / `set_team_secret` / `get_share_status` commands.
 //!
 //! These commands wire a team (already created via `team_share::create_team`)
-//! into one of the three share modes. They:
+//! into OSS share mode. They:
 //!   1. Generate (or accept) a 64-char hex team secret and persist it via
 //!      `team_secret_store`.
-//!   2. POST `/v1/teams/{teamId}/share-mode` on FC with the chosen mode +
-//!      (for git modes) the `gitConfig` payload.
+//!   2. POST `/v1/teams/{teamId}/share-mode` on FC with `{ mode: "oss" }`.
 //!
 //! The team shared directory is created and linked by the daemon (one global
 //! copy per team under `~/.amuxd/teams/<team_id>/teamclu-team`, exposed via a
@@ -21,7 +19,6 @@ use serde_json::json;
 use crate::commands::oss_sync::error::SyncError;
 use crate::commands::oss_sync::fc_client::FcClient;
 use crate::commands::oss_sync::resolve_runtime_fc_endpoint;
-use crate::commands::team_share::custom_git;
 use crate::commands::team_sync_proxy;
 use crate::commands::{team_secret_store, TEAM_REPO_DIR};
 use tracing::info;
@@ -52,50 +49,14 @@ async fn deliver_secrets_and_link(
     team_id: &str,
     workspace_path: &str,
     oss_team_secret: Option<&str>,
-    git_credential: Option<&str>,
-    git_branch: Option<&str>,
 ) -> Option<String> {
-    if let Err(e) =
-        team_sync_proxy::daemon_team_secrets(team_id, oss_team_secret, git_credential, git_branch)
-            .await
-    {
+    if let Err(e) = team_sync_proxy::daemon_team_secrets(team_id, oss_team_secret).await {
         return Some(format!("daemon secret delivery deferred: {e}"));
     }
     if let Err(e) = team_sync_proxy::daemon_team_link(workspace_path).await {
         return Some(format!("daemon link deferred: {e}"));
     }
     None
-}
-
-/// Resolve the SSH-key credential value to PEM **content**.
-///
-/// `GitEnableInput.credential` for `ssh_key` is documented as "SSH private key
-/// PEM", but `custom_git::store_credential`'s contract treats the value as a
-/// filesystem *path*. The daemon needs the PEM content. Be defensive: if the
-/// value looks like a path to an existing file, read it; otherwise treat it as
-/// already-PEM content and pass it through.
-fn resolve_ssh_pem_content(credential: &str) -> Result<String, String> {
-    let trimmed = credential.trim();
-    let looks_like_pem = trimmed.starts_with("-----BEGIN");
-    if !looks_like_pem {
-        let p = std::path::Path::new(credential);
-        if p.is_file() {
-            return std::fs::read_to_string(p)
-                .map_err(|e| format!("failed to read SSH key file {credential}: {e}"));
-        }
-    }
-    Ok(credential.to_string())
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GitEnableInput {
-    pub remote_url: String,
-    /// "ssh_key" | "https_token"
-    pub auth_kind: String,
-    /// Raw credential material — SSH private key PEM or HTTPS token.
-    pub credential: String,
-    pub branch: Option<String>,
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -210,7 +171,7 @@ pub async fn enable_oss_impl(
     // daemon owns the actual sync/materialization now — desktop no longer
     // clones or creates the team dir locally. Non-fatal on daemon error.
     let clone_warning =
-        deliver_secrets_and_link(&team_id, &workspace_path, Some(&secret), None, None).await;
+        deliver_secrets_and_link(&team_id, &workspace_path, Some(&secret)).await;
 
     Ok(EnableShareResult {
         team_id,
@@ -230,228 +191,6 @@ pub async fn team_share_enable_oss(
     enable_oss_impl(
         team_id,
         workspace_path,
-        access_token,
-        team_secret_hex,
-        cloud_api_url,
-    )
-    .await
-}
-
-// ─── enable_managed_git ──────────────────────────────────────────────────
-
-pub async fn enable_managed_git_impl(
-    team_id: String,
-    workspace_path: String,
-    access_token: String,
-    team_secret_hex: Option<String>,
-    cloud_api_url: String,
-) -> Result<EnableShareResult, String> {
-    let secret = resolve_team_secret_hex(&workspace_path, &team_id, team_secret_hex)?;
-    team_secret_store::save_team_secret_logged(&workspace_path, &team_id, &secret)?;
-
-    let fc = FcClient::new(
-        resolve_runtime_fc_endpoint(&cloud_api_url)?,
-        access_token.clone(),
-    );
-
-    // Provision the managed git repo via FC.
-    let create_resp = fc
-        .post_json("/managed-git/create-repo", &json!({ "teamId": team_id }))
-        .await
-        .map_err(|e| format!("/managed-git/create-repo failed: {e}"))?;
-    // FC returns the bare CodeUp HTTPS clone URL plus the bot's git credential
-    // (`pat`) and `botUsername`. CodeUp HTTPS auth expects `<username>:<token>`,
-    // so we store the credential in that combined form; the daemon embeds it
-    // verbatim into the remote URL (see `embed_token_in_url`).
-    let repo_url = create_resp
-        .get("repoHttpUrl")
-        .or_else(|| create_resp.get("repo_url"))
-        .or_else(|| create_resp.get("repoUrl"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "managed-git/create-repo: missing repoHttpUrl".to_string())?
-        .to_string();
-    let pat = create_resp
-        .get("pat")
-        .or_else(|| create_resp.get("push_token"))
-        .or_else(|| create_resp.get("pushToken"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "managed-git/create-repo: missing pat".to_string())?
-        .to_string();
-    let bot_username = create_resp
-        .get("botUsername")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
-    // Combined `user:token` userinfo when a bot username is present; otherwise
-    // the bare token (daemon falls back to an `oauth2:<token>` embed).
-    let git_credential = match bot_username {
-        Some(user) => format!("{user}:{pat}"),
-        None => pat,
-    };
-
-    let cred_ref = format!("managed_git:{}", team_id);
-    custom_git::store_credential(&workspace_path, &cred_ref, "https_token", &git_credential)?;
-
-    let body = json!({
-        "mode": "managed_git",
-        "gitConfig": {
-            "remoteUrl": repo_url,
-            "authKind": "https_token",
-            "credentialRef": cred_ref,
-        }
-    });
-    info!(team_id = %team_id, share_mode = "managed_git", remote_url = %repo_url, "team_share_enable_managed_git: locking share-mode on FC");
-    post_share_mode(&cloud_api_url, &team_id, &body, &access_token).await?;
-    info!(team_id = %team_id, share_mode = "managed_git", "team_share_enable_managed_git: share-mode locked");
-
-    ensure_team_repo_dir(&workspace_path)?;
-
-    // Deliver team secret + git credential; non-fatal on daemon error.
-    let clone_warning = deliver_secrets_and_link(
-        &team_id,
-        &workspace_path,
-        Some(&secret),
-        Some(&git_credential),
-        None,
-    )
-    .await;
-
-    Ok(EnableShareResult {
-        team_id,
-        share_mode: "managed_git".to_string(),
-        clone_warning,
-    })
-}
-
-#[tauri::command]
-pub async fn team_share_enable_managed_git(
-    team_id: String,
-    workspace_path: String,
-    access_token: String,
-    team_secret_hex: Option<String>,
-    cloud_api_url: String,
-) -> Result<EnableShareResult, String> {
-    enable_managed_git_impl(
-        team_id,
-        workspace_path,
-        access_token,
-        team_secret_hex,
-        cloud_api_url,
-    )
-    .await
-}
-
-// ─── enable_custom_git ──────────────────────────────────────────────────
-
-pub async fn enable_custom_git_impl(
-    team_id: String,
-    workspace_path: String,
-    input: GitEnableInput,
-    access_token: String,
-    team_secret_hex: Option<String>,
-    cloud_api_url: String,
-) -> Result<EnableShareResult, String> {
-    if input.auth_kind != "ssh_key" && input.auth_kind != "https_token" {
-        return Err(format!(
-            "invalid auth_kind `{}`; expected `ssh_key` or `https_token`",
-            input.auth_kind
-        ));
-    }
-
-    // SSH with an empty credential = "use this machine's ~/.ssh / ssh-agent".
-    // No private key is stored or delivered; the daemon falls back to the local
-    // SSH setup (see `sync::git::ssh_env_local`), so the user never has to paste
-    // a key or type a password. HTTPS always needs a token.
-    let local_ssh = input.auth_kind == "ssh_key" && input.credential.trim().is_empty();
-
-    let secret = resolve_team_secret_hex(&workspace_path, &team_id, team_secret_hex)?;
-    team_secret_store::save_team_secret_logged(&workspace_path, &team_id, &secret)?;
-
-    // `credentialRef` is a device-local pointer; FC only checks it is non-empty.
-    // We always send it so the server contract is satisfied, but only persist a
-    // real credential entry when the user actually supplied key material.
-    let cred_ref = format!("custom_git:{}", team_id);
-    if !local_ssh {
-        custom_git::store_credential(
-            &workspace_path,
-            &cred_ref,
-            &input.auth_kind,
-            &input.credential,
-        )?;
-    }
-
-    let mut git_config = json!({
-        "remoteUrl": input.remote_url,
-        "authKind": input.auth_kind,
-        "credentialRef": cred_ref,
-    });
-    if let Some(branch) = input.branch.as_deref() {
-        if let Some(obj) = git_config.as_object_mut() {
-            obj.insert(
-                "branch".to_string(),
-                serde_json::Value::String(branch.to_string()),
-            );
-        }
-    }
-
-    let body = json!({
-        "mode": "custom_git",
-        "gitConfig": git_config,
-    });
-    info!(
-        team_id = %team_id,
-        share_mode = "custom_git",
-        remote_url = %input.remote_url,
-        auth_kind = %input.auth_kind,
-        local_ssh = local_ssh,
-        "team_share_enable_custom_git: locking share-mode on FC"
-    );
-    post_share_mode(&cloud_api_url, &team_id, &body, &access_token).await?;
-    info!(team_id = %team_id, share_mode = "custom_git", "team_share_enable_custom_git: share-mode locked");
-
-    ensure_team_repo_dir(&workspace_path)?;
-
-    // Deliver the git credential to the daemon. For `https_token` the
-    // credential is the literal token; for `ssh_key` the daemon needs the PEM
-    // *content* (resolve_ssh_pem_content reads the file if input.credential is
-    // a path). For local-SSH there is no credential — the daemon reuses the
-    // machine's ~/.ssh / ssh-agent. Pass the user's branch through; the daemon
-    // owns the clone.
-    let git_credential = if local_ssh {
-        None
-    } else if input.auth_kind == "ssh_key" {
-        Some(resolve_ssh_pem_content(&input.credential)?)
-    } else {
-        Some(input.credential.clone())
-    };
-    let clone_warning = deliver_secrets_and_link(
-        &team_id,
-        &workspace_path,
-        Some(&secret),
-        git_credential.as_deref(),
-        input.branch.as_deref(),
-    )
-    .await;
-
-    Ok(EnableShareResult {
-        team_id,
-        share_mode: "custom_git".to_string(),
-        clone_warning,
-    })
-}
-
-#[tauri::command]
-pub async fn team_share_enable_custom_git(
-    team_id: String,
-    workspace_path: String,
-    input: GitEnableInput,
-    access_token: String,
-    team_secret_hex: Option<String>,
-    cloud_api_url: String,
-) -> Result<EnableShareResult, String> {
-    enable_custom_git_impl(
-        team_id,
-        workspace_path,
-        input,
         access_token,
         team_secret_hex,
         cloud_api_url,
@@ -484,7 +223,7 @@ pub async fn set_team_secret_impl(
     let store_notice = team_secret_store::save_team_secret(&workspace_path, &team_id, &normalized)?;
 
     let delivery_warning =
-        deliver_secrets_and_link(&team_id, &workspace_path, Some(&normalized), None, None).await;
+        deliver_secrets_and_link(&team_id, &workspace_path, Some(&normalized)).await;
     let warning = match (store_notice, delivery_warning) {
         (Some(a), Some(b)) => Some(format!("{a} {b}")),
         (Some(a), None) => Some(a),

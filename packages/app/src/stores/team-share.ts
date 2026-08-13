@@ -9,24 +9,22 @@ import { getEffectiveServerConfigSync } from '@/lib/server-config'
 // Types — mirror FC GET /v1/teams/:id/share-mode response (camelCase JSON)
 // ---------------------------------------------------------------------------
 
-export type ShareMode = 'oss' | 'managed_git' | 'custom_git' | null
+export type ShareMode = 'oss' | null
 
 export type LockedShareMode = Exclude<ShareMode, null>
 
 export function isShareModeLocked(
   mode: ShareMode | undefined | null,
 ): mode is LockedShareMode {
-  return mode === 'oss' || mode === 'managed_git' || mode === 'custom_git'
+  return mode === 'oss'
 }
 
-/** Match daemon: when FC mode is unset, ignore stray git fields in the payload. */
+/** Match the daemon: an unrecognized/unset FC mode means "not enabled". */
 export function normalizeShareStatus(raw: Partial<ShareStatus>): ShareStatus {
   const mode = (raw?.mode ?? null) as ShareMode
   if (!isShareModeLocked(mode)) {
     return {
       mode: null,
-      gitRemoteUrl: null,
-      gitAuthKind: null,
       enabledAt: null,
       linkStatus: raw?.linkStatus,
       globalPath: raw?.globalPath ?? null,
@@ -34,8 +32,6 @@ export function normalizeShareStatus(raw: Partial<ShareStatus>): ShareStatus {
   }
   return {
     mode,
-    gitRemoteUrl: raw?.gitRemoteUrl ?? null,
-    gitAuthKind: raw?.gitAuthKind ?? null,
     enabledAt: raw?.enabledAt ?? null,
     linkStatus: raw?.linkStatus,
     globalPath: raw?.globalPath ?? null,
@@ -48,21 +44,11 @@ export type LinkStatus = 'symlink' | 'real_dir' | 'missing'
 
 export interface ShareStatus {
   mode: ShareMode
-  gitRemoteUrl?: string | null
-  gitAuthKind?: string | null
   enabledAt?: string | null
   // Per-workspace link to the daemon's single global copy, and where that
   // global copy lives on disk (~/.amuxd/teams/<team_id>/teamclu-team).
   linkStatus?: LinkStatus
   globalPath?: string | null
-}
-
-/** Matches Rust `GitEnableInput` (`#[serde(rename_all = "camelCase")]`). */
-export interface CustomGitInput {
-  remoteUrl: string
-  authKind: 'ssh_key' | 'https_token'
-  credential: string
-  branch?: string
 }
 
 // Result of an enable_* command (matches Rust `EnableShareResult`).
@@ -87,17 +73,6 @@ export interface TeamShareState {
     workspacePath: string,
     teamSecretHex?: string,
   ): Promise<EnableShareResult>
-  enableManagedGit(
-    teamId: string,
-    workspacePath: string,
-    teamSecretHex?: string,
-  ): Promise<EnableShareResult>
-  enableCustomGit(
-    teamId: string,
-    workspacePath: string,
-    input: CustomGitInput,
-    teamSecretHex?: string,
-  ): Promise<EnableShareResult>
   /**
    * Save the team secret and deliver it to the daemon. Resolves to a warning
    * string when the save succeeded but the daemon did not take delivery — the
@@ -117,8 +92,6 @@ export interface TeamShareState {
 
 const EMPTY_STATUS: ShareStatus = {
   mode: null,
-  gitRemoteUrl: null,
-  gitAuthKind: null,
   enabledAt: null,
 }
 
@@ -148,7 +121,7 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
     shareRefreshInflightKey = key
     shareRefreshInflight = (async () => {
       // Keep the previous status visible while loading — clearing to EMPTY here
-      // made TeamSection flip TeamGitConfig ↔ TeamShareSection and spam daemon APIs.
+      // made TeamSection flip between surfaces and spam daemon APIs.
       set({ loading: true, lastError: null })
       try {
         const accessToken = await getFreshAccessToken()
@@ -161,8 +134,6 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
         })
         const next = normalizeShareStatus({
           mode: (raw?.mode ?? null) as ShareMode,
-          gitRemoteUrl: raw?.gitRemoteUrl ?? null,
-          gitAuthKind: raw?.gitAuthKind ?? null,
           enabledAt: raw?.enabledAt ?? null,
           linkStatus: raw?.linkStatus,
           globalPath: raw?.globalPath ?? null,
@@ -194,43 +165,6 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
     })
     // Materialize the daemon's global dir + workspace symlink now (best-effort)
     // so the synced directory exists immediately instead of after a restart.
-    await linkDaemonTeamWorkspace(workspacePath)
-    await get().refresh(teamId, workspacePath)
-    return res
-  },
-
-  async enableManagedGit(teamId, workspacePath, teamSecretHex) {
-    const accessToken = await getFreshAccessToken()
-    const cloudApiUrl = getCloudApiUrlForNativeCommand()
-    const res = await invoke<EnableShareResult>(
-      'team_share_enable_managed_git',
-      {
-        teamId,
-        workspacePath,
-        accessToken,
-        cloudApiUrl,
-        teamSecretHex: teamSecretHex?.trim() || null,
-      },
-    )
-    await linkDaemonTeamWorkspace(workspacePath)
-    await get().refresh(teamId, workspacePath)
-    return res
-  },
-
-  async enableCustomGit(teamId, workspacePath, input, teamSecretHex) {
-    const accessToken = await getFreshAccessToken()
-    const cloudApiUrl = getCloudApiUrlForNativeCommand()
-    const res = await invoke<EnableShareResult>(
-      'team_share_enable_custom_git',
-      {
-        teamId,
-        workspacePath,
-        input,
-        accessToken,
-        cloudApiUrl,
-        teamSecretHex: teamSecretHex?.trim() || null,
-      },
-    )
     await linkDaemonTeamWorkspace(workspacePath)
     await get().refresh(teamId, workspacePath)
     return res

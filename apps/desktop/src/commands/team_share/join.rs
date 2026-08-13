@@ -11,9 +11,7 @@
 //! `teamclu.json` (single source of truth = the Cloud API current-team store).
 //!
 //! Per spec: the joiner enters their own team secret manually afterwards via
-//! `team_share_set_team_secret`. For git modes the daemon owns the clone — the
-//! joiner needs credentials separately (managed_git tokens are re-shared
-//! out-of-band, custom_git creds are user-supplied later).
+//! `team_share_set_team_secret`.
 
 use serde::{Deserialize, Serialize};
 

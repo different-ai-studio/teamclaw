@@ -27,7 +27,7 @@ use super::records::{
 };
 use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BootstrapMqttOverride, CloudAuthSnapshot,
-    ManagedGitCredential, ManagedLlmConfig, ShareModeConfig, TeamSkillDownload, TeamSkillRow,
+    ManagedLlmConfig, ShareModeConfig, TeamSkillDownload, TeamSkillRow,
 };
 
 /// Error returned by every business call before onboarding completes.
@@ -154,10 +154,6 @@ impl Backend for DeferredBackend {
 
     async fn team_share_config(&self, team_id: &str) -> BackendResult<ShareModeConfig> {
         self.inner()?.team_share_config(team_id).await
-    }
-
-    async fn managed_git_credential(&self, team_id: &str) -> BackendResult<ManagedGitCredential> {
-        self.inner()?.managed_git_credential(team_id).await
     }
 
     async fn managed_llm_config(&self, team_id: &str) -> BackendResult<ManagedLlmConfig> {

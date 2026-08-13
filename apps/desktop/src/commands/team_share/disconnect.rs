@@ -3,9 +3,9 @@
 //! - Removes `teamclu-team` (symlink or dir) in the current workspace and every
 //!   other workspace bound to this team, per the Cloud API `workspaces` table
 //! - Deletes `~/.amuxd/teams/<team_id>/` (global copy, secrets, sync state)
-//! - Clears workspace-local team secret + git credentials
+//! - Clears the workspace-local team secret
 //! - Clears legacy `team_mode` in `.teamclu/teamclu.json`
-//! - `DELETE /v1/teams/:id/share-mode` so the owner can re-run the OSS/Git wizard
+//! - `DELETE /v1/teams/:id/share-mode` so the owner can re-run the share wizard
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -16,7 +16,6 @@ use tracing::info;
 use crate::commands::oss_sync::fc_client::FcClient;
 use crate::commands::oss_sync::resolve_runtime_fc_endpoint;
 use crate::commands::team::resolve_workspace_path;
-use crate::commands::team_share::custom_git;
 use crate::commands::team_share::enable::load_team_workspaces;
 use crate::commands::team_sync_proxy;
 use crate::commands::{team_secret_store, TEAM_REPO_DIR};
@@ -132,8 +131,6 @@ fn remove_legacy_workspace_team_repo(workspace_path: &str) -> Result<(), String>
 
 fn clear_workspace_team_local_config(workspace_path: &str, team_id: &str) -> Result<(), String> {
     let _ = team_secret_store::delete_team_secret(workspace_path, team_id);
-    let _ = custom_git::delete_credential(workspace_path, &format!("custom_git:{team_id}"));
-    let _ = custom_git::delete_credential(workspace_path, &format!("managed_git:{team_id}"));
     Ok(())
 }
 

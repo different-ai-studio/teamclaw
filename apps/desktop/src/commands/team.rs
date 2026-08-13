@@ -5,38 +5,22 @@ use tauri::State;
 // Re-export for backward compat (other modules use `crate::commands::team::TEAM_REPO_DIR`)
 pub use super::TEAM_REPO_DIR;
 
-// Re-export types that moved to sub-modules but are still referenced via `team::`.
-pub use crate::commands::team_git::{
-    TeamGitCreateResult, TeamGitResult, TeamMeta, WorkspaceGitCheckResult,
-};
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-/// Git team configuration stored in .teamclu/teamclu.json under "team".
+/// Team metadata stored in `teamclu-team/_meta/team.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TeamConfig {
-    pub git_url: String,
-    pub enabled: bool,
-    pub last_sync_at: Option<String>,
-    #[serde(default = "default_shared_dir_name")]
-    pub shared_dir_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub env_secret: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub git_token: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub git_branch: Option<String>,
+pub struct TeamMeta {
+    pub team_id: String,
+    pub team_name: String,
+    /// HMAC-SHA256(team_secret, "teamclu-verify") as hex — for join verification.
+    pub secret_verify: String,
+    pub created_at: String,
+    pub owner_node_id: String,
+    /// LiteLLM/FC endpoint URL. When set, joining members register their key
+    /// via this endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fc_endpoint: Option<String>,
-}
-
-/// serde default for `sharedDirName`, i.e. what a workspace config written
-/// *before* the field existed resolves to. That is a statement about directories
-/// already on disk, so it keeps the pre-rebrand spelling — changing it makes
-/// every such workspace look for a team drive that was never created.
-fn default_shared_dir_name() -> String {
-    "teamclaw".to_string()
 }
 
 // ─── Workspace Helpers ───────────────────────────────────────────────────────
@@ -96,21 +80,6 @@ pub fn write_workspace_config(
 
 // ─── Tauri Commands ───────────────────────────────────────────────────────────
 
-#[tauri::command]
-pub async fn get_team_config(
-    workspace_path: Option<String>,
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-) -> Result<Option<TeamConfig>, String> {
-    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
-    let json = read_workspace_config(&workspace_path)?;
-    json.get("team")
-        .cloned()
-        .map(serde_json::from_value::<TeamConfig>)
-        .transpose()
-        .map_err(|e| format!("Failed to parse team config: {}", e))
-}
-
 /// Read `teamclu-team/_meta/team.json` from the given workspace, if present.
 #[tauri::command]
 pub fn workspace_read_team_meta(workspace_path: String) -> Result<Option<TeamMeta>, String> {
@@ -142,23 +111,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn team_config_accepts_legacy_team_id_but_does_not_serialize_it() {
-        let config: TeamConfig = serde_json::from_value(serde_json::json!({
-            "gitUrl": "https://example.com/shared.git",
-            "enabled": true,
-            "lastSyncAt": null,
-            "sharedDirName": "teamclu",
-            "envSecret": "secret",
-            "gitToken": "token",
-            "gitBranch": "main",
-            "teamId": "legacy-team-id"
+    fn team_meta_round_trips_camel_case() {
+        let meta: TeamMeta = serde_json::from_value(serde_json::json!({
+            "teamId": "t-1",
+            "teamName": "Demo",
+            "secretVerify": "ab12",
+            "createdAt": "2026-06-01T00:00:00Z",
+            "ownerNodeId": "node-1"
         }))
         .unwrap();
 
-        let value = serde_json::to_value(config).unwrap();
-        assert_eq!(value["gitUrl"], "https://example.com/shared.git");
-        assert_eq!(value["gitBranch"], "main");
-        assert_eq!(value["gitToken"], "token");
-        assert!(value.get("teamId").is_none());
+        let value = serde_json::to_value(meta).unwrap();
+        assert_eq!(value["teamId"], "t-1");
+        assert!(value.get("fcEndpoint").is_none());
     }
 }

@@ -259,56 +259,6 @@ async fn set_team_secret_validates_and_stores() {
     assert_eq!(loaded, mixed_case.to_ascii_lowercase());
 }
 
-#[tokio::test]
-async fn enable_custom_git_writes_git_config() {
-    let _guard = HOME_GUARD.lock().unwrap_or_else(|e| e.into_inner());
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/v1/teams/t1/share-mode"))
-        .and(header("authorization", "Bearer test-jwt"))
-        .and(body_partial_json(json!({
-            "mode": "custom_git",
-            "gitConfig": {
-                "remoteUrl": "https://x",
-                "authKind": "ssh_key",
-                "credentialRef": "custom_git:t1",
-            }
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "id": "t1",
-            "share_mode": "custom_git",
-        })))
-        .mount(&server)
-        .await;
-
-    let tmp = TempDir::new().expect("tempdir");
-    isolate_home(&tmp);
-    let workspace = seed_workspace(&tmp, &server.uri());
-
-    let input = team_share::enable::GitEnableInput {
-        remote_url: "https://x".to_string(),
-        auth_kind: "ssh_key".to_string(),
-        credential: "PRIVATE KEY BODY".to_string(),
-        branch: None,
-    };
-    let result = team_share::enable::enable_custom_git_impl(
-        "t1".to_string(),
-        workspace.clone(),
-        input,
-        "test-jwt".to_string(),
-        None,
-        server.uri(),
-    )
-    .await
-    .expect("enable_custom_git should succeed");
-    assert_eq!(result.share_mode, "custom_git");
-
-    // NOTE: team fields (share_mode / git_remote_url / oss_team_id) are no
-    // longer persisted to teamclu.json — single source of truth is the
-    // current-team store (commits ad563711 / b1baec40). The returned
-    // share_mode is asserted above.
-}
-
 // ─── Task 12 tests ────────────────────────────────────────────────────────
 
 #[tokio::test]

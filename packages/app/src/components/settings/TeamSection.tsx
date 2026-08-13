@@ -2,7 +2,6 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { Users, Loader2, AlertCircle } from 'lucide-react'
 
-import { TeamGitConfig } from './team/TeamGitConfig'
 import { TeamOssSyncStatus } from './team/TeamOssSyncStatus'
 import { TeamDefaultAgentConfig } from './team/TeamDefaultAgentConfig'
 import { useCurrentTeamStore } from '@/stores/current-team'
@@ -129,12 +128,7 @@ export function TeamSection() {
       })
       .catch(() => {
         if (!cancelled) {
-          setResolvedShare({
-            mode: null,
-            gitRemoteUrl: null,
-            gitAuthKind: null,
-            enabledAt: null,
-          })
+          setResolvedShare({ mode: null, enabledAt: null })
         }
       })
     return () => {
@@ -148,10 +142,9 @@ export function TeamSection() {
       ? resolvedShare.mode
       : null
 
-  // The FC-locked share mode ('oss' | 'managed_git' | 'custom_git' | null) is the
-  // single source of truth for which sync surface to show. The daemon reads
-  // share_mode from the Cloud API; when it is unset the team is not configured.
-  const isOss = shareMode === 'oss'
+  // The FC-locked share mode ('oss' | null) is the single source of truth for
+  // which sync surface to show. The daemon reads share_mode from the Cloud API;
+  // when it is unset the team is not configured.
   const isConfigured = isShareModeLocked(shareMode)
 
   return (
@@ -161,7 +154,7 @@ export function TeamSection() {
         title={t('settings.team.title', 'Team Shared')}
         description={t(
           'settings.team.description',
-          'Configure the team shared Git repository, local shared directory, and sync status',
+          'Configure the team shared directory and sync status',
         )}
       />
 
@@ -183,10 +176,8 @@ export function TeamSection() {
         ) : (
           <MissingPrereqNotice teamId={teamId} workspacePath={workspacePath} />
         )
-      ) : isOss ? (
-        <TeamOssSyncStatus />
       ) : (
-        <TeamGitConfig />
+        <TeamOssSyncStatus />
       )}
     </div>
   )

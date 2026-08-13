@@ -33,9 +33,6 @@ pub enum ErrorCode {
     /// instead of surfacing the raw validation error. Distinct from
     /// `ValidationFailed` precisely so clients branch on it.
     TeamShareNotEnabledForDaemon,
-    /// Global team dir exists on disk but has no `.git` metadata (and is not an
-    /// empty scaffold). The desktop should ask the user before wiping it.
-    TeamSharedDirNotGit,
     EventGone,
     Conflict,
     BadRequest,
@@ -53,9 +50,9 @@ impl ErrorCode {
             ErrorCode::SessionBusy | ErrorCode::Conflict => StatusCode::CONFLICT,
             ErrorCode::RuntimeUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             ErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
-            ErrorCode::ValidationFailed
-            | ErrorCode::TeamShareNotEnabledForDaemon
-            | ErrorCode::TeamSharedDirNotGit => StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorCode::ValidationFailed | ErrorCode::TeamShareNotEnabledForDaemon => {
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
             ErrorCode::EventGone => StatusCode::GONE,
             ErrorCode::BadRequest => StatusCode::BAD_REQUEST,
             ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
@@ -74,7 +71,6 @@ impl ErrorCode {
             ErrorCode::RateLimited => "Too many requests",
             ErrorCode::ValidationFailed => "Validation failed",
             ErrorCode::TeamShareNotEnabledForDaemon => "Team share not enabled for daemon",
-            ErrorCode::TeamSharedDirNotGit => "Team shared directory is not a git repository",
             ErrorCode::EventGone => "Event window expired",
             ErrorCode::Conflict => "Conflict",
             ErrorCode::BadRequest => "Bad request",
@@ -141,12 +137,6 @@ impl HttpError {
     /// case and offer a rebind action rather than echoing the raw detail.
     pub fn team_share_not_enabled_for_daemon(detail: impl Into<String>) -> Self {
         Self::new(ErrorCode::TeamShareNotEnabledForDaemon, detail)
-    }
-
-    /// 422 when the global team dir exists but is not a git repo. The desktop
-    /// should offer to delete and re-clone after user confirmation.
-    pub fn team_shared_dir_not_git(detail: impl Into<String>) -> Self {
-        Self::new(ErrorCode::TeamSharedDirNotGit, detail)
     }
 
     pub fn internal(detail: impl Into<String>) -> Self {
@@ -256,21 +246,6 @@ mod tests {
             "https://teamclu/errors/team_share_not_enabled_for_daemon"
         );
         assert_eq!(json["title"], "Team share not enabled for daemon");
-    }
-
-    #[tokio::test]
-    async fn team_shared_dir_not_git_is_422_with_stable_code() {
-        let err = HttpError::team_shared_dir_not_git("not a git repo");
-        let resp = err.into_response();
-        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
-        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["status"], 422);
-        assert_eq!(json["code"], "team_shared_dir_not_git");
-        assert_eq!(
-            json["title"],
-            "Team shared directory is not a git repository"
-        );
     }
 
     #[tokio::test]

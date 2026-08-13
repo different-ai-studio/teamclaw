@@ -37,7 +37,6 @@ const DEBT: &[&str] = &[
     "apps/daemon/src/runtime/prompt_attachments.rs",
     "apps/daemon/src/runtime/refresh_watch.rs",
     "apps/daemon/src/runtime/supervisor.rs",
-    "apps/daemon/src/sync/git.rs",
     "apps/daemon/src/sync/oss/state.rs",
     "apps/daemon/src/team_link.rs",
     "apps/daemon/src/team_shared_env.rs",
@@ -51,7 +50,6 @@ const DEBT: &[&str] = &[
     "apps/desktop/src/commands/team_share/enable.rs",
     "apps/desktop/src/commands/team_share/mod.rs",
     "apps/desktop/src/commands/team_skills.rs",
-    "apps/desktop/tests/custom_git_smoke.rs",
     "apps/desktop/tests/team_litellm_smoke.rs",
     "apps/desktop/tests/team_share_smoke.rs",
     "crates/teamclu-gateway/src/lib.rs",
@@ -63,10 +61,8 @@ const DEBT: &[&str] = &[
     "crates/teamclu-runtime-env/src/team_provider_sync.rs",
     "packages/app/src/components/settings/__tests__/GeneralSectionSmallWindow.test.tsx",
     "packages/app/src/components/settings/__tests__/SettingsNavigation.test.tsx",
-    "packages/app/src/components/settings/team/__tests__/TeamGitConfig.test.tsx",
     "packages/app/src/lib/__tests__/mid-turn-followup-repro.test.ts",
     "packages/app/src/lib/build-config.ts",
-    "packages/app/src/lib/git/skill-loader.ts",
     "packages/app/src/stores/__tests__/team-share.test.ts",
 ];
 

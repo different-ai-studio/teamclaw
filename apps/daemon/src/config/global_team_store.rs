@@ -4,7 +4,7 @@
 //! (`~/.amuxd`). Every workspace of that team exposes this directory via a
 //! `teamclu-team` symlink (see `workspace_link`).
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::DaemonConfig;
 
@@ -22,6 +22,41 @@ pub const TEAM_LINK_NAME: &str = "teamclu-team";
 /// had a writer here.
 pub const SHARED_PREFIXES: &[&str] = &["knowledge"];
 
+/// Reject a shared-dir name that could escape the workspace or hide itself.
+pub fn validate_shared_dir_name(name: &str) -> anyhow::Result<()> {
+    if name.is_empty() || name.len() > 64 {
+        anyhow::bail!("shared_dir_name must be 1-64 characters");
+    }
+    if name == "." || name == ".." || name.starts_with('.') {
+        anyhow::bail!("shared_dir_name cannot be hidden, . or ..");
+    }
+    if name.contains('/') || name.contains('\\') {
+        anyhow::bail!("shared_dir_name cannot contain path separators");
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+    {
+        anyhow::bail!("shared_dir_name contains unsupported characters");
+    }
+    Ok(())
+}
+
+/// `<workspace_root>/<shared_dir_name>`, validated to stay inside the workspace.
+pub fn shared_dir_path(workspace_root: &Path, shared_dir_name: &str) -> anyhow::Result<PathBuf> {
+    validate_shared_dir_name(shared_dir_name)?;
+    let path = workspace_root.join(shared_dir_name);
+    for component in path.components() {
+        if matches!(component, Component::ParentDir) {
+            anyhow::bail!("shared directory path cannot contain ..");
+        }
+    }
+    if !path.starts_with(workspace_root) {
+        anyhow::bail!("shared directory must stay inside workspace");
+    }
+    Ok(path)
+}
+
 /// `~/.amuxd/teams/<team_id>/shared/teamclu-team` — the one synced copy.
 pub fn global_team_dir(team_id: &str) -> PathBuf {
     super::layout::team_shared_dir(team_id).join(TEAM_LINK_NAME)
@@ -31,10 +66,9 @@ pub fn global_team_dir(team_id: &str) -> PathBuf {
 /// config that now comes from the Cloud API rather than the sync engine (team
 /// MCP, team env). See `runtime::team_cloud_config`.
 ///
-/// It must stay outside `shared/`: a daemon writer inside the synced tree shows
-/// up as a dirty working tree in git share modes (commit churn, ambiguous
-/// ownership) and the sync scanner treats it as local content to push —
-/// emitting tombstones for other members when it changes.
+/// It must stay outside `shared/`: the sync scanner treats anything inside the
+/// synced tree as local content to push, so a daemon writer in there emits
+/// tombstones for every other member each time it changes.
 ///
 /// That used to be enforced by "be a sibling of `teamclu-team/`", which is a
 /// rule you can only follow if you know it. Under `state/` it follows from
@@ -140,6 +174,19 @@ pub(crate) static TEST_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new((
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_unsafe_shared_dir_names() {
+        for value in ["", ".", "..", ".hidden", "../bad", "bad/name"] {
+            assert!(validate_shared_dir_name(value).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn resolves_shared_dir_under_workspace() {
+        let path = shared_dir_path(Path::new("/tmp/workspace"), "teamclu").unwrap();
+        assert_eq!(path, PathBuf::from("/tmp/workspace/teamclu"));
+    }
 
     #[test]
     fn global_dir_is_keyed_by_team_id() {

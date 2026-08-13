@@ -186,17 +186,18 @@ pub fn load_team_env(
     shared_dir_name: &str,
     env_secret: &str,
 ) -> anyhow::Result<HashMap<String, String>> {
-    let secrets_dir =
-        crate::team_shared_git::shared_dir_path(workspace_root, shared_dir_name)?.join("_secrets");
+    let secrets_dir = crate::config::global_team_store::shared_dir_path(
+        workspace_root,
+        shared_dir_name,
+    )?
+    .join("_secrets");
     load_team_env_from_secrets_dir(&secrets_dir, env_secret)
 }
 
 /// The team env decryption key: this daemon's own store first.
 ///
-/// The secret is not tied to a share mode — `_secrets/` rides along in the
-/// shared dir under OSS *and* both git modes, so every mode needs it. It is
-/// also not the git credential: that one logs in to the remote, this one
-/// decrypts what the remote carries.
+/// `_secrets/` rides along in the shared dir, so this key is what turns those
+/// envelopes back into env vars.
 ///
 /// The daemon's store wins because it is the only source a standalone install
 /// can be handed one (`amuxd team secrets set`, or the desktop's
@@ -233,9 +234,9 @@ fn resolve_env_secret_with(
 
 /// Load decrypted team shared env for a workspace.
 ///
-/// Does not require `team.enabled` in `teamclu.json`. Git-backed teams usually
-/// keep secrets under `{sharedDirName}/_secrets` (default UI: `teamclu/_secrets`);
-/// global `teamclu-team` symlink and `_team_secret.{team_id}` blob are fallbacks.
+/// Does not require `team.enabled` in `teamclu.json`. Secrets normally live
+/// under `{sharedDirName}/_secrets` (default UI: `teamclu/_secrets`); the global
+/// `teamclu-team` symlink and `_team_secret.{team_id}` blob are fallbacks.
 pub fn load_team_env_for_workspace(
     workspace_root: &Path,
     team_id: Option<&str>,

@@ -6,12 +6,7 @@ import { ChevronRight, File } from "lucide-react";
 import { toast } from 'sonner';
 import { isChatInputDropTarget, isPointOverElement } from '@/lib/chat-file-drop';
 import { copyToClipboard, isTauri } from '@/lib/utils';
-import { GitStatus } from "@/lib/git/service";
 import { useWorkspaceStore, type FileNode } from "@/stores/workspace";
-import { useGitStatus } from "@/hooks/use-git-status";
-import { useGitSettingsStore } from "@/stores/git-settings";
-import { useTeamModeStore } from "@/stores/team-mode";
-import { useTeamShareStore } from "@/stores/team-share";
 import { useOssSyncStore } from "@/stores/oss-sync";
 import {
   AlertDialog,
@@ -98,92 +93,6 @@ function filterTree(
   return { nodes: filtered, autoExpandPaths };
 }
 
-/**
- * Build a complete file tree from git-changed file paths.
- * This is used instead of filtering the lazy-loaded file tree,
- * because unexpanded directories wouldn't contain their changed files.
- */
-function buildGitChangedTree(
-  changedPaths: Set<string>,
-  workspacePath: string,
-): { nodes: FileNode[]; autoExpandPaths: Set<string> } {
-  if (changedPaths.size === 0 || !workspacePath)
-    return { nodes: [], autoExpandPaths: new Set() };
-
-  const normalizedWorkspace = workspacePath.replace(/\\/g, "/");
-
-  // Build a nested map: relative path segments -> file entries
-  interface TreeEntry {
-    children: Map<string, TreeEntry>;
-    isFile: boolean;
-    absolutePath: string;
-  }
-
-  const root: TreeEntry = {
-    children: new Map(),
-    isFile: false,
-    absolutePath: normalizedWorkspace,
-  };
-
-  for (const absPath of changedPaths) {
-    const normalized = absPath.replace(/\\/g, "/");
-    // Get relative path from workspace
-    if (!normalized.startsWith(normalizedWorkspace + "/")) continue;
-    const relativePath = normalized.slice(normalizedWorkspace.length + 1);
-    const segments = relativePath.split("/");
-
-    let current = root;
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      if (!current.children.has(seg)) {
-        const partialPath =
-          normalizedWorkspace + "/" + segments.slice(0, i + 1).join("/");
-        current.children.set(seg, {
-          children: new Map(),
-          isFile: i === segments.length - 1,
-          absolutePath: partialPath,
-        });
-      }
-      current = current.children.get(seg)!;
-    }
-  }
-
-  // Convert the nested map into FileNode[], collecting directory paths to auto-expand
-  const autoExpandPaths = new Set<string>();
-  function toFileNodes(entry: TreeEntry): FileNode[] {
-    const nodes: FileNode[] = [];
-    const sorted = [...entry.children.entries()].sort(
-      ([aName, aEntry], [bName, bEntry]) => {
-        // Directories first, then files
-        if (!aEntry.isFile && bEntry.isFile) return -1;
-        if (aEntry.isFile && !bEntry.isFile) return 1;
-        return aName.localeCompare(bName);
-      },
-    );
-
-    for (const [name, child] of sorted) {
-      if (child.isFile) {
-        nodes.push({
-          name,
-          path: child.absolutePath,
-          type: "file",
-        });
-      } else {
-        autoExpandPaths.add(child.absolutePath);
-        nodes.push({
-          name,
-          path: child.absolutePath,
-          type: "directory",
-          children: toFileNodes(child),
-        });
-      }
-    }
-    return nodes;
-  }
-
-  return { nodes: toFileNodes(root), autoExpandPaths };
-}
-
 // Flatten the recursive tree into a flat list of visible nodes
 function flattenTree(
   nodes: FileNode[],
@@ -250,11 +159,8 @@ const VIRTUAL_SCROLL_THRESHOLD = 200;
 
 interface FileTreeProps {
   filterText?: string;
-  gitChangedOnly?: boolean;
   /** Override tree nodes (e.g. for custom root). When provided, bypasses workspace store's fileTree. */
   nodes?: import('@/stores/workspace').FileNode[];
-  /** Suppress git status decorations */
-  hideGitStatus?: boolean;
   /** When set, shows an InlineInput at the top of the tree for creating a file or folder at root level */
   rootCreating?: 'file' | 'folder' | null;
   onRootCreateConfirm?: (name: string) => void;
@@ -263,9 +169,7 @@ interface FileTreeProps {
 
 export function FileTree({
   filterText = "",
-  gitChangedOnly = false,
   nodes: nodesProp,
-  hideGitStatus = false,
   rootCreating,
   onRootCreateConfirm,
   onRootCreateCancel,
@@ -293,10 +197,6 @@ export function FileTree({
   const setClipboard = useWorkspaceStore(s => s.setClipboard);
   const pasteFiles = useWorkspaceStore(s => s.pasteFiles);
 
-  const { gitStatuses } = useGitStatus();
-  const { showGitStatus, showStatusIcons, statusColors } =
-    useGitSettingsStore();
-  const effectiveShowGitStatus = hideGitStatus ? false : showGitStatus;
   const parentRef = useRef<HTMLDivElement>(null);
   const treeContainerRef = useRef<HTMLDivElement>(null);
 
@@ -330,57 +230,21 @@ export function FileTree({
   const pushUndoRef = useRef(pushUndo);
   useEffect(() => { pushUndoRef.current = pushUndo; }, [pushUndo]);
 
-  // Pre-compute git data
-  const { fileGitStatusMap, dirtyDirectories } = useMemo(() => {
-    if (!effectiveShowGitStatus) {
-      return {
-        fileGitStatusMap: new Map<string, GitStatus>(),
-        dirtyDirectories: new Set<string>(),
-      };
-    }
-    const fileMap = new Map<string, GitStatus>();
-    const dirtyDirs = new Set<string>();
-    const wpLen = workspacePath?.length || 0;
-
-    gitStatuses.forEach((status, path) => {
-      fileMap.set(path, status.status);
-      let dir = path.substring(0, path.lastIndexOf("/"));
-      while (dir && dir.length > wpLen) {
-        if (dirtyDirs.has(dir)) break;
-        dirtyDirs.add(dir);
-        dir = dir.substring(0, dir.lastIndexOf("/"));
-      }
-    });
-
-    return { fileGitStatusMap: fileMap, dirtyDirectories: dirtyDirs };
-  }, [effectiveShowGitStatus, gitStatuses, workspacePath]);
-
-  // Pre-compute sync status data for team files.
-  //   - git    → teamGitFileSyncStatusMap ('modified' | 'new') drives per-file coloring
-  //   - oss    → the daemon no longer exposes per-file sync status, so OSS files
-  //              get no per-file sync badges (only the folder spinner / last-sync
-  //              tooltip from the aggregate `syncing` / `lastSyncAt`).
-  const teamGitFileSyncStatusMap = useTeamModeStore(s => s.teamGitFileSyncStatusMap);
-  const teamGitSyncing = useTeamModeStore(s => s.teamGitSyncing);
-  const teamGitLastSyncAt = useTeamModeStore(s => s.teamGitLastSyncAt);
-  const shareMode = useTeamShareStore(s => s.status.mode);
+  // Pre-compute sync status data for team files. The daemon no longer exposes
+  // per-file sync status, so files get no per-file sync badges (only the folder
+  // spinner / last-sync tooltip from the aggregate `syncing` / `lastSyncAt`).
   const ossSyncing = useOssSyncStore(s => s.syncing);
   const ossLastSyncAt = useOssSyncStore(s => s.lastSyncAt);
 
-  const isGitShare = shareMode === 'managed_git' || shareMode === 'custom_git';
-  const isOssShare = shareMode === 'oss';
+  // Per-file status is not available via the daemon.
+  const fileSyncStatusMap = useMemo<Record<string, FileSyncStatusKind>>(
+    () => ({}),
+    [],
+  );
 
-  const fileSyncStatusMap = useMemo<Record<string, FileSyncStatusKind>>(() => {
-    if (isGitShare) {
-      return teamGitFileSyncStatusMap;
-    }
-    // OSS mode: per-file status is no longer available via the daemon.
-    return {};
-  }, [isGitShare, teamGitFileSyncStatusMap]);
-
-  // Which mode drives the teamclu-team folder spinner / last-sync tooltip.
-  const teamSyncing = isOssShare ? ossSyncing : teamGitSyncing;
-  const teamLastSyncAt = isOssShare ? ossLastSyncAt : teamGitLastSyncAt;
+  // Drives the teamclu-team folder spinner / last-sync tooltip.
+  const teamSyncing = ossSyncing;
+  const teamLastSyncAt = ossLastSyncAt;
 
   const syncDirtyDirectories = useMemo(() => {
     const dirtyDirs = new Map<string, FileSyncStatusKind>();
@@ -749,30 +613,8 @@ export function FileTree({
     [refreshFileTree, expandDirectory, pushUndo],
   );
 
-  // Build set of git-changed file paths for filtering
-  const gitChangedPaths = useMemo(() => {
-    if (!gitChangedOnly) return new Set<string>();
-    return new Set(gitStatuses.keys());
-  }, [gitChangedOnly, gitStatuses]);
-
   // Filter and flatten tree
   const { filteredTree, effectiveExpandedPaths } = useMemo(() => {
-    if (gitChangedOnly) {
-      const gitResult = buildGitChangedTree(
-        gitChangedPaths,
-        workspacePath || "",
-      );
-      let tree = gitResult.nodes;
-      const autoExpand = gitResult.autoExpandPaths;
-      if (filterText.trim()) {
-        const filterResult = filterTree(tree, filterText, autoExpand);
-        tree = filterResult.nodes;
-      }
-      return {
-        filteredTree: tree,
-        effectiveExpandedPaths: autoExpand,
-      };
-    }
     const filterResult = filterTree(fileTree, filterText);
     const merged =
       filterResult.autoExpandPaths.size > 0
@@ -782,14 +624,7 @@ export function FileTree({
       filteredTree: filterResult.nodes,
       effectiveExpandedPaths: merged,
     };
-  }, [
-    fileTree,
-    filterText,
-    gitChangedOnly,
-    gitChangedPaths,
-    workspacePath,
-    expandedPaths,
-  ]);
+  }, [fileTree, filterText, expandedPaths]);
   const flatNodes = useMemo(
     () => flattenTree(filteredTree, effectiveExpandedPaths),
     [filteredTree, effectiveExpandedPaths],
@@ -1229,12 +1064,10 @@ export function FileTree({
     );
   }
 
-  if ((filterText.trim() || gitChangedOnly) && filteredTree.length === 0) {
+  if (filterText.trim() && filteredTree.length === 0) {
     return (
       <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-        {gitChangedOnly && !filterText.trim()
-          ? t("fileExplorer.noGitChanges", "No git changes")
-          : t("fileExplorer.noFilesMatchFilter", "No files match filter")}
+        {t("fileExplorer.noFilesMatchFilter", "No files match filter")}
       </div>
     );
   }
@@ -1265,16 +1098,6 @@ export function FileTree({
     isFocused: focusedPath === node.path,
     isExpanded: effectiveExpandedPaths.has(node.path),
     isLoading: loadingPaths.has(node.path),
-    hasGitChanges:
-      node.type === "directory"
-        ? dirtyDirectories.has(node.path)
-        : fileGitStatusMap.has(node.path),
-    gitStatus:
-      node.type === "directory"
-        ? null
-        : (fileGitStatusMap.get(node.path) ?? null),
-    showStatusIcons,
-    statusColors,
     isRenaming: renamingPath === node.path,
     isDragOver: dragOverPath === node.path,
     isTeamCluTeam: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0,

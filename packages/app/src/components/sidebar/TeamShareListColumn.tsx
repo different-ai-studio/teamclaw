@@ -646,7 +646,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             <FileBrowser
               variant="panel"
               rootPath={knowledgeRoot}
-              hideGitStatus={false}
+              hideFileActions={false}
               hideToolbar
               filterText={query}
               onFilterTextChange={setQuery}
