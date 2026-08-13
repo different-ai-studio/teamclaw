@@ -36,20 +36,21 @@ pub fn global_team_home_dir(team_id: &str) -> Option<PathBuf> {
     Some(crate::commands::amuxd_team_dir(team_id))
 }
 
-/// `~/.amuxd/team-secrets/<team_id>.enc` — the daemon's encrypted team secrets.
+/// `~/.amuxd/teams/<team_id>/state/secrets.enc` — the daemon's encrypted team
+/// secrets, and the per-team key that opens them.
 ///
-/// Mirrors `SecretStore::secrets_path` in the daemon. These used to sit inside
-/// `global_team_home_dir`, so removing that directory erased them as a side
-/// effect; now that they live outside it, disconnect has to remove them
-/// explicitly or a disconnected team leaves its credentials on disk.
+/// Mirrors `SecretStore` in the daemon. They sit back inside
+/// `global_team_home_dir` again, under `state/`, so removing that directory
+/// erases them as a side effect — but this stays explicit, because a disconnect
+/// that only got as far as the secrets must still take them.
 pub fn global_team_secrets_path(team_id: &str) -> Option<PathBuf> {
     if team_id.trim().is_empty() {
         return None;
     }
     Some(
-        crate::commands::amuxd_home_dir()
-            .join("team-secrets")
-            .join(format!("{team_id}.enc")),
+        crate::commands::amuxd_team_dir(team_id)
+            .join("state")
+            .join("secrets.enc"),
     )
 }
 

@@ -54,7 +54,19 @@ pub const UNCLAIMED_TEAM: &str = "_unclaimed";
 
 /// `teams/<id>`, or `teams/_unclaimed` when there is no team yet.
 pub fn team_dir(team_id: &str) -> PathBuf {
-    teams_dir().join(team_slug(team_id))
+    team_dir_in(&root(), team_id)
+}
+
+/// [`team_dir`] under an explicit home, for callers that already hold one —
+/// notably `SecretStore`, whose tests point it at a temp directory. Same layout
+/// either way, so a fixture cannot drift from the real thing.
+pub fn team_dir_in(home: &std::path::Path, team_id: &str) -> PathBuf {
+    home.join("teams").join(team_slug(team_id))
+}
+
+/// [`team_state_dir`] under an explicit home.
+pub fn team_state_dir_in(home: &std::path::Path, team_id: &str) -> PathBuf {
+    team_dir_in(home, team_id).join("state")
 }
 
 /// `teams/<id>/shared` — the **only** path the sync engine is allowed to scan.
