@@ -21,6 +21,29 @@ pub fn assemble_spawn_runtime_env(
     cloud_token_file: Option<&str>,
     managed_llm: &ManagedLlmState,
 ) -> anyhow::Result<SpawnRuntimeEnv> {
+    assemble_spawn_runtime_env_for_execution(
+        workspace_root,
+        workspace_root,
+        team_id,
+        actor_id,
+        display_name,
+        cloud_token_file,
+        managed_llm,
+    )
+}
+
+/// Assemble environment sources from the registered parent workspace while
+/// materializing provider and placeholder-resolved OpenCode config in the
+/// directory where the runtime will actually execute.
+pub fn assemble_spawn_runtime_env_for_execution(
+    workspace_root: &Path,
+    execution_directory: &Path,
+    team_id: Option<&str>,
+    actor_id: &str,
+    display_name: &str,
+    cloud_token_file: Option<&str>,
+    managed_llm: &ManagedLlmState,
+) -> anyhow::Result<SpawnRuntimeEnv> {
     // Cold ManagedLlm cache often yields Unknown and omits TEAMCLU_TEAM_PROVIDER;
     // reconstruct Enabled from on-disk provider.team so the spawn fingerprint
     // matches a later successful cloud resolve with the same gateway data.
@@ -29,7 +52,7 @@ pub fn assemble_spawn_runtime_env(
         teamclu_runtime_env::stabilize_managed_llm_for_spawn(managed_llm, disk_team.as_ref());
     let team_env = team_shared_env::load_team_env_for_workspace_detailed(workspace_root, team_id);
     let mut bundle = teamclu_runtime_env::assemble_runtime_env(
-        workspace_root,
+        execution_directory,
         team_env.values,
         teamclu_runtime_env::SystemEnvContext {
             actor_id: actor_id.to_string(),
@@ -101,6 +124,7 @@ pub fn assemble_spawn_runtime_env(
 mod tests {
     use super::*;
     use teamclu_runtime_env::team_crypto::{self, SecretEntry};
+    use teamclu_runtime_env::{ManagedLlmModel, ManagedLlmProvider};
 
     /// Covers the production boundary, rather than merely testing the secret
     /// reader: an encrypted team value must be present in the environment that
@@ -161,9 +185,88 @@ mod tests {
     }
 
     #[test]
-    fn unknown_managed_llm_with_disk_provider_matches_enabled_fingerprint() {
-        use teamclu_runtime_env::{ManagedLlmModel, ManagedLlmProvider};
+    fn worktree_uses_parent_team_env_and_materializes_its_own_opencode_config() {
+        let workspace = tempfile::tempdir().unwrap();
+        let worktree = workspace.path().join(".worktrees/cron-j1-r1");
+        std::fs::create_dir_all(&worktree).unwrap();
 
+        let team_secret = "7b".repeat(32);
+        let config_dir = workspace.path().join(".teamclu");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("teamclu.json"),
+            serde_json::json!({ "team": { "envSecret": team_secret } }).to_string(),
+        )
+        .unwrap();
+        let secrets_dir = workspace.path().join("teamclu-team/_secrets");
+        std::fs::create_dir_all(&secrets_dir).unwrap();
+        let key = team_crypto::derive_key(&team_secret).unwrap();
+        let envelope = team_crypto::encrypt_secret(
+            &SecretEntry {
+                key_id: "cron_worktree_env_sentinel".into(),
+                key: "from-parent".into(),
+                ..Default::default()
+            },
+            &key,
+        )
+        .unwrap();
+        std::fs::write(
+            secrets_dir.join("cron_worktree_env_sentinel.enc.json"),
+            serde_json::to_vec(&envelope).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            worktree.join("opencode.json"),
+            serde_json::json!({
+                "mcp": {
+                    "sentinel": {
+                        "environment": {
+                            "TOKEN": "${CRON_WORKTREE_ENV_SENTINEL}"
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let managed = ManagedLlmState::Enabled(ManagedLlmProvider {
+            name: "Team".into(),
+            base_url: "https://gateway.example/v1".into(),
+            models: vec![ManagedLlmModel {
+                id: "cron-model".into(),
+                name: "Cron Model".into(),
+            }],
+        });
+
+        let spawn_env = assemble_spawn_runtime_env_for_execution(
+            workspace.path(),
+            &worktree,
+            None,
+            "cron-actor",
+            "Cron Agent",
+            None,
+            &managed,
+        )
+        .unwrap();
+
+        assert_eq!(
+            spawn_env
+                .extra_env
+                .get("CRON_WORKTREE_ENV_SENTINEL")
+                .map(String::as_str),
+            Some("from-parent")
+        );
+        let materialized = std::fs::read_to_string(worktree.join("opencode.json")).unwrap();
+        assert!(materialized.contains("cron-model"));
+        assert!(materialized.contains("from-parent"));
+        assert!(
+            !workspace.path().join("opencode.json").exists(),
+            "provider/config materialization belongs in the execution worktree"
+        );
+    }
+
+    #[test]
+    fn unknown_managed_llm_with_disk_provider_matches_enabled_fingerprint() {
         let workspace = tempfile::tempdir().unwrap();
         std::fs::write(
             workspace.path().join("opencode.json"),
@@ -214,9 +317,7 @@ mod tests {
         .unwrap();
 
         assert!(
-            from_unknown
-                .extra_env
-                .contains_key("TEAMCLU_TEAM_PROVIDER"),
+            from_unknown.extra_env.contains_key("TEAMCLU_TEAM_PROVIDER"),
             "Unknown + disk provider.team must still inject TEAMCLU_TEAM_PROVIDER"
         );
         assert_eq!(

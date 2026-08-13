@@ -942,6 +942,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolve_cron_default_workspace_context_rejects_unrelated_execution_directory() {
+        let workspace = tempfile::tempdir().unwrap();
+        let unrelated = tempfile::tempdir().unwrap();
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        {
+            let mut state = mock.state();
+            state.workspaces_by_id.insert(
+                "ws-default".into(),
+                WorkspaceRow {
+                    id: "ws-default".into(),
+                    team_id: "team-test".into(),
+                    path: Some(workspace.path().to_string_lossy().into_owned()),
+                    archived: false,
+                    agent_id: None,
+                },
+            );
+        }
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let test_server = test_server_with_cloud_api(backend);
+
+        let result = test_server
+            .server
+            .assemble_execution_context(
+                unrelated.path().to_string_lossy().as_ref(),
+                Some(workspace.path().to_string_lossy().as_ref()),
+                None,
+                true,
+                Some(PermissionPolicy::Full),
+            )
+            .await;
+        let error = match result {
+            Ok(_) => panic!("unrelated execution directory must not borrow workspace identity"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error.contains("working directory") && error.contains("workspace"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[tokio::test]
     async fn resolve_cron_default_workspace_falls_back_to_team_first_on_disk_workspace() {
         let dir = tempfile::tempdir().unwrap();
         let mock = MockBackend::with_identity("team-test", "agent-actor");

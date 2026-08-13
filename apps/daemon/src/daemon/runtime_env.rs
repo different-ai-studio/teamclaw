@@ -76,6 +76,25 @@ impl DaemonServer {
         } else {
             Path::new(working_directory).to_path_buf()
         };
+        let execution_workspace = self
+            .workspace_resolver
+            .resolve_identity_for_path(&working_directory, workspace.team_id.as_deref())
+            .await
+            .ok_or_else(|| {
+                format!(
+                    "working directory {} does not belong to resolved workspace {}",
+                    working_directory.display(),
+                    workspace.workspace_id
+                )
+            })?;
+        if execution_workspace.workspace_id != workspace.workspace_id {
+            return Err(format!(
+                "working directory {} resolves to workspace {}, not hinted workspace {}",
+                working_directory.display(),
+                execution_workspace.workspace_id,
+                workspace.workspace_id
+            ));
+        }
         let mut spawn_env = self
             .assemble_workspace_execution_env(&workspace, &working_directory)
             .await?;
@@ -108,8 +127,9 @@ impl DaemonServer {
         self.suppress_internal_opencode_writes(working_directory.to_string_lossy().as_ref());
         crate::runtime::supervisor::materialize_inherent_mcp_for_spawn(working_directory)
             .map_err(|e| format!("materialize_inherent_mcp_for_spawn failed: {e}"))?;
-        crate::runtime::env_assembly::assemble_spawn_runtime_env(
+        crate::runtime::env_assembly::assemble_spawn_runtime_env_for_execution(
             &workspace.workspace_root,
+            working_directory,
             workspace.team_id.as_deref(),
             &self.config.actor.id,
             &self.config.actor.name,
