@@ -319,6 +319,57 @@ export function runBusinessRepositoryContract({ test, assert, createRepository }
     assert.equal(result.items[0].kind, "agent");
   });
 
+  test("repository contract: findAgentForDevice reports absence before creation", async () => {
+    const repo = createRepository();
+    // The desktop's first question. A null here is what earns the right to
+    // interrupt the user for a name; anything else must bind silently.
+    const before = await repo.findAgentForDevice("team-1", { deviceId: "device-contract-lookup" });
+    assert.equal(before.agentId, null);
+
+    const created = await repo.ensureAgentForDevice("team-1", {
+      deviceId: "device-contract-lookup",
+      displayName: "lookup-host",
+    });
+    const after = await repo.findAgentForDevice("team-1", { deviceId: "device-contract-lookup" });
+    assert.equal(after.agentId, created.agentId);
+  });
+
+  test("repository contract: ensureAgentForDevice is idempotent per device", async () => {
+    const repo = createRepository();
+    const first = await repo.ensureAgentForDevice("team-1", {
+      deviceId: "device-contract-1",
+      displayName: "contract-host",
+    });
+    assert.ok(first.agentId, "agentId must be present");
+    assert.ok(first.token, "an invite token must be minted so the daemon can claim");
+    assert.equal(typeof first.created, "boolean");
+
+    // The whole point: a second call for the same machine re-binds the same
+    // actor rather than stacking up a duplicate agent. Silent binding has no
+    // human in the loop to notice the duplicates.
+    const second = await repo.ensureAgentForDevice("team-1", {
+      deviceId: "device-contract-1",
+      displayName: "contract-host",
+    });
+    assert.equal(second.agentId, first.agentId, "same device must map to the same agent");
+    assert.equal(second.created, false, "the second call must re-bind, not create");
+    assert.ok(second.token, "each call mints a fresh one-shot invite");
+    assert.notEqual(second.token, first.token, "invites are one-shot, so tokens must differ");
+  });
+
+  test("repository contract: ensureAgentForDevice gives a different device its own agent", async () => {
+    const repo = createRepository();
+    const a = await repo.ensureAgentForDevice("team-1", {
+      deviceId: "device-contract-a",
+      displayName: "host-a",
+    });
+    const b = await repo.ensureAgentForDevice("team-1", {
+      deviceId: "device-contract-b",
+      displayName: "host-b",
+    });
+    assert.notEqual(b.agentId, a.agentId, "one agent per machine, not per team");
+  });
+
   test("repository contract: updateOwnedAgentProfile succeeds", async () => {
     const repo = createRepository();
     await repo.updateOwnedAgentProfile("agent-1", {

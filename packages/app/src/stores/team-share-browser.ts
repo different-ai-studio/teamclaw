@@ -9,6 +9,12 @@ import { invoke } from '@tauri-apps/api/core'
 import { getBackend } from '@/lib/backend/provider'
 import { getFreshAccessToken } from '@/lib/auth/session-store'
 import { ensureAgentsSkillsPaths } from '@/lib/skills/ensure-agents-paths'
+import {
+  planReconcile,
+  planVersionWriteback,
+  type OnDiskSkill,
+  type SkillLocalState,
+} from '@/lib/skills/auto-follow'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { TEAM_REPO_DIR } from '@/lib/build-config'
 
@@ -53,6 +59,12 @@ export type TeamSkillKind = 'team-available' | 'team-installed' | 'personal'
  *   slugs already owned by the registry
  */
 export interface TeamSkillItem {
+  /**
+   * Row identity for selection. Equal to `slug` except for a personal skill
+   * whose name the registry also owns, which gets `personal:<slug>` so both
+   * rows remain openable.
+   */
+  id: string
   /** Directory name / slug (used as the daemon skill id). */
   slug: string
   name: string
@@ -156,10 +168,62 @@ interface TeamShareBrowserState {
   updateMcp: (name: string, patch: TeamMcpServerWrite) => Promise<void>
   deleteMcp: (name: string) => Promise<void>
   /** Copy-publish a personal skill to the team registry, then auto-install. */
-  sharePersonalSkill: (slug: string, input: TeamSkillShareInput) => Promise<void>
+  /** Returns where the personal original was retired to, if it was. */
+  sharePersonalSkill: (slug: string, input: TeamSkillShareInput) => Promise<string | null>
+  /** Publish the local edits of an already-shared skill as the next version. */
+  publishSkillVersion: (slug: string, input: TeamSkillVersionInput) => Promise<void>
+  /**
+   * Disk state per slug, from `team_skill_inspect`. Empty until a reconcile
+   * runs; a slug missing from here means "not checked yet", which the UI shows
+   * as nothing rather than as clean.
+   */
+  skillLocalState: Record<string, SkillLocalState>
+  /**
+   * Why a slug failed to sync, per slug. Auto-follow has no button to click, so
+   * a download that keeps failing would otherwise be indistinguishable from one
+   * that has not happened yet.
+   */
+  skillSyncErrors: Record<string, string>
+  /**
+   * Slug → where an unrelated directory was moved when auto-follow needed its
+   * path. Offered back to the user under a new name; see `keepArchivedCopy`.
+   */
+  skillArchived: Record<string, string>
+  /** Restore an archived directory under `newSlug`, keeping the team pack. */
+  keepArchivedCopy: (slug: string, newSlug: string) => Promise<void>
+  dismissArchived: (slug: string) => void
+  /**
+   * Bring disk in line with the server's desired state. Runs on a timer, on
+   * panel open, and after any local mutation.
+   */
+  reconcileSkills: () => Promise<void>
+  /** Publish an older version's content as the new latest (undo a bad publish). */
+  revertSkillVersion: (slug: string, version: number) => Promise<void>
+  /** Move the edited pack aside and re-install clean. Returns the undo handle. */
+  discardLocalSkill: (slug: string) => Promise<string>
+  restoreDiscardedSkill: (trashedPath: string, slug: string) => Promise<void>
+  /** Copy the edits out under a new slug so the team version can keep following. */
+  forkSkill: (slug: string, newSlug: string) => Promise<string>
+  loadSkillDiff: (slug: string) => Promise<TeamSkillFileDiff[]>
   loadSection: (section: TeamShareSection, opts?: { force?: boolean; withTools?: boolean }) => Promise<void>
   loadMcpTools: (opts?: { refresh?: boolean }) => Promise<void>
   loadCounts: () => Promise<void>
+}
+
+export interface TeamSkillVersionInput {
+  changelog: string
+  summary?: string
+  category?: TeamSkillCategory
+  whenToUse?: string
+  whenNotToUse?: string
+  requires?: string[] | null
+}
+
+export interface TeamSkillFileDiff {
+  path: string
+  baseline: string | null
+  current: string | null
+  binary: boolean
 }
 
 function workspacePath(): string | null {
@@ -229,9 +293,18 @@ function registryItem(
   skill: TeamSkill,
   onDisk: Map<string, OnDisk>,
   kind: 'team-available' | 'team-installed',
+  /** True when a real team pack for this slug is on disk. */
+  packOnDisk: boolean,
 ): TeamSkillItem {
-  const local = onDisk.get(skill.slug)
+  // Only borrow the on-disk copy when it is actually the pack. A file that
+  // merely shares the name — a personal skill the user dropped into the pack
+  // root, or one living in a higher-priority root — is a different skill, and
+  // showing its contents under the registry row made an uninstalled team skill
+  // display something the team never published. That file gets its own personal
+  // row instead; this row shows what the registry knows and nothing more.
+  const local = packOnDisk ? onDisk.get(skill.slug) : undefined
   return {
+    id: skill.slug,
     slug: skill.slug,
     name: skill.slug,
     invocationName: local?.invocationName ?? skill.slug,
@@ -259,15 +332,54 @@ function registryItem(
   }
 }
 
-function personalItem(s: {
-  filename: string
-  name: string
-  invocationName: string
-  content: string
-  dirPath: string
+/**
+ * Whether a skill-loader row still deserves a "personal" row of its own, and
+ * under what id.
+ *
+ * Hidden only when the row *is* the team pack the registry row already stands
+ * for — a pack on disk, found under the pack root. A file that merely shares
+ * the pack's name is a different skill: it still loads, agents still see it,
+ * and on most machines it is the one shadowing the pack. Hiding those (which is
+ * what matching on the slug alone did) removed the one place a member could see
+ * the collision — and did it whether or not they had ever installed the team
+ * version, so publishing `deploy-check` made every teammate's private
+ * `deploy-check` disappear from the list while it kept running underneath.
+ */
+export function planPersonalRow(row: {
+  slug: string
   source: SkillSource
-}): TeamSkillItem {
+  registryOwnsSlug: boolean
+  packOnDisk: boolean
+}): { hidden: boolean; id: string } {
+  if (row.registryOwnsSlug && row.packOnDisk && row.source === 'global-agent') {
+    return { hidden: true, id: row.slug }
+  }
+  // Builtin / clawhub market copies are not "my personal skills".
+  if (row.source === 'builtin' || row.source === 'clawhub') {
+    return { hidden: true, id: row.slug }
+  }
+  // Rows are selected by id and resolved by first match, so a colliding row
+  // needs its own or only the registry one can ever be opened.
+  return { hidden: false, id: row.registryOwnsSlug ? `personal:${row.slug}` : row.slug }
+}
+
+function personalItem(
+  s: {
+    filename: string
+    name: string
+    invocationName: string
+    content: string
+    dirPath: string
+    source: SkillSource
+  },
+  /** True when the registry also owns this slug — see `listTeamSkills`. */
+  collides: boolean,
+): TeamSkillItem {
   return {
+    // A colliding personal skill needs an id of its own or it is unreachable:
+    // rows are selected by id and the detail pane resolves the first match, so
+    // two rows sharing one id means only the registry one can ever be opened.
+    id: collides ? `personal:${s.filename}` : s.filename,
     slug: s.filename,
     name: s.name,
     invocationName: s.invocationName,
@@ -333,28 +445,41 @@ async function listTeamSkills(
     }
   }
 
+  // Which slugs have a team pack on this disk, straight from each pack's own
+  // `origin.json`. Used to tell "this row *is* the pack" from "this row is a
+  // different file that happens to share the pack's name".
+  const packSlugs = new Set((await listInstalledPacks().catch(() => [])).map((p) => p.slug))
+
   const registrySlugs = new Set(registry.map((s) => s.slug))
   const available: TeamSkillItem[] = []
   const installed: TeamSkillItem[] = []
   for (const s of registry) {
-    if (s.installed) installed.push(registryItem(s, onDisk, 'team-installed'))
-    else available.push(registryItem(s, onDisk, 'team-available'))
+    const packOnDisk = packSlugs.has(s.slug)
+    if (s.installed) installed.push(registryItem(s, onDisk, 'team-installed', packOnDisk))
+    else available.push(registryItem(s, onDisk, 'team-available', packOnDisk))
   }
 
   const personal: TeamSkillItem[] = []
   for (const s of skills) {
-    if (registrySlugs.has(s.filename)) continue
-    // Builtin / clawhub market copies are not "my personal skills".
-    if (s.source === 'builtin' || s.source === 'clawhub') continue
+    const row = planPersonalRow({
+      slug: s.filename,
+      source: s.source,
+      registryOwnsSlug: registrySlugs.has(s.filename),
+      packOnDisk: packSlugs.has(s.filename),
+    })
+    if (row.hidden) continue
     personal.push(
-      personalItem({
-        filename: s.filename,
-        name: s.name,
-        invocationName: s.invocationName,
-        content: s.content,
-        dirPath: s.dirPath,
-        source: s.source,
-      }),
+      personalItem(
+        {
+          filename: s.filename,
+          name: s.name,
+          invocationName: s.invocationName,
+          content: s.content,
+          dirPath: s.dirPath,
+          source: s.source,
+        },
+        row.id !== s.filename,
+      ),
     )
   }
 
@@ -425,6 +550,98 @@ async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamM
   return [...items.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** Raised by the Rust installer instead of overwriting a locally edited pack. */
+const DIRTY_CONFLICT_ERROR = 'team_skill_dirty_conflict'
+
+/**
+ * A contract string, not a message — the UI has to recognise it to show the
+ * conflict flow rather than surfacing "team_skill_dirty_conflict" in a toast.
+ */
+export function isSkillDirtyConflict(e: unknown): boolean {
+  return String(e instanceof Error ? e.message : e).includes(DIRTY_CONFLICT_ERROR)
+}
+
+const isDirtyConflict = isSkillDirtyConflict
+
+/** The team registry already has this name. Raised before any upload happens. */
+export class SkillSlugTakenError extends Error {
+  constructor(readonly slug: string) {
+    super(`${slug} already exists in the team registry`)
+    this.name = 'SkillSlugTakenError'
+  }
+}
+
+/**
+ * The local edits were moved aside, but the clean copy did not land.
+ *
+ * Carries the backup path because that is the whole difference between a
+ * recoverable failure and a silent loss: without it the UI has a red toast and
+ * no way to offer the undo, while the user's work sits in a hidden directory
+ * they will never find. The reconcile tick puts the team's copy back on its
+ * own, so this is the only part that needs a person.
+ */
+export class SkillDiscardIncompleteError extends Error {
+  constructor(
+    readonly trashedPath: string,
+    readonly cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause))
+    this.name = 'SkillDiscardIncompleteError'
+  }
+}
+
+/**
+ * Download one version and lay it down.
+ *
+ * Split out of `installSkill` because the reconcile loop needs these steps
+ * without the half that records a choice on the server: auto-follow is not a
+ * new decision, it is carrying out the one the user already made.
+ */
+async function materializeSkill(
+  teamId: string,
+  slug: string,
+  version: number,
+  opts: { force?: boolean; archiveUnmanaged?: boolean } = {},
+): Promise<{ archivedPath?: string }> {
+  const backend = getBackend()
+  const wsPath = workspacePath()
+  const detail = await backend.teamSkills.getTeamSkill(teamId, slug)
+  const { url } = await backend.teamSkills.resolveDownload(teamId, slug, version)
+  const result = await invoke<{ archivedPath?: string }>('team_skill_install', {
+    request: {
+      workspacePath: wsPath,
+      slug,
+      teamId,
+      downloadUrl: url,
+      accessToken: await getFreshAccessToken().catch(() => null),
+      version,
+      owner: detail.ownerActorId,
+      category: detail.category,
+      summary: detail.summary,
+      whenToUse: detail.whenToUse,
+      whenNotToUse: detail.whenNotToUse,
+      requires: detail.requires,
+      isGlobal: true,
+      force: opts.force ?? false,
+      archiveUnmanaged: opts.archiveUnmanaged ?? false,
+    },
+  })
+  await ensureAgentsSkillsPaths(wsPath)
+  return result ?? {}
+}
+
+async function inspectSkill(
+  slug: string,
+  expectedVersion: number | null,
+  teamId: string,
+): Promise<SkillLocalState> {
+  return invoke<SkillLocalState>('team_skill_inspect', { slug, expectedVersion, teamId })
+}
+
+async function listInstalledPacks(): Promise<OnDiskSkill[]> {
+  return invoke<OnDiskSkill[]>('team_skill_list_installed')
+}
+
 /** Render a catalog row in the daemon's config shape so one detail view serves both. */
 function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
   const base = {
@@ -451,6 +668,9 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   selectedId: { skills: null, mcp: null, env: null, knowledge: null },
   subjectActorId: null,
   creating: null,
+  skillLocalState: {},
+  skillSyncErrors: {},
+  skillArchived: {},
 
   counts: () => {
     const s = get()
@@ -485,7 +705,6 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   installSkill: async (slug) => {
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
-    const wsPath = workspacePath()
     const subjectActorId = get().subjectActorId
 
     const skill = get().skills.items.find((s) => s.slug === slug)
@@ -495,26 +714,10 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     const version = skill.latestVersion ?? 1
     const backend = getBackend()
 
+    // An admin installing onto a team agent only writes the server record —
+    // the pack lands on whichever machine hosts that agent, not this one.
     if (!subjectActorId) {
-      const detail = await backend.teamSkills.getTeamSkill(teamId, slug)
-      const { url } = await backend.teamSkills.resolveDownload(teamId, slug, version)
-      await invoke('team_skill_install', {
-        request: {
-          workspacePath: wsPath,
-          slug,
-          downloadUrl: url,
-          accessToken: await getFreshAccessToken().catch(() => null),
-          version,
-          owner: detail.ownerActorId,
-          category: detail.category,
-          summary: detail.summary,
-          whenToUse: detail.whenToUse,
-          whenNotToUse: detail.whenNotToUse,
-          requires: detail.requires,
-          isGlobal: true,
-        },
-      })
-      await ensureAgentsSkillsPaths(wsPath)
+      await materializeSkill(teamId, slug, version)
     }
 
     await backend.teamSkills.installTeamSkill(teamId, slug, {
@@ -628,6 +831,16 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     // skill-loader stores parent dir in dirPath and folder name in filename.
     const sourceDir = `${skill.dirPath}/${skill.filename}`
 
+    // Check the name before anything is uploaded. The server rejects a
+    // duplicate slug too, but only after `team_skill_pack_and_upload` has
+    // pushed the package — so the user paid for an upload, got a 409, and left
+    // an orphaned blob behind, for a condition visible from the list they were
+    // looking at. The server check stays as the backstop for a name that
+    // appeared since this list was loaded.
+    if (get().skills.items.some((s) => s.origin === 'registry' && s.slug === input.slug)) {
+      throw new SkillSlugTakenError(input.slug)
+    }
+
     const { getEffectiveServerConfig } = await import('@/lib/server-config')
     const { cloudApiUrl } = await getEffectiveServerConfig()
     if (!cloudApiUrl) throw new Error('Cloud API URL is not configured')
@@ -643,7 +856,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     })
 
     const backend = getBackend()
-    await backend.teamSkills.publishTeamSkill(teamId, {
+    const published = await backend.teamSkills.publishTeamSkill(teamId, {
       slug: input.slug,
       summary: input.summary,
       category: input.category,
@@ -657,12 +870,21 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
 
     // Copy-publish: keep the personal dir; materialise the team install under
     // ~/.agents/skills so OpenCode / Claude / Pi all see the same pack.
+    //
+    // `owner` comes from the row the server just created, not from the personal
+    // item — a personal skill has no owner actor, and passing its `null` here
+    // stamps the publisher's own copy without the `owner:` field that every
+    // other member's copy gets. The pack would then differ from itself
+    // depending on who installed it, and the publisher's conflict diff would
+    // show a phantom deleted line they never touched.
     await invoke('team_skill_install_from_dir', {
       request: {
         workspacePath: wsPath,
         slug: input.slug,
+        teamId,
         sourceDir,
         version: 1,
+        owner: published.ownerActorId,
         category: input.category,
         summary: input.summary,
         whenToUse: input.whenToUse,
@@ -674,8 +896,301 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     await ensureAgentsSkillsPaths(wsPath)
 
     await backend.teamSkills.installTeamSkill(teamId, input.slug, { version: 1 })
+
+    // Retire the original now that the pack exists and the server knows about
+    // it. Leaving it produces two files answering to one name, and the pack
+    // root ranks below nearly every other skills root — so the copy the author
+    // keeps editing is the one that is no longer the team's, while publish and
+    // dirty detection read the one they never touch.
+    //
+    // Only when the names match: a deliberate rename on share means the author
+    // wants both. And only after everything above succeeded, so a failed upload
+    // never costs them the original.
+    let retiredPath: string | null = null
+    if (input.slug === skill.filename) {
+      retiredPath = await invoke<string>('team_skill_retire_personal', {
+        dirPath: sourceDir,
+        slug: input.slug,
+      }).catch(() => null)
+    }
+
     await get().loadSection('skills', { force: true })
     get().select('skills', input.slug)
+    return retiredPath
+  },
+
+  publishSkillVersion: async (slug, input) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    const wsPath = workspacePath()
+    const skill = get().skills.items.find((s) => s.slug === slug)
+    if (!skill) throw new Error(`${slug} is not in the registry`)
+
+    const { getEffectiveServerConfig } = await import('@/lib/server-config')
+    const { cloudApiUrl } = await getEffectiveServerConfig()
+    if (!cloudApiUrl) throw new Error('Cloud API URL is not configured')
+    const accessToken = await getFreshAccessToken()
+    if (!accessToken) throw new Error('Not signed in')
+
+    // Publish what is on disk right now, including whatever the author edited
+    // locally — that content is the whole reason a new version is being cut.
+    const sourceDir = await invoke<string>('team_skill_installed_dir', { slug })
+    const packed = await invoke<{ contentHash: string; size: number }>('team_skill_pack_and_upload', {
+      dirPath: sourceDir,
+      slug,
+      teamId,
+      cloudApiUrl,
+      accessToken,
+    })
+
+    const backend = getBackend()
+    const version = await backend.teamSkills.publishTeamSkillVersion(teamId, slug, {
+      contentHash: packed.contentHash,
+      size: packed.size,
+      changelog: input.changelog,
+      ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      ...(input.category !== undefined ? { category: input.category } : {}),
+      ...(input.whenToUse !== undefined ? { whenToUse: input.whenToUse } : {}),
+      ...(input.whenNotToUse !== undefined ? { whenNotToUse: input.whenNotToUse } : {}),
+      ...(input.requires !== undefined ? { requires: input.requires } : {}),
+    })
+
+    // Re-baseline against the version just published. Skipping this leaves the
+    // author permanently in conflict with their own release, since the disk
+    // still differs from the baseline taken at the previous version.
+    await invoke('team_skill_install_from_dir', {
+      request: {
+        workspacePath: wsPath,
+        slug,
+        teamId,
+        sourceDir,
+        version: version.version,
+        owner: skill.ownerActorId,
+        category: input.category ?? skill.category,
+        summary: input.summary ?? skill.summary,
+        whenToUse: input.whenToUse ?? skill.whenToUse,
+        whenNotToUse: input.whenNotToUse ?? skill.whenNotToUse,
+        requires: input.requires ?? skill.requires,
+        isGlobal: true,
+      },
+    })
+    await backend.teamSkills.installTeamSkill(teamId, slug, { version: version.version })
+    await get().reconcileSkills()
+    await get().loadSection('skills', { force: true })
+  },
+
+  keepArchivedCopy: async (slug, newSlug) => {
+    const path = get().skillArchived[slug]
+    if (!path) return
+    // Restored under a *different* name on purpose. Putting it back where it
+    // was would recreate exactly the state auto-follow just resolved — a
+    // directory with no team record at the pack's path — so the next tick would
+    // archive it again, forever.
+    await invoke('team_skill_restore_trashed', { trashedPath: path, slug: newSlug })
+    get().dismissArchived(slug)
+    await get().loadSection('skills', { force: true })
+  },
+
+  dismissArchived: (slug) =>
+    set((s) => {
+      const next = { ...s.skillArchived }
+      delete next[slug]
+      return { skillArchived: next }
+    }),
+
+  revertSkillVersion: async (slug, version) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    // Rolls forward with the old content rather than moving `latestVersion`
+    // back, so auto-follow carries it to everyone the same way the bad version
+    // arrived. Without a caller this endpoint was decoration: under auto-follow
+    // a broken publish reaches the whole team within one tick, and the author's
+    // only other remedy is rebuilding the old bytes by hand.
+    await getBackend().teamSkills.revertTeamSkillVersion(teamId, slug, version)
+    await get().reconcileSkills()
+    await get().loadSection('skills', { force: true })
+  },
+
+  reconcileSkills: async () => {
+    const teamId = currentTeamId()
+    if (!teamId) return
+    // Installing onto a team agent is bookkeeping on someone else's machine;
+    // reconciling this disk against that actor's set would install their skills
+    // here. Auto-follow is always about the signed-in member.
+    if (get().subjectActorId) return
+
+    const backend = getBackend()
+    let desired
+    let listed: OnDiskSkill[]
+    try {
+      ;[desired, listed] = await Promise.all([
+        backend.teamSkills.listTeamSkills(teamId),
+        listInstalledPacks(),
+      ])
+    } catch {
+      // Offline, or the registry is unreachable. Leave disk exactly as it is —
+      // a failed fetch must never be read as "the team removed everything".
+      return
+    }
+
+    const states: Record<string, SkillLocalState> = {}
+    const errors: Record<string, string> = {}
+    const archived: Record<string, string> = { ...get().skillArchived }
+    const blocked = new Set<string>()
+    const known = new Set<string>([
+      ...listed.map((p) => p.slug),
+      ...desired.filter((s) => s.installed).map((s) => s.slug),
+    ])
+    for (const slug of known) {
+      const row = desired.find((s) => s.slug === slug)
+      const state = await inspectSkill(slug, row?.installedVersion ?? null, teamId).catch(() => null)
+      if (!state) continue
+      states[slug] = state
+      // A local edit needs a decision; another registry's pack is not ours to
+      // touch at all. Both mean "auto-follow stops here".
+      if (state.state === 'dirty' || state.state === 'foreign') blocked.add(slug)
+    }
+
+    // Re-read the disk after inspection rather than reusing the listing above.
+    // Inspecting a pack that predates manifests *adopts* it — writes the origin
+    // record that makes it visible to `team_skill_list_installed` in the first
+    // place — so the pre-inspection listing says "not installed" for exactly
+    // the packs most likely to hold a user's untracked edits. Planning from it
+    // queues them for a fresh install, and the tick overwrites edits it was
+    // never able to see.
+    const onDisk = await listInstalledPacks().catch(() => listed)
+    const plan = planReconcile(desired, onDisk, blocked, teamId)
+
+    for (const { slug, version } of plan.install) {
+      try {
+        const { archivedPath } = await materializeSkill(teamId, slug, version, {
+          archiveUnmanaged: true,
+        })
+        if (archivedPath) archived[slug] = archivedPath
+        states[slug] = await inspectSkill(slug, version, teamId)
+        delete errors[slug]
+      } catch (e) {
+        // A pack that turned dirty between the inspect and the install; the
+        // backstop in the installer caught it.
+        if (isDirtyConflict(e)) {
+          const state = await inspectSkill(slug, version, teamId).catch(() => null)
+          if (state) states[slug] = state
+          continue
+        }
+        // Anything else is a sync that is not going to fix itself by being
+        // retried silently forever — a signed URL the storage layer now
+        // refuses, a package that 404s. Removing the update button removed the
+        // only place these surfaced, so they are recorded and shown in the
+        // detail pane instead of leaving the member on a retired version with
+        // a permanent "updating…" and no way to know why.
+        errors[slug] = e instanceof Error ? e.message : String(e)
+      }
+    }
+
+    for (const slug of plan.remove) {
+      try {
+        await invoke('team_skill_uninstall', { workspacePath: workspacePath(), slug, isGlobal: true })
+        delete states[slug]
+        delete errors[slug]
+      } catch {
+        // Retried next tick.
+      }
+    }
+
+    const settled: OnDiskSkill[] = Object.entries(states).map(([slug, s]) => ({
+      slug,
+      version: s.installedVersion,
+      teamId,
+    }))
+    for (const { slug, version } of planVersionWriteback(desired, settled)) {
+      try {
+        await backend.teamSkills.installTeamSkill(teamId, slug, { version })
+      } catch {
+        // The disk is already right; only the record is behind, and the next
+        // tick recomputes this from fresh server state and tries again.
+      }
+    }
+
+    set({ skillSyncErrors: errors, skillArchived: archived })
+
+    set({ skillLocalState: states })
+  },
+
+  discardLocalSkill: async (slug) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    const skill = get().skills.items.find((s) => s.slug === slug)
+    const trashedPath = await invoke<string>('team_skill_discard_local', { slug })
+    try {
+      await materializeSkill(teamId, slug, skill?.latestVersion ?? 1)
+    } catch (e) {
+      // Everything up to here already happened: the edits are in the trash and
+      // the pack is off the disk. Reporting this as a plain failure would strand
+      // the user's work — they get a red toast, no undo, and no idea the bytes
+      // still exist. The clean copy comes back on its own next tick; the undo is
+      // the part only they can ask for.
+      throw new SkillDiscardIncompleteError(trashedPath, e)
+    } finally {
+      await get().reconcileSkills().catch(() => {})
+      await get()
+        .loadSection('skills', { force: true })
+        .catch(() => {})
+    }
+    return trashedPath
+  },
+
+  restoreDiscardedSkill: async (trashedPath, slug) => {
+    await invoke('team_skill_restore_trashed', { trashedPath, slug })
+    await get().reconcileSkills()
+    await get().loadSection('skills', { force: true })
+  },
+
+  forkSkill: async (slug, newSlug) => {
+    const path = await invoke<string>('team_skill_fork', { slug, newSlug })
+    // The copy is what the user asked for and it is on disk now. Handing the
+    // team pack back to auto-follow is cleanup, and cleanup must not be able to
+    // fail the whole action: reporting "save failed" after the copy exists sends
+    // the user into a retry that can only ever answer "<newSlug> already
+    // exists", with no way out but renaming the fork. A discard that did not
+    // finish leaves the conflict bar up, which is its own accurate report.
+    try {
+      await get().discardLocalSkill(slug)
+    } catch {
+      await get()
+        .reconcileSkills()
+        .catch(() => {})
+    }
+    return path
+  },
+
+  loadSkillDiff: async (slug) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    const local = get().skillLocalState[slug]
+    const installedVersion = Number(local?.installedVersion ?? 0)
+    if (!installedVersion) return []
+
+    // Rebuild the baseline from the version that is *installed*, and from that
+    // version's own metadata snapshot — the current registry row may describe a
+    // newer release, and using it would paint the team's changes as the user's.
+    const detail = await getBackend().teamSkills.getTeamSkill(teamId, slug)
+    const snapshot = detail.versions.find((v) => v.version === installedVersion)
+    const { url } = await getBackend().teamSkills.resolveDownload(teamId, slug, installedVersion)
+    return invoke<TeamSkillFileDiff[]>('team_skill_diff', {
+      request: {
+        slug,
+        downloadUrl: url,
+        accessToken: await getFreshAccessToken().catch(() => null),
+        version: installedVersion,
+        owner: detail.ownerActorId,
+        category: detail.category,
+        summary: snapshot?.summary ?? detail.summary,
+        whenToUse: snapshot?.whenToUse ?? detail.whenToUse,
+        whenNotToUse: snapshot?.whenNotToUse ?? detail.whenNotToUse,
+        requires: snapshot?.requires ?? detail.requires,
+        isGlobal: true,
+      },
+    })
   },
 
   loadSection: async (section, opts) => {

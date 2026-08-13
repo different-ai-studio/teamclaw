@@ -362,6 +362,23 @@ fn tool_definitions() -> Value {
                     }
                 }
             }
+        },
+        {
+            "name": "archive_session",
+            "description": "Archive a TeamClu cloud session (soft-hide from the active session list). Requires the desktop app to be running and the user to be signed in. When session_id is omitted, archives the current TeamClu session (TEAMCLU_SESSION_ID env or workspace .teamclu/active-session-id).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Cloud session UUID to archive. Optional — omit to archive the current TeamClu session."
+                    },
+                    "archived_at": {
+                        "type": "string",
+                        "description": "Optional ISO-8601 timestamp for archivedAt. Defaults to now."
+                    }
+                }
+            }
         }
     ])
 }
@@ -532,6 +549,15 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
                     }
                     Err(e) => tool_err(&e),
                 },
+                "archive_session" => {
+                    match session::archive(workspace, api_port, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
                 unknown => tool_err(&format!("Unknown tool: {unknown}")),
             };
 

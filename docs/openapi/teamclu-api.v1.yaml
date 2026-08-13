@@ -1977,6 +1977,55 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TeamSkillVersion" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/skills/{slug}/versions/{version}/revert:
+    post:
+      operationId: revertTeamSkillVersion
+      summary: Re-publish an earlier version as the new latest
+      description: >
+        The undo for a bad publish. Installs auto-follow `latestVersion`, so a
+        broken version reaches every member within one reconcile tick; without
+        this the only remedy is for the author to reconstruct the old package by
+        hand.
+
+
+        Note what this does *not* do: `latestVersion` never moves backwards.
+        Rolling it back would leave members whose `installedVersion` exceeds it,
+        and "is there an update" stops having an answer. The revert publishes
+        `latestVersion + 1` carrying the target version's content and its
+        metadata snapshot.
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamSkillSlug"
+        - name: version
+          in: path
+          required: true
+          description: The version whose content should become the new latest.
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                changelog:
+                  type: string
+                  description: Defaults to "Reverted to v{version}".
+      responses:
+        "201":
+          description: The newly published version carrying the old content.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSkillVersion" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: That version is already the latest.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /v1/teams/{teamId}/skills/{slug}/install:
     put:
       operationId: installTeamSkill
@@ -2569,6 +2618,132 @@ paths:
                     items:
                       $ref: "#/components/schemas/ConnectedAgent"
         "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/agents/for-device:
+    get:
+      operationId: findAgentForDevice
+      summary: Look up this machine's agent in this team
+      tags: [Actors]
+      description: >-
+        Read-only companion to `ensure-for-device`. The desktop calls this first:
+        a machine that already has an agent here is bound with no interaction,
+        and only a machine that does not gets to interrupt the user for a name.
+
+
+        Owner-scoped — it only ever reports an agent the caller owns, so one
+        member cannot probe whether another member's machine is in the team.
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - name: deviceId
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        "200":
+          description: The agent for this machine, or nulls when it has none.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agentId, displayName]
+                properties:
+                  agentId:
+                    type:
+                      - string
+                      - "null"
+                    format: uuid
+                  displayName:
+                    type:
+                      - string
+                      - "null"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/agents/ensure-for-device:
+    post:
+      operationId: ensureAgentForDevice
+      summary: Ensure this machine has an agent in this team
+      tags: [Actors]
+      description: >-
+        Idempotent per (team, device): returns the caller-owned agent already
+        bound to `deviceId` in this team, or creates one, and mints a one-shot
+        invite for the local daemon to claim. Replaces the create/bind/reset
+        wizard — the desktop calls this after login instead of asking.
+
+
+        An agent bound to `deviceId` but owned by another account counts as
+        absent, so a shared machine gets one agent per account and neither can
+        take over the other's. Created agents are `personal`; publishing one to
+        the team is a separate `PATCH /v1/agents/{agentActorId}`.
+
+
+        `deviceId` is not readable back through the API — it never appears in
+        `ConnectedAgent`, so one member cannot enumerate another's machines.
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceId, displayName]
+              properties:
+                deviceId:
+                  type: string
+                  minLength: 1
+                  description: >-
+                    Stable per-machine id owned by the daemon
+                    (`~/.amuxd/device-id`), surfaced to the app by the daemon's
+                    local `GET /v1/info`. Not the webview's
+                    telemetry install id, which resets with local storage.
+                displayName:
+                  type: string
+                  minLength: 1
+                  description: >-
+                    Name for a newly created agent — what the user typed when this
+                    machine was first bound, or the hostname if they skipped.
+                    **Create-only**: ignored when an agent already exists, so a
+                    rebind never overwrites a later rename.
+      responses:
+        "200":
+          description: The agent for this machine, plus an invite to claim it.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agentId, token, created]
+                properties:
+                  agentId:
+                    type: string
+                    format: uuid
+                  token:
+                    type: string
+                    description: One-shot agent invite, 600s TTL.
+                  expiresAt:
+                    type:
+                      - string
+                      - "null"
+                    format: date-time
+                  created:
+                    type: boolean
+                    description: >-
+                      True when the agent was just created, false when an
+                      existing one was re-bound. Drives the progress copy only.
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
   /v1/agents/{agentActorId}:
     patch:

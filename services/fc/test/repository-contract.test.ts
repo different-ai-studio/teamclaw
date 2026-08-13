@@ -65,6 +65,9 @@ function contractRepo() {
   const roleStore = [
     { id: "role-1", teamId: "team-1", code: "admin", name: "Admin" },
   ];
+  // (team, device) → agent actor, mirroring agents_team_device_uk.
+  const deviceAgentStore = new Map<string, string>();
+  let inviteSeq = 0;
   const permissionStore = [
     { resourceId: "resource-1", roleIds: ["role-1"] },
   ];
@@ -393,6 +396,31 @@ function contractRepo() {
         items: [
           { id: "agent-1", teamId: "team-1", kind: "agent", displayName: "Test Agent", avatarUrl: null, metadata: null, lastSeenAt: "2026-05-27T01:00:00Z", agentType: "claude" },
         ],
+      };
+    },
+    // Device-scoped agent identity. The fake keeps the (team, device) → agent map
+    // the real implementations get from the unique index, so the contract's
+    // idempotency assertions test the same thing everywhere.
+    async findAgentForDevice(teamId, input) {
+      assert.equal(teamId, "team-1");
+      assert.ok(input.deviceId, "deviceId is required");
+      const agentId = deviceAgentStore.get(`${teamId}:${input.deviceId}`) ?? null;
+      return { agentId, displayName: agentId ? `name-of-${agentId}` : null };
+    },
+    async ensureAgentForDevice(teamId, input) {
+      assert.equal(teamId, "team-1");
+      assert.ok(input.deviceId, "deviceId is required");
+      assert.ok(input.displayName, "displayName is required");
+      const key = `${teamId}:${input.deviceId}`;
+      const existing = deviceAgentStore.get(key);
+      const agentId = existing ?? `agent-${deviceAgentStore.size + 100}`;
+      if (!existing) deviceAgentStore.set(key, agentId);
+      inviteSeq += 1;
+      return {
+        agentId,
+        token: `device-invite-${inviteSeq}`,
+        expiresAt: null,
+        created: !existing,
       };
     },
     async updateOwnedAgentProfile(agentActorId, patch) {

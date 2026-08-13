@@ -31,11 +31,162 @@ type DbLike = PgDatabase<any, any>;
 interface AgentsCtx {
   userId?: string;
   callerActorId?: string;
+  /**
+   * Mints the one-shot agent invite. Injected rather than imported so this repo
+   * does not reach into the teams repo (and so the owner check on
+   * `targetActorId` stays in one place). Wired in pg-repo/index.ts.
+   */
+  mintAgentInvite?: (
+    teamId: string,
+    input: { displayName: string; targetActorId: string; ttlSeconds: number },
+  ) => Promise<{ token: string; expiresAt?: string | null }>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function makeAgentsRepo(db: DbLike, ctx: AgentsCtx = {}) {
   return {
+    /**
+     * Idempotent per (team, device): returns the caller-owned agent already bound
+     * to this machine in this team, creating it when absent, plus a one-shot
+     * invite for the local daemon to claim.
+     *
+     * An agent bound to the device but owned by another account counts as absent
+     * — a shared machine gets one agent per account, and neither silently takes
+     * over the other's (mirrors amux.ensure_agent_for_device).
+     *
+     * Concurrency: the Supabase path serializes on an advisory lock inside the
+     * RPC. Here the unique index (team_id, device_id) is the arbiter — the loser
+     * of a race catches the violation and re-reads the winner's row, so two cold
+     * starts still converge on one agent.
+     */
+    /**
+     * Read-only lookup: this machine's agent in this team, if the caller owns one.
+     * Mirrors amux.find_agent_for_device.
+     */
+    async findAgentForDevice(teamId: string, input: { deviceId: string }) {
+      const deviceId = (input.deviceId ?? "").trim();
+      if (!deviceId) throw new ApiError(400, "validation_failed", "deviceId is required");
+      const callerActorId =
+        ctx.callerActorId ??
+        (ctx.userId ? await resolveActorForTeam(db, ctx.userId, teamId) : undefined);
+      if (!callerActorId) return { agentId: null, displayName: null };
+      const [row] = await db
+        .select({ id: agents.id, displayName: actors.displayName })
+        .from(agents)
+        .innerJoin(actors, eq(actors.id, agents.id))
+        .where(
+          and(
+            eq(actors.teamId, teamId),
+            eq(agents.deviceId, deviceId),
+            eq(agents.ownerMemberId, callerActorId),
+            eq(agents.status, "active"),
+          ),
+        )
+        .limit(1);
+      return { agentId: row?.id ?? null, displayName: row?.displayName ?? null };
+    },
+
+    async ensureAgentForDevice(
+      teamId: string,
+      input: { deviceId: string; displayName: string },
+    ) {
+      const deviceId = (input.deviceId ?? "").trim();
+      const displayName = (input.displayName ?? "").trim();
+      if (!deviceId) throw new ApiError(400, "validation_failed", "deviceId is required");
+      if (!displayName) throw new ApiError(400, "validation_failed", "displayName is required");
+      if (!ctx.mintAgentInvite) {
+        throw new ApiError(500, "not_wired", "ensureAgentForDevice needs mintAgentInvite");
+      }
+
+      const callerActorId =
+        ctx.callerActorId ??
+        (ctx.userId ? await resolveActorForTeam(db, ctx.userId, teamId) : undefined);
+      if (!callerActorId) {
+        throw new ApiError(403, "forbidden", "team membership required");
+      }
+
+      const findOwned = async (): Promise<string | null> => {
+        const [row] = await db
+          .select({ id: agents.id, displayName: actors.displayName })
+          .from(agents)
+          .innerJoin(actors, eq(actors.id, agents.id))
+          .where(
+            and(
+              eq(actors.teamId, teamId),
+              eq(agents.deviceId, deviceId),
+              eq(agents.ownerMemberId, callerActorId),
+              eq(agents.status, "active"),
+            ),
+          )
+          .limit(1);
+        return row?.id ?? null;
+      };
+
+      let agentId = await findOwned();
+      let created = false;
+
+      if (!agentId) {
+        try {
+          // One transaction so a unique-index violation on the agents insert also
+          // rolls back the actor row instead of leaving a nameless orphan behind.
+          agentId = await (db as any).transaction(async (tx: any) => {
+            const [actor] = await tx
+              .insert(actors)
+              .values({
+                teamId,
+                actorType: "agent",
+                displayName,
+                invitedByActorId: callerActorId,
+              })
+              .returning();
+            await tx.insert(agents).values({
+              id: actor.id,
+              ownerMemberId: callerActorId,
+              status: "active",
+              agentKind: "claude",
+              deviceId,
+              teamId,
+              // visibility deliberately omitted: the column default is
+              // 'personal', which is the wanted default now that nothing asks.
+            });
+            await tx
+              .insert(agentMemberAccess)
+              .values({
+                agentId: actor.id,
+                memberId: callerActorId,
+                permissionLevel: "admin",
+                grantedByMemberId: callerActorId,
+              })
+              .onConflictDoNothing();
+            return actor.id as string;
+          });
+          created = true;
+        } catch (err) {
+          // Lost the race: the winner's row is what this machine gets.
+          agentId = await findOwned();
+          if (!agentId) throw err;
+        }
+      }
+      // displayName is create-only (parity with amux.ensure_agent_for_device):
+      // re-applying it on a rebind would overwrite a later rename with whatever
+      // the client last sent — the hostname, when the user skipped naming.
+
+      const invite = await ctx.mintAgentInvite(teamId, {
+        displayName,
+        targetActorId: agentId,
+        // Claimed immediately by `amuxd init`; a tight window avoids leaving live
+        // agent invites behind when init fails.
+        ttlSeconds: 600,
+      });
+
+      return {
+        agentId,
+        token: invite.token,
+        expiresAt: invite.expiresAt ?? null,
+        created,
+      };
+    },
+
     /**
      * Lists all agent actors connected to a team (visibility = team OR personal
      * when owned by caller). Returns items with kind="agent".

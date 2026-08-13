@@ -107,8 +107,8 @@ describe('Settings navigation', () => {
       'Team LLM',
       'Prompt',
       'MCP',
-      'Roles',
-      'Role Skills',
+      // 'Roles' and 'Role Skills' are temporarily hidden — see
+      // HIDDEN_LOCAL_AGENT_SECTIONS in Settings.tsx.
       'Knowledge Base',
       'Dependencies',
     ])

@@ -288,16 +288,11 @@ pub(crate) fn validate_slug(slug: &str) -> Result<(), String> {
 
 /// Safely sanitize a relative path from a zip entry.
 /// Returns None for entries that are directories or contain path traversal.
-fn sanitize_zip_path(raw: &str) -> Option<String> {
-    let normalized = raw.trim_start_matches("./").trim_start_matches('/');
-    if normalized.is_empty() || normalized.ends_with('/') {
-        return None;
-    }
-    if normalized.contains("..") || normalized.contains('\\') {
-        return None;
-    }
-    Some(normalized.to_string())
-}
+// The traversal guard lives in `teamclu-skillpack` because the daemon unpacks
+// the same archives during its reconcile. The unpacking loops stay separate —
+// the two crates are on different major versions of `zip` — but the rule for
+// which entry names may become paths has exactly one definition.
+use teamclu_skillpack::sanitize_zip_path;
 
 pub(crate) fn extract_zip_to_dir(
     zip_bytes: &[u8],
@@ -347,6 +342,8 @@ pub(crate) fn extract_zip_to_dir(
             .map_err(|e| format!("Failed to read zip entry {}: {}", safe_path, e))?;
         std::fs::write(&out_path, &buf)
             .map_err(|e| format!("Failed to write {}: {}", safe_path, e))?;
+        teamclu_skillpack::apply_zip_mode(&out_path, file.unix_mode())
+            .map_err(|e| format!("Failed to set mode on {}: {}", safe_path, e))?;
     }
 
     Ok(())

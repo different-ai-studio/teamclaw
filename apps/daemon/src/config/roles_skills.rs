@@ -107,15 +107,6 @@ fn brand_roles_dir(workspace_path: &Path) -> PathBuf {
     teamclu_runtime_env::workspace_meta_write_path_from_env(workspace_path, "roles")
 }
 
-fn is_meta_skills_dir(path: &Path) -> bool {
-    path.file_name().and_then(|s| s.to_str()) == Some("skills")
-        && path
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|s| s.to_str())
-            .is_some_and(|name| name.starts_with('.'))
-}
-
 fn workspace_brand_config_rel() -> String {
     format!(
         "{}/{}",
@@ -134,9 +125,25 @@ struct RawSkill {
     is_role_skill: bool,
 }
 
+/// The brand meta directory outranks every other root.
+const RANK_META: u8 = 0;
+
 struct SkillDirSpec {
     path: PathBuf,
+    /// Display label. Never used to order anything — see `rank`.
     source: &'static str,
+    /// Precedence when the same slug exists in more than one root: lowest wins.
+    ///
+    /// Kept on the spec rather than derived from `source` so that changing what
+    /// a skill is *called* cannot silently change which copy the app opens,
+    /// edits, and feeds to an agent. The numbers mirror the frontend's
+    /// `SKILL_SOURCE_PRIORITY` so both loaders resolve a collision the same way.
+    rank: u8,
+    /// The brand meta directory, where `builtin` / `clawhub` classification
+    /// applies. Stated here instead of inferred from the path: the inference
+    /// (`is_meta_skills_dir`) matched any `skills` directory under a dot-prefixed
+    /// parent, which is all of them.
+    is_meta: bool,
 }
 
 fn io_err(e: std::io::Error) -> WorkspaceControlError {
@@ -289,24 +296,6 @@ fn load_skills_from_dir(dir: &Path, source: &str) -> Result<Vec<RawSkill>, Works
     Ok(skills)
 }
 
-fn source_priority(source: &str) -> u8 {
-    match source {
-        "local" => 0,
-        "claude" => 1,
-        "clawhub" => 2,
-        "shared" => 3,
-        "team" => 4,
-        "builtin" => 5,
-        "plugin" => 6,
-        "global-teamclu" => 7,
-        "global-claude" => 8,
-        "global-agent" => 9,
-        "global-opencode" => 10,
-        "opencode" => 11,
-        _ => 12,
-    }
-}
-
 fn classify_teamclu_skill(filename: &str, clawhub_slugs: &HashSet<String>) -> &'static str {
     if INHERENT_SKILL_NAMES.contains(&filename) {
         "builtin"
@@ -353,6 +342,25 @@ fn remap_team_skill_path(workspace_path: &Path, path: PathBuf, team_id: &str) ->
 /// Code, and an empty list makes the bridge prune every team symlink it had.
 pub fn team_skill_roots(workspace_path: &Path) -> Vec<PathBuf> {
     let mut roots = collect_team_skill_paths(workspace_path);
+    // The daemon's own install root, for skills an admin assigned to this
+    // hosted agent. Separate from `~/.agents/skills` because that one belongs
+    // to the desktop's member-side reconcile — see `runtime::team_skills` for
+    // why sharing it would make the two loops delete each other's packs.
+    //
+    // Ordered *before* `~/.agents/skills`, and that ordering is the whole
+    // point: consumers resolve a slug collision by taking the first root that
+    // has it. On a machine that both hosts a shared agent and is signed in as a
+    // member, the same slug exists twice — once at the version an admin
+    // assigned to the agent, once at whatever the member happens to have,
+    // possibly edited and held back by a conflict. Putting the member's copy
+    // first would let a private edit decide what a team agent executes, which
+    // is exactly the veto the agent-side reconcile refuses to grant.
+    if let Some(team_id) = onboarded_team_id() {
+        let agent_dir = crate::runtime::team_skills::team_cloud_skills_dir(&team_id);
+        if agent_dir.is_dir() && !roots.contains(&agent_dir) {
+            roots.push(agent_dir);
+        }
+    }
     if let Some(home) = dirs::home_dir() {
         let registry_dir = home.join(".agents/skills");
         if registry_dir.is_dir() && !roots.contains(&registry_dir) {
@@ -406,11 +414,9 @@ fn collect_team_skill_paths(workspace_path: &Path) -> Vec<PathBuf> {
     paths
 }
 
-fn load_all_skills(
-    workspace_path: &Path,
-    home: &Path,
-) -> Result<Vec<RawSkill>, WorkspaceControlError> {
-    let clawhub_slugs = read_clawhub_slugs(workspace_path);
+/// Every root scanned for skills, in one place so the ranks can be read — and
+/// tested — as a table rather than inferred from call order.
+fn skill_dir_specs(workspace_path: &Path, home: &Path) -> Vec<SkillDirSpec> {
     let home_str = home.to_string_lossy();
     let home_trimmed = home_str.trim_end_matches('/');
 
@@ -419,36 +425,63 @@ fn load_all_skills(
         .map(|path| SkillDirSpec {
             path,
             source: "local",
+            rank: RANK_META,
+            is_meta: true,
         })
         .collect();
     specs.extend([
         SkillDirSpec {
             path: workspace_path.join(".opencode/skills"),
             source: "opencode",
+            rank: 11,
+            is_meta: false,
         },
         SkillDirSpec {
             path: workspace_path.join(".claude/skills"),
             source: "claude",
+            rank: 1,
+            is_meta: false,
         },
         SkillDirSpec {
             path: workspace_path.join(".agents/skills"),
             source: "shared",
+            rank: 3,
+            is_meta: false,
         },
         SkillDirSpec {
             path: PathBuf::from(format!("{home_trimmed}/.config/teamclu/skills")),
             source: "global-teamclu",
+            rank: 7,
+            is_meta: false,
         },
         SkillDirSpec {
             path: PathBuf::from(format!("{home_trimmed}/.config/opencode/skills")),
             source: "global-opencode",
+            rank: 10,
+            is_meta: false,
         },
         SkillDirSpec {
             path: PathBuf::from(format!("{home_trimmed}/.claude/skills")),
             source: "global-claude",
+            rank: 8,
+            is_meta: false,
         },
         SkillDirSpec {
             path: PathBuf::from(format!("{home_trimmed}/.agents/skills")),
             source: "global-agent",
+            // Ahead of every personal root, which is the opposite of where a
+            // "global" root would sit on generality alone. This is where team
+            // packs are installed, and a team skill is a team standard: a member
+            // keeping a same-named file of their own must not silently decide
+            // what the team's procedure is on their machine. It is also the only
+            // ordering consistent with auto-follow, whose entire premise is that
+            // nobody should be left quietly running a version the team retired.
+            //
+            // A member who wants their own version keeps it under another name;
+            // the install path offers exactly that when it has to take a path
+            // over (`archive_unmanaged`).
+            rank: 2,
+            is_meta: false,
         },
     ]);
 
@@ -456,30 +489,56 @@ fn load_all_skills(
         specs.push(SkillDirSpec {
             path: extra,
             source: "team",
+            rank: 4,
+            is_meta: false,
         });
     }
 
-    let mut merged: HashMap<String, RawSkill> = HashMap::new();
+    specs
+}
+
+fn load_all_skills(
+    workspace_path: &Path,
+    home: &Path,
+) -> Result<Vec<RawSkill>, WorkspaceControlError> {
+    let clawhub_slugs = read_clawhub_slugs(workspace_path);
+    let specs = skill_dir_specs(workspace_path, home);
+
+    // Which copy of a duplicated slug survives is decided by the *directory* it
+    // came from, carried on the spec, never by the label the skill ends up
+    // wearing. Deriving the order from the label made display and precedence
+    // one decision: `is_meta_skills_dir` relabelled several unrelated roots to
+    // `local`, they all tied at the same priority, and the tie fell to whichever
+    // spec happened to be listed first. A team pack in `~/.agents/skills` then
+    // always lost to the member's own copy in `~/.claude/skills` — not by any
+    // rule, just by array position.
+    let mut merged: HashMap<String, (u8, RawSkill)> = HashMap::new();
     for spec in specs {
         let mut batch = load_skills_from_dir(&spec.path, spec.source)?;
         for skill in batch.drain(..) {
-            let source = if is_meta_skills_dir(&spec.path) {
+            // `builtin` / `clawhub` are properties of the brand meta directory —
+            // they are read out of that workspace's own lockfile and inherent
+            // list — so the classification only applies there. The frontend
+            // loader has always scoped it that way (`skill-loader.ts`:
+            // "`.teamclu/skills/` → 'local' / 'builtin' / 'clawhub'"); this used
+            // to apply it to every root whose parent name began with a dot,
+            // which is every skills root there is.
+            let source = if spec.is_meta {
                 classify_teamclu_skill(&skill.filename, &clawhub_slugs).to_owned()
             } else {
                 skill.source.clone()
             };
             let skill = RawSkill { source, ..skill };
             match merged.get(&skill.filename) {
-                Some(existing)
-                    if source_priority(&existing.source) <= source_priority(&skill.source) => {}
+                Some((seen_rank, _)) if *seen_rank <= spec.rank => {}
                 _ => {
-                    merged.insert(skill.filename.clone(), skill);
+                    merged.insert(skill.filename.clone(), (spec.rank, skill));
                 }
             }
         }
     }
 
-    Ok(merged.into_values().collect())
+    Ok(merged.into_values().map(|(_, skill)| skill).collect())
 }
 
 fn get_section(body: &str, heading: &str) -> String {
@@ -912,13 +971,53 @@ pub fn upsert_skill(
     std::fs::write(skill_dir.join("SKILL.md"), final_content.as_bytes()).map_err(io_err)?;
 
     let state = scan_roles_skills_state(workspace_path)?;
-    state
+    let linked_roles = state
         .skills
+        .iter()
+        .find(|skill| skill.filename == dir_name)
+        .map(|skill| skill.linked_roles.clone())
+        .unwrap_or_default();
+
+    // Read back the directory we wrote, rather than looking for it in the
+    // scan's merged view.
+    //
+    // `load_all_skills` keeps one entry per slug — the highest-priority source
+    // wins — so a slug that exists in two roots appears once, under whichever
+    // root won. Requiring the scan to return *our* `dir_path` therefore fails
+    // whenever a higher-priority copy of the same slug exists anywhere, and the
+    // Claude bridge guarantees exactly that for team packs: it symlinks
+    // `~/.agents/skills/<slug>` into the workspace's `.claude/skills/`, whose
+    // `claude` source outranks `global-agent`. Editing any installed team skill
+    // then wrote the file correctly and answered 404 "not found after write" —
+    // the write had landed, only the confirmation could not see it.
+    let written = load_skills_from_dir(&skills_dir, "local")?
         .into_iter()
-        .find(|skill| skill.filename == dir_name && skill.dir_path == skills_dir.to_string_lossy())
+        .find(|skill| skill.filename == dir_name)
         .ok_or_else(|| {
             WorkspaceControlError::NotFound(format!("skill {dir_name} not found after write"))
-        })
+        })?;
+
+    Ok(ManagedSkillDto {
+        filename: written.filename,
+        name: written.name.clone(),
+        invocation_name: Some(written.invocation_name),
+        description: extract_skill_description(&written.content, &written.name),
+        content: written.content,
+        // The source label describes which root a skill was found under, and
+        // this one is reported by the scan, not invented here — an upsert
+        // answering "local" for a pack under `~/.agents/skills` would relabel it
+        // on every save.
+        source: state
+            .skills
+            .iter()
+            .find(|skill| {
+                skill.filename == dir_name && skill.dir_path == skills_dir.to_string_lossy()
+            })
+            .and_then(|skill| skill.source.clone()),
+        dir_path: skills_dir.to_string_lossy().into_owned(),
+        linked_roles,
+        is_role_skill: false,
+    })
 }
 
 pub fn delete_skill(
@@ -1156,6 +1255,174 @@ mod tests {
         assert!(!ws.path().join(".teamclu/skills/demo-skill").exists());
     }
 
+    /// Write a one-file skill and return its directory.
+    fn seed_skill(root: &Path, rel: &str, slug: &str, body: &str) -> PathBuf {
+        let dir = root.join(rel).join(slug);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {slug}\n---\n{body}\n"),
+        )
+        .unwrap();
+        root.join(rel)
+    }
+
+    #[test]
+    fn the_team_pack_root_outranks_a_personal_copy() {
+        // A member with a same-named skill of their own must not decide what the
+        // team's procedure is. Only the workspace's own meta dir and
+        // `.claude/skills` sit above the pack root.
+        let ws = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let specs = skill_dir_specs(ws.path(), home.path());
+        let rank_of = |path: PathBuf| {
+            specs
+                .iter()
+                .find(|s| s.path == path)
+                .map(|s| s.rank)
+                .unwrap_or_else(|| panic!("no spec for {}", path.display()))
+        };
+        let pack_root = rank_of(home.path().join(".agents/skills"));
+
+        assert!(pack_root < rank_of(home.path().join(".claude/skills")));
+        assert!(pack_root < rank_of(home.path().join(".config/opencode/skills")));
+        assert!(pack_root < rank_of(ws.path().join(".opencode/skills")));
+        // The workspace's own dirs still win: a project that ships a skill is
+        // making a narrower statement than the team registry.
+        assert!(pack_root > rank_of(ws.path().join(".claude/skills")));
+        assert!(pack_root > RANK_META);
+    }
+
+    #[test]
+    fn a_duplicated_slug_resolves_by_root_rank_not_by_scan_order() {
+        // `.claude/skills` (rank 1) outranks `.agents/skills` (3), which
+        // outranks `.opencode/skills` (11) — regardless of the order the specs
+        // happen to be listed in. Ordering used to be derived from the source
+        // label, and since every dot-prefixed root was relabelled `local` they
+        // all tied, leaving the winner to array position.
+        let ws = tempfile::tempdir().unwrap();
+        seed_skill(ws.path(), ".opencode/skills", "dup", "opencode");
+        seed_skill(ws.path(), ".agents/skills", "dup", "agents");
+        let expected = seed_skill(ws.path(), ".claude/skills", "dup", "claude");
+
+        let state = scan_roles_skills_state(ws.path()).unwrap();
+        let rows: Vec<_> = state.skills.iter().filter(|s| s.filename == "dup").collect();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].dir_path, expected.to_string_lossy());
+        assert!(rows[0].content.contains("claude"));
+    }
+
+    #[test]
+    fn only_the_brand_meta_dir_gets_the_local_builtin_clawhub_labels() {
+        // `builtin` and `clawhub` are read out of the workspace's own inherent
+        // list and lockfile, so they describe the brand meta directory and
+        // nothing else. This used to be applied to every root whose parent name
+        // began with a dot — i.e. every skills root — which flattened the
+        // settings UI's source badges to one value and, worse, collapsed the
+        // precedence order they were being derived from.
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(
+            ws.path().join(".clawhub-lock-placeholder"),
+            "not the lockfile",
+        )
+        .unwrap();
+        std::fs::create_dir_all(ws.path().join(".clawhub")).unwrap();
+        std::fs::write(
+            ws.path().join(".clawhub/lock.json"),
+            r#"{"skills":{"market-pack":{"version":"1"}}}"#,
+        )
+        .unwrap();
+
+        seed_skill(ws.path(), ".teamclu/skills", "market-pack", "in meta dir");
+        seed_skill(ws.path(), ".teamclu/skills", "create-role", "inherent");
+        seed_skill(ws.path(), ".agents/skills", "elsewhere", "shared root");
+        seed_skill(ws.path(), ".claude/skills", "claude-one", "claude root");
+
+        let state = scan_roles_skills_state(ws.path()).unwrap();
+        let source_of = |name: &str| {
+            state
+                .skills
+                .iter()
+                .find(|s| s.filename == name)
+                .and_then(|s| s.source.clone())
+        };
+
+        // Inside the meta dir: classified.
+        assert_eq!(source_of("market-pack").as_deref(), Some("clawhub"));
+        assert_eq!(source_of("create-role").as_deref(), Some("builtin"));
+        // Outside it: the root's own label, not `local`.
+        assert_eq!(source_of("elsewhere").as_deref(), Some("shared"));
+        assert_eq!(source_of("claude-one").as_deref(), Some("claude"));
+    }
+
+    #[test]
+    fn upsert_reports_the_directory_it_wrote_even_when_a_higher_source_shadows_the_slug() {
+        // The share-then-edit case, which used to 404 with "not found after
+        // write".
+        //
+        // Sharing a personal skill copies it into the team pack root and leaves
+        // the original where it was, so the slug now exists in two roots.
+        //
+        // `load_all_skills` keeps one entry per slug, so a slug present in two
+        // roots is only ever reported from the winning one. The post-write
+        // lookup demanded an entry whose `dir_path` was the directory it had
+        // just written to, which the loser never gets: the file was written
+        // correctly and only the confirmation failed.
+        let ws = tempfile::tempdir().unwrap();
+        // The lower-ranked root, standing in for `~/.agents/skills` (rank 9),
+        // where team packs live — without needing to move HOME.
+        let pack_dir = ws.path().join(".opencode/skills");
+        std::fs::create_dir_all(pack_dir.join("deploy-check")).unwrap();
+        std::fs::write(
+            pack_dir.join("deploy-check/SKILL.md"),
+            "---\nname: deploy-check\n---\noriginal\n",
+        )
+        .unwrap();
+
+        // The copy that wins — the personal original, in the real case.
+        let shadow = ws.path().join(".claude/skills/deploy-check");
+        std::fs::create_dir_all(&shadow).unwrap();
+        std::fs::write(
+            shadow.join("SKILL.md"),
+            "---\nname: deploy-check\n---\nshadow\n",
+        )
+        .unwrap();
+
+        // The precondition this test exists for: the merged scan reports one
+        // entry for the slug, and it is not the copy we are about to write.
+        let merged = scan_roles_skills_state(ws.path()).unwrap();
+        let seen: Vec<_> = merged
+            .skills
+            .iter()
+            .filter(|s| s.filename == "deploy-check")
+            .collect();
+        assert_eq!(seen.len(), 1, "the scan collapses the slug to one entry");
+        assert_ne!(seen[0].dir_path, pack_dir.to_string_lossy());
+
+        let req = UpsertSkillRequest {
+            content: "---\nname: deploy-check\n---\nedited by the user\n".to_owned(),
+            skill_name: Some("deploy-check".to_owned()),
+            install_location: None,
+            dir_path: Some(pack_dir.to_string_lossy().into_owned()),
+            filename: Some("deploy-check".to_owned()),
+        };
+
+        let saved = upsert_skill(ws.path(), "deploy-check", &req).unwrap();
+
+        assert_eq!(saved.filename, "deploy-check");
+        assert_eq!(saved.dir_path, pack_dir.to_string_lossy());
+        assert!(
+            saved.content.contains("edited by the user"),
+            "the response must describe the file we wrote, not the shadowing copy: {}",
+            saved.content
+        );
+        // And the shadowing copy is untouched.
+        assert!(std::fs::read_to_string(shadow.join("SKILL.md"))
+            .unwrap()
+            .contains("shadow"));
+    }
+
     #[test]
     fn upsert_skill_rejects_dir_path_outside_workspace_and_home() {
         let ws = tempfile::tempdir().unwrap();
@@ -1287,3 +1554,4 @@ mod tests {
         assert!(!ws.path().join(".teamclu/skills/brand-skill").exists());
     }
 }
+

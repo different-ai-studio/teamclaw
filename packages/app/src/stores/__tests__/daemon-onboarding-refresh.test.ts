@@ -13,8 +13,12 @@ const h = vi.hoisted(() => ({
   installServiceShouldThrow: false,
   currentUserId: 'user-1' as string | null,
   localActorId: 'actor-1' as string | null,
-  ownedAgents: [] as Array<{ agent_id: string; display_name: string; is_owner: boolean; visibility?: string }>,
-  createInviteCalls: [] as Array<Record<string, unknown>>,
+  // This machine's id as the local daemon reports it. null simulates an
+  // unreachable/older daemon, which must fail loudly rather than mint a new id.
+  deviceId: 'device-1' as string | null,
+  ensureCalls: [] as Array<Record<string, unknown>>,
+  // (team, device) → agent, mirroring what the server's unique index guarantees.
+  deviceAgents: new Map<string, string>(),
 }))
 
 vi.mock('@/lib/utils', () => ({ isTauri: () => h.isTauriVal }))
@@ -24,16 +28,38 @@ vi.mock('@tauri-apps/api/path', () => ({
 }))
 vi.mock('@/lib/backend', () => ({
   getBackend: () => ({
-    teams: {
-      createTeamInvite: vi.fn(async (input: Record<string, unknown>) => {
-        h.createInviteCalls.push(input)
-        return { token: 'invite-token' }
+    actors: {
+      // GET .../agents/for-device — the lookup that decides silent-bind vs prompt.
+      findAgentForDevice: vi.fn(async (input: Record<string, unknown>) => {
+        const agentId = h.deviceAgents.get(`${input.teamId}:${input.deviceId}`) ?? null
+        return { agentId, displayName: agentId ? 'Existing robot' : null }
+      }),
+      // Stands in for POST /v1/teams/:id/agents/ensure-for-device: idempotent per
+      // (team, device), so a second call returns the same agent with created:false.
+      ensureAgentForDevice: vi.fn(async (input: Record<string, unknown>) => {
+        h.ensureCalls.push(input)
+        const key = `${input.teamId}:${input.deviceId}`
+        const existing = h.deviceAgents.get(key)
+        const agentId = existing ?? `agent-for-${input.deviceId}-in-${input.teamId}`
+        if (!existing) h.deviceAgents.set(key, agentId)
+        return {
+          agentId,
+          token: `invite-${h.ensureCalls.length}`,
+          expiresAt: null,
+          created: !existing,
+        }
       }),
     },
-    actors: {
-      listConnectedAgents: vi.fn(async () => h.ownedAgents),
-    },
   }),
+}))
+vi.mock('@/stores/member-preferences-store', () => ({
+  useMemberPreferencesStore: {
+    getState: () => ({
+      ensureLoaded: vi.fn(async () => {}),
+      defaultAgentId: null,
+      setDefaultAgent: vi.fn(async () => {}),
+    }),
+  },
 }))
 vi.mock('@/stores/current-team', () => ({
   useCurrentTeamStore: { getState: () => ({ team: h.currentTeam }) },
@@ -56,6 +82,7 @@ vi.mock('@/lib/daemon-local-client', () => ({
   // Default to 'unknown' so the ready path's cloud-session probe is a no-op in
   // these orchestration tests (auto-heal is covered separately).
   fetchDaemonCloudAuthStatus: vi.fn(async () => 'unknown'),
+  fetchDaemonDeviceId: vi.fn(async () => h.deviceId),
 }))
 vi.mock('@/lib/daemon-agent-admin', () => ({
   getLocalDaemonActorId: vi.fn(async () => h.localActorId),
@@ -64,6 +91,7 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async (cmd: string, args?: unknown) => {
     h.invokeCalls.push(cmd)
     if (cmd === 'get_daemon_team_id') return h.daemonTeam
+    if (cmd === 'get_device_hostname') return 'test-host'
     if (cmd === 'daemon_init') {
       h.daemonTeam = h.currentTeam?.id ?? null
       return { actorId: 'actor-1', teamId: h.daemonTeam }
@@ -93,7 +121,6 @@ const reset = () =>
     loaded: false,
     busy: false,
     error: null,
-    ownedAgents: [],
     cloudAuthExpired: false,
     healing: false,
     healError: null,
@@ -109,8 +136,9 @@ beforeEach(() => {
   h.installServiceShouldThrow = false
   h.currentUserId = 'user-1'
   h.localActorId = 'actor-1'
-  h.ownedAgents = [{ agent_id: 'actor-1', display_name: 'Mac daemon', is_owner: true }]
-  h.createInviteCalls = []
+  h.deviceId = 'device-1'
+  h.ensureCalls = []
+  h.deviceAgents = new Map()
   localStorage.clear()
   reset()
 })
@@ -137,33 +165,95 @@ describe('daemon-onboarding refresh() orchestration', () => {
     expect(useDaemonOnboardingStore.getState().status).toBe('unknown')
   })
 
-  it('needs-onboard when daemon is bound to no team', async () => {
+  it('a machine new to the team asks for a name and writes nothing yet', async () => {
     h.currentTeam = { id: 't1' }
     h.daemonTeam = null
-    await useDaemonOnboardingStore.getState().refresh()
-    expect(useDaemonOnboardingStore.getState().status).toBe('needs-onboard')
-  })
-
-  it('mismatch when daemon team differs — and does NOT probe http', async () => {
-    h.currentTeam = { id: 't1' }
-    h.daemonTeam = 't2'
-    await useDaemonOnboardingStore.getState().refresh()
-    expect(useDaemonOnboardingStore.getState().status).toBe('mismatch')
-    // Team-level states never reach the health probe / recovery path.
-    expect(h.invokeCalls).toEqual(['get_daemon_team_id'])
-  })
-
-  it('reprovisions a new local actor when the user explicitly switches teams', async () => {
-    h.currentTeam = { id: 't1' }
-    h.daemonTeam = 't2'
     h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
 
-    await useDaemonOnboardingStore.getState().refresh({ forceTeamRebind: true })
+    await useDaemonOnboardingStore.getState().refresh()
 
-    expect(h.createInviteCalls).toHaveLength(1)
-    expect(h.createInviteCalls[0]).toMatchObject({ targetActorId: null, kind: 'agent' })
+    const s = useDaemonOnboardingStore.getState()
+    expect(s.pendingName).toMatchObject({ teamId: 't1', deviceId: 'device-1', suggested: 'test-host' })
+    // Nothing is created until the user answers: abandoning the screen must not
+    // leave a half-named agent behind.
+    expect(h.ensureCalls).toHaveLength(0)
+    expect(h.invokeCalls).not.toContain('daemon_init')
+  })
+
+  it('naming the agent creates it under that name and finishes binding', async () => {
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = null
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+    await useDaemonOnboardingStore.getState().refresh()
+
+    await useDaemonOnboardingStore.getState().nameDeviceAgent('小助手')
+
+    const s = useDaemonOnboardingStore.getState()
+    expect(s.pendingName).toBeNull()
+    expect(s.status).toBe('ready')
+    expect(h.ensureCalls).toHaveLength(1)
+    expect(h.ensureCalls[0]).toMatchObject({ teamId: 't1', deviceId: 'device-1', displayName: '小助手' })
     expect(h.invokeCalls).toContain('daemon_init')
     expect(h.invokeCalls).toContain('daemon_restart_managed')
+  })
+
+  it('a machine the team already knows binds silently, with no prompt', async () => {
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = 't2'
+    h.deviceAgents.set('t1:device-1', 'agent-existing')
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+
+    await useDaemonOnboardingStore.getState().refresh()
+
+    const s = useDaemonOnboardingStore.getState()
+    expect(s.pendingName).toBeNull()
+    expect(s.status).toBe('ready')
+    expect(h.ensureCalls).toHaveLength(1)
+    // Re-binding must not re-send the hostname as a rename — the API treats
+    // displayName as create-only, and the client passes the stored name through.
+    expect(h.ensureCalls[0]).toMatchObject({ displayName: 'Existing robot' })
+    // The old team's agent is left alone — no daemon_clear anywhere.
+    expect(h.invokeCalls).not.toContain('daemon_clear')
+  })
+
+  it('switching back to a team re-binds that team’s existing agent, not a new one', async () => {
+    // Name it in t1, go to t2, come back: the return trip must find the same
+    // agent, or every round trip leaves a duplicate and another naming prompt.
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = null
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+    await useDaemonOnboardingStore.getState().refresh()
+    await useDaemonOnboardingStore.getState().nameDeviceAgent('t1-robot')
+    const firstAgent = h.deviceAgents.get('t1:device-1')
+
+    h.currentTeam = { id: 't2' }
+    await useDaemonOnboardingStore.getState().refresh()
+    await useDaemonOnboardingStore.getState().nameDeviceAgent('t2-robot')
+
+    h.ensureCalls = []
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = 't2'
+    await useDaemonOnboardingStore.getState().refresh()
+
+    expect(useDaemonOnboardingStore.getState().pendingName).toBeNull()
+    expect(h.deviceAgents.get('t1:device-1')).toBe(firstAgent)
+    expect(h.deviceAgents.size).toBe(2)
+    expect(h.ensureCalls).toHaveLength(1)
+  })
+
+  it('fails loudly when the daemon cannot report this machine’s id', async () => {
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = null
+    h.deviceId = null
+
+    await useDaemonOnboardingStore.getState().refresh()
+
+    const s = useDaemonOnboardingStore.getState()
+    expect(s.status).toBe('error')
+    // Never fall back to a locally minted id: that provisions a second agent for
+    // a machine that already has one.
+    expect(h.ensureCalls).toHaveLength(0)
+    expect(s.error).toContain(i18n.t('settings.daemonOnboarding.deviceIdUnavailable'))
   })
 
   it('ready when team matches and the daemon is already healthy', async () => {
@@ -184,31 +274,48 @@ describe('daemon-onboarding refresh() orchestration', () => {
     h.currentTeam = { id: 't1' }
     h.daemonTeam = 't1'
     h.currentUserId = 'linked-user'
-    h.ownedAgents = [{ agent_id: 'actor-1', display_name: 'Mac daemon', is_owner: true }]
+    // The lookup is owner-scoped server-side; this account owns one here.
+    h.deviceAgents.set('t1:device-1', 'agent-existing')
     h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
 
     await useDaemonOnboardingStore.getState().refresh()
 
-    expect(h.createInviteCalls).toHaveLength(1)
-    expect(h.createInviteCalls[0]).toMatchObject({ targetActorId: 'actor-1', kind: 'agent' })
+    // Same team, different authority: the daemon must not keep publishing under
+    // credentials the previous account minted.
+    expect(h.ensureCalls).toHaveLength(1)
     expect(h.invokeCalls).toContain('daemon_init')
     expect(h.invokeCalls).toContain('daemon_restart_managed')
   })
 
-  it('migrates a legacy daemon when its local actor is not owned by the current user', async () => {
+  it('a linked-account switch onto a machine with no agent of its own asks for a name', async () => {
+    const { writeDaemonOnboardingIdentity } = await import('@/lib/daemon-onboarding-identity')
+    writeDaemonOnboardingIdentity({ teamId: 't1', userId: 'previous-user' })
     h.currentTeam = { id: 't1' }
     h.daemonTeam = 't1'
     h.currentUserId = 'linked-user'
-    // No stored identity: the old build did not persist one. The actor is not
-    // in this linked user's owned list, so a fresh local actor is provisioned.
-    h.ownedAgents = []
+    // Owner-scoped lookup finds nothing: the agent on this machine belongs to the
+    // other account, and this one names its own rather than taking it over.
     h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
 
     await useDaemonOnboardingStore.getState().refresh()
 
-    expect(h.createInviteCalls).toHaveLength(1)
-    expect(h.createInviteCalls[0]).toMatchObject({ targetActorId: null, kind: 'agent' })
-    expect(h.invokeCalls).toContain('daemon_init')
+    expect(useDaemonOnboardingStore.getState().pendingName).not.toBeNull()
+    expect(h.ensureCalls).toHaveLength(0)
+  })
+
+  it('does not rebind a matching team under the same user', async () => {
+    const { writeDaemonOnboardingIdentity } = await import('@/lib/daemon-onboarding-identity')
+    writeDaemonOnboardingIdentity({ teamId: 't1', userId: 'user-1' })
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = 't1'
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+
+    await useDaemonOnboardingStore.getState().refresh()
+
+    // The common startup path: already bound, already this user. Re-binding here
+    // would rotate the daemon's credentials (and restart it) on every launch.
+    expect(h.ensureCalls).toHaveLength(0)
+    expect(h.invokeCalls).not.toContain('daemon_init')
   })
 
   it('ready registers the active workspace when it is a real project dir', async () => {
@@ -234,12 +341,19 @@ describe('daemon-onboarding refresh() orchestration', () => {
     expect(h.invokeCalls).not.toContain('register_daemon_workspace')
   })
 
-  it('does not register a workspace on a team mismatch', async () => {
+  it('does not register a workspace while the bind is still failing', async () => {
+    const { fetchDaemonCloudAuthStatus } = await import('@/lib/daemon-local-client')
+    vi.mocked(fetchDaemonCloudAuthStatus).mockResolvedValue('ok')
     h.currentTeam = { id: 't1' }
     h.daemonTeam = 't2'
+    h.deviceId = null // bind fails before it reaches the server
+
     await useDaemonOnboardingStore.getState().refresh()
-    // give any stray async a tick; mismatch must never register.
     await Promise.resolve()
+
+    // Registration is team-scoped; it must never run while the daemon is still
+    // pointing at the previous team.
+    expect(useDaemonOnboardingStore.getState().status).toBe('error')
     expect(h.invokeCalls).not.toContain('register_daemon_workspace')
   })
 

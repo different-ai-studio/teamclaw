@@ -1351,6 +1351,48 @@ impl DaemonServer {
             });
         }
 
+        // Materialise the skills an admin assigned to this hosted agent.
+        //
+        // Separate tick from the team config mirror above, on a much longer
+        // cadence: that one moves a few KB of JSON, this one downloads and
+        // unpacks archives. See `runtime::team_skills` for why it installs into
+        // its own root rather than the desktop's `~/.agents/skills`.
+        if let Some(team_id) = self
+            .config
+            .team_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+        {
+            use crate::runtime::team_skills::{apply_team_skill_outcome, TeamSkillReconciler};
+            let reconciler = Arc::new(TeamSkillReconciler::new(self.backend.clone()));
+            let backend = Some(self.backend.clone());
+            let refresh = self.refresh_coordinator.clone();
+            tokio::spawn(async move {
+                // Once at startup so a daemon that was offline while an admin
+                // made a change converges immediately rather than after a full
+                // interval.
+                let outcome = reconciler.reconcile_now(&team_id).await;
+                apply_team_skill_outcome(&team_id, outcome, backend.as_ref(), refresh.as_ref())
+                    .await;
+                let mut tick = tokio::time::interval(crate::runtime::team_skills::TEAM_SKILLS_TTL);
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    tick.tick().await;
+                    // `reconcile_now`, not `reconcile`: this timer *is* the
+                    // schedule. The TTL guard exists for the nudge path, and
+                    // going through it here would compare an interval against
+                    // itself — `last_fetch` is stamped after the download, so
+                    // every tick lands a few seconds short of the TTL and skips,
+                    // silently halving the cadence to 20 minutes.
+                    let outcome = reconciler.reconcile_now(&team_id).await;
+                    apply_team_skill_outcome(&team_id, outcome, backend.as_ref(), refresh.as_ref())
+                        .await;
+                }
+            });
+        }
+
         // Advertise supported agent backend types on the cloud `agents` row
         // (background, with retries). Routing identity is the actor_id; no
         // separate device-id upsert. Skip when daemon.toml has no `[agents.*]`

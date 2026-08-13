@@ -44,11 +44,19 @@ export type SetupProgress = {
 
 type SetupState = {
   requirements: RequirementStatus[]
+  /** Install status of every selectable runtime — populated by [`listAgentRuntimes`]. */
+  agentRuntimes: RequirementStatus[]
   installing: string | null
   output: Record<string, string[]>
   errors: Record<string, string>
   loaded: boolean
-  listRequirements: () => Promise<void>
+  /**
+   * `agent` overrides which runtime the requirement list reports on. Onboarding
+   * passes the user's pick (#881); everything else falls back to the build's
+   * default so existing call sites keep their behaviour.
+   */
+  listRequirements: (agent?: string) => Promise<void>
+  listAgentRuntimes: () => Promise<void>
   install: (id: string, opts?: { minDurationMs?: number }) => Promise<void>
   requiredSatisfied: () => boolean
 }
@@ -58,6 +66,7 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 export const useSetupStore = create<SetupState>((set, get) => ({
   requirements: [],
+  agentRuntimes: [],
   installing: null,
   output: {},
   errors: {},
@@ -72,18 +81,26 @@ export const useSetupStore = create<SetupState>((set, get) => ({
       .requirements.filter((r) => !r.optional)
       .every((r) => r.present || r.version != null),
 
-  listRequirements: async () => {
+  listRequirements: async (agent?: string) => {
     if (!isTauri()) {
       set({ loaded: true })
       return
     }
     markStartup('setup-list:start')
     const { invoke } = await import('@tauri-apps/api/core')
-    const requirements = await invoke<RequirementStatus[]>('setup_list_requirements', { localAgent })
+    const requirements = await invoke<RequirementStatus[]>('setup_list_requirements', {
+      localAgent: agent ?? localAgent,
+    })
     markStartup('setup-list:end')
     set({ requirements, loaded: true })
     // Refresh the optimistic-skip cache for the next launch.
     persistSetupSatisfied(get().requiredSatisfied())
+  },
+
+  listAgentRuntimes: async () => {
+    if (!isTauri()) return
+    const { invoke } = await import('@tauri-apps/api/core')
+    set({ agentRuntimes: await invoke<RequirementStatus[]>('setup_list_agent_runtimes') })
   },
 
   install: async (id: string, opts?: { minDurationMs?: number }) => {
@@ -118,8 +135,15 @@ export const useSetupStore = create<SetupState>((set, get) => ({
       await Promise.all([
         (async () => {
           await invoke('setup_install', { id })
-          const requirements = await invoke<RequirementStatus[]>('setup_list_requirements', { localAgent })
+          // Re-probe against the runtime just installed, not the build default —
+          // otherwise installing pi refreshes opencode's row and pi still reads
+          // as missing.
+          const probeAgent = id === 'pi' || id === 'opencode' ? id : localAgent
+          const requirements = await invoke<RequirementStatus[]>('setup_list_requirements', {
+            localAgent: probeAgent,
+          })
           set({ requirements })
+          if (id === 'pi' || id === 'opencode') await get().listAgentRuntimes()
         })(),
         minDurationMs > 0 ? delay(minDurationMs) : Promise.resolve(),
       ])

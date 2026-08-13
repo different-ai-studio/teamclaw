@@ -101,6 +101,22 @@ export function registerTeamSkills(router) {
     return { statusCode: 201, body: version };
   });
 
+  // Undo for a bad publish. Rolls forward with the old content rather than
+  // moving latest_version back — see the repository implementation.
+  router.post("/v1/teams/:teamId/skills/:slug/versions/:version/revert", async (ctx) => {
+    const version = Number(ctx.params.version);
+    if (!Number.isInteger(version) || version < 1) {
+      throw new ApiError(400, "validation_failed", "version must be a positive integer");
+    }
+    const created = await ctx.repository.revertTeamSkillVersion(
+      ctx.params.teamId,
+      ctx.params.slug,
+      version,
+      ctx.json ?? {},
+    );
+    return { statusCode: 201, body: created };
+  });
+
   router.get("/v1/teams/:teamId/skills/:slug/versions/:version", async (ctx) => {
     const version = Number(ctx.params.version);
     if (!Number.isInteger(version) || version < 1) {

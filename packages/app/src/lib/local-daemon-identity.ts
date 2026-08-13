@@ -39,13 +39,18 @@ export function noteLocalDaemonActorId(current: string | null): void {
     if (persisted && persisted !== next) {
       markSuperseded(persisted)
     }
+    supersededLocalActorIds.delete(next)
     lastKnownLocalActorId = next
     writePersistedLocalDaemonActorId(next)
   }
 }
 
 export function isSupersededLocalAgent(agentId: string): boolean {
-  return supersededLocalActorIds.has(agentId)
+  const id = agentId.trim()
+  if (!id) return false
+  const current = getKnownLocalDaemonActorId()
+  if (current && id === current) return false
+  return supersededLocalActorIds.has(id)
 }
 
 /**

@@ -84,11 +84,13 @@ export function getSystemLanguage(): string {
 }
 
 export function getPreferredLanguage(): string {
-  // English is the default. The system language is intentionally NOT
-  // auto-detected — users opt into another language via the switcher, which
-  // persists their choice (see getStoredLanguage / persistLanguage).
-  // getSystemLanguage() is kept available for an explicit "follow system" option.
-  return getStoredLanguage() ?? 'en'
+  // An explicit choice always wins; absent one, follow the system. A machine set
+  // to Chinese gets 中文, everything else gets English — matching the OS beats
+  // defaulting to English for a user who never asked for it.
+  //
+  // Only ever a *default*: the first-run language step and the settings switcher
+  // both persist a choice, and getStoredLanguage() shadows this from then on.
+  return getStoredLanguage() ?? getSystemLanguage()
 }
 
 export function persistLanguage(language: string): void {

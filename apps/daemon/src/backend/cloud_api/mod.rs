@@ -6,7 +6,7 @@ use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BackendSessionAndParticipants,
     BootstrapMqttOverride, ClaimResult, CloudAuthSnapshot, GatewaySessionRow, ManagedGitCredential,
     ManagedLlmConfig, ManagedLlmModelInfo, ShareModeConfig, StoredMessage, TeamEnvSecretRow,
-    WorkspaceRow, WorkspaceUpsert,
+    TeamSkillDownload, TeamSkillRow, WorkspaceRow, WorkspaceUpsert,
 };
 use crate::provider_config::CloudApiConfig;
 use async_trait::async_trait;
@@ -512,6 +512,43 @@ impl CloudApiBackend {
         unreachable!("cloud_api patch retry loop exhausted")
     }
 
+    /// PUT with the response body discarded. Used for idempotent upserts whose
+    /// only interesting outcome is whether the write landed.
+    pub(super) async fn put_no_content<Req>(&self, path: &str, body: &Req) -> BackendResult<()>
+    where
+        Req: Serialize + ?Sized,
+    {
+        for is_retry in [false, true] {
+            let token = self.access_token().await?;
+            let resp = self
+                .http
+                .put(self.cloud_url(path))
+                .bearer_auth(token)
+                .header("x-request-id", request_id())
+                .json(body)
+                .send()
+                .await
+                .map_err(network_error)?;
+            if resp.status().is_success() {
+                return Ok(());
+            }
+            let status = resp.status();
+            let bytes = resp.bytes().await.map_err(network_error)?;
+            let envelope = serde_json::from_slice::<client::CloudErrorEnvelope>(&bytes).ok();
+            match client::decode_error(status, envelope) {
+                BackendError::Auth(_) if !is_retry => {
+                    tracing::debug!(
+                        path,
+                        "cloud_api: 401 unauthorized, invalidating cached access token and retrying once"
+                    );
+                    self.invalidate_access_token_cache();
+                }
+                err => return Err(err),
+            }
+        }
+        unreachable!("cloud_api put retry loop exhausted")
+    }
+
     pub(super) fn cloud_url(&self, path: &str) -> String {
         cloud_url(&self.cfg, path)
     }
@@ -672,6 +709,47 @@ impl Backend for CloudApiBackend {
             Err(BackendError::NotFound(_)) => Ok(Vec::new()),
             Err(e) => Err(e),
         }
+    }
+
+    async fn team_skills(&self, team_id: &str) -> BackendResult<Vec<TeamSkillRow>> {
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            #[serde(default)]
+            items: Vec<TeamSkillRow>,
+        }
+        let path = format!("/v1/teams/{team_id}/skills");
+        match self.get::<Resp>(&path).await {
+            Ok(r) => Ok(r.items),
+            // A team with no registry is not an error, same as team MCP's 404.
+            Err(BackendError::NotFound(_)) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn team_skill_download(
+        &self,
+        team_id: &str,
+        slug: &str,
+        version: i64,
+    ) -> BackendResult<TeamSkillDownload> {
+        let path = format!("/v1/teams/{team_id}/skills/{slug}/versions/{version}/download");
+        self.get::<TeamSkillDownload>(&path).await
+    }
+
+    async fn record_team_skill_install(
+        &self,
+        team_id: &str,
+        slug: &str,
+        version: i64,
+    ) -> BackendResult<()> {
+        #[derive(serde::Serialize)]
+        struct Body {
+            version: i64,
+        }
+        // No `actorId`: the endpoint records against the caller, and the
+        // daemon's caller is the hosted agent actor itself.
+        let path = format!("/v1/teams/{team_id}/skills/{slug}/install");
+        self.put_no_content(&path, &Body { version }).await
     }
 
     async fn ensure_llm_member_key(&self, team_id: &str) -> BackendResult<()> {

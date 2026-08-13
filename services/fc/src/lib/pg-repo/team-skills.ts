@@ -73,11 +73,22 @@ function requirePublishFields(body: any, { partial = false } = {}) {
     }
     out[key] = value.trim();
   };
+  // Present-but-empty is a real answer here, and it is stored as one.
+  const optional = (key: string, value: unknown) => {
+    if (value === undefined) return;
+    out[key] = typeof value === "string" ? value.trim() : "";
+  };
 
+  // `summary` and `category` stay required: one is the list subtitle, the other
+  // drives filtering, and a registry full of blanks in either is unusable.
+  // The two guidance fields are not — they are what a thoughtful author writes,
+  // not a gate on sharing at all. Demanding them up front mostly produced
+  // placeholder text, which is worse than an empty field: it reads as guidance
+  // and isn't.
   need("summary", body.summary, "summary");
   need("category", body.category, "category");
-  need("whenToUse", body.whenToUse, "whenToUse");
-  need("whenNotToUse", body.whenNotToUse, "whenNotToUse");
+  optional("whenToUse", body.whenToUse);
+  optional("whenNotToUse", body.whenNotToUse);
 
   if (out.summary !== undefined && (out.summary as string).length > 200) {
     throw new ApiError(400, "validation_failed", "summary must be 200 characters or fewer");
@@ -421,6 +432,77 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
           whenNotToUse: merged.whenNotToUse,
           requires: (merged.requires as any) ?? null,
           category: merged.category,
+        })
+        .where(eq(teamSkills.id, skill.id));
+
+      return mapVersion(version);
+    },
+
+    /**
+     * Re-publish an earlier version's content as the new latest.
+     *
+     * This is the undo for a bad publish, and it has to exist before installs
+     * auto-follow: without it a broken version reaches every member within one
+     * reconcile tick and the only remedy is for the author to reconstruct the
+     * old bytes by hand.
+     *
+     * Rolling `latest_version` backwards would be the obvious alternative and is
+     * deliberately not offered — it would leave members whose
+     * `installed_version` exceeds `latest_version`, at which point "is there an
+     * update" has no answer and the reconcile cannot tell whether to move them
+     * forward or back. Versions only ever go up; a revert is a new one carrying
+     * old content.
+     */
+    async revertTeamSkillVersion(teamId: string, slug: string, targetVersion: number, body: any = {}) {
+      const userId = requireUser();
+      const callerActorId = await requireActorForTeam(db, userId, teamId);
+      const skill = await loadSkill(teamId, slug);
+      await assertCanEdit(userId, skill, callerActorId);
+
+      const [source] = await db
+        .select()
+        .from(teamSkillVersions)
+        .where(
+          and(
+            eq(teamSkillVersions.skillId, skill.id),
+            eq(teamSkillVersions.version, targetVersion),
+          ),
+        )
+        .limit(1);
+      if (!source) throw new ApiError(404, "not_found", `version ${targetVersion} not found`);
+      if (targetVersion === skill.latestVersion) {
+        throw new ApiError(409, "conflict", `v${targetVersion} is already the latest version`);
+      }
+
+      const changelog =
+        String(body.changelog ?? "").trim() || `Reverted to v${targetVersion}`;
+      const nextVersion = (skill.latestVersion ?? 0) + 1;
+
+      // The metadata snapshot travels with the content. "Revert to v3" that
+      // restored v3's files under v7's description would produce a package
+      // whose SKILL.md frontmatter contradicts itself on every install.
+      const [version] = await (db.insert(teamSkillVersions) as any)
+        .values({
+          skillId: skill.id,
+          version: nextVersion,
+          contentHash: source.contentHash,
+          size: source.size ?? 0,
+          changelog,
+          summary: source.summary,
+          whenToUse: source.whenToUse,
+          whenNotToUse: source.whenNotToUse,
+          requires: (source.requires as any) ?? null,
+          createdBy: callerActorId,
+        })
+        .returning();
+
+      await (db.update(teamSkills) as any)
+        .set({
+          latestVersion: nextVersion,
+          summary: source.summary,
+          whenToUse: source.whenToUse,
+          whenNotToUse: source.whenNotToUse,
+          requires: (source.requires as any) ?? null,
         })
         .where(eq(teamSkills.id, skill.id));
 

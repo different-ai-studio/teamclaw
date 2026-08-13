@@ -115,6 +115,17 @@ export interface TeamSkillsBackend {
       Pick<TeamSkillPublishInput, "summary" | "category" | "whenToUse" | "whenNotToUse" | "requires">
     >,
   ): Promise<TeamSkillVersion>;
+  /**
+   * Undo a published version by re-publishing an earlier one's content as the
+   * new latest. Required before auto-follow: a bad version otherwise reaches
+   * everyone within a reconcile tick with no way back.
+   */
+  revertTeamSkillVersion(
+    teamId: string,
+    slug: string,
+    version: number,
+    input?: { changelog?: string },
+  ): Promise<TeamSkillVersion>;
   updateTeamSkill(
     teamId: string,
     slug: string,
@@ -190,6 +201,13 @@ export function createTeamSkillsModule(client: CloudApiClient): TeamSkillsBacken
 
     async publishTeamSkillVersion(teamId, slug, input) {
       return client.post<TeamSkillVersion>(`${skillPath(teamId, slug)}/versions`, input);
+    },
+
+    async revertTeamSkillVersion(teamId, slug, version, input = {}) {
+      return client.post<TeamSkillVersion>(
+        `${skillPath(teamId, slug)}/versions/${version}/revert`,
+        input,
+      );
     },
 
     async updateTeamSkill(teamId, slug, patch) {

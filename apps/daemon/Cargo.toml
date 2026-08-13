@@ -1,6 +1,6 @@
 [package]
 name = "amuxd"
-version = "0.4.1-beta.6"
+version = "0.4.1-beta.7"
 edition = "2021"
 
 [dependencies]
@@ -19,6 +19,7 @@ teamclu-proto = { path = "../../crates/teamclu-proto" }
 teamclu-runtime-env = { path = "../../crates/teamclu-runtime-env" }
 teamclu-transport = { path = "../../crates/teamclu-transport" }
 teamclu-types = { path = "../../crates/teamclu-types" }
+teamclu-skillpack = { path = "../../crates/teamclu-skillpack" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -56,6 +57,9 @@ include_dir = "0.7"
 notify = { version = "8", features = ["macos_fsevent"] }
 # Archive unpack (opencode release assets: zip on macOS/Windows, tar.gz on Linux)
 zip = { version = "5", default-features = false, features = ["deflate"] }
+# Runtime, not just tests: the team-skills reconcile unpacks each archive into a
+# staging dir before swapping it over the installed pack.
+tempfile = "3"
 tar = "0.4"
 humantime-serde = "1"
 parking_lot = "0.12"
@@ -104,6 +108,5 @@ openssl = { version = "0.10", features = ["vendored"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
-tempfile = "3"
 wiremock = "0.6"
 async-nats = "0.49"

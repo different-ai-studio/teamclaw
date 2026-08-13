@@ -351,6 +351,7 @@ pub fn run() {
         })
         .manage(commands::window_chrome::MainWindowState::default())
         .manage(commands::shared_secrets::SharedSecretsState::default())
+        .manage(commands::introspect_auth::IntrospectAuthState::default())
         .manage(commands::oauth_loopback::OAuthLoopbackState::default())
         .manage::<crate::mqtt::MqttBus>(std::sync::Arc::new(crate::mqtt::MqttBusInner::new()))
         .manage(std::sync::Arc::new(crate::terminal::Registry::new()))
@@ -363,6 +364,8 @@ pub fn run() {
             commands::daemon_http::get_daemon_team_id,
             commands::daemon_http::list_local_daemon_workspaces,
             commands::daemon_http::register_daemon_workspace,
+            commands::introspect_auth::set_introspect_auth,
+            commands::introspect_auth::clear_introspect_auth,
             commands::show_in_folder,
             commands::acp_debug_log::acp_debug_append_log,
             commands::acp_debug_log::acp_debug_log_directory,
@@ -434,6 +437,7 @@ pub fn run() {
             commands::amuxd_supervisor::daemon_stop_managed,
             commands::amuxd_supervisor::daemon_supervisor_status,
             commands::setup::setup_list_requirements,
+            commands::setup::setup_list_agent_runtimes,
             commands::setup::setup_install,
             commands::setup::restart_local_daemon,
             commands::clawhub::clawhub_search,
@@ -450,6 +454,13 @@ pub fn run() {
             commands::team_skills::team_skill_pack,
             commands::team_skills::team_skill_pack_and_upload,
             commands::team_skills::team_skill_install_from_dir,
+            commands::team_skills::team_skill_inspect,
+            commands::team_skills::team_skill_installed_dir,
+            commands::team_skills::team_skill_diff,
+            commands::team_skills::team_skill_discard_local,
+            commands::team_skills::team_skill_restore_trashed,
+            commands::team_skills::team_skill_retire_personal,
+            commands::team_skills::team_skill_fork,
             commands::agents_skills::ensure_agents_skills_paths,
             commands::skillssh::fetch_skillssh_leaderboard,
             commands::skillssh::search_skillssh_skills,

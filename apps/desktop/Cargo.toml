@@ -1,6 +1,6 @@
 [package]
 name = "teamclu"
-version = "0.4.1-beta.6"
+version = "0.4.1-beta.7"
 description = "TeamClu - AI Agent Desktop Platform"
 authors = ["TeamClu Team"]
 edition = "2021"
@@ -39,6 +39,7 @@ prost = "0.13"
 prost-types = "0.13"
 teamclu-proto = { path = "../../crates/teamclu-proto" }
 teamclu-types = { path = "../../crates/teamclu-types" }
+teamclu-skillpack = { path = "../../crates/teamclu-skillpack" }
 teamclu-runtime-env = { path = "../../crates/teamclu-runtime-env" }
 teamclu-transport = { path = "../../crates/teamclu-transport" }
 indexmap = { version = "2", features = ["serde"] }

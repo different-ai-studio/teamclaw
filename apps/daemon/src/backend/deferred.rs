@@ -27,7 +27,7 @@ use super::records::{
 };
 use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BootstrapMqttOverride, CloudAuthSnapshot,
-    ManagedGitCredential, ManagedLlmConfig, ShareModeConfig,
+    ManagedGitCredential, ManagedLlmConfig, ShareModeConfig, TeamSkillDownload, TeamSkillRow,
 };
 
 /// Error returned by every business call before onboarding completes.
@@ -162,6 +162,36 @@ impl Backend for DeferredBackend {
 
     async fn managed_llm_config(&self, team_id: &str) -> BackendResult<ManagedLlmConfig> {
         self.inner()?.managed_llm_config(team_id).await
+    }
+
+    // Every method a caller needs has to be forwarded explicitly — a trait
+    // default here is not "unimplemented", it is a wrong answer delivered
+    // confidently. The skills reconcile reads an un-forwarded `team_skills` as
+    // an empty desired set and deletes the agent's entire skill root on that
+    // basis, which is why these three exist even though the wrapper looks like
+    // it could inherit them.
+    async fn team_skills(&self, team_id: &str) -> BackendResult<Vec<TeamSkillRow>> {
+        self.inner()?.team_skills(team_id).await
+    }
+
+    async fn team_skill_download(
+        &self,
+        team_id: &str,
+        slug: &str,
+        version: i64,
+    ) -> BackendResult<TeamSkillDownload> {
+        self.inner()?.team_skill_download(team_id, slug, version).await
+    }
+
+    async fn record_team_skill_install(
+        &self,
+        team_id: &str,
+        slug: &str,
+        version: i64,
+    ) -> BackendResult<()> {
+        self.inner()?
+            .record_team_skill_install(team_id, slug, version)
+            .await
     }
 
     async fn ensure_llm_member_key(&self, team_id: &str) -> BackendResult<()> {

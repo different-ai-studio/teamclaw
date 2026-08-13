@@ -283,7 +283,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "amuxd"
-version = "0.4.1-beta.6"
+version = "0.4.1-beta.7"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -327,6 +327,7 @@ dependencies = [
  "teamclu-gateway",
  "teamclu-proto",
  "teamclu-runtime-env",
+ "teamclu-skillpack",
  "teamclu-transport",
  "teamclu-types",
  "tempfile",
@@ -10625,7 +10626,7 @@ dependencies = [
 
 [[package]]
 name = "teamclu"
-version = "0.4.1-beta.6"
+version = "0.4.1-beta.7"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -10697,6 +10698,7 @@ dependencies = [
  "teamclu-proto",
  "teamclu-rag",
  "teamclu-runtime-env",
+ "teamclu-skillpack",
  "teamclu-transport",
  "teamclu-types",
  "tempfile",
@@ -10833,6 +10835,17 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "teamclu-skillpack"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "teamclu-types",
+ "tempfile",
 ]
 
 [[package]]

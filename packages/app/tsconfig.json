@@ -25,7 +25,9 @@
     "noUncheckedSideEffectImports": true,
 
     /* Paths */
-    "baseUrl": ".",
+    /* No `baseUrl`: TypeScript 7 removed it, and it was redundant here anyway —
+       `paths` below is already relative, which is resolved against this file's
+       own directory. */
     "paths": {
       "@/*": ["./src/*"]
     }
