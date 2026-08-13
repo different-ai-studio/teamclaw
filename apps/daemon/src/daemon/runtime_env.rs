@@ -611,7 +611,7 @@ impl crate::opencode_settings::WorkspaceSettingsContextResolver for ExecutionCon
 }
 
 impl DaemonServer {
-    /// Resolve real spawn envs for ALL of the team's linkable on-disk
+    /// Resolve real spawn envs for the two most relevant linkable on-disk
     /// workspaces, for ACP host prewarming at daemon start. One entry per
     /// workspace: `(workspace_id, worktree_path, extra_env, force_env_override)`.
     ///
@@ -623,11 +623,10 @@ impl DaemonServer {
     /// `attach_session` will use, so the prewarmed host's `env_fingerprint`
     /// matches and gets reused.
     ///
-    /// Covering every workspace (not just the first) matters because sessions
-    /// and cron runs are not confined to the list head: cron's default
-    /// workspace is the agent's `default_workspace_id`, which need not be the
-    /// team list's first row. Workspaces whose env fails to assemble are
-    /// skipped with a warning.
+    /// The daemon default is moved first because cron runs may target it even
+    /// when it is not the cloud list's first row. The remaining slot follows
+    /// cloud list order. Workspaces whose env fails to assemble are skipped
+    /// with a warning.
     ///
     /// Returns an empty vec when the team has no linkable workspace yet (fresh
     /// install) — the caller then falls back to an empty-env prewarm.

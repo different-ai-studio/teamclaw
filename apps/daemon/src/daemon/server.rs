@@ -1082,14 +1082,11 @@ impl DaemonServer {
         // Spawned here (after the HTTP setup released its `self.agents` lock) so
         // the long-held prewarm lock can't stall the listener bind.
         {
-            // Resolve *real* spawn envs for every linkable workspace up front
+            // Resolve *real* spawn envs for the two most relevant workspaces
             // (writes provider.team, warms the managed-LLM cache, and yields the
-            // exact extra_env the first session will use). The global OpenCode
-            // host activates the first snapshot only; later, different
-            // workspace fingerprints are recorded but cannot overwrite it
-            // during prewarm. A real attach may switch snapshots once the host
-            // has no active routes. Falls back to empty-env when no workspace
-            // exists yet (fresh install).
+            // exact extra_env the first session will use). Each workspace gets
+            // its own current pooled generation. Falls back to empty-env when no
+            // workspace exists yet (fresh install).
             let prewarm_envs = self.resolve_all_prewarm_envs().await;
             let agents = self.agents.clone();
             tokio::spawn(async move {

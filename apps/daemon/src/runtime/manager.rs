@@ -943,8 +943,7 @@ impl RuntimeManager {
         }
     }
 
-    /// Model catalog for a workspace directory via the global opencode serve
-    /// instance (cron catalog UI).
+    /// Model catalog for a workspace directory (cron catalog UI).
     /// Probe the configured local backend for its live model catalog. The
     /// backend trait dispatches to opencode (serve `/config/providers`) or pi
     /// (`get_available_models`, spawning a child if none is live).
@@ -988,15 +987,24 @@ impl RuntimeManager {
     /// backend lock, not the whole manager).
     pub async fn probe_default_workspace_catalog(
         agents: Arc<AsyncMutex<Self>>,
-        workspace_path: std::path::PathBuf,
+        context: crate::runtime::execution_context::ExecutionContext,
     ) -> Vec<amux::ModelInfo> {
+        let workspace_path = context.working_directory.clone();
         let backend = {
             let guard = agents.lock().await;
             guard.agent_backend_handle()
         };
         let probe_result = {
             let mut backend_guard = backend.lock().await;
-            backend_guard.model_catalog(&workspace_path).await
+            let revision = ProcessEnvRevision::from_bindings(&context.spawn_env.extra_env);
+            backend_guard
+                .model_catalog_for_context(
+                    &workspace_path,
+                    context.isolation_domain,
+                    revision,
+                    context.spawn_env.extra_env,
+                )
+                .await
         };
         match probe_result {
             Ok(models) => {
@@ -2117,6 +2125,7 @@ mod tests {
     struct StubBackend {
         session_model: Option<String>,
         shutdown_called: Arc<std::sync::atomic::AtomicBool>,
+        catalog_domain: Arc<std::sync::Mutex<Option<IsolationDomainKey>>>,
     }
 
     #[async_trait::async_trait]
@@ -2170,6 +2179,16 @@ mod tests {
         ) -> crate::error::Result<Vec<amux::ModelInfo>> {
             Ok(Vec::new())
         }
+        async fn model_catalog_for_context(
+            &mut self,
+            _workspace_path: &std::path::Path,
+            isolation_domain: IsolationDomainKey,
+            _process_env_revision: ProcessEnvRevision,
+            _extra_env: HashMap<String, String>,
+        ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+            *self.catalog_domain.lock().unwrap() = Some(isolation_domain);
+            Ok(vec![catalog_model("provider/model")])
+        }
         async fn session_model(
             &mut self,
             _w: &str,
@@ -2185,6 +2204,7 @@ mod tests {
         mgr.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
             session_model: session_model.map(str::to_string),
             shutdown_called: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            catalog_domain: Arc::new(std::sync::Mutex::new(None)),
         })));
         if let Some(h) = mgr.agents.get_mut("rt-1") {
             h.acp_session_id = "ses_stub".to_string();
@@ -2200,11 +2220,36 @@ mod tests {
         mgr.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
             session_model: None,
             shutdown_called: Arc::clone(&shutdown_called),
+            catalog_domain: Arc::new(std::sync::Mutex::new(None)),
         })));
 
         mgr.shutdown_for_exit().await;
 
         assert!(shutdown_called.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn default_workspace_catalog_uses_resolved_workspace_domain() {
+        let workspace = tempfile::tempdir().unwrap();
+        let catalog_domain = Arc::new(std::sync::Mutex::new(None));
+        let mut manager = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        manager.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
+            session_model: None,
+            shutdown_called: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            catalog_domain: Arc::clone(&catalog_domain),
+        })));
+
+        let models = RuntimeManager::probe_default_workspace_catalog(
+            Arc::new(AsyncMutex::new(manager)),
+            workspace_context(workspace.path()),
+        )
+        .await;
+
+        assert_eq!(models, vec![catalog_model("provider/model")]);
+        assert_eq!(
+            *catalog_domain.lock().unwrap(),
+            Some(IsolationDomainKey::Workspace("ws-a".into()))
+        );
     }
 
     #[tokio::test]
