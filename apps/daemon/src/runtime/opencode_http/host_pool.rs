@@ -194,6 +194,11 @@ struct CapacityPermit<'a> {
     committed: bool,
 }
 
+enum CapacityReservation<'a> {
+    Permit(CapacityPermit<'a>),
+    Reused(HostLease),
+}
+
 impl CapacityPermit<'_> {
     fn commit(&mut self) {
         self.committed = true;
@@ -274,9 +279,18 @@ impl OpenCodeHostPool {
                 .map(|current| current.generation_id.clone())
         };
 
-        let mut capacity_permit = self
-            .reserve_capacity(deadline, protected_idle_generation.as_deref())
-            .await?;
+        let mut capacity_permit = match self
+            .reserve_capacity(
+                &slot,
+                &revision,
+                deadline,
+                protected_idle_generation.as_deref(),
+            )
+            .await?
+        {
+            CapacityReservation::Permit(permit) => permit,
+            CapacityReservation::Reused(lease) => return Ok(lease),
+        };
         let _activation = slot.activation_lock.lock().await;
         {
             let mut state = slot.state.lock();
@@ -330,6 +344,7 @@ impl OpenCodeHostPool {
             state.last_error = None;
             displaced
         };
+        self.capacity_changed.notify_waiters();
         if let Some(old) = displaced_without_routes {
             if !self.stop_generation(&old) {
                 slot.state.lock().draining.push(old);
@@ -341,15 +356,28 @@ impl OpenCodeHostPool {
 
     async fn reserve_capacity(
         &self,
+        slot: &DomainSlot,
+        revision: &ProcessEnvRevision,
         deadline: Instant,
         protected_idle_generation: Option<&str>,
-    ) -> Result<CapacityPermit<'_>, HostPoolError> {
+    ) -> Result<CapacityReservation<'_>, HostPoolError> {
         let mut ticket = QueueTicket {
             pool: self,
             value: None,
         };
         loop {
             let notified = self.capacity_changed.notified();
+            {
+                let mut state = slot.state.lock();
+                if let Some(current) = state.current.clone() {
+                    if current.process_env_revision == *revision
+                        && current.lifecycle() == HostLifecycle::Ready
+                    {
+                        state.last_error = None;
+                        return Ok(CapacityReservation::Reused(current.reserve_route(self)));
+                    }
+                }
+            }
             self.evict_one_idle_for_capacity(protected_idle_generation)
                 .await;
             {
@@ -371,10 +399,10 @@ impl OpenCodeHostPool {
                     }
                     capacity.active += 1;
                     self.capacity_changed.notify_waiters();
-                    return Ok(CapacityPermit {
+                    return Ok(CapacityReservation::Permit(CapacityPermit {
                         pool: self,
                         committed: false,
-                    });
+                    }));
                 }
             }
 
@@ -974,6 +1002,58 @@ mod tests {
 
         let order = factory.start_order.lock().clone();
         assert_eq!(&order[3..], &[domain("d"), domain("e")]);
+    }
+
+    #[tokio::test]
+    async fn same_domain_capacity_waiters_reuse_the_generation_published_by_the_head() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let a = pool
+            .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let _b = pool
+            .acquire(domain("b"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let _c = pool
+            .acquire(domain("c"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+
+        let first_pool = Arc::clone(&pool);
+        let first = tokio::spawn(async move {
+            first_pool
+                .acquire(domain("d"), revision("1"), HashMap::new(), deadline())
+                .await
+        });
+        wait_for_queue(&pool, &domain("d"), 1).await;
+        let second_pool = Arc::clone(&pool);
+        let second = tokio::spawn(async move {
+            second_pool
+                .acquire(domain("d"), revision("1"), HashMap::new(), deadline())
+                .await
+        });
+        wait_for_queue(&pool, &domain("d"), 2).await;
+
+        drop(a);
+
+        let first = tokio::time::timeout(Duration::from_secs(2), first)
+            .await
+            .expect("head waiter should acquire the freed capacity")
+            .unwrap()
+            .unwrap();
+        let second = tokio::time::timeout(Duration::from_secs(2), second)
+            .await
+            .expect("peer waiter should attach after the head publishes")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(factory.start_count(), 4, "only one new host should spawn");
+        assert_eq!(
+            first.generation.generation_id,
+            second.generation.generation_id
+        );
     }
 
     #[tokio::test]
