@@ -252,6 +252,32 @@ describe('useEnsureEngagedRuntimesOnSessionFocus', () => {
     vi.useRealTimers()
   })
 
+  it('retries runtime startup errors on an interval', () => {
+    vi.useFakeTimers()
+
+    renderHook(() =>
+      useEnsureEngagedRuntimesOnSessionFocus({
+        sessionId: 'session-a',
+        teamId: 'team-1',
+        engagedUiEntries: [entry('agent-1', 'runtime-error')],
+      }),
+    )
+
+    expect(ensureMock).toHaveBeenCalledTimes(1)
+    ensureMock.mockClear()
+    vi.advanceTimersByTime(3_100)
+    vi.advanceTimersByTime(15_000)
+    expect(ensureMock).toHaveBeenCalledWith({
+      sessionId: 'session-a',
+      teamId: 'team-1',
+      agentActorIds: ['agent-1'],
+      reason: 'session_runtime_retry',
+      sessionRuntimeByAgent: undefined,
+    })
+
+    vi.useRealTimers()
+  })
+
   it('does not retry on an interval when agent is LWT-offline', async () => {
     vi.useFakeTimers()
 

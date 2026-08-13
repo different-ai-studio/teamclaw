@@ -15,6 +15,7 @@ import {
   __resetSentryModuleForTest,
   classifyRuntimeFailureReason,
   isCancelledRuntimeFailure,
+  isTransientRuntimeNetworkFailure,
   reportRuntimeEnsureCrash,
   reportRuntimeRpcNotReady,
   reportRuntimeStartFailure,
@@ -71,6 +72,20 @@ describe('classifyRuntimeFailureReason', () => {
     expect(isCancelledRuntimeFailure('rpc timeout after 20000ms')).toBe(false)
     expect(isCancelledRuntimeFailure('runtimeStart rejected')).toBe(false)
     expect(isCancelledRuntimeFailure(undefined)).toBe(false)
+  })
+
+  it('classifies transient Cloud API transport failures separately from auth rejection', () => {
+    const sendFailed =
+      'fetch_session_with_participants failed: cloud_api provider error: None: error sending request for url (https://api.teamclu-dev.ucar.cc/v1/auth/refresh)'
+    const refreshTimedOut =
+      'fetch_session_with_participants failed: cloud_api provider error: None: token refresh timed out'
+
+    expect(classifyRuntimeFailureReason(sendFailed)).toBe('cloud_network_error')
+    expect(classifyRuntimeFailureReason(refreshTimedOut)).toBe('cloud_network_error')
+    expect(isTransientRuntimeNetworkFailure(sendFailed)).toBe(true)
+    expect(isTransientRuntimeNetworkFailure(refreshTimedOut)).toBe(true)
+    expect(isTransientRuntimeNetworkFailure('auth error: invalid_grant')).toBe(false)
+    expect(isTransientRuntimeNetworkFailure('not found: session not found')).toBe(false)
   })
 })
 
@@ -145,6 +160,29 @@ describe('reportRuntimeStartFailure', () => {
       level: 'warning',
       fingerprint: ['runtime', 'runtime_start_failure', 'runtime_rpc_failed', 'rpc_disposed'],
       tags: { runtime_failure_reason_kind: 'rpc_disposed' },
+    })
+  })
+
+  it('downgrades a transient Cloud API network failure to warning', async () => {
+    reportRuntimeStartFailure({
+      agentActorId: 'agent-1',
+      code: 'runtime_rpc_failed',
+      reason:
+        'fetch_session_with_participants failed: cloud_api provider error: None: error sending request for url (https://api.teamclu-dev.ucar.cc/v1/auth/refresh)',
+    })
+    await flush()
+
+    expect(mocks.captureMessage).toHaveBeenCalledTimes(1)
+    const [, options] = mocks.captureMessage.mock.calls[0] as [string, Record<string, never>]
+    expect(options).toMatchObject({
+      level: 'warning',
+      fingerprint: [
+        'runtime',
+        'runtime_start_failure',
+        'runtime_rpc_failed',
+        'cloud_network_error',
+      ],
+      tags: { runtime_failure_reason_kind: 'cloud_network_error' },
     })
   })
 

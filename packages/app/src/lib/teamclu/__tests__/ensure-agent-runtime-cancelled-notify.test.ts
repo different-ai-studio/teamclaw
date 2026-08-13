@@ -63,6 +63,41 @@ describe("notifyRuntimeStartFailures", () => {
     expect(mocks.toastError).not.toHaveBeenCalled();
   });
 
+  it("does not toast a transient Cloud API network failure", async () => {
+    const { notifyRuntimeStartFailures } = await import("../ensure-agent-runtime");
+
+    notifyRuntimeStartFailures(
+      [
+        {
+          agentActorId: "agent-1",
+          code: "runtime_rpc_failed",
+          reason:
+            "fetch_session_with_participants failed: cloud_api provider error: None: error sending request for url (https://api.teamclu-dev.ucar.cc/v1/auth/refresh)",
+        },
+      ],
+      { trigger: "session_runtime_retry" },
+    );
+    await flush();
+
+    expect(mocks.reportRuntimeStartFailure).toHaveBeenCalledTimes(1);
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("still toasts a terminal Cloud API auth failure", async () => {
+    const { notifyRuntimeStartFailures } = await import("../ensure-agent-runtime");
+
+    notifyRuntimeStartFailures([
+      {
+        agentActorId: "agent-1",
+        code: "runtime_rpc_failed",
+        reason: "fetch_session_with_participants failed: auth error: invalid_grant",
+      },
+    ]);
+    await flush();
+
+    expect(mocks.toastError).toHaveBeenCalledTimes(1);
+  });
+
   it("still toasts a genuine runtime failure", async () => {
     const { notifyRuntimeStartFailures } = await import("../ensure-agent-runtime");
 

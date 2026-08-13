@@ -42,6 +42,7 @@ export type RuntimeFailureReasonKind =
   | 'mqtt_publish_failed'
   | 'mqtt_disconnected'
   | 'device_offline'
+  | 'cloud_network_error'
   | 'daemon_rejected'
   | 'unknown'
 
@@ -68,6 +69,12 @@ export function classifyRuntimeFailureReason(reason: string | undefined): Runtim
     return 'mqtt_disconnected'
   }
   if (lower.includes('device offline')) return 'device_offline'
+  if (
+    lower.includes('error sending request for url') ||
+    lower.includes('token refresh timed out')
+  ) {
+    return 'cloud_network_error'
+  }
   if (lower.includes('publish')) return 'mqtt_publish_failed'
   if (lower.includes('rejected')) return 'daemon_rejected'
   return 'unknown'
@@ -89,17 +96,23 @@ export function isCancelledRuntimeFailure(reason: string | undefined): boolean {
   return classifyRuntimeFailureReason(reason) === 'rpc_disposed'
 }
 
+/** A daemon → Cloud API transport failure that the runtime retry loop can recover. */
+export function isTransientRuntimeNetworkFailure(reason: string | undefined): boolean {
+  return classifyRuntimeFailureReason(reason) === 'cloud_network_error'
+}
+
 /**
- * Offline transports are expected states, not defects — keep them off the error
- * feed. Same for a request we cancelled ourselves, which the `code` alone
- * cannot express: it arrives as a plain `runtime_rpc_failed`.
+ * Offline transports and transient Cloud API failures are expected recoverable
+ * states — keep them off the error feed. Same for a request we cancelled
+ * ourselves, which the `code` alone cannot express: it arrives as a plain
+ * `runtime_rpc_failed`.
  */
 function levelFor(
   code: RuntimeStartFailureCode | undefined,
   reasonKind: RuntimeFailureReasonKind,
 ): TelemetryLevel {
   if (code === 'device_offline' || code === 'transport_offline') return 'warning'
-  if (reasonKind === 'rpc_disposed') return 'warning'
+  if (reasonKind === 'rpc_disposed' || reasonKind === 'cloud_network_error') return 'warning'
   return 'error'
 }
 
