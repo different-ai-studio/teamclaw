@@ -932,13 +932,13 @@ function PersonalEnvActivationDiagnosticsCard({
                   {(activation.resolved_env_fingerprint || activation.active_env_fingerprint) && (
                     <DiagRow
                       ok={activation.activation_status === 'active'}
-                      label={t('settings.envVars.diag.snapshotStatus', '环境快照')}
+                      label={t('settings.envVars.diag.snapshotStatus', 'Workspace host 世代')}
                       value={`${activation.activation_status} · ${resolvedFingerprint} / ${activeFingerprint}`}
                       hint={
                         activation.activation_status !== 'active'
                           ? t(
                               'settings.envVars.diag.snapshotStatusHint',
-                              '前者为当前 workspace 解析结果，后者为全局 OpenCode host 已加载快照；不同表示正在等待重载或被其他活跃 workspace 阻塞。',
+                              '前者为当前 workspace 的解析指纹，后者为其当前运行时世代的生效指纹；不一致表示世代正在启动或等待本机容量。',
                             )
                           : undefined
                       }
@@ -980,7 +980,7 @@ function PersonalEnvActivationDiagnosticsCard({
                             })
                           : t(
                               'settings.envVars.diag.serveProbeHint',
-                              '对比解析结果与全局 OpenCode serve 已排队 key（不含 secret 值）；handle 列为最近活跃 runtime 快照。',
+                              '对比解析结果与当前 workspace 运行时世代已加载的 key（不含 secret 值）；handle 为最近活跃 session 快照。',
                             )
                       }
                     />

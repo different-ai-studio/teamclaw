@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   computeEnvActivationOverallStatus,
+  formatEnvActivationBlocker,
   normalizeDaemonEnvActivationDiagnostics,
   normalizePersonalEnvDiagnostics,
 } from '../env-diagnostics'
@@ -61,6 +62,40 @@ const baseActivation: DaemonEnvActivationDiagnostics = {
   missing_served_env_keys: [],
   active_handle_env_keys: ['openai_api_key'],
 }
+
+const t = ((key: string, options?: string | Record<string, unknown>) => {
+  if (typeof options === 'string') return options
+  return String(options?.defaultValue ?? key)
+}) as Parameters<typeof formatEnvActivationBlocker>[0]
+
+describe('formatEnvActivationBlocker', () => {
+  it('describes a queued host acquisition with its queue position', () => {
+    const message = formatEnvActivationBlocker(t, {
+      code: 'host_capacity_waiting',
+      detail: '4 active · position 2',
+    })
+
+    expect(message).toContain('New sessions are waiting for local runtime capacity')
+    expect(message).toContain('position 2')
+  })
+
+  it('describes a host capacity timeout with its active count', () => {
+    const message = formatEnvActivationBlocker(t, {
+      code: 'host_capacity_timeout',
+      detail: '6 active',
+    })
+
+    expect(message).toContain('Timed out waiting for local runtime capacity')
+    expect(message).toContain('6 active')
+  })
+
+  it('describes a workspace host generation starting', () => {
+    expect(formatEnvActivationBlocker(t, {
+      code: 'host_generation_starting',
+      detail: 'generation 7',
+    })).toContain('Workspace runtime generation is starting')
+  })
+})
 
 describe('computeEnvActivationOverallStatus', () => {
   it('returns healthy when storage, refresh, and snapshot all align', () => {

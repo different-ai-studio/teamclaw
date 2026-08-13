@@ -28,7 +28,7 @@ const CRITICAL_BLOCKER_CODES = new Set([
   'personal_store_uninitialized',
   'refresh_failed',
   'host_env_shadowed',
-  'env_snapshot_conflict',
+  'host_capacity_timeout',
   'unresolved_env_keys',
   'team_secret_missing',
   'missing_expected_env_keys',
@@ -173,10 +173,20 @@ export function formatEnvActivationBlocker(
         keys: detail ?? '',
         defaultValue: `Host OS environment overrides personal vars for: ${detail ?? ''}`,
       })
-    case 'env_snapshot_conflict':
-      return t('settings.envVars.diag.blockerSnapshotConflict', {
-        workspace: detail ?? '',
-        defaultValue: `Another workspace is using a different environment snapshot: ${detail ?? ''}`,
+    case 'host_generation_starting':
+      return t('settings.envVars.diag.blockerHostGenerationStarting', {
+        detail: detailSuffix,
+        defaultValue: `Workspace runtime generation is starting${detailSuffix}`,
+      })
+    case 'host_capacity_waiting':
+      return t('settings.envVars.diag.blockerHostCapacityWaiting', {
+        detail: detailSuffix,
+        defaultValue: `New sessions are waiting for local runtime capacity${detailSuffix}`,
+      })
+    case 'host_capacity_timeout':
+      return t('settings.envVars.diag.blockerHostCapacityTimeout', {
+        detail: detailSuffix,
+        defaultValue: `Timed out waiting for local runtime capacity${detailSuffix}`,
       })
     case 'unresolved_env_keys':
       return t('settings.envVars.diag.blockerUnresolvedEnvKeys', {
@@ -184,7 +194,7 @@ export function formatEnvActivationBlocker(
         defaultValue: `Variables could not be resolved for runtime injection: ${detail ?? ''}`,
       })
     case 'env_snapshot_pending':
-      return t('settings.envVars.diag.blockerEnvSnapshotPending', 'Resolved environment is not yet active in the global OpenCode host — reload runtime and start a new session')
+      return t('settings.envVars.diag.blockerEnvSnapshotPending', 'Resolved environment is not yet active in this workspace runtime generation')
     case 'alias_collision':
       return t('settings.envVars.diag.blockerAliasCollision', {
         keys: detail ?? '',

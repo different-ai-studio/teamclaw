@@ -240,4 +240,21 @@ describe('EnvVarsSection reload', () => {
       expect(toast.warning).toHaveBeenCalled()
     })
   })
+
+  it('shows local capacity waiting without global conflict guidance', async () => {
+    mockGetDaemonEnvActivationDiagnostics.mockResolvedValueOnce({
+      ...await mockGetDaemonEnvActivationDiagnostics(),
+      activation_status: 'pending',
+      blockers: [{
+        code: 'host_capacity_waiting',
+        detail: '4 active · position 2',
+      }],
+    })
+
+    render(<EnvVarsSection />)
+
+    expect(await screen.findByText(/New sessions are waiting for local runtime capacity/)).toHaveTextContent('position 2')
+    expect(screen.queryByText(/close another workspace/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/globally reload OpenCode/i)).not.toBeInTheDocument()
+  })
 })
