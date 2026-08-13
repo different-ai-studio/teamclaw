@@ -52,8 +52,9 @@ type SetupState = {
   loaded: boolean
   /**
    * `agent` overrides which runtime the requirement list reports on. Onboarding
-   * passes the user's pick (#881); everything else falls back to the build's
-   * default so existing call sites keep their behaviour.
+   * passes the user's pick (#881). Without it — the background probe that
+   * refreshes the setup-ok cache — the backend counts any installed runtime as
+   * satisfying, so a pi machine is not failed against the build default.
    */
   listRequirements: (agent?: string) => Promise<void>
   listAgentRuntimes: () => Promise<void>
@@ -89,7 +90,7 @@ export const useSetupStore = create<SetupState>((set, get) => ({
     markStartup('setup-list:start')
     const { invoke } = await import('@tauri-apps/api/core')
     const requirements = await invoke<RequirementStatus[]>('setup_list_requirements', {
-      localAgent: agent ?? localAgent,
+      localAgent: agent ?? null,
     })
     markStartup('setup-list:end')
     set({ requirements, loaded: true })
