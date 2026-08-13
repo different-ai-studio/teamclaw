@@ -612,12 +612,7 @@ pub async fn team_skill_pack_and_upload(
                 "size": size,
             }))
             .send()
-            .map_err(|e| {
-                format!(
-                    "skill blob prepare failed: {}",
-                    format_reqwest_error(&e)
-                )
-            })?;
+            .map_err(|e| format!("skill blob prepare failed: {}", format_reqwest_error(&e)))?;
         if !prepare_resp.status().is_success() {
             let status = prepare_resp.status();
             let body = prepare_resp.text().unwrap_or_default();
@@ -646,9 +641,7 @@ pub async fn team_skill_pack_and_upload(
                 .header("x-upsert", "true")
                 .body(zip_bytes)
                 .send()
-                .map_err(|e| {
-                    format!("skill blob PUT failed: {}", format_reqwest_error(&e))
-                })?;
+                .map_err(|e| format!("skill blob PUT failed: {}", format_reqwest_error(&e)))?;
             if !put_resp.status().is_success() {
                 return Err(format!("skill blob PUT HTTP {}", put_resp.status()));
             }
@@ -664,12 +657,7 @@ pub async fn team_skill_pack_and_upload(
                 "size": size,
             }))
             .send()
-            .map_err(|e| {
-                format!(
-                    "skill blob complete failed: {}",
-                    format_reqwest_error(&e)
-                )
-            })?;
+            .map_err(|e| format!("skill blob complete failed: {}", format_reqwest_error(&e)))?;
         if !complete_resp.status().is_success() {
             let status = complete_resp.status();
             let body = complete_resp.text().unwrap_or_default();
