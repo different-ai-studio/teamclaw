@@ -9,6 +9,7 @@ import { deriveAgentReplyContent, isAgentFacingStatusNotice } from "@/lib/agent-
 import { agentReplyTextsEquivalent } from "@/lib/agent-reply-text";
 import { getFlushedTurn } from "@/lib/flushed-turn-registry";
 import { isStreamInterruptible } from "@/stores/v2-streaming-store";
+import { useSessionMessageStore } from "@/stores/session-message-store";
 
 export {
   deriveAgentReplyContent,
@@ -312,10 +313,43 @@ export function isAgentActiveStatus(status: AgentStatus | number | undefined): b
   return status === AgentStatus.ACTIVE;
 }
 
+/** True when the flushed AGENT_REPLY already carries this tool id in parts_json. */
+function flushedMessageHasTool(
+  sessionId: string,
+  messageId: string,
+  toolId: string,
+): boolean {
+  const messages = useSessionMessageStore.getState().messages[sessionId] ?? [];
+  const message = messages.find((m) => m.messageId === messageId);
+  if (!message) return false;
+  const raw = (message as { partsJson?: string | null }).partsJson ?? "";
+  if (!raw.trim()) return false;
+  try {
+    const parts = JSON.parse(raw) as Array<{
+      type?: string;
+      toolCall?: { id?: string };
+      toolCallId?: string;
+    }>;
+    if (!Array.isArray(parts)) return false;
+    return parts.some(
+      (part) =>
+        part.type === "tool-call" &&
+        (part.toolCall?.id === toolId || part.toolCallId === toolId),
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Route a late toolUse/toolResult to the flushed AGENT_REPLY instead of the
  * live dock. Keeps the flushed-turn registry across follow-up ACTIVE so turn-1
  * orphans still patch persist while turn-2 tools stay on the live stream.
+ *
+ * When a new turn already owns an interruptible live dock (different streamId),
+ * only patch tools that already belong to the flushed message. Brand-new tool
+ * ids are current-turn work and must stay on the live stream — otherwise the
+ * first turn-2 toolUse is mis-attributed to turn-1's Process block.
  */
 export function shouldPatchFlushedToolEvent(
   sessionId: string,
@@ -333,7 +367,12 @@ export function shouldPatchFlushedToolEvent(
   }
 
   if (liveEntry.streamId !== flushed.streamId) {
-    return !liveEntry.toolCalls.some((tc) => tc.id === trimmedToolId);
+    // Already on the live dock → keep updating there (toolResult etc.).
+    if (liveEntry.toolCalls.some((tc) => tc.id === trimmedToolId)) {
+      return false;
+    }
+    // Only orphan updates for tools already persisted on the flushed reply.
+    return flushedMessageHasTool(sessionId, flushed.messageId, trimmedToolId);
   }
 
   return false;
