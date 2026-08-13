@@ -26,10 +26,38 @@ use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
 use super::clawhub::{
-    build_client, extract_zip_to_dir, global_skills_dir, now_millis, read_lockfile,
-    set_skill_permission_ask, skills_dir, validate_slug, write_lockfile, LockfileEntry,
-    SOURCE_TEAM,
+    extract_zip_to_dir, global_skills_dir, now_millis, read_lockfile, set_skill_permission_ask,
+    skills_dir, validate_slug, write_lockfile, LockfileEntry, SOURCE_TEAM,
 };
+
+/// Cloud API / SGW-facing client — mirrors `oss_sync::fc_client::FcClient`.
+///
+/// The clawhub registry client is fine for public mirrors; team skill upload /
+/// download hits SGW-fronted Cloud API hosts where HTTP/2 idle reuse and older
+/// TLS negotiation fail as a bare "error sending request for url". Force
+/// HTTP/1.1 + rustls the same way FcClient does.
+fn build_cloud_api_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .http1_only()
+        .use_rustls_tls()
+        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build Cloud API HTTP client: {}", e))
+}
+
+/// reqwest's Display omits the source chain, so toast users only see
+/// "error sending request for url (...)" with no TLS/connect reason.
+fn format_reqwest_error(err: &reqwest::Error) -> String {
+    let mut out = err.to_string();
+    let mut src = std::error::Error::source(err);
+    while let Some(e) = src {
+        out.push_str(": ");
+        out.push_str(&e.to_string());
+        src = e.source();
+    }
+    out
+}
 
 /// Key order for the *fork* rewrite below. The registry install path does not
 /// use this — it goes through `teamclu_skillpack::write_registry_frontmatter`,
@@ -411,14 +439,14 @@ fn team_skill_install_blocking(
     std::fs::create_dir_all(&skills).map_err(|e| format!("Failed to create skills dir: {}", e))?;
     let target = skills.join(&slug);
 
-    let client = build_client()?;
+    let client = build_cloud_api_client()?;
     let mut download = client.get(&req.download_url);
     if let Some(token) = req.access_token.as_deref().filter(|t| !t.is_empty()) {
         download = download.header("Authorization", format!("Bearer {}", token));
     }
     let resp = download
         .send()
-        .map_err(|e| format!("Download failed: {}", e))?;
+        .map_err(|e| format!("Download failed: {}", format_reqwest_error(&e)))?;
     if !resp.status().is_success() {
         return Err(format!("Download failed with status {}", resp.status()));
     }
@@ -573,7 +601,7 @@ pub async fn team_skill_pack_and_upload(
         let content_hash = format!("{:x}", hasher.finalize());
         let size = zip_bytes.len() as u64;
 
-        let client = build_client()?;
+        let client = build_cloud_api_client()?;
         let prepare_url = format!("{}/v1/teams/{}/skill-blobs/prepare", base, team_id);
         let prepare_resp = client
             .post(&prepare_url)
@@ -584,7 +612,12 @@ pub async fn team_skill_pack_and_upload(
                 "size": size,
             }))
             .send()
-            .map_err(|e| format!("skill blob prepare failed: {}", e))?;
+            .map_err(|e| {
+                format!(
+                    "skill blob prepare failed: {}",
+                    format_reqwest_error(&e)
+                )
+            })?;
         if !prepare_resp.status().is_success() {
             let status = prepare_resp.status();
             let body = prepare_resp.text().unwrap_or_default();
@@ -613,7 +646,9 @@ pub async fn team_skill_pack_and_upload(
                 .header("x-upsert", "true")
                 .body(zip_bytes)
                 .send()
-                .map_err(|e| format!("skill blob PUT failed: {}", e))?;
+                .map_err(|e| {
+                    format!("skill blob PUT failed: {}", format_reqwest_error(&e))
+                })?;
             if !put_resp.status().is_success() {
                 return Err(format!("skill blob PUT HTTP {}", put_resp.status()));
             }
@@ -629,7 +664,12 @@ pub async fn team_skill_pack_and_upload(
                 "size": size,
             }))
             .send()
-            .map_err(|e| format!("skill blob complete failed: {}", e))?;
+            .map_err(|e| {
+                format!(
+                    "skill blob complete failed: {}",
+                    format_reqwest_error(&e)
+                )
+            })?;
         if !complete_resp.status().is_success() {
             let status = complete_resp.status();
             let body = complete_resp.text().unwrap_or_default();
@@ -971,14 +1011,14 @@ pub async fn team_skill_diff(
             }
         }
 
-        let client = build_client()?;
+        let client = build_cloud_api_client()?;
         let mut download = client.get(&request.download_url);
         if let Some(token) = request.access_token.as_deref().filter(|t| !t.is_empty()) {
             download = download.header("Authorization", format!("Bearer {}", token));
         }
         let resp = download
             .send()
-            .map_err(|e| format!("Download failed: {}", e))?;
+            .map_err(|e| format!("Download failed: {}", format_reqwest_error(&e)))?;
         if !resp.status().is_success() {
             return Err(format!("Download failed with status {}", resp.status()));
         }
@@ -1435,5 +1475,28 @@ mod tests {
         // The newest survive; the oldest five are the ones that went.
         assert!(dirs[0].is_dir());
         assert!(!dirs[TRASH_MAX_ENTRIES + 4].exists());
+    }
+
+    #[test]
+    fn cloud_api_client_builds() {
+        build_cloud_api_client().expect("http1 + rustls client");
+    }
+
+    #[test]
+    fn reqwest_error_includes_source_chain() {
+        let err = build_cloud_api_client()
+            .unwrap()
+            .get("https://127.0.0.1:1/")
+            .send()
+            .expect_err("refused");
+        let formatted = format_reqwest_error(&err);
+        assert!(
+            formatted.contains("error sending request"),
+            "top-level: {formatted}"
+        );
+        assert!(
+            formatted.contains("Connection refused") || formatted.contains("connect"),
+            "source chain must surface: {formatted}"
+        );
     }
 }
