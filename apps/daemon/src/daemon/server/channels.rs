@@ -48,9 +48,10 @@ impl DaemonServer {
         // Resolve the daemon agent's own configured defaults so gateway
         // (WeCom/etc.) sessions spawn on its default agent type + default
         // workspace instead of the daemon-wide fallback type and a /tmp scratch
-        // dir. Best-effort: a fetch failure or unset defaults degrades to the
-        // prior behavior rather than blocking channel startup.
-        let (default_agent_type, default_workspace_dir) = match self
+        // dir. Retain an explicitly configured workspace ID when its startup
+        // lookup fails so the eventual gateway spawn fails closed instead of
+        // silently becoming unscoped.
+        let (default_agent_type, default_workspace_id, default_workspace_dir) = match self
             .backend
             .get_agent_defaults(&primary_agent_actor_id)
             .await
@@ -72,7 +73,7 @@ impl DaemonServer {
                             warn!(
                                 workspace_id = %id,
                                 "channel manager: agent default workspace could not be resolved; \
-                                 gateway sessions fall back to a scratch dir"
+                                 gateway sessions will reject scoped spawns"
                             );
                         }
                         path
@@ -84,14 +85,14 @@ impl DaemonServer {
                     workspace_dir = ?workspace_dir,
                     "channel manager: resolved gateway agent defaults"
                 );
-                (agent_type, workspace_dir)
+                (agent_type, defaults.default_workspace_id, workspace_dir)
             }
             Err(e) => {
                 warn!(
                     "channel manager: failed to fetch agent defaults: {e:?}; \
                      gateway sessions use daemon-wide defaults"
                 );
-                (None, None)
+                (None, None, None)
             }
         };
 
@@ -152,6 +153,7 @@ impl DaemonServer {
             model_override: Arc::new(AsyncMutex::new(HashMap::new())),
             backend: self.backend.clone(),
             default_agent_type,
+            default_workspace_id,
             default_workspace_dir,
             workspace_resolver: self.workspace_resolver.clone(),
             workspace_override: Arc::new(AsyncMutex::new(HashMap::new())),

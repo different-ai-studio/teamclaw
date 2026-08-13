@@ -123,11 +123,14 @@ pub struct AmuxdAgentHandle {
     /// runtimes spawn on this backend type instead of the daemon-wide default.
     /// `None` → fall back to the daemon default agent type.
     pub default_agent_type: Option<amux::AgentType>,
+    /// Configured daemon default workspace ID, retained even when its startup
+    /// path lookup fails so a scoped gateway cannot silently degrade to an
+    /// unscoped spawn.
+    pub default_workspace_id: Option<String>,
     /// Local filesystem path of the daemon agent's `default_workspace_id`,
     /// resolved via the `WorkspaceResolver` cache (backed by the cloud
     /// `amux.workspaces` table). Used as the gateway runtime's working
-    /// directory instead of a throwaway `/tmp` scratch dir. `None` → fall
-    /// back to a scratch dir (the workspace is unset or unresolvable).
+    /// directory instead of a throwaway `/tmp` scratch dir.
     pub default_workspace_dir: Option<String>,
     /// Resolves a cloud workspace_id → local path (`amux.workspaces` is the
     /// sole source of truth). Used by `workspace_dir_for_id` for per-session
@@ -186,8 +189,15 @@ impl AmuxdAgentHandle {
                 Some(path) => Some(path),
                 None => Some(self.workspace_dir_for_id(workspace_id).await?),
             }
+        } else if bot.workspace_dir.is_some() {
+            bot.workspace_dir
+        } else if let Some(workspace_id) = self.default_workspace_id.as_deref() {
+            match self.default_workspace_dir.clone() {
+                Some(path) => Some(path),
+                None => Some(self.workspace_dir_for_id(workspace_id).await?),
+            }
         } else {
-            bot.workspace_dir.or(self.default_workspace_dir.clone())
+            self.default_workspace_dir.clone()
         };
 
         Ok((workspace_dir, agent_type))
@@ -1434,6 +1444,7 @@ pub(crate) mod tests {
             model_override: Arc::new(Mutex::new(HashMap::new())),
             backend: backend.clone(),
             default_agent_type: None,
+            default_workspace_id: None,
             default_workspace_dir: None,
             workspace_resolver: Arc::new(crate::config::WorkspaceResolver::new(backend)),
             workspace_override: Arc::new(Mutex::new(HashMap::new())),
@@ -1665,6 +1676,45 @@ pub(crate) mod tests {
         assert!(
             captures.lock().unwrap().is_empty(),
             "failed scoped resolution must not attach as UnscopedAgent"
+        );
+    }
+
+    #[tokio::test]
+    async fn daemon_default_workspace_lookup_failure_does_not_attach_unscoped() {
+        let backend = Arc::new(MockBackend::with_identity("team-a", "actor-a"));
+        backend.state().gateway_session_index.insert(
+            "daemon-default-missing".into(),
+            (
+                "cloud-daemon-default-missing".into(),
+                Some("seatalk://app/dm/E001".into()),
+            ),
+        );
+
+        let mut handle = make_handle_with_backend(backend);
+        handle.team_id = "team-a".into();
+        handle.spawn_env.actor_id = "actor-a".into();
+        handle.default_agent_type = Some(amux::AgentType::Opencode);
+        handle.default_workspace_id = Some("ws-daemon-default-missing".into());
+        let captures = {
+            let mut manager = handle.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+
+        let err = match handle
+            .resolve_or_spawn(&AmuxSessionId::from("daemon-default-missing"))
+            .await
+        {
+            Ok(_) => panic!("configured daemon workspace lookup failure must reject the spawn"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains("ws-daemon-default-missing"),
+            "resolution error must identify the daemon default workspace: {err}"
+        );
+        assert!(
+            captures.lock().unwrap().is_empty(),
+            "failed daemon default resolution must not attach as UnscopedAgent"
         );
     }
 
