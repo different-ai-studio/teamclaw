@@ -258,6 +258,45 @@ mod execution_context_tests {
     }
 
     #[tokio::test]
+    async fn stored_gateway_resume_does_not_unscope_missing_registered_scratch_shaped_workspace() {
+        let scratch_shaped_workspace = std::env::temp_dir().join(format!(
+            "amuxd-gateway-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        ));
+        assert!(!scratch_shaped_workspace.exists());
+        let backend = Arc::new(MockBackend::default());
+        backend.state().workspaces_by_id.insert(
+            "ws-real".into(),
+            WorkspaceRow {
+                id: "ws-real".into(),
+                team_id: "team-a".into(),
+                path: Some(scratch_shaped_workspace.to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        let assembler = assembler(backend, "team-a", "actor-a");
+
+        let result = assembler
+            .assemble_stored(
+                scratch_shaped_workspace.to_string_lossy().as_ref(),
+                "gateway:wecom://bot/chat",
+            )
+            .await;
+
+        assert!(
+            !matches!(
+                result.as_ref().map(|context| &context.isolation_domain),
+                Ok(IsolationDomainKey::UnscopedAgent { .. })
+            ),
+            "a missing registered workspace must fail closed or remain workspace-scoped"
+        );
+        if scratch_shaped_workspace.exists() {
+            std::fs::remove_dir_all(&scratch_shaped_workspace).unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn stored_gateway_resume_backend_error_does_not_attach_unscoped() {
         let scratch = std::env::temp_dir().join(format!(
             "amuxd-gateway-{}",

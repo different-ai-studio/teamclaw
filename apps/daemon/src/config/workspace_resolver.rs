@@ -115,19 +115,16 @@ impl WorkspaceResolver {
             .map(|(id, _)| id.clone())
     }
 
-    /// Resolve an existing local directory to its registered cloud workspace
-    /// identity. A workspace owns its root and descendants beneath its
-    /// `.worktrees` directory, but not arbitrary sibling paths with the same
-    /// textual prefix.
+    /// Resolve a local path to its registered cloud workspace identity. A
+    /// workspace owns its root and descendants beneath its `.worktrees`
+    /// directory, but not arbitrary sibling paths with the same textual
+    /// prefix. An exact stored root remains identifiable while temporarily
+    /// missing so callers cannot mistake it for an unscoped scratch path.
     pub async fn resolve_identity_for_path(
         &self,
         path: &Path,
         team_id: Option<&str>,
     ) -> Result<Option<WorkspaceIdentity>, ResolveError> {
-        let Ok(candidate) = path.canonicalize() else {
-            return Ok(None);
-        };
-
         if let Some(team_id) = team_id.filter(|id| !id.trim().is_empty()) {
             loop {
                 let (generation, needs_load) = {
@@ -148,7 +145,7 @@ impl WorkspaceResolver {
             }
         }
 
-        Ok(self.identity_from_cache(&candidate, team_id).await)
+        Ok(self.identity_from_cache(path, team_id).await)
     }
 
     /// Resolve an agent's configured default workspace, falling back to the
@@ -250,7 +247,10 @@ impl WorkspaceResolver {
         team_id: Option<&str>,
     ) -> Option<WorkspaceIdentity> {
         let cache = self.cache.read().await;
-        select_workspace_identity(&cache.entries, candidate, team_id)
+        match candidate.canonicalize() {
+            Ok(candidate) => select_workspace_identity(&cache.entries, &candidate, team_id),
+            Err(_) => select_missing_workspace_identity(&cache.entries, candidate, team_id),
+        }
     }
 
     /// Clear the entire cache (call after receiving `workspaces.changed` or
@@ -380,6 +380,23 @@ fn select_workspace_identity(
         .filter(|(canonical_root, _)| owns_worktree(canonical_root, candidate))
         .max_by_key(|(canonical_root, _)| canonical_root.components().count())
         .map(|(_, identity)| identity)
+}
+
+fn select_missing_workspace_identity(
+    entries: &HashMap<String, ResolvedWorkspace>,
+    candidate: &Path,
+    team_id: Option<&str>,
+) -> Option<WorkspaceIdentity> {
+    let mut matches = entries.iter().filter(|(_, resolved)| {
+        (team_id.is_none() || resolved.team_id.is_none() || resolved.team_id.as_deref() == team_id)
+            && Path::new(resolved.path.trim()) == candidate
+    });
+    let (workspace_id, resolved) = matches.next()?;
+    matches.next().is_none().then(|| WorkspaceIdentity {
+        workspace_id: workspace_id.clone(),
+        workspace_root: PathBuf::from(resolved.path.trim()),
+        team_id: resolved.team_id.clone(),
+    })
 }
 
 fn workspace_identity(
