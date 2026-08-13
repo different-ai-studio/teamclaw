@@ -78,6 +78,17 @@ fn main() -> anyhow::Result<()> {
                 )
                 .init();
 
+            // The lock comes first because the two calls under it rewrite the
+            // home directory, and `purge_v1_layout` in particular deletes the
+            // root `daemon.toml` — the v1 config sits at the exact path the v2
+            // one does, so the purge has to happen before anything loads it or
+            // it would delete a config that had just been bootstrapped.
+            let _daemon_lock = cli::process::acquire_daemon_lock()?;
+            config::layout::purge_v1_layout();
+            config::layout::ensure();
+            cli::process::write_pidfile()?;
+            let _pid_guard = PidfileGuard;
+
             let config_path = config.unwrap_or_else(config::DaemonConfig::default_path);
             // Absent config bootstraps rather than failing: a fresh install must
             // be able to start and serve the setup UI that configures it.
@@ -85,14 +96,6 @@ fn main() -> anyhow::Result<()> {
             if let Err(e) = agent_discover::discover_and_persist(&mut daemon_config, &config_path) {
                 tracing::warn!("agent auto-discovery failed: {e}");
             }
-
-            let _daemon_lock = cli::process::acquire_daemon_lock()?;
-            // Under the lock, so two daemons never scaffold concurrently. Every
-            // writer also creates its own parent, so this is about the layout
-            // being inspectable on a fresh install rather than about safety.
-            config::layout::ensure();
-            cli::process::write_pidfile()?;
-            let _pid_guard = PidfileGuard;
 
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {

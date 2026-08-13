@@ -544,26 +544,16 @@ impl DaemonConfig {
         teamclu_runtime_env::amuxd_home_from_env()
     }
 
-    pub fn legacy_config_dir() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| Self::config_dir())
-            .join("amux")
-    }
-
+    /// Just a path now.
+    ///
+    /// This used to run `migrate_legacy_file`, which copied
+    /// `<config_dir>/amux/daemon.toml` back over a missing one — on essentially
+    /// every daemon entry point, `amuxd init` included. That is why clearing a
+    /// team looped: `clear` deleted the file and the next command resurrected
+    /// it, stale `team_id` and all. ADR-0006 drops the legacy directory instead
+    /// of deleting it in two places forever.
     pub fn default_path() -> PathBuf {
-        Self::migrate_legacy_file("daemon.toml")
-    }
-
-    pub fn migrate_legacy_file(file_name: &str) -> PathBuf {
-        let path = Self::config_dir().join(file_name);
-        let legacy_path = Self::legacy_config_dir().join(file_name);
-        if !path.exists() && legacy_path.exists() {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::copy(&legacy_path, &path);
-        }
-        path
+        Self::config_dir().join("daemon.toml")
     }
 
     pub fn load(path: &Path) -> crate::error::Result<Self> {

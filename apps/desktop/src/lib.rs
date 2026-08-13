@@ -266,7 +266,6 @@ pub fn run() {
 
     // Fix PATH before anything else so all child processes can find tools
     fix_path_env();
-    commands::storage_migration::migrate_official_storage_namespace();
     eprintln!(
         "[Startup] fix_path_env: {:.1}ms",
         startup_t0.elapsed().as_secs_f64() * 1000.0

@@ -57,7 +57,12 @@ impl ChannelManager {
         primary_agent_actor_id: String,
         agent_owner_actor_ids: Vec<String>,
     ) -> Self {
-        let workspace_path = DaemonConfig::config_dir().to_string_lossy().into_owned();
+        // The team's own worktree, not the daemon home. Passing the home here
+        // made every workspace-meta write land inside it — that is where the
+        // stray `~/.amuxd/.teamclaw/teamclaw.json` came from.
+        let workspace_path = crate::config::layout::team_workspace_dir(&team_id)
+            .to_string_lossy()
+            .into_owned();
         Self {
             cfg,
             acp,

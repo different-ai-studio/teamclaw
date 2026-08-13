@@ -47,7 +47,14 @@ fn run_at(force: bool, lock_path: &std::path::Path, paths: Vec<PathBuf>) -> anyh
 
     let mut failed: Vec<String> = Vec::new();
     for p in existing {
-        match fs::remove_file(&p) {
+        // The team's state is a directory now, so this removes trees as well as
+        // files — that is the point of the layout: one path is the whole team.
+        let outcome = if p.is_dir() {
+            fs::remove_dir_all(&p)
+        } else {
+            fs::remove_file(&p)
+        };
+        match outcome {
             Ok(()) => println!("✓ removed {}", p.display()),
             Err(e) => {
                 eprintln!("✗ {}: {e}", p.display());
@@ -71,60 +78,57 @@ fn run_at(force: bool, lock_path: &std::path::Path, paths: Vec<PathBuf>) -> anyh
     Ok(())
 }
 
-/// Every file `clear` must remove, in BOTH the current config dir and the legacy
-/// one.
+/// What `clear` removes: this daemon's identity, and the team it belongs to.
 ///
-/// The legacy dir is not optional housekeeping: `DaemonConfig::migrate_legacy_file`
-/// copies `<legacy>/daemon.toml` back to `<config>/daemon.toml` whenever the
-/// latter is missing, and `default_path()` calls it on essentially every daemon
-/// entry point — including `amuxd init` itself. Clearing only the config dir
-/// therefore deleted the file and had it resurrected, stale `team_id` and all,
-/// by the very next command. Switching teams then looped forever on
-/// "This machine's agent belongs to another team".
+/// Two entries, because the layout made it two. Everything team-scoped lives
+/// under `teams/<id>/`, so removing that directory takes the cloud credentials,
+/// the per-team encryption key and the sealed secrets, the runtime index, the
+/// session store and the event history in one operation — no list to keep in
+/// sync with what the daemon actually writes.
+///
+/// The old list had drifted badly in both directions: it named
+/// `workspaces.toml`, which had had no writer since the WorkspaceStore removal,
+/// while leaving behind the cloud token, the HTTP token, `secret.key`,
+/// `team-secrets/`, `teams/` and the collab session store. "Cleared" then
+/// re-onboarded on top of a half-populated identity.
+///
+/// Deliberately kept: `device-id` (a machine identity, re-derived from hardware
+/// anyway), `cache/`, and `logs/` — none of them bind this machine to a team.
 fn candidate_paths() -> Vec<PathBuf> {
-    const FILES: [&str; 5] = [
-        "daemon.toml",
-        "members.toml",
-        "sessions.toml",
-        "workspaces.toml",
-        "backend.toml",
-    ];
-    let dir = DaemonConfig::config_dir();
-    let legacy = DaemonConfig::legacy_config_dir();
-
-    let mut out: Vec<PathBuf> = Vec::with_capacity(FILES.len() * 2);
-    for f in FILES {
-        out.push(dir.join(f));
-        // legacy_config_dir() falls back to config_dir() when the platform has
-        // no config dir, so guard against listing the same path twice.
-        if legacy != dir {
-            out.push(legacy.join(f));
-        }
-    }
-    out
+    vec![
+        crate::config::layout::team_dir(&crate::config::layout::active_team()),
+        DaemonConfig::default_path(),
+    ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Regression: `clear` used to list only the config dir, so
-    /// `migrate_legacy_file` copied `<legacy>/daemon.toml` straight back and the
-    /// desktop app looped forever on "This machine's agent belongs to another
-    /// team". The legacy copy MUST be a removal target.
+    /// The identity `clear` exists to remove: the team's whole directory, and
+    /// the config naming it.
+    ///
+    /// This replaces a regression test for the legacy config dir. That dir was
+    /// a removal target only because `migrate_legacy_file` copied
+    /// `<legacy>/daemon.toml` back over a cleared one, so switching teams looped
+    /// on "This machine's agent belongs to another team". Both the copier and
+    /// the directory are gone (ADR-0006), so there is nothing left to resurrect.
     #[test]
-    fn candidate_paths_cover_the_legacy_dir() {
-        let legacy = DaemonConfig::legacy_config_dir();
-        let dir = DaemonConfig::config_dir();
-        if legacy == dir {
-            return; // platform without a distinct config dir; nothing to assert
-        }
+    fn candidate_paths_cover_the_team_and_the_config() {
+        let _lock = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let paths = candidate_paths();
+
         assert!(
-            paths.contains(&legacy.join("daemon.toml")),
-            "legacy daemon.toml must be cleared or it resurrects the old team_id; got {paths:?}"
+            paths.contains(&DaemonConfig::default_path()),
+            "daemon.toml names the team, so it must go; got {paths:?}"
         );
-        assert!(paths.contains(&dir.join("daemon.toml")));
+        assert!(
+            paths.contains(&crate::config::layout::team_dir(
+                &crate::config::layout::active_team()
+            )),
+            "the team directory holds the credentials and the sealed secrets; \
+             got {paths:?}"
+        );
     }
 
     #[test]

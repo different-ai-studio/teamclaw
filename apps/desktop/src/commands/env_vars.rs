@@ -464,7 +464,6 @@ pub async fn env_catalog_list(
     workspace_path: Option<String>,
 ) -> Result<teamclu_runtime_env::env_catalog::EnvCatalog, String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
-    super::storage_migration::migrate_workspace_storage_namespace(&workspace_path);
     // team_id is required for the `_team_secret.{team_id}` personal-blob secret
     // fallback: when `teamclu.json` carries no inline `team.envSecret` (the
     // common case), passing None here leaves every team var undecryptable.

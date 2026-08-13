@@ -7,8 +7,8 @@
 //! where to write and the root accumulated ~30 loose files.
 //!
 //! Adding a path here means answering one question first: *should this change
-//! when the team changes?* Yes → `teams/<id>/state/` (PR ④b). No, and it is a
-//! cache → [`cache_dir`]. No, and it dies with the process → [`run_dir`].
+//! when the team changes?* Yes → [`team_state_dir`]. No, and it is a cache →
+//! [`cache_dir`]. No, and it dies with the process → [`run_dir`].
 
 use std::path::PathBuf;
 
@@ -111,9 +111,9 @@ struct ActiveTeamProbe {
 
 /// The team this daemon is currently claimed by, or [`UNCLAIMED_TEAM`].
 ///
-/// Reads the canonical `daemon.toml` rather than `DaemonConfig::default_path()`
-/// — that one copies from the legacy directory as a side effect, which a path
-/// lookup has no business doing.
+/// Parses only the one field it needs, so resolving a path keeps working while
+/// the rest of the config is being edited — a half-written `[channels]` section
+/// must not decide where sessions get written.
 pub fn active_team() -> String {
     std::fs::read_to_string(root().join("daemon.toml"))
         .ok()
@@ -171,6 +171,106 @@ pub fn ensure() {
         if let Err(e) = std::fs::create_dir_all(&dir) {
             tracing::warn!(dir = %dir.display(), error = %e, "create amuxd layout dir failed");
         }
+    }
+}
+
+/// Files the v1 layout left at the root, removed on first boot of a v2 daemon.
+///
+/// Not a migration — ADR-0006 chose a hard cutover, and nothing here is read
+/// any more. They are deleted rather than left alone because two of them are
+/// live credentials: `backend.toml` still holds a usable `refresh_token`, and
+/// `daemon.toml`'s `[channels]` bot tokens and `agents.cursor.api_key` are
+/// plaintext. Keeping dead files would be untidy; keeping these is a risk.
+const V1_ROOT_FILES: &[&str] = &[
+    "amuxd.cloud-token",
+    "amuxd.err.log",
+    "amuxd.http.port",
+    "amuxd.http.token",
+    "amuxd.lock",
+    "amuxd.managed.log",
+    "amuxd.out.log",
+    "amuxd.pid",
+    "amuxd.sock",
+    "backend.toml",
+    "daemon.toml",
+    "members.toml",
+    "model-catalog.toml",
+    "model-mru.toml",
+    "opencode.serve.pgid",
+    "secret.key",
+    "sessions.toml",
+    "supabase.toml",
+    "workspaces.toml",
+];
+
+/// Directories the v1 layout left at the root.
+///
+/// `teams/` is absent on purpose: v2 keeps it, and the per-team subtree is
+/// reshaped in place rather than thrown away.
+const V1_ROOT_DIRS: &[&str] = &[
+    "attachments",
+    "bin",
+    "history",
+    "mcp-configs",
+    "pi-sessions",
+    "team-secrets",
+    "teamclu",
+];
+
+/// One-shot: remove the v1 layout. Marked by a file under `teams/`, so a second
+/// boot costs one `exists()`.
+///
+/// Runs under the daemon lock, before anything reads config — see
+/// `docs/architecture/amuxd-home-layout-v2.md` §7. A daemon that had already
+/// onboarded comes up unclaimed afterwards and the user re-onboards; that is
+/// the cutover, and it is visible rather than silent.
+pub fn purge_v1_layout() {
+    let marker = teams_dir().join(".v1-purged");
+    if marker.exists() {
+        return;
+    }
+    let root = root();
+    if !root.is_dir() {
+        return;
+    }
+
+    let mut removed = 0usize;
+    for name in V1_ROOT_FILES {
+        if std::fs::remove_file(root.join(name)).is_ok() {
+            removed += 1;
+        }
+    }
+    for name in V1_ROOT_DIRS {
+        if std::fs::remove_dir_all(root.join(name)).is_ok() {
+            removed += 1;
+        }
+    }
+    // Timestamped backups the old config writers left behind. Same reasoning as
+    // `backend.toml`: `daemon.toml.bak.<ts>` carries the previous team's
+    // credentials, and nothing prunes them.
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.contains(".bak.") || name.contains(".bak-") {
+                if std::fs::remove_file(entry.path()).is_ok() {
+                    removed += 1;
+                }
+            }
+        }
+    }
+
+    if let Err(e) = std::fs::create_dir_all(marker.parent().unwrap_or(&root))
+        .and_then(|_| std::fs::write(&marker, "v1 layout removed\n"))
+    {
+        tracing::warn!(error = %e, "could not mark the v1 purge; it will retry next boot");
+        return;
+    }
+    if removed > 0 {
+        tracing::info!(
+            removed,
+            "removed the v1 amuxd layout (ADR-0006 hard cutover)"
+        );
     }
 }
 

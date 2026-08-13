@@ -48,7 +48,6 @@ const DEBT: &[&str] = &[
     "apps/desktop/src/commands/cron/delivery.rs",
     "apps/desktop/src/commands/diagnostics.rs",
     "apps/desktop/src/commands/mod.rs",
-    "apps/desktop/src/commands/storage_migration.rs",
     "apps/desktop/src/commands/team_share/disconnect.rs",
     "apps/desktop/src/commands/team_share/enable.rs",
     "apps/desktop/src/commands/team_share/mod.rs",

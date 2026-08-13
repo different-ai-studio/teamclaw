@@ -12,9 +12,7 @@ import './stores/dev-expose'
 import './lib/i18n'; // Initialize i18n
 import { appStoragePrefix, buildConfig } from './lib/build-config'
 import { fetchPublicConfig } from './lib/bootstrap'
-import { migrateOfficialLocalStorage } from './lib/storage-migration'
 
-migrateOfficialLocalStorage()
 import { ensureBundledAmuxdCurrent } from './lib/daemon-version-upgrade'
 import { initJwtBridge } from './lib/jwt-bridge'
 import { installConsoleCapture } from './lib/console-capture'
