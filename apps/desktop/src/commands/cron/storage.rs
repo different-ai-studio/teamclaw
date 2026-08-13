@@ -501,7 +501,6 @@ mod tests {
             response_summary: None,
             delivery_status: None,
             error: None,
-            worktree_path: None,
         }
     }
 
@@ -513,8 +512,8 @@ mod tests {
 
         let running = make_run("run-1", RunStatus::Running);
         let mut success = make_run("run-1", RunStatus::Success);
-        success.finished_at = Some(Utc.with_ymd_and_hms(2024, 6, 1, 12, 3, 0).unwrap());
-        success.worktree_path = Some("/tmp/worktree".to_string());
+        let finished_at = Utc.with_ymd_and_hms(2024, 6, 1, 12, 3, 0).unwrap();
+        success.finished_at = Some(finished_at);
 
         storage.append_run(&running).await;
         storage.append_run(&success).await;
@@ -523,7 +522,7 @@ mod tests {
 
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].status, RunStatus::Success);
-        assert_eq!(runs[0].worktree_path.as_deref(), Some("/tmp/worktree"));
+        assert_eq!(runs[0].finished_at, Some(finished_at));
     }
 
     fn make_job(id: &str) -> CronJob {

@@ -20,7 +20,7 @@ function validateShareModeInput(body) {
       `mode must be "${SHARE_MODE_ON}" — git share modes are no longer supported`,
     );
   }
-  return { mode: SHARE_MODE_ON, gitConfig: null };
+  return { mode: SHARE_MODE_ON };
 }
 
 function validateLlmConfigInput(body) {
@@ -57,13 +57,9 @@ function isLockViolation(err) {
 
 export function registerTeamShare(router) {
   router.post("/v1/teams/:teamId/share-mode", async (ctx) => {
-    const { mode, gitConfig } = validateShareModeInput(ctx.json ?? {});
+    const { mode } = validateShareModeInput(ctx.json ?? {});
     try {
-      const team = await ctx.repository.enableShareMode(
-        ctx.params.teamId,
-        mode,
-        gitConfig,
-      );
+      const team = await ctx.repository.enableShareMode(ctx.params.teamId, mode);
       return { body: team };
     } catch (err) {
       if (err instanceof ApiError) throw err;

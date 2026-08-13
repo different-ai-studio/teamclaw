@@ -8,10 +8,8 @@ import {
   ExternalLink,
   Terminal,
   MessageSquarePlus,
-  Undo2,
   FileText,
 } from 'lucide-react'
-import { toast } from 'sonner'
 import type { FileDiff } from '@/stores/session-types'
 import { copyToClipboard } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -84,19 +82,6 @@ export function SessionDiffPanel({ diff, compact: _compact }: SessionDiffPanelPr
     openInTerminal(dirPath)
   }, [workspacePath])
 
-  const handleRevertFile = useCallback(async (relativePath: string) => {
-    if (!workspacePath) return
-    try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('git_checkout_file', { path: workspacePath, file: relativePath })
-    } catch (err) {
-      console.error('[SessionDiffPanel] Failed to revert file:', err)
-      toast.error(t('diff.revertFailed', 'Failed to revert file'), {
-        description: err instanceof Error ? err.message : String(err),
-      })
-    }
-  }, [workspacePath, t])
-
   if (diff.length === 0) return null
 
   const totalAdditions = diff.reduce((sum, d) => sum + d.additions, 0)
@@ -162,14 +147,6 @@ export function SessionDiffPanel({ diff, compact: _compact }: SessionDiffPanelPr
                 <ContextMenuItem onClick={() => handleCopyRelativePath(file.file)}>
                   <Copy className="h-4 w-4" />
                   {t('fileExplorer.copyRelativePath', 'Copy Relative Path')}
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  variant="destructive"
-                  onClick={() => handleRevertFile(file.file)}
-                >
-                  <Undo2 className="h-4 w-4" />
-                  {t('diff.revertFile', 'Revert File')}
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => handleOpenTerminal(file.file)}>

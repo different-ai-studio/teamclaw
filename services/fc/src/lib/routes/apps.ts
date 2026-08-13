@@ -54,10 +54,4 @@ export function registerApps(router) {
     return { body: { items } };
   });
 
-  router.get("/v1/teams/:teamId/managed-git-credential", async (ctx) => {
-    const teamId = decodeURIComponent(ctx.params.teamId);
-    const out = await ctx.repository.getManagedGitCredential(teamId);
-    if (!out) throw new ApiError(404, "not_found", "team not found or not a member");
-    return { body: out };
-  });
 }

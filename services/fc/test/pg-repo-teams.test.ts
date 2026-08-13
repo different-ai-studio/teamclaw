@@ -26,7 +26,7 @@ test("listTeams returns mapped rows ordered by created_at", async () => {
   const repo = createPgBusinessRepository({ db, accessToken: "x" });
   const rows = await repo.listTeams({ limit: 50 });
   assert.equal(rows.length, 2);
-  assert.deepEqual(Object.keys(rows[0]).sort(), ["createdAt","gitAuthKind","gitRemoteUrl","id","name","shareEnabledAt","shareMode","slug"]);
+  assert.deepEqual(Object.keys(rows[0]).sort(), ["createdAt","id","name","shareEnabledAt","shareMode","slug"]);
 });
 
 test("listAllMyTeams returns only teams the caller belongs to", async () => {
@@ -74,10 +74,10 @@ test("getShareMode null for fresh team, reflects enabled mode", async () => {
   const { db } = await makeTestDb();
   const t = await seedTeam(db);
   const repo = createPgBusinessRepository({ db, accessToken: "x" });
-  assert.deepEqual(await repo.getShareMode(t.id), { mode: null, enabledAt: null, gitRemoteUrl: null, gitAuthKind: null });
-  await repo.enableShareMode(t.id, "managed_git", null);
+  assert.deepEqual(await repo.getShareMode(t.id), { mode: null, enabledAt: null });
+  await repo.enableShareMode(t.id, "oss");
   const sm = await repo.getShareMode(t.id);
-  assert.equal(sm.mode, "managed_git");
+  assert.equal(sm.mode, "oss");
   assert.equal(typeof sm.enabledAt, "string");
 });
 
@@ -85,20 +85,10 @@ test("enableShareMode can switch modes on the same team", async () => {
   const { db } = await makeTestDb();
   const t = await seedTeam(db);
   const repo = createPgBusinessRepository({ db, accessToken: "x" });
-  await repo.enableShareMode(t.id, "oss", null);
-  await repo.enableShareMode(t.id, "managed_git", null);
+  await repo.enableShareMode(t.id, "oss");
+  await repo.enableShareMode(t.id, "oss");
   const sm = await repo.getShareMode(t.id);
-  assert.equal(sm.mode, "managed_git");
-});
-
-test("enableShareMode custom_git stores git fields", async () => {
-  const { db } = await makeTestDb();
-  const t = await seedTeam(db);
-  const repo = createPgBusinessRepository({ db, accessToken: "x" });
-  const out = await repo.enableShareMode(t.id, "custom_git", { remoteUrl: "git@x:y.git", authKind: "ssh_key", credentialRef: "ref1" });
-  assert.equal(out.shareMode, "custom_git");
-  assert.equal(out.gitRemoteUrl, "git@x:y.git");
-  assert.equal(out.gitAuthKind, "ssh_key");
+  assert.equal(sm.mode, "oss");
 });
 
 test("get/putTeamWorkspaceConfig roundtrip; getWorkspaceConfig merges", async () => {
@@ -344,12 +334,12 @@ test("disableShareMode clears share mode (owner-only)", async () => {
   const { db } = await makeTestDb();
   const { teamId, userId } = await seedOwner(db);
   const repo = createPgBusinessRepository({ db, userId });
-  await repo.enableShareMode(teamId, "custom_git", { remoteUrl: "git@x:y.git", authKind: "ssh" });
-  assert.equal((await repo.getShareMode(teamId)).mode, "custom_git");
+  await repo.enableShareMode(teamId, "oss");
+  assert.equal((await repo.getShareMode(teamId)).mode, "oss");
 
   const out = await repo.disableShareMode(teamId);
-  assert.deepEqual(out, { mode: null, enabledAt: null, gitRemoteUrl: null, gitAuthKind: null });
-  assert.deepEqual(await repo.getShareMode(teamId), { mode: null, enabledAt: null, gitRemoteUrl: null, gitAuthKind: null });
+  assert.deepEqual(out, { mode: null, enabledAt: null });
+  assert.deepEqual(await repo.getShareMode(teamId), { mode: null, enabledAt: null });
 });
 
 test("disableShareMode rejects non-owner", async () => {

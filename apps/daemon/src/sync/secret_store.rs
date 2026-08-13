@@ -5,16 +5,16 @@
 //! `~/.amuxd`.
 //!
 //! These used to sit directly under `<base>`, deliberately *outside*
-//! `teams/<team_id>/` — that directory also held the `teamclu-team` git
-//! checkout, which `sync::git` stages with a blanket `git add -A` and pushes,
-//! and nothing that must never reach a remote may neighbour a work tree.
+//! `teams/<team_id>/` — that directory also held the `teamclu-team` shared
+//! copy, and nothing that must never reach a remote may neighbour content the
+//! sync engine uploads.
 //!
-//! The checkout has since moved down into `teams/<team_id>/shared/`, the only
-//! path the sync engine scans, so `state/` is out of its reach by construction
-//! rather than by avoiding the whole team directory. That buys two things the
-//! flat layout could not: `rm -rf teams/<id>` destroys the key together with
-//! the blob it opens, and one team's key is no longer the key to every other
-//! team's secrets.
+//! The shared copy has since moved down into `teams/<team_id>/shared/`, the
+//! only path the sync engine scans, so `state/` is out of its reach by
+//! construction rather than by avoiding the whole team directory. That buys two
+//! things the flat layout could not: `rm -rf teams/<id>` destroys the key
+//! together with the blob it opens, and one team's key is no longer the key to
+//! every other team's secrets.
 //!
 //! NOTE: `SecretStore::with_base` is reserved for testing / alternate-base
 //! instantiation paths not yet exercised in the dispatcher.
@@ -40,9 +40,8 @@ fn restrict(_path: &Path, _mode: u32) {}
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamSecrets {
-    /// The team secret, despite the OSS-flavoured name. It is not OSS-specific:
-    /// OSS sync uses it to encrypt blobs, and *every* share mode uses it to
-    /// derive the key for `_secrets/` team-env decryption (see
+    /// The team secret. OSS sync uses it to encrypt blobs, and it also derives
+    /// the key for `_secrets/` team-env decryption (see
     /// `team_shared_env::derive_key`). Read it via
     /// [`SecretStore::team_secret`]. The name is load-bearing on the wire —
     /// it matches the desktop's `ossTeamSecret` field in
@@ -51,12 +50,6 @@ pub struct TeamSecrets {
     pub oss_team_secret: Option<String>,
     #[serde(default)]
     pub user_jwt: Option<String>,
-    #[serde(default)]
-    pub git_credential: Option<String>,
-    /// Git branch for git-backed sync. FC does not surface the branch via
-    /// `share-mode`, so the desktop delivers it here at enable time.
-    #[serde(default)]
-    pub git_branch: Option<String>,
     /// Channel credentials (bot tokens, app secrets, …), keyed by their dotted
     /// path in team.toml with array elements keyed by `bot_id`
     /// (`channels.wecom.bots[b-1].secret`). Written by
@@ -224,35 +217,7 @@ impl SecretStore {
         if incoming.user_jwt.is_some() {
             current.user_jwt = incoming.user_jwt.clone();
         }
-        if incoming.git_credential.is_some() {
-            current.git_credential = incoming.git_credential.clone();
-        }
-        if incoming.git_branch.is_some() {
-            current.git_branch = incoming.git_branch.clone();
-        }
         self.save(team_id, &current)
-    }
-
-    /// Resolve the stored git credential, typed by the FC `git_auth_kind`.
-    /// `ssh_key` yields an SSH PEM credential, `https_token` (or anything else)
-    /// yields an HTTPS token. No stored credential yields `None`.
-    pub fn git_credential(
-        &self,
-        team_id: &str,
-        auth_kind: Option<&str>,
-    ) -> Result<crate::sync::git::GitCredential, String> {
-        let s = self.load(team_id)?;
-        Ok(match (s.git_credential, auth_kind) {
-            (Some(c), Some("ssh_key")) => crate::sync::git::GitCredential::SshKey(c),
-            (Some(c), Some("https_token")) => crate::sync::git::GitCredential::HttpsToken(c),
-            (Some(c), _) => crate::sync::git::GitCredential::HttpsToken(c), // default to https
-            (None, _) => crate::sync::git::GitCredential::None,
-        })
-    }
-
-    /// The stored git branch, if any.
-    pub fn git_branch(&self, team_id: &str) -> Option<String> {
-        self.load(team_id).ok().and_then(|s| s.git_branch)
     }
 
     /// The stored team secret, or `None` when unset/blank.
@@ -299,8 +264,6 @@ mod tests {
                 "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20".into(),
             ),
             user_jwt: Some("jwt-abc".into()),
-            git_credential: None,
-            git_branch: Some("release".into()),
             channel_secrets: Default::default(),
         };
         store.save("team-x", &secrets).unwrap();
@@ -310,7 +273,6 @@ mod tests {
             secrets.oss_team_secret.as_deref()
         );
         assert_eq!(loaded.user_jwt.as_deref(), Some("jwt-abc"));
-        assert_eq!(loaded.git_branch.as_deref(), Some("release"));
     }
 
     #[test]
@@ -330,8 +292,6 @@ mod tests {
             &TeamSecrets {
                 oss_team_secret: Some("ff".repeat(32)),
                 user_jwt: None,
-                git_credential: None,
-                git_branch: None,
                 channel_secrets: Default::default(),
             },
         )
@@ -357,8 +317,6 @@ mod tests {
                 &TeamSecrets {
                     oss_team_secret: Some("bb".repeat(32)),
                     user_jwt: None,
-                    git_credential: None,
-                    git_branch: None,
                     channel_secrets: Default::default(),
                 },
             )
@@ -369,40 +327,6 @@ mod tests {
         assert_eq!(resolved, "bb".repeat(32));
         // Neither store nor config: error.
         assert!(store.resolve_team_secret("team-z", None).is_err());
-    }
-
-    #[test]
-    fn git_credential_typed_by_auth_kind() {
-        use crate::sync::git::GitCredential;
-        let tmp = tempfile::tempdir().unwrap();
-        let store = SecretStore::with_base(tmp.path().to_path_buf());
-        // No stored credential → None regardless of auth_kind.
-        assert!(matches!(
-            store.git_credential("t", Some("ssh_key")).unwrap(),
-            GitCredential::None
-        ));
-        store
-            .merge(
-                "t",
-                &TeamSecrets {
-                    git_credential: Some("CRED".into()),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-        assert!(matches!(
-            store.git_credential("t", Some("ssh_key")).unwrap(),
-            GitCredential::SshKey(c) if c == "CRED"
-        ));
-        assert!(matches!(
-            store.git_credential("t", Some("https_token")).unwrap(),
-            GitCredential::HttpsToken(c) if c == "CRED"
-        ));
-        // Unknown / absent auth_kind defaults to https.
-        assert!(matches!(
-            store.git_credential("t", None).unwrap(),
-            GitCredential::HttpsToken(c) if c == "CRED"
-        ));
     }
 
     #[test]

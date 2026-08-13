@@ -49,10 +49,6 @@ interface Section {
 const primarySections: Section[] = [
   { id: 'general', label: 'General', labelKey: 'settings.nav.general', icon: Settings2 },
   { id: 'shortcuts', label: 'Shortcuts', labelKey: 'settings.nav.shortcuts', icon: Bookmark },
-  // Team Shared stays reachable: onboarding moved to the Knowledge column, but
-  // sync status, the git remote and disconnect live only here — dropping the
-  // entry left an enabled team with no way to see or repair any of them.
-  { id: 'team', label: 'Team Shared', labelKey: 'settings.nav.team', icon: Users },
   { id: 'tokenUsage', label: 'Token Usage', labelKey: 'settings.nav.tokenUsage', icon: Coins },
   { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield },
   { id: 'cache', label: 'Local Cache', labelKey: 'settings.nav.cache', icon: Database },

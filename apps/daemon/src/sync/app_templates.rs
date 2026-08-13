@@ -1,8 +1,8 @@
 //! App starter templates, compiled into the daemon binary.
 //!
 //! Seeding used to clone a GitHub template repo and push the result to a
-//! per-app managed-git remote. Both steps needed the network, and the push
-//! needed a credential; neither bought anything the deploy path uses, since
+//! per-app remote. Both steps needed the network, and the push needed a
+//! credential; neither bought anything the deploy path uses, since
 //! `app_build` builds whatever is in the local checkout. Embedding the
 //! templates makes seeding a local file write, and keeps the templates in this
 //! repo where they are reviewable and CI can smoke-build them.

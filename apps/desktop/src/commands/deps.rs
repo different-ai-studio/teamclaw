@@ -177,11 +177,6 @@ fn get_install_commands_map(name: &str) -> Option<PlatformInstallCommands> {
             windows: String::new(),
             linux: String::new(),
         }),
-        "git" => Some(PlatformInstallCommands {
-            macos: "xcode-select --install".to_string(),
-            windows: "winget install Git.Git".to_string(),
-            linux: "sudo apt install -y git".to_string(),
-        }),
         "gh" => Some(PlatformInstallCommands {
             macos: "brew install gh".to_string(),
             windows: "winget install GitHub.cli".to_string(),
@@ -270,17 +265,6 @@ pub fn check_dependencies() -> Vec<DependencyInfo> {
             0, // priority 0 — install first
         ));
     }
-
-    // Git — required, priority 1
-    deps.push(check_single_dependency(
-        "git",
-        &["--version"],
-        false,
-        "Version control - needed for team Git sync",
-        get_install_commands_map("git").unwrap(),
-        vec!["Team Git Sync".to_string(), "Version Control".to_string()],
-        1,
-    ));
 
     // GitHub CLI — optional, priority 1
     deps.push(check_single_dependency(
@@ -608,7 +592,7 @@ mod tests {
 
     #[test]
     fn probe_program_passes_through_non_opencode() {
-        assert_eq!(probe_program("git"), "git");
+        assert_eq!(probe_program("gh"), "gh");
         assert_eq!(probe_program("node"), "node");
     }
 

@@ -9,8 +9,8 @@ import type {
   RoleSkillLink,
   RolesSkillsWorkspaceState,
 } from "./types"
-import { loadAllSkills } from "@/lib/git/skill-loader"
-import type { SkillSource } from "@/lib/git/types"
+import { loadAllSkills } from "@/lib/skills/loader"
+import type { SkillSource } from "@/lib/skills/types"
 import { isTauri } from "@/lib/utils"
 import { encodeWorkspaceId, getDaemonRolesSkillsState, putDaemonRole, deleteDaemonRole } from "@/lib/daemon-local-client"
 

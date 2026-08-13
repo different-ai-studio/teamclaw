@@ -18,7 +18,6 @@ import { useTabsStore } from "@/stores/tabs";
 import { urlToLabel } from "@/lib/webview-utils";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useChannelsStore } from "@/stores/channels";
-import { useGitReposStore } from "@/stores/git-repos";
 import { useUIStore } from "@/stores/ui";
 import { useTelemetryStore } from "@/stores/telemetry";
 import { useTeamMembersStore } from "@/stores/team-members";
@@ -28,10 +27,9 @@ import { useCronStore } from "@/stores/cron";
 import { probeDaemonHttp, invalidateDaemonConnection } from "@/lib/daemon-local-client";
 import { useDaemonOnboardingStore } from "@/stores/daemon-onboarding";
 import { useWorkspaceRuntimeRefreshStore } from "@/stores/workspace-runtime-refresh";
-import { useTeamModeStore } from "@/stores/team-mode";
 import { useTeamShareStore } from "@/stores/team-share";
 import { useOssSyncStore } from "@/stores/oss-sync";
-import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
+import { getSkillDirectories, loadAllSkills } from "@/lib/skills/loader";
 import { DEFAULT_WORKSPACE_PATH, TEAM_REPO_DIR } from "@/lib/build-config";
 import { WORKSPACE_STORAGE_KEY } from "@/stores/workspace";
 import { markStartup } from "@/lib/startup-perf";
@@ -436,87 +434,15 @@ export function useChannelGatewayInit() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Git repos auto-sync
+// Deferred workspace hydration
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function useGitReposInit() {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath);
   const workspaceReady = !!workspacePath;
-  const { initialize: initGitRepos, syncAll: syncGitRepos } = useGitReposStore();
-  const prevWorkspaceRef = useRef<string | null>(null);
 
-  // Local git repos init — re-runs when workspace changes
-  useEffect(() => {
-    if (!workspacePath) return;
-
-    const isWorkspaceChange = prevWorkspaceRef.current !== null && prevWorkspaceRef.current !== workspacePath;
-    prevWorkspaceRef.current = workspacePath;
-
-    if (isWorkspaceChange) {
-      useGitReposStore.getState().reset();
-    }
-
-    initGitRepos()
-      .then(() => {
-        syncGitRepos().catch((err: unknown) => {
-          console.warn("[App] Git auto-sync failed (non-critical):", err);
-        });
-      })
-      .catch((err: unknown) => {
-        console.warn("[App] Git repos init failed (non-critical):", err);
-      });
-  }, [workspacePath, initGitRepos, syncGitRepos]);
-
-  // Team sync — deferred until sidecar is ready to avoid I/O contention
   useEffect(() => {
     if (!workspacePath || !workspaceReady || !isTauri()) return;
-
-    import("@tauri-apps/api/core")
-      .then(({ invoke }) => {
-        invoke("get_team_config", { workspacePath })
-          .then((config: unknown) => {
-            const teamConfig = config as { enabled?: boolean } | null;
-            if (teamConfig?.enabled) {
-              const doSync = () => {
-                // The daemon proxy no longer returns a size precheck
-                // (`needsConfirmation`) — it always proceeds.
-                invoke("team_sync_repo", { force: false, workspacePath })
-                  .then(async (result: unknown) => {
-                    const r = result as {
-                      success: boolean;
-                      message: string;
-                    };
-                    if (r.success) {
-                      const { useTeamModeStore } = await import("@/stores/team-mode");
-                      useTeamModeStore.setState({ teamGitLastSyncAt: new Date().toISOString() });
-                      const shareMode = useTeamShareStore.getState().status.mode;
-                      if (shareMode === "managed_git" || shareMode === "custom_git") {
-                        useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath);
-                      }
-                      console.log("[App] Team repo sync completed (MCP configs updated)");
-                    } else {
-                      console.warn("[App] Team repo sync skipped:", r.message);
-                    }
-                  })
-                  .catch((err: unknown) => {
-                    console.warn("[App] Team repo sync failed (non-critical):", err);
-                  });
-              };
-
-              // One-time initial sync on workspace open. The amuxd daemon now
-              // runs its own 300s sync timer, so the desktop no longer needs a
-              // redundant 5-minute poll here.
-              console.log("[App] Team config found, syncing team repo (initial)...");
-              doSync();
-            }
-          })
-          .catch((err: unknown) => {
-            console.warn("[App] Failed to check team config (non-critical):", err);
-          });
-      })
-      .catch(() => {
-        // Tauri not available, skip
-      });
 
     // Hydrate shortcuts: first paint from local cache, then refresh from Supabase.
     void (async () => {
@@ -557,15 +483,10 @@ export function useGitReposInit() {
         const path = normalizePath(event.payload.path);
 
         if (!path.startsWith(teamDirPrefix)) return;
-        // Skip churn inside .git/
-        if (path.includes(`/${TEAM_REPO_DIR}/.git/`)) return;
         if (timer) clearTimeout(timer);
         timer = setTimeout(async () => {
-          const mode = useTeamShareStore.getState().status.mode;
-          if (mode === "managed_git" || mode === "custom_git") {
-            useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath);
-          } else if (mode === "oss") {
-            // OSS mode: re-scan per-file sync status for tree coloring.
+          if (useTeamShareStore.getState().status.mode === "oss") {
+            // Re-scan per-file sync status for tree coloring.
             void useOssSyncStore.getState().refresh(workspacePath);
           }
         }, 500);
@@ -586,15 +507,12 @@ export function useGitReposInit() {
   }, [workspacePath]);
 
   // Initial population of per-file team sync status for file-tree coloring,
-  // re-run whenever the cloud share mode changes. git mode is also refreshed by
-  // the post-sync callback and KnowledgeBrowser; this guarantees OSS mode gets
-  // an initial scan so its teamclu-team files are colored too.
+  // re-run whenever the cloud share mode changes, so the teamclu-team files
+  // are colored on first paint too.
   const shareMode = useTeamShareStore((s) => s.status.mode);
   useEffect(() => {
     if (!workspacePath || !isTauri()) return;
-    if (shareMode === "managed_git" || shareMode === "custom_git") {
-      void useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath);
-    } else if (shareMode === "oss") {
+    if (shareMode === "oss") {
       void useOssSyncStore.getState().refresh(workspacePath);
     }
   }, [workspacePath, shareMode]);

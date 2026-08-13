@@ -1,6 +1,11 @@
 import { pgEnum, pgTable, uuid, text, timestamp, boolean, bigint, uniqueIndex, unique, jsonb } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
+// `managed_git` / `custom_git` are retired: the API neither accepts nor returns
+// them (see routes/team-share.ts). They stay declared because Postgres cannot
+// drop an enum value that existing rows still carry, and
+// `20260807020000_share_mode_is_a_switch.sql` deliberately left those rows
+// alone — they read as "sync enabled", which is what they always meant.
 export const teamShareMode = pgEnum("team_share_mode", ["oss", "managed_git", "custom_git"]);
 
 export const teams = pgTable("teams", {
@@ -11,6 +16,9 @@ export const teams = pgTable("teams", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   shareMode: teamShareMode("share_mode"),
   shareEnabledAt: timestamp("share_enabled_at", { withTimezone: true }),
+  // Written as NULL and never read since git share was removed. Kept because
+  // the `enable_team_share` RPC still names them in its signature; dropping the
+  // columns means changing that function too, which is a separate migration.
   gitRemoteUrl: text("git_remote_url"),
   gitAuthKind: text("git_auth_kind"),
   gitCredentialRef: text("git_credential_ref"),

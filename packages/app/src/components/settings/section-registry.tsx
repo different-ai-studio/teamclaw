@@ -26,7 +26,6 @@ export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.Componen
   daemonGeneral: lazySection(() => import('./DaemonGeneralSection'), 'DaemonGeneralSection'),
   daemonWorkspaces: lazySection(() => import('./DaemonWorkspacesSection'), 'DaemonWorkspacesSection'),
   daemonRuntimes: lazySection(() => import('./DaemonRuntimesSection'), 'DaemonRuntimesSection'),
-  team: lazySection(() => import('./TeamSection'), 'TeamSection'),
   envVars: lazySection(() => import('./EnvVarsSection'), 'EnvVarsSection'),
   // Standalone Skills settings page removed — team/personal skills live in the
   // Team Share browser. Keep the registry key so deep links to `skills` land

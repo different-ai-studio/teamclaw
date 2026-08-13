@@ -4746,7 +4746,7 @@ paths:
           $ref: "#/components/responses/Error"
     post:
       operationId: createApp
-      summary: Create an app (provisions its 1:1 workspace and managed-git repo)
+      summary: Create an app (provisions its 1:1 workspace)
       tags: [Apps]
       requestBody:
         required: true
@@ -4765,7 +4765,7 @@ paths:
         "201":
           description: |
             The created app. `provisionStatus` is `repo_created` once the
-            managed-git repo exists, or `error` when repo provisioning failed —
+            the workspace exists, or `error` when provisioning failed —
             the row is created either way.
           content:
             application/json:
@@ -4916,31 +4916,6 @@ paths:
                         createdAt: { type: string, format: date-time }
                         updatedAt: { type: string, format: date-time }
         "400":
-          $ref: "#/components/responses/Error"
-  /v1/teams/{teamId}/managed-git-credential:
-    get:
-      operationId: getManagedGitCredential
-      summary: Just-in-time managed-git credential for the caller's team
-      description: |
-        Returned to the local daemon so it can clone/push an app repo. The
-        credential is never persisted in the app row.
-      tags: [Apps]
-      parameters:
-        - $ref: "#/components/parameters/TeamId"
-      responses:
-        "200":
-          description: Credential.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [username, token]
-                properties:
-                  username: { type: string }
-                  token: { type: string }
-        "404":
-          $ref: "#/components/responses/Error"
-        "503":
           $ref: "#/components/responses/Error"
 components:
   securitySchemes:
@@ -5240,7 +5215,6 @@ components:
           $ref: "#/components/schemas/AppType"
         visibility: { type: string, enum: [personal, team] }
         workspaceId: { type: [string, "null"], format: uuid }
-        gitRemoteUrl: { type: [string, "null"] }
         provisionStatus:
           type: string
           enum: [pending, repo_created, seeding, ready, error]
@@ -5669,11 +5643,11 @@ components:
             - "null"
     TeamShareMode:
       type: string
-      enum: [oss, managed_git, custom_git]
+      enum: [oss]
       description: |
-        Team share mode. `oss` uses Alibaba OSS / WebDAV; `managed_git` uses a
-        TeamClu-provisioned git remote; `custom_git` uses a caller-supplied
-        git remote with explicit credential metadata.
+        Team share mode. `oss` (Alibaba OSS / WebDAV) is the only backend. The
+        retired `managed_git` / `custom_git` values survive on legacy rows in
+        the database; the API neither accepts nor returns them.
     EnableShareModeRequest:
       type: object
       description: |
@@ -5685,7 +5659,7 @@ components:
           enum: [oss]
     ShareStatus:
       type: object
-      required: [mode, enabledAt, gitRemoteUrl, gitAuthKind]
+      required: [mode, enabledAt]
       properties:
         mode:
           oneOf:
@@ -5696,32 +5670,14 @@ components:
             - string
             - "null"
           format: date-time
-        gitRemoteUrl:
-          type:
-            - string
-            - "null"
-        gitAuthKind:
-          type:
-            - string
-            - "null"
-          enum: [ssh_key, https_token, null]
     MergedWorkspaceConfig:
       type: object
-      required: [shareMode, gitRemoteUrl, gitAuthKind, syncMode, litellmTeamId]
+      required: [shareMode, syncMode, litellmTeamId]
       properties:
         shareMode:
           oneOf:
             - $ref: "#/components/schemas/TeamShareMode"
             - type: "null"
-        gitRemoteUrl:
-          type:
-            - string
-            - "null"
-        gitAuthKind:
-          type:
-            - string
-            - "null"
-          enum: [ssh_key, https_token, null]
         syncMode:
           type:
             - string

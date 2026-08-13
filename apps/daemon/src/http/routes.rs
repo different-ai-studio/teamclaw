@@ -103,9 +103,8 @@ pub fn build(state: HttpState) -> Router {
             "/v1/agent/default-workspace",
             get(workspaces::get_default_workspace),
         )
-        // App-repo seeding: clone empty managed-git repo, write starter
-        // template, first commit + push. Kicked by the desktop after the cloud
-        // API creates the app's repo.
+        // App seeding: write the starter template into the app's checkout.
+        // Kicked by the desktop after the cloud API creates the app.
         .route("/v1/apps/seed", post(apps::seed_app))
         // App build: pnpm build + zip `.output`, upload artifact to a presigned
         // OSS PUT URL. Kicked by the cloud deploy orchestration.
@@ -113,10 +112,7 @@ pub fn build(state: HttpState) -> Router {
         // Device-level provider config (#742). Credentials are per-machine, not
         // per-workspace, so these need no workspace id — which is what lets
         // first-run onboarding configure a model before a project is chosen.
-        .route(
-            "/v1/providers",
-            get(workspaces::get_device_providers),
-        )
+        .route("/v1/providers", get(workspaces::get_device_providers))
         .route(
             "/v1/providers/:provider_id/auth",
             post(workspaces::put_device_provider_auth)

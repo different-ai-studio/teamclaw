@@ -13,7 +13,6 @@ import { isLegalStatusTransition } from "./app-status.js";
 import { isLegalFcTransition } from "../provisioning/app-fc-status.js";
 import { appOssObjectName } from "../provisioning/app-deploy.js";
 import { ApiError } from "../http-utils.js";
-import { managedGitCredential } from "../admin-handlers.js";
 
 type AppsCtx = { userId?: string };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,7 +43,6 @@ function mapApp(r: any) {
     type: r.type,
     visibility: r.visibility,
     workspaceId: r.workspaceId ?? null,
-    gitRemoteUrl: r.gitRemoteUrl ?? null,
     provisionStatus: r.provisionStatus,
     fcStatus: r.fcStatus ?? null,
     fcEndpoint: r.fcEndpoint ?? null,
@@ -130,16 +128,6 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
       return mapApp(row);
     },
 
-    async getManagedGitCredential(teamId: string) {
-      if (ctx.userId) {
-        const callerActorId = await resolveActorForTeam(db, ctx.userId, teamId);
-        if (!callerActorId) return null;
-      }
-      const cred = managedGitCredential();
-      if (!cred) throw new ApiError(503, "managed_git_unavailable", "managed git is not configured");
-      return cred;
-    },
-
     async listApps({ teamId, limit = 100 }: { teamId: string; limit?: number }) {
       if (!ctx.userId) return [];
       const callerActorId = await resolveActorForTeam(db, ctx.userId, teamId);
@@ -147,7 +135,7 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
 
       const rows = await (db as any).execute(sql`
         SELECT id, team_id AS "teamId", name, slug, type, visibility,
-               workspace_id AS "workspaceId", git_remote_url AS "gitRemoteUrl",
+               workspace_id AS "workspaceId",
                provision_status AS "provisionStatus", fc_status AS "fcStatus",
                fc_endpoint AS "fcEndpoint", fc_function_name AS "fcFunctionName", fc_region AS "fcRegion",
                created_at AS "createdAt", updated_at AS "updatedAt"

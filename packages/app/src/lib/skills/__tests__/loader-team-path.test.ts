@@ -5,7 +5,7 @@ import {
   loadAllSkills,
   getSourceDirHint,
   readConfigSkillPaths,
-} from "../skill-loader"
+} from "../loader"
 import { collectTeamSkillPaths, TEAM_SHARE_LINK_DIR } from "@/lib/team-skill-paths"
 
 const mockExists = vi.fn()

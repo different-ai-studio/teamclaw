@@ -148,8 +148,6 @@ export interface CronPayload {
   backend?: string
   /** @deprecated Compatibility only. Runtime ignores this and new saves omit it. */
   timeoutSeconds?: number
-  useWorktree?: boolean
-  worktreeBranch?: string
   /** Permission mode for the run. `'full_access'` (the default, including for
    *  jobs saved before this field existed) skips every approval prompt: a cron
    *  run is unattended, so an approval nobody answers just burns the timeout.
@@ -197,7 +195,6 @@ export interface CronRunRecord {
   responseSummary?: string
   deliveryStatus?: string
   error?: string
-  worktreePath?: string
 }
 
 export interface CreateCronJobRequest {

@@ -420,11 +420,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const { useTeamMembersStore } = await import("./team-members");
       useTeamMembersStore.getState().reset();
-      // Reset git repos store so it re-initializes for the new workspace
-      try {
-        const { useGitReposStore } = await import("./git-repos");
-        useGitReposStore.getState().reset();
-      } catch { /* ignore */ }
       useTeamModeStore.setState({
         teamModelConfig: null,
         _appliedConfigKey: null,

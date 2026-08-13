@@ -27,7 +27,6 @@ mod service;
 mod sync;
 mod team_link;
 mod team_shared_env;
-mod team_shared_git;
 mod teamclu;
 #[cfg(test)]
 mod test_brand_env;
