@@ -48,12 +48,12 @@ function resetStreamingStore() {
 }
 
 function readAmuxdHttpBase(): string {
-  const port = fs.readFileSync(path.join(AMUXD_DIR, "amuxd.http.port"), "utf8").trim();
+  const port = fs.readFileSync(path.join(AMUXD_DIR, "run", "amuxd.http.port"), "utf8").trim();
   return `http://127.0.0.1:${port}`;
 }
 
 function readAmuxdRootToken(): string {
-  return fs.readFileSync(path.join(AMUXD_DIR, "amuxd.http.token"), "utf8").trim();
+  return fs.readFileSync(path.join(AMUXD_DIR, "run", "amuxd.http.token"), "utf8").trim();
 }
 
 async function exchangeScopedToken(scopes: string[]): Promise<string> {

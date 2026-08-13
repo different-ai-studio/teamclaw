@@ -1518,14 +1518,23 @@ impl DaemonServer {
                                     actor_id = %cloud.actor_id,
                                     "adopted team + identity from backend.toml (self-heal)"
                                 );
+                                // The runtime index follows the team: claim
+                                // renamed teams/_unclaimed/ underneath us, and
+                                // saving to the boot-captured path would
+                                // resurrect it — those writes would then be
+                                // stranded forever, because promote refuses to
+                                // merge into a team that already has state.
+                                self.sessions_path =
+                                    crate::config::layout::team_state_dir(&team_id)
+                                        .join("runtimes.toml");
                                 self.config.team_id = Some(team_id);
                                 // Only the MQTT identity converges here: the
                                 // topics and client are rebuilt each cycle.
                                 // Startup-captured consumers
-                                // (teamclu::SessionManager) still hold the old
-                                // id, which is why POST /v1/setup/claim reports
-                                // requiresRestart for a daemon that booted
-                                // unclaimed.
+                                // (teamclu::SessionManager, members, history)
+                                // still hold the old paths, which is why
+                                // POST /v1/setup/claim reports requiresRestart
+                                // for a daemon that booted unclaimed.
                                 self.config.actor.id = cloud.actor_id;
                             }
                             Err(e) => {

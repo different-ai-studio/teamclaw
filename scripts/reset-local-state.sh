@@ -696,11 +696,12 @@ collect_targets() {
     [[ "${BRAND_SHORT_NAMES[$i]}" == "teamclu" ]] && continue
     TARGETS+=("${HOME}/.amuxd-${BRAND_SHORT_NAMES[$i]}")
   done
-  while IFS= read -r p; do
-    [[ -n "$p" ]] && TARGETS+=("$p")
-  done < <(compgen -G "${HOME}/.amuxd-*" 2>/dev/null || true)
-
   if [[ "$brand_only" -eq 0 ]]; then
+    # Sweep every white-label daemon home ONLY on a full reset: a run scoped
+    # to one brand must not take other brands' teams and credentials with it.
+    while IFS= read -r p; do
+      [[ -n "$p" ]] && TARGETS+=("$p")
+    done < <(compgen -G "${HOME}/.amuxd-*" 2>/dev/null || true)
     TARGETS+=("${HOME}/.teamclaw-seed")
   fi
 

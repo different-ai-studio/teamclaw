@@ -160,11 +160,6 @@ pub fn brand_home_dir(brand_short_name: &str) -> PathBuf {
     home.join(format!(".{}", resolve_storage_dir_name(brand_short_name)))
 }
 
-/// [`brand_home_dir`] for the brand this process was launched as.
-pub fn brand_home_dir_from_env() -> PathBuf {
-    brand_home_dir(&brand_short_name_from_env())
-}
-
 /// Legacy official Dev home dir (`teamclawdev`) when migrating an existing install.
 pub fn legacy_official_home_dir_name(short_name: &str) -> Option<&'static str> {
     if short_name == LEGACY_OFFICIAL_DEV_STORAGE_DIR {
@@ -243,7 +238,9 @@ pub fn resolve_workspace_config_path(workspace: &Path, brand_short_name: &str) -
     if canonical.exists() || is_official_brand(brand_short_name) {
         return canonical;
     }
-    let legacy = workspace.join(WORKSPACE_META_DIR).join(WORKSPACE_CONFIG_FILE);
+    let legacy = workspace
+        .join(WORKSPACE_META_DIR)
+        .join(WORKSPACE_CONFIG_FILE);
     if legacy.exists() {
         legacy
     } else {
@@ -352,10 +349,7 @@ mod tests {
         assert_eq!(amuxd_home_from_env(), dir.path().join(".amuxd"));
 
         std::env::set_var(BRAND_SHORT_NAME_ENV, "copilot361");
-        assert_eq!(
-            amuxd_home_from_env(),
-            dir.path().join(".amuxd-copilot361")
-        );
+        assert_eq!(amuxd_home_from_env(), dir.path().join(".amuxd-copilot361"));
 
         let custom = dir.path().join("custom-amuxd");
         std::env::set_var(AMUXD_HOME_ENV, &custom);

@@ -343,10 +343,18 @@ fn set_local_agent_interactive(theme: &ColorfulTheme) -> anyhow::Result<()> {
         _ => {}
     }
 
-    cfg.agents.local_agent = selected.to_string();
+    // local_agent is team config: daemon.toml serde-skips it, so a cfg.save
+    // here would print success and change nothing. The routed edit surface
+    // writes team.toml; the machine-level agent sections still go to
+    // daemon.toml.
     ensure_opencode_section(&mut cfg);
     cfg.save(&path)
         .map_err(|e| anyhow::anyhow!("save {}: {e}", path.display()))?;
+    crate::config::edit::set_config_toml_value(
+        &path,
+        "agents.local_agent",
+        toml::Value::String(selected.to_string()),
+    )?;
     println!("✓ Default agent set to {selected}.");
     println!("  Restart the daemon (`amuxd stop && amuxd start`) to apply.");
     Ok(())
@@ -357,7 +365,7 @@ fn load_daemon_config() -> anyhow::Result<(DaemonConfig, PathBuf)> {
     let mut cfg = DaemonConfig::load_or_bootstrap(&path)
         .map_err(|e| anyhow::anyhow!("load {}: {e}", path.display()))?;
     // local_agent / team_share / channels live in the team's team.toml.
-    crate::config::team_config::hydrate(&mut cfg);
+    crate::config::team_config::hydrate(&mut cfg).map_err(|e| anyhow::anyhow!("team.toml: {e}"))?;
     Ok((cfg, path))
 }
 
@@ -584,14 +592,14 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
 
 fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
     let config_path = DaemonConfig::default_path();
-    let auto_sync = DaemonConfig::load(&config_path)
-        .map(|c| c.team_share_auto_sync_enabled())
-        .unwrap_or(true);
+    // team_share is serde-skipped on DaemonConfig; a raw load would always
+    // show the default (enabled) and the menu could never re-enable sync.
+    let auto_sync = DaemonConfig::team_share_auto_sync_enabled_from_disk();
     let team_id = resolve_team_id(None)?;
 
     println!("Team: {team_id}");
     println!(
-        "Local auto_sync: {} (daemon.toml [team_share])",
+        "Local auto_sync: {} (team.toml [team_share])",
         if auto_sync { "enabled" } else { "disabled" }
     );
     if !auto_sync {

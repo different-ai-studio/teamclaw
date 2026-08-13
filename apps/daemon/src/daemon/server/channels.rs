@@ -200,8 +200,13 @@ impl DaemonServer {
             }
         };
         // daemon.toml no longer carries the team half; without this the reload
-        // would replace a working channel config with the empty default.
-        crate::config::team_config::hydrate(&mut fresh_cfg);
+        // would replace a working channel config with the empty default. An
+        // unreadable team.toml aborts the reload for the same reason — the
+        // running manager keeps running rather than being replaced by nothing.
+        if let Err(e) = crate::config::team_config::hydrate(&mut fresh_cfg) {
+            error!("channel-reload: team.toml unreadable, keeping the running channels: {e:?}");
+            return;
+        }
         fresh_cfg.actor.id = self.config.actor.id.clone();
 
         if let Some(mgr) = self.channel_mgr.take() {

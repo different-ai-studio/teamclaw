@@ -17,14 +17,11 @@ pub mod workspace_path;
 mod workspace_resolver;
 
 pub use daemon_config::{
-    ActorConfig, AgentBackendConfig, AgentsConfig, ClaudeAgentConfig, CursorAgentConfig,
-    DaemonConfig, DiscordChannel, EmailChannel, FeishuChannel, HttpConfig, KookChannel, MqttConfig,
-    SeaTalkChannel, TeamShareConfig, TransportKind, WeChatChannel, WeComChannel,
-    BOOTSTRAP_ACTOR_NAME,
+    ActorConfig, AgentBackendConfig, AgentsConfig, ChannelsConfig, ClaudeAgentConfig,
+    CursorAgentConfig, DaemonConfig, DiscordChannel, EmailChannel, FeishuChannel, HttpConfig,
+    KookChannel, MqttConfig, SeaTalkChannel, TeamShareConfig, TransportKind, WeChatChannel,
+    WeComChannel, BOOTSTRAP_ACTOR_NAME,
 };
-// Constructed only by the test suite (runtime_resolution / server tests).
-#[cfg(test)]
-pub use daemon_config::ChannelsConfig;
 pub use member_store::{MemberStore, PendingInvite, StoredMember};
 pub use model_catalog::DeviceModelCatalog;
 pub use model_mru::{first_available, ModelMru};

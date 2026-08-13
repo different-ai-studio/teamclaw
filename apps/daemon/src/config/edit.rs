@@ -171,6 +171,12 @@ pub fn unset_config_value(path: &Path, key: &str) -> anyhow::Result<()> {
     if super::team_config::is_team_key(key) {
         let team = crate::config::layout::active_team();
         let mut root = super::team_config::load_value(&team)?;
+        // Credentials never sit in the document — deleting one means dropping
+        // it from the secret store. (Only non-array keys are addressable here;
+        // for those the dotted key and the stored path are identical.)
+        if is_secret_key(key) && remove_value_at_key(&mut root, doc_key(key)).is_err() {
+            return super::team_config::forget_secret(&team, doc_key(key));
+        }
         remove_value_at_key(&mut root, doc_key(key))?;
         return super::team_config::save_value(&team, root);
     }
@@ -363,11 +369,15 @@ secret = "sb"
         super::set_wecom_bot_workspace(&path, "bot-b", "ws-new").unwrap();
         let cfg = crate::config::team_config::load_value("team-1").unwrap();
         let bots = cfg["channels"]["wecom"]["bots"].as_array().unwrap();
-        // The sibling bot — and its stored secret — stay untouched.
+        // The sibling bot stays untouched; the editable document never carries
+        // credentials, so the stored secrets are checked via the typed load.
         assert_eq!(bots[0]["workspace_id"].as_str(), Some("ws-old"));
-        assert_eq!(bots[0]["secret"].as_str(), Some("sa"));
         assert_eq!(bots[1]["workspace_id"].as_str(), Some("ws-new"));
-        assert_eq!(bots[1]["secret"].as_str(), Some("sb"));
+        assert!(bots[0].get("secret").is_none());
+        let typed = crate::config::team_config::load_typed("team-1").unwrap();
+        let typed_bots = typed.channels.wecom.unwrap().bots;
+        assert_eq!(typed_bots[0].secret, "sa");
+        assert_eq!(typed_bots[1].secret, "sb");
 
         // An unknown bot is an error, not a silently appended row.
         let err = super::set_wecom_bot_workspace(&path, "bot-missing", "ws-x").unwrap_err();
@@ -435,6 +445,9 @@ broker_url = "mqtts://old.example"
     #[test]
     fn list_config_values_flattens_nested_tables() {
         let dir = tempdir().unwrap();
+        // flatten merges the active team's document; pin the home so the test
+        // sees an empty one instead of whatever this machine has.
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(dir.path());
         let path = dir.path().join("daemon.toml");
         std::fs::write(
             &path,
@@ -505,6 +518,9 @@ broker_url = "mqtts://broker.example"
     #[test]
     fn flatten_config_returns_sorted_typed_pairs() {
         let dir = tempdir().unwrap();
+        // flatten merges the active team's document; pin the home so the test
+        // sees an empty one instead of whatever this machine has.
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(dir.path());
         let path = dir.path().join("daemon.toml");
         std::fs::write(
             &path,

@@ -59,24 +59,8 @@ pub(crate) fn sock_path() -> PathBuf {
 /// The active team's `team.toml`, resolved through daemon.toml's
 /// `active_team` pointer. `None` when the daemon has no team yet.
 fn team_config_path() -> Option<PathBuf> {
-    #[derive(serde::Deserialize)]
-    struct Probe {
-        #[serde(default, alias = "team_id")]
-        active_team: Option<String>,
-    }
-    let home = crate::commands::amuxd_home_dir();
-    let team = std::fs::read_to_string(home.join("daemon.toml"))
-        .ok()
-        .and_then(|body| toml::from_str::<Probe>(&body).ok())
-        .and_then(|p| p.active_team)
-        .map(|t| t.trim().to_string())
-        .filter(|t| !t.is_empty())?;
-    Some(
-        home.join("teams")
-            .join(team)
-            .join("state")
-            .join("team.toml"),
-    )
+    let team = crate::commands::amuxd_active_team()?;
+    Some(crate::commands::amuxd_team_state_dir(&team).join("team.toml"))
 }
 
 /// List the six known channel platforms with their `enabled` / `connected`

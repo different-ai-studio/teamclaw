@@ -40,7 +40,9 @@ pub fn opencode_write_lock(config_path: &Path) -> Arc<Mutex<()>> {
     let key = config_path.to_string_lossy().into_owned();
     let registry = OPENCODE_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut map = registry.lock().unwrap_or_else(|e| e.into_inner());
-    map.entry(key).or_insert_with(|| Arc::new(Mutex::new(()))).clone()
+    map.entry(key)
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
 }
 
 /// Atomically write `content` to `path` via a unique temp file + rename.

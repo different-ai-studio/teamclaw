@@ -24,23 +24,23 @@ pub fn root() -> PathBuf {
 /// Everything here is safe to delete while the daemon is stopped — it is
 /// rebuilt on the next boot and describes *this* process, not any state.
 pub fn run_dir() -> PathBuf {
-    root().join("run")
+    teamclu_runtime_env::amuxd_layout::run_dir(&root())
 }
 
 /// Rotating daemon log.
 pub fn logs_dir() -> PathBuf {
-    root().join("logs")
+    teamclu_runtime_env::amuxd_layout::logs_dir(&root())
 }
 
 /// Machine-level caches: keyed by backend or worktree, never by team. Deleting
 /// any of it costs one cold probe and nothing else.
 pub fn cache_dir() -> PathBuf {
-    root().join("cache")
+    teamclu_runtime_env::amuxd_layout::cache_dir(&root())
 }
 
 /// One directory per team.
 pub fn teams_dir() -> PathBuf {
-    root().join("teams")
+    teamclu_runtime_env::amuxd_layout::teams_dir(&root())
 }
 
 /// Reserved directory name for a daemon that has not been claimed yet.
@@ -50,7 +50,7 @@ pub fn teams_dir() -> PathBuf {
 /// somewhere to land. Giving them a directory means the code has exactly one
 /// path — "the current team's directory" — instead of a `None` branch at every
 /// write site. Team ids are UUIDs, so the leading underscore cannot collide.
-pub const UNCLAIMED_TEAM: &str = "_unclaimed";
+pub const UNCLAIMED_TEAM: &str = teamclu_runtime_env::amuxd_layout::UNCLAIMED_TEAM;
 
 /// `teams/<id>`, or `teams/_unclaimed` when there is no team yet.
 pub fn team_dir(team_id: &str) -> PathBuf {
@@ -61,7 +61,7 @@ pub fn team_dir(team_id: &str) -> PathBuf {
 /// notably `SecretStore`, whose tests point it at a temp directory. Same layout
 /// either way, so a fixture cannot drift from the real thing.
 pub fn team_dir_in(home: &std::path::Path, team_id: &str) -> PathBuf {
-    home.join("teams").join(team_slug(team_id))
+    teamclu_runtime_env::amuxd_layout::team_dir(home, team_id)
 }
 
 /// [`team_state_dir`] under an explicit home.
@@ -99,30 +99,13 @@ fn team_slug(team_id: &str) -> &str {
         trimmed
     }
 }
-
-/// Just enough of `daemon.toml` to find the active team, deliberately not the
-/// whole [`DaemonConfig`]: resolving a path must not start failing because some
-/// unrelated field of the config stopped parsing.
-#[derive(serde::Deserialize)]
-struct ActiveTeamProbe {
-    /// `active_team` on disk; `team_id` was the interim spelling.
-    #[serde(default, alias = "team_id")]
-    active_team: Option<String>,
-}
+// (slug rule lives in teamclu_runtime_env::amuxd_layout; this local copy only
+// serves promote_unclaimed's rename bookkeeping)
 
 /// The team this daemon is currently claimed by, or [`UNCLAIMED_TEAM`].
-///
-/// Parses only the one field it needs, so resolving a path keeps working while
-/// the rest of the config is being edited — a half-written `[channels]` section
-/// must not decide where sessions get written.
+/// Mtime-cached in `teamclu_runtime_env` — path helpers sit on hot paths.
 pub fn active_team() -> String {
-    std::fs::read_to_string(root().join("daemon.toml"))
-        .ok()
-        .and_then(|body| toml::from_str::<ActiveTeamProbe>(&body).ok())
-        .and_then(|probe| probe.active_team)
-        .map(|id| id.trim().to_string())
-        .filter(|id| !id.is_empty())
-        .unwrap_or_else(|| UNCLAIMED_TEAM.to_string())
+    teamclu_runtime_env::amuxd_layout::active_team(&root())
 }
 
 /// `teams/<active>/state` — where this daemon's team-scoped files live now.
@@ -150,6 +133,17 @@ pub fn promote_unclaimed(team_id: &str) -> std::io::Result<()> {
     }
     let to = teams_dir().join(slug);
     if to.exists() {
+        // A target with no `state/` is not "existing state" — it is a shell a
+        // v1 install (or a bare `shared/` checkout) left behind. Adopting the
+        // unclaimed `state/` into it is what keeps the standard v1-upgrade +
+        // re-onboard path from stranding pre-onboarding sessions.
+        let to_state = to.join("state");
+        let from_state = from.join("state");
+        if !to_state.exists() && from_state.is_dir() {
+            std::fs::rename(&from_state, &to_state)?;
+            let _ = std::fs::remove_dir(&from);
+            return Ok(());
+        }
         tracing::warn!(
             from = %from.display(),
             to = %to.display(),
@@ -209,14 +203,23 @@ const V1_ROOT_FILES: &[&str] = &[
 /// `teams/` is absent on purpose: v2 keeps it, and the per-team subtree is
 /// reshaped in place rather than thrown away.
 const V1_ROOT_DIRS: &[&str] = &[
+    "apps",
     "attachments",
     "bin",
     "history",
     "mcp-configs",
     "pi-sessions",
     "team-secrets",
+    "teamclaw",
     "teamclu",
 ];
+
+/// v1 subdirectories inside `teams/<id>/` that v2 relocated (`teamclu-team` →
+/// `shared/teamclu-team`, `cloud` → `state/cloud`, `sync` → `state/sync.json`).
+/// Removed rather than moved — hard cutover, the next sync repopulates — and
+/// removing them is what lets `promote_unclaimed` adopt into a team directory
+/// a v1 install left behind.
+const V1_TEAM_SUBDIRS: &[&str] = &["teamclu-team", "cloud", "sync"];
 
 /// One-shot: remove the v1 layout. Marked by a file under `teams/`, so a second
 /// boot costs one `exists()`.
@@ -258,6 +261,30 @@ pub fn purge_v1_layout() {
                     removed += 1;
                 }
             }
+        }
+    }
+
+    // The v1 layout *inside* surviving team directories.
+    if let Ok(entries) = std::fs::read_dir(teams_dir()) {
+        for entry in entries.flatten() {
+            if !entry.path().is_dir() {
+                continue;
+            }
+            for sub in V1_TEAM_SUBDIRS {
+                if std::fs::remove_dir_all(entry.path().join(sub)).is_ok() {
+                    removed += 1;
+                }
+            }
+        }
+    }
+
+    // The pre-`~/.amuxd` config directory. `migrate_legacy_file` used to copy
+    // files back out of it on every entry point; the copier is gone, but the
+    // directory still holds a `daemon.toml`/`backend.toml` generation with
+    // live credentials — the exact class of file this purge exists to remove.
+    if let Some(config_dir) = dirs::config_dir() {
+        if std::fs::remove_dir_all(config_dir.join("amux")).is_ok() {
+            removed += 1;
         }
     }
 

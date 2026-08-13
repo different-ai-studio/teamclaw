@@ -78,15 +78,6 @@ pub async fn get_daemon_http_info() -> Result<Option<DaemonHttpInfo>, String> {
     }))
 }
 
-/// Minimal view of `~/.amuxd/daemon.toml` — just the field we surface.
-#[derive(Debug, serde::Deserialize)]
-struct DaemonConfigTeam {
-    /// `active_team` on disk (the daemon's team-directory pointer); the alias
-    /// reads configs written before the rename.
-    #[serde(default, alias = "team_id")]
-    active_team: Option<String>,
-}
-
 /// The team this machine's daemon is onboarded to, read from
 /// `~/.amuxd/daemon.toml`. `None` when the daemon hasn't been onboarded (no
 /// config / no team_id) or the file can't be read.
@@ -97,17 +88,7 @@ struct DaemonConfigTeam {
 /// content is synced/linked under the daemon's team, not the app's.
 #[tauri::command]
 pub async fn get_daemon_team_id() -> Result<Option<String>, String> {
-    let config_path = amuxd_dir().join("daemon.toml");
-
-    let body = match std::fs::read_to_string(&config_path) {
-        Ok(s) => s,
-        Err(_) => return Ok(None),
-    };
-    let parsed: DaemonConfigTeam = toml::from_str(&body).map_err(|e| e.to_string())?;
-    Ok(parsed
-        .active_team
-        .map(|t| t.trim().to_owned())
-        .filter(|t| !t.is_empty()))
+    Ok(crate::commands::amuxd_active_team())
 }
 
 /// Minimal view of `~/.amuxd/backend.toml` — just the actor_id field.
@@ -131,20 +112,10 @@ struct BackendConfig {
 /// Returns an empty string when the daemon hasn't been onboarded (no config /
 /// no actor_id) or the file can't be read — callers treat empty as "not ready".
 pub(crate) fn read_daemon_actor_id() -> String {
-    let Some(team) = std::fs::read_to_string(amuxd_dir().join("daemon.toml"))
-        .ok()
-        .and_then(|body| toml::from_str::<DaemonConfigTeam>(&body).ok())
-        .and_then(|cfg| cfg.active_team)
-        .map(|t| t.trim().to_owned())
-        .filter(|t| !t.is_empty())
-    else {
+    let Some(team) = crate::commands::amuxd_active_team() else {
         return String::new();
     };
-    let config_path = amuxd_dir()
-        .join("teams")
-        .join(team)
-        .join("state")
-        .join("backend.toml");
+    let config_path = crate::commands::amuxd_team_state_dir(&team).join("backend.toml");
 
     let body = match std::fs::read_to_string(&config_path) {
         Ok(s) => s,

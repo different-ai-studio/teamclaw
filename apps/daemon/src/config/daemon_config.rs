@@ -592,8 +592,22 @@ impl DaemonConfig {
     }
 
     /// Read [`TeamShareConfig::auto_sync`] from the active team's team.toml.
+    ///
+    /// A two-field probe on purpose: this runs on the 300s sync timer, every
+    /// runtime spawn and every workspace registration, and the full typed load
+    /// would decrypt the whole secret store to answer one non-secret boolean.
     pub fn team_share_auto_sync_enabled_from_disk() -> bool {
-        super::team_config::load_active().team_share.auto_sync
+        #[derive(Default, serde::Deserialize)]
+        struct Probe {
+            #[serde(default)]
+            team_share: TeamShareConfig,
+        }
+        std::fs::read_to_string(super::team_config::active_path())
+            .ok()
+            .and_then(|body| toml::from_str::<Probe>(&body).ok())
+            .unwrap_or_default()
+            .team_share
+            .auto_sync
     }
 }
 
@@ -616,6 +630,17 @@ impl DaemonConfig {
     /// of deleting it in two places forever.
     pub fn default_path() -> PathBuf {
         Self::config_dir().join("daemon.toml")
+    }
+
+    /// [`load`](Self::load) + team hydration, for entry points that go on to
+    /// *use or persist* the team half. Loading without hydrating and then
+    /// persisting is how a CLI arm wipes a team's channels; making hydration
+    /// part of the load is what keeps that unrepresentable.
+    pub fn load_hydrated(path: &Path) -> crate::error::Result<Self> {
+        let mut config = Self::load(path)?;
+        super::team_config::hydrate(&mut config)
+            .map_err(|e| crate::error::AmuxError::Config(format!("team.toml: {e}")))?;
+        Ok(config)
     }
 
     pub fn load(path: &Path) -> crate::error::Result<Self> {

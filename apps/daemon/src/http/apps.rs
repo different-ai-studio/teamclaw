@@ -38,7 +38,6 @@ use super::state::HttpState;
 /// nor the brand, and a white-label daemon cloned apps into the official
 /// build's home. Call the real thing.
 ///
-/// Still at the home root; `teams/<id>/state/apps/` is PR ④.
 pub fn apps_data_root() -> PathBuf {
     crate::config::layout::active_state_dir().join("apps")
 }

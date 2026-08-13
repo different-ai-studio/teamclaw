@@ -268,10 +268,7 @@ mod tests {
             .path()
             .join(".copilot361/opencode.runtime.json")
             .exists());
-        assert!(!dir
-            .path()
-            .join(".teamclu/opencode.runtime.json")
-            .exists());
+        assert!(!dir.path().join(".teamclu/opencode.runtime.json").exists());
 
         std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
     }

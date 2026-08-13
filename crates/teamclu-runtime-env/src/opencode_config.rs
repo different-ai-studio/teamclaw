@@ -80,7 +80,8 @@ impl OpencodeConfigStore {
         if !path.exists() {
             return Ok(Value::Object(Default::default()));
         }
-        let content = std::fs::read_to_string(path).map_err(|e| OpencodeConfigError::Io(e.to_string()))?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| OpencodeConfigError::Io(e.to_string()))?;
         match serde_json::from_str::<Value>(&content) {
             Ok(value) => Ok(value),
             Err(err) => Self::recover_leading_object(path, &content, err),
@@ -93,9 +94,7 @@ impl OpencodeConfigStore {
         if !path.exists() {
             return Ok(None);
         }
-        std::fs::read_to_string(&path)
-            .map_err(map_io_err)
-            .map(Some)
+        std::fs::read_to_string(&path).map_err(map_io_err).map(Some)
     }
 
     /// Read-modify-write under the workspace write lock. The mutator returns
@@ -157,8 +156,8 @@ impl OpencodeConfigStore {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(map_io_err)?;
         }
-        let mut content =
-            serde_json::to_string_pretty(value).map_err(|e| OpencodeConfigError::Parse(e.to_string()))?;
+        let mut content = serde_json::to_string_pretty(value)
+            .map_err(|e| OpencodeConfigError::Parse(e.to_string()))?;
         if !content.ends_with('\n') {
             content.push('\n');
         }

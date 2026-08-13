@@ -605,14 +605,12 @@ pub async fn team_env_diagnostics(
     })
 }
 
-/// `~/.amuxd/teams/<teamId>/cloud/_secrets` presence + `*.enc.json` count.
+/// `~/.amuxd/teams/<teamId>/state/cloud/_secrets` presence + `*.enc.json` count.
 pub(crate) fn team_cloud_secrets_diag(team_id: Option<&str>) -> (String, bool, usize) {
     let Some(team_id) = team_id.map(str::trim).filter(|s| !s.is_empty()) else {
         return (String::new(), false, 0);
     };
-    let dir = super::amuxd_home_dir()
-        .join("teams")
-        .join(team_id)
+    let dir = super::amuxd_team_state_dir(team_id)
         .join("cloud")
         .join(super::shared_secrets::SECRETS_DIR);
     let exists = dir.exists();

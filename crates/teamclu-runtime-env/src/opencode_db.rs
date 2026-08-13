@@ -25,7 +25,9 @@ fn isolated_opencode_db_path(workspace: &Path) -> PathBuf {
 
 /// One-shot migration marker: `~/.teamclu/migrations/opencode-global-db-v1`.
 fn migration_marker_path(home: &Path) -> PathBuf {
-    home.join(format!(".{APP_SECRETS_DIR}/migrations/{MIGRATION_MARKER_NAME}"))
+    home.join(format!(
+        ".{APP_SECRETS_DIR}/migrations/{MIGRATION_MARKER_NAME}"
+    ))
 }
 
 fn file_len(path: &Path) -> anyhow::Result<Option<u64>> {
@@ -63,10 +65,9 @@ pub fn maybe_migrate_legacy_opencode_db(
     let global_len = file_len(&global_db)?;
     let isolated_len = file_len(&isolated_db)?;
 
-    let global_is_candidate = global_len.is_none()
-        || global_len.is_some_and(|len| len < MIN_DB_BYTES);
-    let isolated_is_candidate =
-        isolated_len.is_some_and(|len| len >= MIN_DB_BYTES);
+    let global_is_candidate =
+        global_len.is_none() || global_len.is_some_and(|len| len < MIN_DB_BYTES);
+    let isolated_is_candidate = isolated_len.is_some_and(|len| len >= MIN_DB_BYTES);
 
     if !(global_is_candidate && isolated_is_candidate) {
         return Ok(None);
@@ -77,10 +78,7 @@ pub fn maybe_migrate_legacy_opencode_db(
     }
 
     if global_db.exists() {
-        let backup = global_db.with_file_name(format!(
-            "opencode.db.bak.{}",
-            unix_timestamp_secs()
-        ));
+        let backup = global_db.with_file_name(format!("opencode.db.bak.{}", unix_timestamp_secs()));
         std::fs::copy(&global_db, &backup)?;
         info!(
             from = %global_db.display(),
@@ -132,10 +130,7 @@ mod tests {
 
         let global_db = global_opencode_db_path(home_dir.path());
         assert!(global_db.exists());
-        assert_eq!(
-            std::fs::metadata(&global_db).unwrap().len(),
-            MIN_DB_BYTES
-        );
+        assert_eq!(std::fs::metadata(&global_db).unwrap().len(), MIN_DB_BYTES);
         assert!(migration_marker_path(home_dir.path()).exists());
     }
 

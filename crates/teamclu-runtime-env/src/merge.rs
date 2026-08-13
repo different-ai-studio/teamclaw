@@ -111,7 +111,10 @@ mod tests {
     #[test]
     fn secrets_for_team_provider_derives_tc_api_key() {
         let secrets = secrets_for_team_provider("actor-123");
-        assert_eq!(secrets.get("tc_api_key").map(String::as_str), Some("sk-tc-actor-123"));
+        assert_eq!(
+            secrets.get("tc_api_key").map(String::as_str),
+            Some("sk-tc-actor-123")
+        );
         assert!(secrets_for_team_provider("").is_empty());
     }
 
@@ -120,9 +123,15 @@ mod tests {
         let actor_id = "a".repeat(50);
         let out = merge_env_maps(HashMap::new(), HashMap::new(), &ctx(&actor_id, ""));
 
-        assert_eq!(out.get("actor_id").map(String::as_str), Some(actor_id.as_str()));
+        assert_eq!(
+            out.get("actor_id").map(String::as_str),
+            Some(actor_id.as_str())
+        );
         let expected_key = format!("sk-tc-{}", &actor_id[..40]);
-        assert_eq!(out.get("tc_api_key").map(String::as_str), Some(expected_key.as_str()));
+        assert_eq!(
+            out.get("tc_api_key").map(String::as_str),
+            Some(expected_key.as_str())
+        );
     }
 
     #[test]
@@ -160,15 +169,14 @@ mod tests {
 
     #[test]
     fn injects_actor_id_and_display_name() {
-        let out = merge_env_maps(
-            HashMap::new(),
-            HashMap::new(),
-            &ctx("actor-123", "My Mac"),
-        );
+        let out = merge_env_maps(HashMap::new(), HashMap::new(), &ctx("actor-123", "My Mac"));
 
         assert_eq!(out.get("actor_id").map(String::as_str), Some("actor-123"));
         assert_eq!(out.get("display_name").map(String::as_str), Some("My Mac"));
-        assert_eq!(out.get("tc_api_key").map(String::as_str), Some("sk-tc-actor-123"));
+        assert_eq!(
+            out.get("tc_api_key").map(String::as_str),
+            Some("sk-tc-actor-123")
+        );
     }
 
     #[test]

@@ -166,10 +166,7 @@ pub fn find_unresolved_config_placeholders(
     workspace: &Path,
     bindings: &HashMap<String, String>,
 ) -> Vec<UnresolvedConfigPlaceholder> {
-    let Some(content) = OpencodeConfigStore::load_raw(workspace)
-        .ok()
-        .flatten()
-    else {
+    let Some(content) = OpencodeConfigStore::load_raw(workspace).ok().flatten() else {
         return Vec::new();
     };
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
@@ -412,7 +409,10 @@ mod tests {
             opencode_serve_running: true,
         });
         assert_eq!(analysis.key_statuses[0].status, "not_served");
-        assert_eq!(analysis.missing_served_env_keys, vec!["openai_api_key".to_string()]);
+        assert_eq!(
+            analysis.missing_served_env_keys,
+            vec!["openai_api_key".to_string()]
+        );
     }
 
     #[test]
