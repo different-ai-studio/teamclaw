@@ -138,6 +138,28 @@ export function registerSessions(router) {
     return { statusCode: 204, body: null };
   });
 
+  // Which model this agent runs on in this session — same (session, actor)
+  // addressing as the cursor above (ADR-0005).
+  //
+  // This column shipped with the ADR-0005 migration and was backfilled once,
+  // but no writer was ever wired up, so it froze while both the ADR and the
+  // glossary described it as authoritative. The daemon is the only caller:
+  // it is the only component that sees which model a runtime settled on, and
+  // the only one present for gateway and cron sessions (ADR-0007).
+  //
+  // `model` is required rather than nullable — every entry point pins a model
+  // at creation time, so there is no unpinned state to clear back to.
+  router.patch("/v1/sessions/:sessionId/participants/:actorId/model", async (ctx) => {
+    const body = ctx.json ?? {};
+    const model = requireString(body.model, "model");
+    await ctx.repository.updateParticipantModel(
+      decodeURIComponent(ctx.params.sessionId),
+      decodeURIComponent(ctx.params.actorId),
+      { model },
+    );
+    return { statusCode: 204, body: null };
+  });
+
   router.delete("/v1/sessions/:sessionId/participants/:actorId", async (ctx) => {
     const sessionId = decodeURIComponent(ctx.params.sessionId);
     const actorId = decodeURIComponent(ctx.params.actorId);

@@ -757,6 +757,53 @@ paths:
           description: OK
         "401":
           $ref: "#/components/responses/Error"
+  /v1/sessions/{sessionId}/participants/{actorId}/model:
+    patch:
+      operationId: updateParticipantModel
+      summary: Update the model this agent uses in this session
+      description: |
+        Which model an agent runs on for one session, addressed by (session,
+        actor) — the participant row's own key (ADR-0005).
+
+        The column has existed since the ADR-0005 migration but had no writer:
+        it was backfilled once from `agent_runtimes.current_model` and then
+        drifted, while both the glossary and that ADR described it as
+        authoritative. This endpoint is that missing writer.
+
+        The daemon is the only caller. It is the sole component that observes
+        which model a runtime actually settled on, and it is the only one
+        present for gateway and cron sessions, where no client is (ADR-0007).
+      tags: [Sessions]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: actorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model]
+              properties:
+                model:
+                  type: string
+                  description: |
+                    Backend-local model id, usually `provider/model`. Not
+                    nullable: every entry point pins a model at creation time,
+                    so there is no state to clear it back to (ADR-0007).
+                  example: anthropic/claude-sonnet-4-6
+      responses:
+        "204":
+          description: OK
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
   /v1/sessions/by-acp/{acpSessionId}:
     get:
       operationId: getSessionByAcp
@@ -5969,6 +6016,25 @@ components:
             - string
             - "null"
           format: date-time
+        # An agent participant's working state for this session (ADR-0005).
+        # `listSessionParticipants` has returned these three since that
+        # migration; the schema simply had not caught up. NULL on member rows —
+        # not applicable rather than missing.
+        workspaceId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        model:
+          type:
+            - string
+            - "null"
+          description: Written by PATCH …/participants/{actorId}/model.
+        lastProcessedMessageId:
+          type:
+            - string
+            - "null"
+          format: uuid
     SessionParticipantList:
       type: object
       required: [items]
