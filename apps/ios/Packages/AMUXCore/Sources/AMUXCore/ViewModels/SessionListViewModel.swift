@@ -415,39 +415,38 @@ public final class SessionListViewModel {
         actorID: String,
         modelContext: ModelContext
     ) {
-        // Catalogs are keyed by worktree and `LiveSession.worktree` says which
-        // one this attachment runs in — a multi-checkout device would otherwise
-        // have to guess, which is exactly what the daemon added that field to
-        // stop. `catalog_models` is a deduplicated union; `model_indices` are
-        // offsets into it (8 worktrees / 563 entries collapse to 72 models).
-        let catalogByWorktree = Dictionary(
-            presence.worktrees.map { ($0.worktree, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        func models(for catalog: Amux_WorktreeCatalog?) -> [AvailableModel] {
-            guard let catalog else { return [] }
-            return catalog.modelIndices.compactMap { idx in
-                let i = Int(idx)
-                guard presence.catalogModels.indices.contains(i) else { return nil }
-                let m = presence.catalogModels[i]
-                return AvailableModel(id: m.id, displayName: m.displayName)
-            }
+        // Device-level, not per-worktree (#742). Looking catalogs up by
+        // `live.worktree` was the "multi-worktree device shows no models" bug:
+        // the key routinely matched nothing, so every session on such a device
+        // reported an empty list — and iOS has no loopback fallback the way the
+        // desktop does. `catalog_models` is already the device-wide union of
+        // everything probed for the active backend.
+        let deviceModels = presence.catalogModels.map {
+            AvailableModel(id: $0.id, displayName: $0.displayName)
         }
+        // Older daemons send only the per-worktree copies; fall back to the
+        // first so this build keeps working against one until it is upgraded.
+        let legacyCatalog = presence.worktrees.first
+        let deviceDefaultModel = presence.defaultModel.isEmpty
+            ? (legacyCatalog?.defaultModel ?? "")
+            : presence.defaultModel
+        let deviceCommands = presence.availableCommands.isEmpty
+            ? (legacyCatalog?.availableCommands ?? [])
+            : presence.availableCommands
+        let modelsJSON = Self.encodeJSON(deviceModels)
+        let commandsJSON = Self.encodeJSON(deviceCommands.map {
+            SlashCommand(name: $0.name, description: $0.description_p, inputHint: $0.inputHint)
+        })
 
         var liveIDs: Set<String> = []
         for live in presence.liveSessions where !live.sessionID.isEmpty {
             let id = AgentAttachment.makeID(actorID: actorID, sessionID: live.sessionID)
             liveIDs.insert(id)
 
-            let catalog = catalogByWorktree[live.worktree]
-            let modelsJSON = Self.encodeJSON(models(for: catalog))
-            let commandsJSON = Self.encodeJSON((catalog?.availableCommands ?? []).map {
-                SlashCommand(name: $0.name, description: $0.description_p, inputHint: $0.inputHint)
-            })
-            // `default_model` is the worktree's MRU head — a memory of what was
-            // last used here, owned by the daemon. Never shadow a live value.
+            // `default_model` is the device's MRU head — a memory of what was
+            // last used, owned by the daemon. Never shadow a live value.
             let resolvedModel = live.currentModel.isEmpty
-                ? (catalog?.defaultModel ?? "")
+                ? deviceDefaultModel
                 : live.currentModel
 
             let descriptor = FetchDescriptor<AgentAttachment>(
