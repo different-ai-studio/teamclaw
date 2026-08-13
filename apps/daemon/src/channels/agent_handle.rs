@@ -109,6 +109,14 @@ pub struct AmuxdAgentHandle {
     /// runtime starts on the user-chosen model. In-memory only — cleared
     /// across daemon restarts (same caveat as `logical_to_acp`).
     pub model_override: Arc<Mutex<HashMap<String, (String, String)>>>,
+    /// Gateway-wide model (`channels.model` in team.toml), pre-split into the
+    /// `(provider, model)` shape `model_override` uses.
+    ///
+    /// Consulted when a chat has not set its own with `/model`. Without it the
+    /// spawn went out unpinned and the model came from the device MRU — exactly
+    /// the implicit resolution ADR-0007 removes. `None` keeps the unpinned
+    /// behaviour for a team that has not set one.
+    pub gateway_model: Option<(String, String)>,
     /// Backend client used to look up `sessions.binding` from the
     /// SQL-minted `acp_session_id` when lazy-spawning a runtime. The
     /// binding is required to write the per-session MCP config file
@@ -466,9 +474,15 @@ impl AmuxdAgentHandle {
         //   - ClaudeCode: maps short names (sonnet→claude-sonnet-4-6), drops provider
         //   - OpenCode (and similar provider/model backends): rejoins as
         //     "provider/model"
+        // Chat's own `/model` first, then the gateway-wide setting. Falling
+        // through to `None` means an unpinned spawn, which used to resolve
+        // against the device MRU — the implicit behaviour ADR-0007 removes.
         let model_arg: Option<(String, String)> = {
             let overrides = self.model_override.lock().await;
-            overrides.get(session).cloned()
+            overrides
+                .get(session)
+                .cloned()
+                .or_else(|| self.gateway_model.clone())
         };
         let (workspace_dir, agent_type) = self.resolve_spawn_target(session, &binding).await;
         let spawn_env = self.assemble_spawn_env(workspace_dir.as_deref()).await;
@@ -1384,6 +1398,8 @@ mod tests {
             logical_to_acp: Arc::new(Mutex::new(HashMap::new())),
             team_id: "team-test".to_string(),
             model_override: Arc::new(Mutex::new(HashMap::new())),
+            // Unset, so these tests keep exercising the unpinned spawn.
+            gateway_model: None,
             backend: backend.clone(),
             default_agent_type: None,
             default_workspace_dir: None,
