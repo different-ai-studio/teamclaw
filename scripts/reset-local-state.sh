@@ -79,13 +79,17 @@ Options:
   -h, --help                Show this help
 
 Removes (user-level):
-  - ~/.amuxd                     amuxd daemon binary, config, team sync state
+  - ~/.amuxd, ~/.amuxd-<brand>   amuxd daemon home (v2 layout: daemon.toml,
+                                 device-id, run/, logs/, cache/, teams/)
   - ~/.teamclu, ~/.copilot361   per-brand desktop cache, secrets, local-cache.db
   - Tauri app data/cache/logs    per bundle id (e.g. com.copilot361.app)
   - WebKit / WebView2 profile     localStorage (auth session), IndexedDB, cookies
   - ~/.config/<shortName>        global skills, cron-global (Linux/macOS XDG path)
   - <workspace>/.<shortName>     per-workspace config (auto-discovered from webview)
+  - <workspace>/<shortName>-team symlink into ~/.amuxd/teams/ (symlinks only)
   - Legacy ~/.config/amux, ~/Library/Application Support/{amux,teamclu,copilot361}
+  - Legacy product generations   teamclaw / betly / amux / seamux profiles,
+                                 ~/.teamclaw-seed (old P2P sync state)
   - ~/.opencode (+ ~/.local/share/opencode, ~/.config/opencode, ~/.cache/opencode)
     global OpenCode runtime and data (default: on; use --keep-opencode to skip)
 
@@ -131,7 +135,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 brand_profile_key() {
-  printf '%s\0%s' "$1" "$2"
+  # \x1f (unit separator), not \0: bash command substitution drops null bytes
+  # and prints a warning for each one.
+  printf '%s\x1f%s' "$1" "$2"
 }
 
 add_brand_profile() {
@@ -196,6 +202,19 @@ infer_app_id_for_short_name() {
   fi
 }
 
+# Older generations of the product that may still have state on disk:
+# amux/seamux (original), teamclaw (pre-rename), betly (white-label).
+# Bundle ids are the ones those builds actually shipped with.
+add_legacy_generation_profiles() {
+  add_brand_profile "com.teamclaw.app" "teamclaw" "TeamClaw"
+  add_brand_profile "tech.teamclaw.mac" "teamclaw" "TeamClaw"
+  add_brand_profile "cc.ucar.betly" "betly" "Betly"
+  add_brand_profile "cn.mx5.betly-macos" "betly" "Betly"
+  add_brand_profile "com.amux.app" "amux" "Amux"
+  add_brand_profile "com.amux.mac" "amux" "Amux"
+  add_brand_profile "com.seamux.app" "seamux" "Seamux"
+}
+
 detect_brand_profiles_from_disk() {
   local app_id short_name home_dir
 
@@ -241,6 +260,7 @@ resolve_brand_profiles() {
     add_brand_profile "$app_id" "$short_name"
   else
     load_brand_profiles_from_build_config
+    add_legacy_generation_profiles
     detect_brand_profiles_from_disk
   fi
 
@@ -258,7 +278,9 @@ resolve_brand_profiles() {
 
 remove_path() {
   local target="$1"
-  if [[ ! -e "$target" ]]; then
+  # -L too: a dangling symlink (e.g. <ws>/teamclu-team after ~/.amuxd is gone)
+  # fails -e but still needs removing.
+  if [[ ! -e "$target" && ! -L "$target" ]]; then
     return 0
   fi
   if [[ "$dry_run" -eq 1 ]]; then
@@ -423,11 +445,16 @@ desktop_webview_paths_for_brand() {
     Darwin)
       echo "${HOME}/Library/WebKit/${short_name}"
       echo "${HOME}/Library/WebKit/${app_id}"
+      echo "${HOME}/Library/WebKit/${short_name}-e2e"
       echo "${HOME}/Library/Caches/${short_name}"
       echo "${HOME}/Library/Caches/${app_id}"
+      echo "${HOME}/Library/Caches/${short_name}-e2e"
       echo "${HOME}/Library/Preferences/${short_name}.plist"
+      echo "${HOME}/Library/Preferences/${app_id}.plist"
       echo "${HOME}/Library/HTTPStorages/${short_name}"
       echo "${HOME}/Library/HTTPStorages/${short_name}.binarycookies"
+      echo "${HOME}/Library/HTTPStorages/${app_id}"
+      echo "${HOME}/Library/HTTPStorages/${app_id}.binarycookies"
       echo "${HOME}/Library/Saved Application State/${app_id}.savedState"
       ;;
     Linux)
@@ -568,6 +595,9 @@ collect_workspace_dot_dir_targets() {
     for i in "${!BRAND_DISPLAY_NAMES[@]}"; do
       display_name="${BRAND_DISPLAY_NAMES[$i]}"
       ws_paths+=("${HOME}/${display_name}")
+      # Default workspaces created by dev / local-build flavors of the app.
+      ws_paths+=("${HOME}/${display_name} Dev")
+      ws_paths+=("${HOME}/${display_name} Local")
     done
     ws_paths+=("${HOME}/TeamClu")
     ws_paths+=("${HOME}/Copilot 361")
@@ -599,10 +629,20 @@ collect_workspace_dot_dir_targets() {
     fi
   done
 
+  local link
   for ws in "${unique_ws[@]}"; do
     for short_name in "${BRAND_SHORT_NAMES[@]}"; do
       dot="$(resolve_workspace_dot_dir "$ws" "$short_name")"
       TARGETS+=("$dot")
+      # v2 team-share entry point: <workspace>/<shortName>-team is a symlink
+      # into ~/.amuxd/teams/<id>/shared/. Removing ~/.amuxd leaves it dangling,
+      # so take the link too — but never a real directory of synced files.
+      link="${ws}/${short_name}-team"
+      if [[ -L "$link" ]]; then
+        TARGETS+=("$link")
+      elif [[ -d "$link" ]]; then
+        echo "  note: ${link} is a real directory, not a symlink — leaving it" >&2
+      fi
     done
     # Older white-label builds still wrote workspace metadata under teamclu keys
     # but may have kept the legacy .teamclu workspace dir name.
@@ -616,6 +656,21 @@ collect_targets() {
   local i p
 
   TARGETS+=("$AMUXD_DIR")
+
+  # v2 white-label daemon homes: official teamclu shares ~/.amuxd, every other
+  # brand gets ~/.amuxd-<shortName>. Also glob the disk so brands we did not
+  # resolve (deleted build configs) still get cleaned up.
+  for i in "${!BRAND_SHORT_NAMES[@]}"; do
+    [[ "${BRAND_SHORT_NAMES[$i]}" == "teamclu" ]] && continue
+    TARGETS+=("${HOME}/.amuxd-${BRAND_SHORT_NAMES[$i]}")
+  done
+  while IFS= read -r p; do
+    [[ -n "$p" ]] && TARGETS+=("$p")
+  done < <(compgen -G "${HOME}/.amuxd-*" 2>/dev/null || true)
+
+  if [[ "$brand_only" -eq 0 ]]; then
+    TARGETS+=("${HOME}/.teamclaw-seed")
+  fi
 
   for i in "${!BRAND_APP_IDS[@]}"; do
     TARGETS+=("$(home_dir_for_brand "${BRAND_SHORT_NAMES[$i]}")")
@@ -631,6 +686,12 @@ collect_targets() {
     while IFS= read -r p; do
       [[ -n "$p" ]] && TARGETS+=("$p")
     done < <(legacy_config_paths_for_brand "${BRAND_SHORT_NAMES[$i]}")
+    # macOS leaves orphaned cookie temp files next to the binarycookies store.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      while IFS= read -r p; do
+        [[ -n "$p" ]] && TARGETS+=("$p")
+      done < <(compgen -G "${HOME}/Library/HTTPStorages/${BRAND_SHORT_NAMES[$i]}.binarycookies_tmp_*" 2>/dev/null || true)
+    fi
   done
 
   if [[ "$include_opencode" -eq 1 ]]; then
@@ -702,7 +763,7 @@ main() {
   echo
   echo "Targets:"
   for target in "${TARGETS[@]}"; do
-    if [[ -e "$target" ]]; then
+    if [[ -e "$target" || -L "$target" ]]; then
       echo "  - $target"
       existing=1
     else
