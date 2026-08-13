@@ -99,7 +99,7 @@ export function mapDefaultAgentError(error: any) {
 // --- Apps helpers (mirror pg-repo/apps.ts) ---
 
 export const APP_COLUMNS =
-  "id, team_id, name, slug, type, visibility, workspace_id, git_remote_url, provision_status, fc_status, fc_endpoint, fc_function_name, fc_region, created_at, updated_at";
+  "id, team_id, name, slug, type, visibility, workspace_id, provision_status, fc_status, fc_endpoint, fc_function_name, fc_region, created_at, updated_at";
 
 export function slugify(name: string): string {
   return (
@@ -124,7 +124,6 @@ export function mapApp(r: any) {
     type: r.type,
     visibility: r.visibility,
     workspaceId: r.workspace_id ?? null,
-    gitRemoteUrl: r.git_remote_url ?? null,
     provisionStatus: r.provision_status,
     fcStatus: r.fc_status ?? null,
     fcEndpoint: r.fc_endpoint ?? null,
@@ -226,8 +225,6 @@ export function mapTeam(row) {
     orgName: (row?.orgs as any)?.name ?? null,
     shareMode: row?.share_mode ?? null,
     shareEnabledAt: row?.share_enabled_at ?? null,
-    gitRemoteUrl: row?.git_remote_url ?? null,
-    gitAuthKind: row?.git_auth_kind ?? null,
     visibility: row?.visibility ?? "private",
   };
 }

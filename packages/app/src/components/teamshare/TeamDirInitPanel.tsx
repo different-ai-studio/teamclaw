@@ -1,0 +1,84 @@
+import * as React from 'react'
+import { useTranslation } from 'react-i18next'
+import { FolderPlus, Loader2 } from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { useTeamShareBrowserStore } from '@/stores/team-share-browser'
+import { linkDaemonTeamWorkspace } from '@/lib/daemon-local-client'
+import { isTauri } from '@/lib/utils'
+
+/**
+ * Shown in the Knowledge column when the team directory is missing on THIS
+ * machine — `<workspace>/teamclu-team` does not resolve, so there is no root to
+ * render a file tree from.
+ *
+ * This is a local-state problem, not an account one: sync is on for the team
+ * either way. The daemon owns the directory (one global copy under
+ * `~/.amuxd/teams/<id>/shared/`, exposed per workspace as a symlink), and
+ * `POST /v1/team/link` is idempotent — it materializes whichever half is
+ * missing. So the fix is one button, and pressing it twice is harmless.
+ *
+ * `strict: true` because the whole point here is to report failure: the
+ * best-effort default would swallow "daemon not running", which is the most
+ * likely reason the directory is missing in the first place.
+ */
+export function TeamDirInitPanel() {
+  const { t } = useTranslation()
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
+  const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
+  const refreshFileTree = useWorkspaceStore((s) => s.refreshFileTree)
+
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const ready = Boolean(workspacePath && isTauri())
+
+  async function handleInit() {
+    if (!workspacePath || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await linkDaemonTeamWorkspace(workspacePath, { strict: true })
+      // The symlink is new, so the cached workspace tree does not contain it
+      // yet — refresh before re-resolving the root, or `knowledgeRoot` stays
+      // null and the column bounces straight back to this panel.
+      await refreshFileTree()
+      await loadSection('knowledge', { force: true })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+        <FolderPlus className="h-5 w-5" />
+      </span>
+      <p className="text-[13px] font-medium text-foreground">
+        {t('teamShare.dirMissingTitle', 'Team folder is missing on this machine')}
+      </p>
+      <p className="max-w-[280px] text-[12.5px] leading-relaxed text-muted-foreground">
+        {t(
+          'teamShare.dirMissingBody',
+          'Team sync is on, but this workspace has no link to the shared folder. Rebuilding it re-creates the link and pulls the team content down.',
+        )}
+      </p>
+
+      {ready ? (
+        <Button size="sm" onClick={() => void handleInit()} disabled={busy}>
+          {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+          {t('teamShare.dirMissingAction', 'Rebuild team folder')}
+        </Button>
+      ) : (
+        <p className="text-[12px] text-muted-foreground">
+          {t('teamShare.dirMissingNeedsWorkspace', 'Open a team workspace first.')}
+        </p>
+      )}
+
+      {error && <p className="max-w-[280px] text-[12px] text-red-500">{error}</p>}
+    </div>
+  )
+}

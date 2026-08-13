@@ -856,8 +856,7 @@ function buildTeamEnvCheck(teamEnv: TeamEnvDiagnostics | null, teamId: string | 
       title: '团队环境同步',
       status: 'fail',
       message: teamEnv.linkExists ? '团队目录软链无法访问' : '工作区未链接团队目录',
-      hint: '侧边栏 → Knowledge 开通；已开通的可在 设置 → 团队共享 查看同步状态',
-      hintSection: 'team',
+      hint: '侧边栏 → Knowledge 查看团队目录状态',
     }
   }
   if (!teamEnv.secretConfigured) {

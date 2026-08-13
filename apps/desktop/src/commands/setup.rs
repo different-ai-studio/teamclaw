@@ -27,18 +27,6 @@ fn target_triple() -> String {
     }
 }
 
-/// `git --version` first line, or None if git is unavailable.
-fn detect_git() -> Option<String> {
-    let out = std::process::Command::new("git")
-        .args(["--version"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
 /// Resolve an executable path, trying a `.exe` suffix on Windows. Mirrors opencode.rs.
 fn resolve_exe(path: PathBuf) -> Option<PathBuf> {
     if path.exists() {
@@ -108,7 +96,6 @@ pub async fn setup_list_requirements<R: Runtime>(
     app: AppHandle<R>,
     local_agent: Option<String>,
 ) -> Result<Vec<RequirementStatus>, String> {
-    let git_version = detect_git();
     let doctor = read_doctor(&app, local_agent.as_deref()).await;
 
     let runtime_satisfied_in_doctor = |key: &str| {
@@ -182,13 +169,6 @@ pub async fn setup_list_requirements<R: Runtime>(
             optional: false,
             present: runtime_satisfied,
             version: runtime_version,
-        },
-        RequirementStatus {
-            id: "git".into(),
-            title: "Git".into(),
-            optional: true,
-            present: git_version.is_some(),
-            version: git_version,
         },
     ])
 }
@@ -488,49 +468,6 @@ async fn install_pi<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     Ok(())
 }
 
-/// Best-effort git install guidance. macOS triggers the Xcode CLT installer; other
-/// platforms return an error so the UI shows manual instructions (git is optional).
-///
-/// On macOS this returns Ok as soon as the Xcode CLT dialog is spawned — git is
-/// not actually present yet, and `xcode-select --install` exits non-zero when the
-/// tools are already installed (we intentionally don't treat that as an error).
-/// The caller should re-poll `setup_list_requirements` to confirm git presence.
-fn install_git<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    emit_progress(
-        app,
-        SetupProgress {
-            id: "git".into(),
-            status: "started".into(),
-            line: None,
-            error: None,
-        },
-    );
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("xcode-select")
-            .arg("--install")
-            .status()
-            .map_err(|e| format!("xcode-select: {e}"))?;
-        emit_progress(
-            app,
-            SetupProgress {
-                id: "git".into(),
-                status: "running".into(),
-                line: Some(
-                    "Follow the macOS installer dialog to install Command Line Tools.".into(),
-                ),
-                error: None,
-            },
-        );
-        Ok(())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = app;
-        Err("Please install git from https://git-scm.com/downloads and re-check.".into())
-    }
-}
-
 /// Restart the desktop-managed amuxd so it re-reads `daemon.toml`.
 #[tauri::command]
 pub async fn restart_local_daemon<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
@@ -543,7 +480,6 @@ pub async fn setup_install<R: Runtime>(app: AppHandle<R>, id: String) -> Result<
         "amuxd" => install_amuxd(&app).await,
         "opencode" => install_opencode(&app).await,
         "pi" => install_pi(&app).await,
-        "git" => install_git(&app),
         other => Err(format!("unknown requirement: {other}")),
     }
 }

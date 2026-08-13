@@ -45,34 +45,6 @@ impl Clone for CronScheduler {
     }
 }
 
-/// RAII guard that automatically removes a git worktree when dropped.
-/// Ensures cleanup on ALL exit paths, including `check_generation!()` early returns.
-struct WorktreeGuard {
-    workspace: String,
-    path: Option<String>,
-}
-
-impl WorktreeGuard {
-    fn new(workspace: &str) -> Self {
-        Self {
-            workspace: workspace.to_string(),
-            path: None,
-        }
-    }
-
-    fn activate(&mut self, path: String) {
-        self.path = Some(path);
-    }
-}
-
-impl Drop for WorktreeGuard {
-    fn drop(&mut self) {
-        if let Some(ref wt) = self.path {
-            CronScheduler::remove_worktree(&self.workspace, wt);
-        }
-    }
-}
-
 impl CronScheduler {
     pub fn new(storage: CronStorage) -> Self {
         Self {
@@ -186,11 +158,6 @@ impl CronScheduler {
         let current_gen = *gen;
         drop(gen);
 
-        // Clean up any orphan worktrees from previous runs
-        if let Some(workspace) = self.storage.get_workspace_path().await {
-            Self::cleanup_orphan_worktrees(&workspace);
-        }
-
         println!(
             "[Cron] Scheduler started (gen: {}, tick every 15 seconds)",
             current_gen
@@ -274,90 +241,10 @@ impl CronScheduler {
         }
     }
 
-    /// Create a git worktree for isolated job execution.
-    fn create_worktree(workspace: &str, worktree_path: &str, branch: &str) -> Result<(), String> {
-        let output = std::process::Command::new("git")
-            .no_window()
-            .current_dir(workspace)
-            .args(["worktree", "add", "--detach", worktree_path, branch])
-            .output()
-            .map_err(|e| format!("Failed to run git worktree add: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("git worktree add failed: {}", stderr.trim()));
-        }
-
-        println!(
-            "[Cron] Created worktree at: {} (branch: {})",
-            worktree_path, branch
-        );
-        Ok(())
-    }
-
-    /// Remove a git worktree. Falls back to rm -rf + prune if git remove fails.
-    fn remove_worktree(workspace: &str, worktree_path: &str) {
-        let result = std::process::Command::new("git")
-            .no_window()
-            .current_dir(workspace)
-            .args(["worktree", "remove", "--force", worktree_path])
-            .output();
-
-        match result {
-            Ok(output) if output.status.success() => {
-                println!("[Cron] Removed worktree: {}", worktree_path);
-            }
-            _ => {
-                println!(
-                    "[Cron] git worktree remove failed, falling back to rm -rf for: {}",
-                    worktree_path
-                );
-                let _ = std::fs::remove_dir_all(worktree_path);
-                let _ = std::process::Command::new("git")
-                    .no_window()
-                    .current_dir(workspace)
-                    .args(["worktree", "prune"])
-                    .output();
-            }
-        }
-    }
-
-    /// Clean up orphaned cron worktrees from previous runs.
-    fn cleanup_orphan_worktrees(workspace: &str) {
-        let worktrees_dir = std::path::Path::new(workspace).join(".worktrees");
-        if !worktrees_dir.exists() {
-            return;
-        }
-
-        let entries = match std::fs::read_dir(&worktrees_dir) {
-            Ok(e) => e,
-            Err(_) => return,
-        };
-
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with("cron-") && entry.path().is_dir() {
-                println!(
-                    "[Cron] Cleaning up orphan worktree: {}",
-                    entry.path().display()
-                );
-                Self::remove_worktree(workspace, &entry.path().to_string_lossy());
-            }
-        }
-    }
-
-    fn working_directory_for_run(
-        execution_workspace: Option<&str>,
-        worktree_path: Option<&str>,
-    ) -> Option<String> {
-        worktree_path
+    fn working_directory_for_run(execution_workspace: Option<&str>) -> Option<String> {
+        execution_workspace
             .filter(|path| !path.is_empty())
             .map(str::to_string)
-            .or_else(|| {
-                execution_workspace
-                    .filter(|path| !path.is_empty())
-                    .map(str::to_string)
-            })
     }
 
     /// Execute a single cron job
@@ -371,14 +258,6 @@ impl CronScheduler {
         let my_workspace = self.storage.get_workspace_path().await.unwrap_or_default();
         let execution_workspace = self.execution_workspace.read().await.clone();
 
-        // Worktree setup (if enabled)
-        let use_worktree = job.payload.use_worktree.unwrap_or(false);
-        let mut wt_guard = WorktreeGuard::new(
-            execution_workspace
-                .as_deref()
-                .unwrap_or(my_workspace.as_str()),
-        );
-
         // Create initial run record
         let mut record = CronRunRecord {
             run_id: run_id.clone(),
@@ -391,60 +270,8 @@ impl CronScheduler {
             response_summary: None,
             delivery_status: None,
             error: None,
-            worktree_path: None,
         };
         self.storage.append_run(&record).await;
-
-        if use_worktree && execution_workspace.is_none() {
-            record.status = RunStatus::Failed;
-            record.finished_at = Some(Utc::now());
-            record.error = Some(
-                "Git worktree requires a workspace-scoped cron job; switch to Workspace tasks"
-                    .into(),
-            );
-            self.persist_run_and_notify_ui(&record).await;
-            self.update_job_after_run(&job, started_at, &my_workspace)
-                .await;
-            return;
-        }
-
-        if use_worktree {
-            let wt_base = execution_workspace
-                .as_deref()
-                .unwrap_or(my_workspace.as_str());
-            let wt_dir = std::path::Path::new(wt_base)
-                .join(".worktrees")
-                .join(format!("cron-{}-{}", job.id, run_id));
-            let wt_path = wt_dir.to_string_lossy().to_string();
-            let branch = job.payload.worktree_branch.as_deref().unwrap_or("main");
-
-            if let Err(e) = std::fs::create_dir_all(wt_dir.parent().unwrap()) {
-                record.status = RunStatus::Failed;
-                record.finished_at = Some(Utc::now());
-                record.error = Some(format!("Failed to create .worktrees dir: {}", e));
-                self.persist_run_and_notify_ui(&record).await;
-                self.update_job_after_run(&job, started_at, &my_workspace)
-                    .await;
-                return;
-            }
-
-            match Self::create_worktree(wt_base, &wt_path, branch) {
-                Ok(()) => {
-                    record.worktree_path = Some(wt_path.clone());
-                    self.persist_run_and_notify_ui(&record).await;
-                    wt_guard.activate(wt_path);
-                }
-                Err(e) => {
-                    record.status = RunStatus::Failed;
-                    record.finished_at = Some(Utc::now());
-                    record.error = Some(format!("Worktree creation failed: {}", e));
-                    self.persist_run_and_notify_ui(&record).await;
-                    self.update_job_after_run(&job, started_at, &my_workspace)
-                        .await;
-                    return;
-                }
-            }
-        }
 
         // Helper macro: abort if scheduler was restarted (workspace switched)
         macro_rules! check_generation {
@@ -486,10 +313,7 @@ impl CronScheduler {
         //  docs/superpowers/specs/2026-05-17-cron-to-amuxd-design.md §3.)
 
         let session_key = format!("cron/{}/{}", job.id, run_id);
-        let working_directory = Self::working_directory_for_run(
-            execution_workspace.as_deref(),
-            wt_guard.path.as_deref(),
-        );
+        let working_directory = Self::working_directory_for_run(execution_workspace.as_deref());
 
         // Eagerly create the cloud session and stamp its id into the run record
         // now — before the (cold-starting) ACP runtime spawn inside prompt-await
@@ -746,13 +570,6 @@ impl CronScheduler {
             );
         }
 
-        // Wait briefly for the agent process to release file handles before
-        // worktree cleanup. (Original purpose was OpenCode flush; amuxd-spawned
-        // claude-code adapter may have similar pending writes.)
-        if wt_guard.path.is_some() {
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        }
-
         println!("[Cron] Job '{}' completed successfully", job.name);
     }
 
@@ -900,8 +717,6 @@ mod tests {
                 model: None,
                 backend: None,
                 timeout_seconds: None,
-                use_worktree: None,
-                worktree_branch: None,
                 permission_mode: None,
             },
             delivery: None,
@@ -925,38 +740,23 @@ mod tests {
             response_summary: summary.map(str::to_string),
             delivery_status: None,
             error: None,
-            worktree_path: None,
             last_heartbeat_at: None,
         }
     }
 
     #[test]
-    fn cron_run_uses_workspace_directory_when_worktree_disabled() {
+    fn cron_run_uses_the_workspace_directory() {
         let workspace = "/tmp/teamclu-workspace";
 
         assert_eq!(
-            CronScheduler::working_directory_for_run(Some(workspace), None).as_deref(),
+            CronScheduler::working_directory_for_run(Some(workspace)).as_deref(),
             Some(workspace)
         );
     }
 
     #[test]
-    fn cron_run_uses_worktree_directory_when_present() {
-        let worktree = "/tmp/teamclu-workspace/.worktrees/cron-1";
-
-        assert_eq!(
-            CronScheduler::working_directory_for_run(
-                Some("/tmp/teamclu-workspace"),
-                Some(worktree),
-            )
-            .as_deref(),
-            Some(worktree)
-        );
-    }
-
-    #[test]
-    fn global_cron_run_without_worktree_leaves_directory_to_daemon_default() {
-        assert_eq!(CronScheduler::working_directory_for_run(None, None), None);
+    fn global_cron_run_leaves_directory_to_daemon_default() {
+        assert_eq!(CronScheduler::working_directory_for_run(None), None);
     }
 
     // ── run reconciliation ──────────────────────────────────────────────────
@@ -1041,7 +841,6 @@ mod tests {
             response_summary: None,
             delivery_status: None,
             error: None,
-            worktree_path: None,
         };
         let now = Utc.with_ymd_and_hms(2026, 5, 17, 0, 5, 0).unwrap();
         let out = CronScheduler::reconcile_interrupted_run(record, None, now);

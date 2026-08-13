@@ -44,23 +44,16 @@ mod sync;
 mod team_link;
 #[path = "../src/team_shared_env.rs"]
 mod team_shared_env;
-#[path = "../src/team_shared_git.rs"]
-mod team_shared_git;
 // Same reason as `claude_install` above: the modules declared here carry
 // `#[cfg(test)]` blocks that an integration-test crate compiles, and those name
 // `crate::test_brand_env` — which resolves against this root, not the bin's.
 #[path = "../src/test_brand_env.rs"]
 mod test_brand_env;
 
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
-use backend::{
-    Backend, BackendResult, BackendSessionAndParticipants, ClaimResult, ManagedGitCredential,
-    ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
-};
+use backend::Backend;
 use config::HttpConfig;
 use http::runtime_adapter::RuntimeManagerAdapter;
 use reqwest::Client;
@@ -148,20 +141,6 @@ async fn test_app_inner(backend: Option<Arc<dyn Backend>>) -> (TestApp, tempfile
     )
 }
 
-fn git(args: &[&str], cwd: &std::path::Path) {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output()
-        .expect("spawn git");
-    assert!(
-        out.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 /// Files every compiled-in template ships (see `sync::app_templates`).
 fn assert_seeded_checkout(workdir: &std::path::Path) {
     for rel in ["package.json", "pnpm-lock.yaml", "AGENTS.md"] {
@@ -172,36 +151,14 @@ fn assert_seeded_checkout(workdir: &std::path::Path) {
     }
 }
 
-/// The seed commits what it wrote, so `git log` must show exactly one commit
-/// on a fresh checkout and the tree must be clean.
-fn assert_committed(workdir: &std::path::Path) {
-    let log = Command::new("git")
-        .args(["-C", workdir.to_str().unwrap(), "log", "--oneline"])
-        .output()
-        .expect("git log");
-    assert!(log.status.success(), "git log failed in seeded checkout");
-    let count = String::from_utf8_lossy(&log.stdout).lines().count();
-    assert_eq!(count, 1, "expected one scaffold commit, got {count}");
-
-    let status = Command::new("git")
-        .args(["-C", workdir.to_str().unwrap(), "status", "--porcelain"])
-        .output()
-        .expect("git status");
-    assert!(
-        String::from_utf8_lossy(&status.stdout).trim().is_empty(),
-        "seeded checkout has uncommitted files"
-    );
-}
-
-/// Seeding writes a compiled-in template into the checkout and commits it.
+/// Seeding writes a compiled-in template into the checkout.
 ///
-/// It does NOT clone a template repo and does NOT push anywhere — the remote
-/// was dropped, so `TEAMCLU_APP_TEMPLATE_URL`, the bare-remote fixture, and
-/// the managed-git credential JIT-fetch this file used to assert are all gone
-/// with it. Template *content* is covered by the unit tests in
-/// `sync::app_templates`; this asserts the HTTP contract.
+/// It does NOT clone a template repo, does NOT push anywhere, and no longer
+/// initialises a local repo — git is gone from the product. Template *content*
+/// is covered by the unit tests in `sync::app_templates`; this asserts the HTTP
+/// contract.
 #[tokio::test]
-async fn seed_app_writes_template_and_commits() {
+async fn seed_app_writes_template() {
     let (app, dir) = test_app().await;
 
     // Fresh, non-existent target: the handler creates it.
@@ -227,11 +184,10 @@ async fn seed_app_writes_template_and_commits() {
     assert_eq!(body["status"], "ready");
 
     assert_seeded_checkout(&workdir);
-    assert_committed(&workdir);
 }
 
 /// Re-seeding an existing checkout is a documented no-op, so a wrecked app can
-/// be repaired without losing history.
+/// be repaired.
 #[tokio::test]
 async fn seed_app_is_idempotent() {
     let (app, dir) = test_app().await;
@@ -252,9 +208,7 @@ async fn seed_app_is_idempotent() {
     assert_eq!(seed().await.expect("first seed").status(), 200);
     assert_eq!(seed().await.expect("second seed").status(), 200);
 
-    // Still one commit: the second seed had nothing to add.
     assert_seeded_checkout(&workdir);
-    assert_committed(&workdir);
 }
 
 #[tokio::test]

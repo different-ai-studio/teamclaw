@@ -82,7 +82,6 @@
       "binaries/amuxd"
     ],
     "resources": [
-      "binaries/teamclu-askpass.sh",
       "binaries/cursor-bridge/**/*",
       "binaries/claude-bridge/**/*"
     ]

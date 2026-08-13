@@ -558,14 +558,6 @@ impl DaemonServer {
             crate::team_link::materialize_or_teardown(gate, team_id, &resolved_worktree);
         }
 
-        if crate::config::DaemonConfig::team_share_auto_sync_enabled_from_disk() {
-            if let Some(config) =
-                load_team_shared_config_for_workspace(Path::new(&resolved_worktree))
-            {
-                sync_team_shared_dir_for_workspace(Path::new(&resolved_worktree), &config);
-            }
-        }
-
         // Refresh-watch suppress for opencode.json is owned by
         // `assemble_spawn_runtime_env_for_worktree` (after managed-LLM await).
         let runtime_env = self

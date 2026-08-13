@@ -123,19 +123,12 @@
       <section id="secretsPanel" style="display: none">
         <h2>Team-share secrets</h2>
         <p class="hint">
-          Credentials the daemon cannot obtain on its own. <code>managed_git</code>
-          needs none — it fetches from the cloud. <code>oss</code> and
-          <code>custom_git</code> secrets are user-held with no server copy.
-          Stored values are never shown; leave a field blank to keep it.
+          The team secret the daemon cannot obtain on its own — it is user-held
+          with no server copy. Stored values are never shown; leave the field
+          blank to keep it.
         </p>
         <label for="ossSecret">OSS team secret <span id="ossState" class="secret"></span></label>
-        <input id="ossSecret" type="password" placeholder="64 hex chars (oss share mode)" spellcheck="false" />
-
-        <label for="gitCred">Git credential <span id="gitCredState" class="secret"></span></label>
-        <input id="gitCred" type="password" placeholder="user:token, or an SSH private key (custom_git)" spellcheck="false" />
-
-        <label for="gitBranch">Git branch</label>
-        <input id="gitBranch" placeholder="e.g. main — the cloud API does not carry this" spellcheck="false" />
+        <input id="ossSecret" type="password" placeholder="64 hex chars" spellcheck="false" />
 
         <button id="saveSecretsBtn">Save secrets</button>
         <div id="secretsMsg" class="msg"></div>
@@ -313,8 +306,6 @@
         $("secretsPanel").style.display = "";
         const s = await api("/v1/team/secrets?teamId=" + encodeURIComponent(teamId));
         $("ossState").textContent = s.ossTeamSecret.display;
-        $("gitCredState").textContent = s.gitCredential.display;
-        $("gitBranch").value = s.gitBranch || "";
       }
 
       $("saveSecretsBtn").onclick = async () => {
@@ -329,19 +320,14 @@
         // an empty string would overwrite a good secret with nothing.
         const body = { teamId };
         const oss = $("ossSecret").value.trim();
-        const cred = $("gitCred").value.trim();
-        const branch = $("gitBranch").value.trim();
         if (oss) body.ossTeamSecret = oss;
-        if (cred) body.gitCredential = cred;
-        if (branch) body.gitBranch = branch;
 
-        if (!oss && !cred && !branch) return show(msg, "warn", "nothing to save");
+        if (!oss) return show(msg, "warn", "nothing to save");
 
         btn.disabled = true;
         try {
           await api("/v1/team/secrets", { method: "POST", body: JSON.stringify(body) });
           $("ossSecret").value = "";
-          $("gitCred").value = "";
           show(msg, "warn", "Saved. Restart the daemon — the sync timer snapshots its workspace list at startup.");
           await renderSecrets(teamId);
         } catch (e) {

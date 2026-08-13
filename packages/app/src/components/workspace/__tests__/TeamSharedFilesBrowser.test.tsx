@@ -14,7 +14,7 @@ const teamModeState = vi.hoisted(() => ({
 }))
 
 const teamShareState = vi.hoisted(() => ({
-  mode: null as 'oss' | 'managed_git' | 'custom_git' | null,
+  mode: null as 'oss' | null,
   globalPath: '/home/.amuxd/teams/team-1/teamclu-team' as string | null,
   refresh: vi.fn().mockResolvedValue({ mode: null }),
 }))
@@ -143,7 +143,7 @@ describe('TeamSharedFilesBrowser', () => {
     // commands reject it and the tree comes back empty.
     const props = fileBrowserMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
     expect(props.rootPath).toBe('/workspace/teamclu-team')
-    expect(props.hideGitStatus).toBe(false)
+    expect(props.hideFileActions).toBe(false)
   })
 
   it('ensures the in-workspace symlink exists before rendering', async () => {
@@ -160,21 +160,6 @@ describe('TeamSharedFilesBrowser', () => {
     workspaceState.workspacePath = null as unknown as string
     const { container } = render(<TeamSharedFilesBrowser />)
     expect(container).toBeEmptyDOMElement()
-  })
-
-  it('passes a git sync action icon when FC share mode is custom_git', async () => {
-    teamShareState.mode = 'custom_git'
-
-    render(<TeamSharedFilesBrowser />)
-
-    await vi.waitFor(() => {
-      expect(fileBrowserMock).toHaveBeenCalled()
-    })
-
-    const props = fileBrowserMock.mock.calls.at(-1)?.[0] as {
-      actionIcons?: React.ReactElement
-    }
-    expect(props.actionIcons).toBeTruthy()
   })
 
   it('passes an OSS sync action icon when FC share mode is oss', async () => {

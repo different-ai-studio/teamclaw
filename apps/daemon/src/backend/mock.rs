@@ -24,8 +24,8 @@ use async_trait::async_trait;
 
 use crate::backend::{
     AgentDefaults, Backend, BackendError, BackendResult, BackendSessionAndParticipants,
-    BootstrapMqttOverride, ClaimResult, GatewaySessionRow, ManagedGitCredential, ManagedLlmConfig,
-    ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
+    BootstrapMqttOverride, ClaimResult, GatewaySessionRow, ManagedLlmConfig, ShareModeConfig,
+    StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,9 +147,6 @@ pub struct MockState {
     /// Per-team `managed_llm_config` overrides. Missing entries fall back to
     /// `ManagedLlmConfig::default()` (i.e. managed LLM disabled).
     pub managed_llm_configs: HashMap<String, ManagedLlmConfig>,
-    /// Per-team `managed_git_credential` overrides. A missing entry errors,
-    /// mirroring a cloud API that has no credential to hand out.
-    pub managed_git_credentials: HashMap<String, ManagedGitCredential>,
     /// Response for `fetch_bootstrap_mqtt`. `None` models the real failure mode
     /// behind issue #634: a cloud API that answers 200 with no `mqtt` block.
     pub bootstrap_mqtt: Option<BootstrapMqttOverride>,
@@ -230,23 +227,6 @@ impl Backend for MockBackend {
             .get(team_id)
             .cloned()
             .unwrap_or_default())
-    }
-
-    async fn managed_git_credential(&self, team_id: &str) -> BackendResult<ManagedGitCredential> {
-        // Tests that need a credential seed `state().managed_git_credentials`.
-        // An unseeded team errors rather than panicking, so an accidental
-        // caller fails its own assertion instead of the test process.
-        self.state
-            .lock()
-            .unwrap()
-            .managed_git_credentials
-            .get(team_id)
-            .cloned()
-            .ok_or_else(|| BackendError::Provider {
-                provider: "mock",
-                code: None,
-                message: format!("no managed-git credential seeded for {team_id}"),
-            })
     }
 
     async fn get_effective_default_agent(&self, _team_id: &str) -> BackendResult<Option<String>> {

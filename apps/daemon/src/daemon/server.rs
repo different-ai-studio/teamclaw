@@ -55,7 +55,6 @@ use crate::proto::amux;
 use crate::provider_config::ProviderConfig;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 use crate::runtime::{apply_workspace_system_instructions, AgentLaunchConfig, RuntimeManager};
-use crate::team_shared_git::TeamSharedGitConfig;
 use teamclu_gateway::{AgentHandle, ChannelStore};
 
 /// Outcome of apply_start_runtime. Success path returns the allocated
@@ -73,27 +72,6 @@ pub(crate) struct StartRuntimeError {
     error_code: String,
     error_message: String,
     failed_stage: String,
-}
-
-fn sync_team_shared_dir_for_workspace(workspace_root: &Path, config: &TeamSharedGitConfig) {
-    match crate::team_shared_git::setup_or_sync_shared_dir(workspace_root, config) {
-        Ok(status) => {
-            if status.synced {
-                info!(
-                    shared_dir = %status.shared_dir_path.display(),
-                    "team shared directory synced"
-                );
-            }
-        }
-        Err(e) => {
-            warn!(
-                workspace = %workspace_root.display(),
-                shared_dir_name = %config.shared_dir_name,
-                error = %e,
-                "team shared directory sync failed"
-            );
-        }
-    }
 }
 
 fn mark_mqtt_connected(flag: &Option<Arc<std::sync::atomic::AtomicBool>>, connected: bool) {
@@ -115,10 +93,6 @@ fn mqtt_disconnect_rebuild_due(
     threshold: Duration,
 ) -> bool {
     disconnected_since.is_some_and(|since| since.elapsed() >= threshold)
-}
-
-fn load_team_shared_config_for_workspace(workspace_root: &Path) -> Option<TeamSharedGitConfig> {
-    crate::team_shared_git::read_git_team_config(workspace_root)
 }
 
 pub(crate) use crate::config::workspace_path::is_linkable_workspace_path;
@@ -3614,68 +3588,6 @@ pub(crate) mod tests {
         subscriber::IncomingMessage::TeamcluSessionLive {
             session_id: session_id.to_string(),
             payload: live.encode_to_vec(),
-        }
-    }
-
-    #[test]
-    pub(crate) fn loads_team_shared_config_from_workspace_file() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join(".teamclu");
-        std::fs::create_dir_all(&config_dir).unwrap();
-        std::fs::write(
-            config_dir.join("teamclu.json"),
-            serde_json::json!({
-                "team": {
-                    "gitUrl": "https://example.com/shared.git",
-                    "gitBranch": "main",
-                    "gitToken": "token",
-                    "sharedDirName": "teamclu",
-                    "envSecret": "secret",
-                    "enabled": true
-                }
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-        let config = load_team_shared_config_for_workspace(tmp.path()).unwrap();
-
-        assert_eq!(
-            config.git_url.as_deref(),
-            Some("https://example.com/shared.git")
-        );
-        assert_eq!(config.git_branch.as_deref(), Some("main"));
-        assert_eq!(config.git_token.as_deref(), Some("token"));
-        assert_eq!(config.shared_dir_name, "teamclu");
-        assert_eq!(config.env_secret.as_deref(), Some("secret"));
-        assert!(config.enabled);
-    }
-
-    #[test]
-    pub(crate) fn ignores_disabled_or_unconfigured_team_shared_config() {
-        for team in [
-            serde_json::json!({
-                "gitUrl": "https://example.com/shared.git",
-                "enabled": false
-            }),
-            serde_json::json!({
-                "gitUrl": "",
-                "enabled": true
-            }),
-            serde_json::json!({
-                "enabled": true
-            }),
-        ] {
-            let tmp = TempDir::new().unwrap();
-            let config_dir = tmp.path().join(".teamclu");
-            std::fs::create_dir_all(&config_dir).unwrap();
-            std::fs::write(
-                config_dir.join("teamclu.json"),
-                serde_json::json!({ "team": team }).to_string(),
-            )
-            .unwrap();
-
-            assert!(load_team_shared_config_for_workspace(tmp.path()).is_none());
         }
     }
 

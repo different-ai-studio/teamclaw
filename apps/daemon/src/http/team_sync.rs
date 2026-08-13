@@ -1,7 +1,7 @@
 //! HTTP loopback endpoints for daemon-owned team sync (desktop triggers these).
 //!
 //! The desktop app drives team sync over the daemon's loopback HTTP API rather
-//! than running git/OSS itself. `POST /v1/team/sync` kicks a sync for the
+//! than running OSS sync itself. `POST /v1/team/sync` kicks a sync for the
 //! workspace's onboarded team; `GET /v1/team/sync/status` reads the cached last
 //! status. The daemon is single-team, so the team_id is resolved from
 //! `daemon.toml` (teamclu.json carries no team_id) — same lookup as
@@ -13,14 +13,12 @@ use serde::{Deserialize, Serialize};
 use super::auth::{require_scope, Principal};
 use super::errors::HttpError;
 use super::state::HttpState;
-use crate::sync::versions::{self, ChangedFile, VersionEntry};
+use crate::sync::versions::{ChangedFile, VersionEntry};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncRequest {
     pub workspace_path: String,
-    #[serde(default)]
-    pub force_wipe_non_git: bool,
     /// When `true`, run sync even if `team_share.auto_sync` is `false`.
     #[serde(default)]
     pub force_sync: bool,
@@ -51,7 +49,6 @@ pub async fn sync_now(
             &team_id,
             workspace_path,
             crate::sync::dispatch::SyncOptions {
-                wipe_non_git: body.force_wipe_non_git,
                 force: body.force_sync,
             },
         )
@@ -64,11 +61,6 @@ pub async fn sync_now(
         .as_deref()
         .filter(|e| !e.trim().is_empty())
     {
-        if crate::sync::git::is_not_git_repo_error(err) {
-            return Err(HttpError::team_shared_dir_not_git(format!(
-                "shared directory exists but is not a git repository ({err})"
-            )));
-        }
         return Err(HttpError::internal(err.to_string()));
     }
     if status
@@ -79,7 +71,7 @@ pub async fn sync_now(
     {
         return Err(HttpError::team_share_not_enabled_for_daemon(format!(
             "team share is not enabled for daemon team {team_id} (share_mode is unset). \
-             If you switched teams in the app, re-bind the local daemon (amuxd init) to the current team, then enable Git share again."
+             If you switched teams in the app, re-bind the local daemon (amuxd init) to the current team, then enable team share again."
         )));
     }
     Ok(Json(SyncResponse { status }))
@@ -173,16 +165,11 @@ pub struct SecretsRequest {
     pub oss_team_secret: Option<String>,
     #[serde(default)]
     pub user_jwt: Option<String>,
-    #[serde(default)]
-    pub git_credential: Option<String>,
-    #[serde(default)]
-    pub git_branch: Option<String>,
 }
 
 /// `POST /v1/team/secrets` — desktop delivers credentials for headless sync.
 /// JWTs expire: while the app is closed and the stored JWT is expired, OSS timer
-/// syncs fail until the desktop re-posts a fresh JWT. Git timer syncs are
-/// unaffected (git_token does not expire).
+/// syncs fail until the desktop re-posts a fresh JWT.
 pub async fn set_secrets(
     principal: Principal,
     State(state): State<HttpState>,
@@ -200,8 +187,6 @@ pub async fn set_secrets(
     let incoming = crate::sync::secret_store::TeamSecrets {
         oss_team_secret,
         user_jwt: body.user_jwt,
-        git_credential: body.git_credential,
-        git_branch: body.git_branch,
         channel_secrets: Default::default(),
     };
     state
@@ -226,11 +211,7 @@ pub struct SecretStatus {
 pub struct SecretsStatusResponse {
     pub team_id: String,
     pub oss_team_secret: SecretStatus,
-    pub git_credential: SecretStatus,
     pub user_jwt: SecretStatus,
-    /// Not a credential — the branch name is plain config, so it is returned
-    /// as-is. The UI needs it to prefill the field.
-    pub git_branch: Option<String>,
 }
 
 /// `GET /v1/team/secrets?teamId=...` — which sync credentials are stored.
@@ -261,9 +242,7 @@ pub async fn get_secrets(
     Ok(Json(SecretsStatusResponse {
         team_id: q.team_id.clone(),
         oss_team_secret: status(secrets.oss_team_secret.as_deref()),
-        git_credential: status(secrets.git_credential.as_deref()),
         user_jwt: status(secrets.user_jwt.as_deref()),
-        git_branch: secrets.git_branch,
     }))
 }
 
@@ -278,30 +257,22 @@ pub struct ConflictEntry {
     pub kind: String,
 }
 
-/// `GET /v1/team/conflicts?teamId=...` — list both OSS sidecar conflicts (on
-/// disk under the global team dir) and a synthetic git-backup marker when the
-/// last git sync moved diverged files into `.trash`.
+/// `GET /v1/team/conflicts?teamId=...` — list OSS sidecar conflicts on disk
+/// under the global team dir.
 pub async fn list_conflicts(
     principal: Principal,
-    State(state): State<HttpState>,
+    State(_state): State<HttpState>,
     Query(q): Query<StatusQuery>,
 ) -> Result<Json<Vec<ConflictEntry>>, HttpError> {
     require_scope(&principal, "workspace:read")?;
     let root = crate::config::global_team_store::global_team_dir(&q.team_id);
-    let mut out = Vec::new();
-    for p in crate::sync::oss::scanner::scan_conflict_files(&root.to_string_lossy()) {
-        out.push(ConflictEntry {
-            path: p,
+    let out = crate::sync::oss::scanner::scan_conflict_files(&root.to_string_lossy())
+        .into_iter()
+        .map(|path| ConflictEntry {
+            path,
             kind: "oss-sidecar".into(),
-        });
-    }
-    let st = state.sync_dispatcher.status(&q.team_id).await;
-    if st.conflicts > 0 {
-        out.push(ConflictEntry {
-            path: ".trash".into(),
-            kind: "git-backup".into(),
-        });
-    }
+        })
+        .collect::<Vec<_>>();
     Ok(Json(out))
 }
 
@@ -408,16 +379,6 @@ pub async fn list_versions(
     Query(q): Query<VersionsQuery>,
 ) -> Result<Json<ListVersionsResponse>, HttpError> {
     require_scope(&principal, "workspace:read")?;
-    let team_dir = crate::config::global_team_store::global_team_dir(&q.team_id);
-
-    if versions::is_git_team(&team_dir) {
-        let entries = versions::git_list_versions(&team_dir, &q.path);
-        return Ok(Json(ListVersionsResponse {
-            versions: entries,
-            next_cursor: None,
-        }));
-    }
-
     let (fc, _secret) = fc_client_from_store(&state, &q.team_id, q.fc_endpoint).await?;
     let (infos, next_cursor) = fc
         .list_versions(&q.team_id, &q.path, q.cursor)
@@ -549,23 +510,16 @@ pub struct FileContentResponse {
 }
 
 /// `GET /v1/team/file?teamId=&path=&ref=&fcEndpoint=` — resolve one file's
-/// content at a given version. git mode: `git show <ref>:<path>`. oss mode:
-/// `ref` is either a content hash or the reserved "baseline" token (resolves to
-/// the last-synced cipher hash from local sync state); the blob is downloaded +
-/// decrypted. Missing file/version yields `{ content: null }`.
+/// content at a given version. `ref` is either a content hash or the reserved
+/// "baseline" token (resolves to the last-synced cipher hash from local sync
+/// state); the blob is downloaded + decrypted. Missing file/version yields
+/// `{ content: null }`.
 pub async fn get_file(
     principal: Principal,
     State(state): State<HttpState>,
     Query(q): Query<FileQuery>,
 ) -> Result<Json<FileContentResponse>, HttpError> {
     require_scope(&principal, "workspace:read")?;
-    let team_dir = crate::config::global_team_store::global_team_dir(&q.team_id);
-
-    if versions::is_git_team(&team_dir) {
-        let content = versions::git_show(&team_dir, &q.reference, &q.path);
-        return Ok(Json(FileContentResponse { content }));
-    }
-
     let cipher_hash = if q.reference == "baseline" {
         crate::sync::oss::state::LocalSyncState::load_at(&q.team_id)
             .ok()
@@ -610,23 +564,14 @@ pub struct ChangedResponse {
     pub files: Vec<ChangedFile>,
 }
 
-/// `GET /v1/team/changed?teamId=` — list files with local changes. git mode:
-/// `git status --porcelain`. oss mode: dirty entries from the per-team
-/// `LocalSyncState`.
+/// `GET /v1/team/changed?teamId=` — list files with local changes: dirty
+/// entries from the per-team `LocalSyncState`.
 pub async fn list_changed(
     principal: Principal,
     State(_state): State<HttpState>,
     Query(q): Query<ChangedQuery>,
 ) -> Result<Json<ChangedResponse>, HttpError> {
     require_scope(&principal, "workspace:read")?;
-    let team_dir = crate::config::global_team_store::global_team_dir(&q.team_id);
-
-    if versions::is_git_team(&team_dir) {
-        return Ok(Json(ChangedResponse {
-            files: versions::git_changed(&team_dir),
-        }));
-    }
-
     let files = crate::sync::oss::state::LocalSyncState::load_at(&q.team_id)
         .map(|st| {
             st.files

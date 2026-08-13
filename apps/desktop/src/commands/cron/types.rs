@@ -55,12 +55,6 @@ pub struct CronPayload {
     /// cron execution ignores it and new saves omit it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_seconds: Option<u64>,
-    /// Whether to run in an isolated git worktree
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub use_worktree: Option<bool>,
-    /// Branch to checkout in worktree (default: "main")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub worktree_branch: Option<String>,
     /// Permission mode for the run: `"full_access"` (default) or `"default"`.
     /// Cron runs unattended, so an approval prompt has nobody to answer it and
     /// the turn just burns its timeout — hence full access unless the job
@@ -189,9 +183,6 @@ pub struct CronRunRecord {
     /// Error message if failed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Worktree path used for this run (if worktree mode was enabled)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub worktree_path: Option<String>,
 }
 
 impl CronRunRecord {

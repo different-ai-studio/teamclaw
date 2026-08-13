@@ -45,26 +45,16 @@ vi.mock('@/stores/ui', () => ({
   ),
 }))
 
-vi.mock('@/hooks/use-git-status', () => ({
-  useGitStatus: () => ({ gitStatuses: new Map() }),
-}))
-
-// The cloud share mode drives which history provider FileEditor builds. A git
-// share mode ('managed_git'/'custom_git') selects the GitHistoryProvider, which
-// uses the mocked gitManager above (logFile -> []).
-vi.mock('@/stores/team-share', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/stores/team-share')>()
-  return {
-    ...actual,
-    useTeamShareStore: (sel: (s: { status: { mode: unknown } }) => unknown) =>
-      sel({ status: { mode: 'managed_git' } }),
-  }
-})
-
-vi.mock('@/lib/git/manager', () => ({
-  gitManager: {
-    showFile: vi.fn().mockRejectedValue(new Error('not tracked')),
-    logFile: vi.fn().mockResolvedValue([]),
+// OSS is the only history backend now. Stub the provider so the panel renders
+// its empty state without reaching for the daemon.
+vi.mock('@/lib/history/oss-provider', () => ({
+  OssHistoryProvider: class {
+    async list() {
+      return { entries: [], nextCursor: null }
+    }
+    async getContent() {
+      return null
+    }
   },
 }))
 

@@ -23,27 +23,30 @@ describe('ShareStatus shape', () => {
 })
 
 describe('normalizeShareStatus', () => {
-  it('strips orphan git fields when mode is unset', () => {
+  it('keeps the link fields when mode is unset', () => {
     const normalized = normalizeShareStatus({
       mode: null,
-      gitRemoteUrl: 'https://git.example.com/repo.git',
-      gitAuthKind: 'https_token',
       linkStatus: 'symlink',
       globalPath: '/home/u/.amuxd/teams/t/teamclu-team',
     })
     expect(normalized.mode).toBeNull()
-    expect(normalized.gitRemoteUrl).toBeNull()
-    expect(normalized.gitAuthKind).toBeNull()
+    expect(normalized.enabledAt).toBeNull()
     expect(normalized.linkStatus).toBe('symlink')
   })
 
-  it('keeps git fields when mode is locked', () => {
+  it('keeps the mode when it is locked', () => {
     const normalized = normalizeShareStatus({
-      mode: 'custom_git',
-      gitRemoteUrl: 'https://git.example.com/repo.git',
-      gitAuthKind: 'https_token',
+      mode: 'oss',
+      enabledAt: '2026-06-01T00:00:00Z',
     })
-    expect(normalized.mode).toBe('custom_git')
-    expect(normalized.gitRemoteUrl).toBe('https://git.example.com/repo.git')
+    expect(normalized.mode).toBe('oss')
+    expect(normalized.enabledAt).toBe('2026-06-01T00:00:00Z')
+  })
+
+  it('treats a retired git mode as not enabled', () => {
+    const normalized = normalizeShareStatus({
+      mode: 'custom_git' as never,
+    })
+    expect(normalized.mode).toBeNull()
   })
 })

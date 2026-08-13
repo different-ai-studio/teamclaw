@@ -123,10 +123,13 @@ export function notifyRuntimeStartFailures(
       { actorId: failure.agentActorId },
     );
   }
-  // A request we cancelled ourselves is not a user-facing failure: the retry
-  // tick that follows re-attempts it. It still reaches Sentry (as a warning)
-  // and the debug log above, just not the user.
-  const toastable = failures.filter((f) => !isCancelledRuntimeFailure(f.reason));
+  // Offline presence is already persistent in the selected-agent status, and
+  // reconnect will retry automatically. A request we cancelled ourselves is
+  // likewise recovered by the next retry tick. Keep both in telemetry/debug,
+  // but do not duplicate these expected states as transient error toasts.
+  const toastable = failures.filter(
+    (f) => f.code !== "device_offline" && !isCancelledRuntimeFailure(f.reason),
+  );
   if (toastable.length === 0) return;
   void import("sonner").then(({ toast }) => {
     for (const failure of toastable) {

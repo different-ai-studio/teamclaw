@@ -333,8 +333,6 @@ export interface JobFormState {
   deliveryBestEffort: boolean
   deleteAfterRun: boolean
   runImmediately: boolean
-  useWorktree: boolean
-  worktreeBranch: string
   permissionMode: CronPermissionMode
 }
 
@@ -360,8 +358,6 @@ export const defaultFormState: JobFormState = {
   deliveryBestEffort: true,
   deleteAfterRun: false,
   runImmediately: true,
-  useWorktree: false,
-  worktreeBranch: '',
   permissionMode: DEFAULT_CRON_PERMISSION_MODE,
 }
 
@@ -408,8 +404,6 @@ export function jobToFormState(job: CronJob): JobFormState {
     deliveryBestEffort: job.delivery?.bestEffort ?? true,
     deleteAfterRun: job.deleteAfterRun,
     runImmediately: false,
-    useWorktree: job.payload.useWorktree ?? false,
-    worktreeBranch: job.payload.worktreeBranch ?? '',
     // Absent on jobs saved before the field existed — those ran with approvals
     // auto-granted, so full access is the faithful reading, not a silent change.
     permissionMode: job.payload.permissionMode ?? DEFAULT_CRON_PERMISSION_MODE,
@@ -456,8 +450,6 @@ export function formStateToPayload(form: JobFormState): CronPayload {
     // Only pin a backend when a model is chosen; "use default model" leaves both
     // empty so the daemon falls back to its default_agent_type ("auto").
     backend: form.model && form.backend ? form.backend : undefined,
-    useWorktree: form.useWorktree || undefined,
-    worktreeBranch: form.useWorktree && form.worktreeBranch ? form.worktreeBranch : undefined,
     permissionMode: form.permissionMode,
   }
 }

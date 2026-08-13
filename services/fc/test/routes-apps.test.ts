@@ -29,24 +29,6 @@ test("GET /v1/apps requires teamId", async () => {
   await assert.rejects(() => get({ query: new URLSearchParams(""), repository: {} }));
 });
 
-test("GET /v1/teams/:teamId/managed-git-credential returns creds", async () => {
-  const { router, routes } = makeRouter();
-  registerApps(router);
-  const handler = routes.find((r) => r[0] === "GET" && r[1] === "/v1/teams/:teamId/managed-git-credential")[2];
-  const res = await handler({
-    params: { teamId: "t1" },
-    repository: { getManagedGitCredential: async () => ({ username: "teamclu", token: "pt" }) },
-  });
-  assert.deepEqual(res.body, { username: "teamclu", token: "pt" });
-});
-
-test("GET managed-git-credential 404s for non-member (repo returns null)", async () => {
-  const { router, routes } = makeRouter();
-  registerApps(router);
-  const handler = routes.find((r) => r[0] === "GET" && r[1] === "/v1/teams/:teamId/managed-git-credential")[2];
-  await assert.rejects(() => handler({ params: { teamId: "t1" }, repository: { getManagedGitCredential: async () => null } }));
-});
-
 test("POST /v1/apps/:id/deploy returns 202 with deploy result", async () => {
   const { router, routes } = makeRouter();
   registerApps(router);

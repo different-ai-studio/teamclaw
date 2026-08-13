@@ -14,7 +14,7 @@ use crate::config::workspace_link::LinkStatus;
 /// Result of consulting the cloud share-mode endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TeamShareGate {
-    /// `share_mode` is set (oss / managed_git / custom_git).
+    /// `share_mode` is set (`oss`).
     Enabled,
     /// Team-share is off (`mode` null / missing).
     Disabled,
