@@ -256,6 +256,36 @@ mod execution_context_tests {
         );
         std::fs::remove_dir_all(&scratch_shaped_workspace).unwrap();
     }
+
+    #[tokio::test]
+    async fn stored_gateway_resume_backend_error_does_not_attach_unscoped() {
+        let scratch = std::env::temp_dir().join(format!(
+            "amuxd-gateway-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        ));
+        std::fs::create_dir_all(&scratch).unwrap();
+        let backend = Arc::new(MockBackend::default());
+        backend.state().get_workspaces_by_team_error =
+            Some("workspace backend unavailable".into());
+        let assembler = assembler(backend, "team-a", "actor-a");
+
+        let result = assembler
+            .assemble_stored(
+                scratch.to_string_lossy().as_ref(),
+                "gateway:wecom://bot/chat",
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "backend lookup errors must fail closed, got isolation domain {:?}",
+            result
+                .as_ref()
+                .ok()
+                .map(|context| &context.isolation_domain)
+        );
+        std::fs::remove_dir_all(&scratch).unwrap();
+    }
 }
 
 impl ExecutionContextAssembler {
@@ -313,6 +343,7 @@ impl ExecutionContextAssembler {
             .workspace_resolver
             .resolve_identity_for_path(working_directory, self.configured_team_id())
             .await
+            .map_err(|e| format!("workspace identity resolution failed: {e}"))?
             .is_some()
         {
             return self
@@ -363,6 +394,7 @@ impl ExecutionContextAssembler {
                 .workspace_resolver
                 .resolve_identity_for_path(Path::new(&resolved.path), resolved.team_id.as_deref())
                 .await
+                .map_err(|e| format!("workspace identity resolution failed: {e}"))?
                 .ok_or_else(|| {
                     format!(
                         "workspace identity resolution failed: ambiguous or invalid workspace {workspace_id}"
@@ -379,6 +411,7 @@ impl ExecutionContextAssembler {
             self.workspace_resolver
                 .resolve_identity_for_path(Path::new(root), team_id)
                 .await
+                .map_err(|e| format!("workspace identity resolution failed: {e}"))?
                 .ok_or_else(|| {
                     format!(
                         "workspace identity resolution failed for parent root {}",
@@ -389,6 +422,7 @@ impl ExecutionContextAssembler {
             self.workspace_resolver
                 .resolve_identity_for_path(Path::new(working_directory), team_id)
                 .await
+                .map_err(|e| format!("workspace identity resolution failed: {e}"))?
                 .ok_or_else(|| {
                     format!(
                         "workspace identity resolution failed for working directory {}",
@@ -414,6 +448,7 @@ impl ExecutionContextAssembler {
             .workspace_resolver
             .resolve_identity_for_path(&working_directory, workspace.team_id.as_deref())
             .await
+            .map_err(|e| format!("workspace identity resolution failed: {e}"))?
             .ok_or_else(|| {
                 format!(
                     "working directory {} does not belong to resolved workspace {}",

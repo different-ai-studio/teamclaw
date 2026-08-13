@@ -123,8 +123,10 @@ impl WorkspaceResolver {
         &self,
         path: &Path,
         team_id: Option<&str>,
-    ) -> Option<WorkspaceIdentity> {
-        let candidate = path.canonicalize().ok()?;
+    ) -> Result<Option<WorkspaceIdentity>, ResolveError> {
+        let Ok(candidate) = path.canonicalize() else {
+            return Ok(None);
+        };
 
         if let Some(team_id) = team_id.filter(|id| !id.trim().is_empty()) {
             loop {
@@ -135,14 +137,18 @@ impl WorkspaceResolver {
                 if !needs_load {
                     break;
                 }
-                let rows = self.backend.get_workspaces_by_team(team_id).await.ok()?;
+                let rows = self
+                    .backend
+                    .get_workspaces_by_team(team_id)
+                    .await
+                    .map_err(|e| ResolveError::Backend(e.to_string()))?;
                 if self.publish_team_rows(team_id, generation, rows).await {
                     break;
                 }
             }
         }
 
-        self.identity_from_cache(&candidate, team_id).await
+        Ok(self.identity_from_cache(&candidate, team_id).await)
     }
 
     /// Resolve an agent's configured default workspace, falling back to the
@@ -541,6 +547,7 @@ mod tests {
                 .resolve_identity_for_path(&root, Some("team-x"))
                 .await
                 .unwrap()
+                .unwrap()
                 .workspace_id,
             "ws-a"
         );
@@ -549,13 +556,32 @@ mod tests {
                 .resolve_identity_for_path(&worktree, Some("team-x"))
                 .await
                 .unwrap()
+                .unwrap()
                 .workspace_id,
             "ws-a"
         );
         assert!(resolver
             .resolve_identity_for_path(&sibling, Some("team-x"))
             .await
+            .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_identity_for_path_propagates_backend_errors() {
+        let root = tempfile::tempdir().unwrap();
+        let mock = MockBackend::new();
+        mock.state().get_workspaces_by_team_error = Some("workspace backend unavailable".into());
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let resolver = WorkspaceResolver::new(backend);
+
+        assert!(matches!(
+            resolver
+                .resolve_identity_for_path(root.path(), Some("team-x"))
+                .await,
+            Err(ResolveError::Backend(message))
+                if message.contains("workspace backend unavailable")
+        ));
     }
 
     #[tokio::test]
@@ -586,6 +612,7 @@ mod tests {
                 .resolve_identity_for_path(&nested_root, Some("team-x"))
                 .await
                 .unwrap()
+                .unwrap()
                 .workspace_id,
             "ws-nested"
         );
@@ -604,6 +631,7 @@ mod tests {
         assert!(resolver
             .resolve_identity_for_path(root.path(), Some("team-x"))
             .await
+            .unwrap()
             .is_none());
     }
 
@@ -628,6 +656,7 @@ mod tests {
         assert!(resolver
             .resolve_identity_for_path(root.path(), Some("team-x"))
             .await
+            .unwrap()
             .is_none());
     }
 
@@ -654,6 +683,7 @@ mod tests {
         assert!(resolver
             .resolve_identity_for_path(root.path(), None)
             .await
+            .unwrap()
             .is_none());
     }
 
@@ -674,6 +704,7 @@ mod tests {
         let identity = resolver
             .resolve_identity_for_path(root.path(), Some("team-a"))
             .await
+            .unwrap()
             .expect("empty-team workspace remains eligible for configured-team fallback");
 
         assert_eq!(identity.workspace_id, "ws-a");
@@ -741,6 +772,7 @@ mod tests {
             resolver
                 .resolve_identity_for_path(new_root.path(), Some("team-x"))
                 .await
+                .unwrap()
                 .unwrap()
                 .workspace_id,
             "ws-new"

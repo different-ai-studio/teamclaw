@@ -239,6 +239,11 @@ impl AmuxdAgentHandle {
                 (!self.team_id.trim().is_empty()).then_some(self.team_id.as_str()),
             )
             .await
+            .map_err(|e| {
+                AgentError::Create(format!(
+                    "gateway workspace identity resolution failed for {worktree}: {e}"
+                ))
+            })?
             .ok_or_else(|| {
                 AgentError::Create(format!(
                     "gateway workspace identity resolution failed for {worktree}"
