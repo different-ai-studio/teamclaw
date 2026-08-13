@@ -154,7 +154,8 @@ describe("skill-loader dynamic team paths (from teamclu.json)", () => {
 
   it("falls back to global team dir when workspace teamclu-team link is broken", async () => {
     const brokenLinkSkills = `${workspacePath}/${TEAM_SHARE_LINK_DIR}/skills`
-    const globalSkills = `/home/user/.amuxd/teams/team-abc/${TEAM_SHARE_LINK_DIR}/skills`
+    const globalTeamDir = `/home/user/.amuxd/teams/team-abc/shared/${TEAM_SHARE_LINK_DIR}`
+    const globalSkills = `${globalTeamDir}/skills`
 
     mockExists.mockImplementation((path: string) => {
       if (path === `${workspacePath}/teamclu.json`) return Promise.resolve(false)
@@ -163,7 +164,7 @@ describe("skill-loader dynamic team paths (from teamclu.json)", () => {
       if (path === `${workspacePath}/${TEAM_SHARE_LINK_DIR}`) return Promise.resolve(false)
       if (path === `/home/user/.amuxd/daemon.toml`) return Promise.resolve(true)
       if (path === globalSkills) return Promise.resolve(true)
-      if (path === `/home/user/.amuxd/teams/team-abc/${TEAM_SHARE_LINK_DIR}`) return Promise.resolve(true)
+      if (path === globalTeamDir) return Promise.resolve(true)
       if (path.includes("shared-skill") && path.endsWith("SKILL.md")) return Promise.resolve(true)
       return Promise.resolve(false)
     })
@@ -171,7 +172,7 @@ describe("skill-loader dynamic team paths (from teamclu.json)", () => {
       if (path === `${workspacePath}/opencode.json`)
         return Promise.resolve(JSON.stringify({ skills: { paths: ["teamclu-team/skills"] } }))
       if (path === `/home/user/.amuxd/daemon.toml`)
-        return Promise.resolve('team_id = "team-abc"\n')
+        return Promise.resolve('active_team = "team-abc"\n')
       if (path.includes("shared-skill")) return Promise.resolve("# shared-skill\n")
       return Promise.resolve("")
     })
@@ -190,9 +191,9 @@ describe("skill-loader dynamic team paths (from teamclu.json)", () => {
 
   it("auto-loads the global team skills dir without teamclu.json skills.paths", async () => {
     // No workspace-link fallback anymore: skills come from the daemon-owned
-    // global dir `~/.amuxd/teams/<team_id>/teamclu-team/skills`.
+    // global dir `~/.amuxd/teams/<team_id>/shared/teamclu-team/skills`.
     expect(TEAM_SHARE_LINK_DIR).toBe("teamclu-team")
-    const globalTeamDir = `/home/user/.amuxd/teams/team-abc/${TEAM_SHARE_LINK_DIR}`
+    const globalTeamDir = `/home/user/.amuxd/teams/team-abc/shared/${TEAM_SHARE_LINK_DIR}`
     const globalSkills = `${globalTeamDir}/skills`
 
     mockExists.mockImplementation((path: string) => {
@@ -209,7 +210,7 @@ describe("skill-loader dynamic team paths (from teamclu.json)", () => {
     })
     mockReadTextFile.mockImplementation((path: string) => {
       if (path === `/home/user/.amuxd/daemon.toml`)
-        return Promise.resolve('team_id = "team-abc"\n')
+        return Promise.resolve('active_team = "team-abc"\n')
       if (path.includes("shared-skill")) return Promise.resolve("# shared-skill\n")
       return Promise.resolve("")
     })
@@ -219,6 +220,39 @@ describe("skill-loader dynamic team paths (from teamclu.json)", () => {
 
     const { skills } = await loadAllSkills(workspacePath)
     expect(skills.some((s) => s.source === "team" && s.filename === "shared-skill")).toBe(true)
+  })
+
+  it("still reads a daemon.toml that names the team with the legacy team_id key", async () => {
+    // The daemon writes `active_team` but keeps a serde alias for `team_id`
+    // (DaemonConfig::team_id), so an older daemon under a newer app must not
+    // read as un-onboarded.
+    const globalTeamDir = `/home/user/.amuxd/teams/team-abc/shared/${TEAM_SHARE_LINK_DIR}`
+    const globalSkills = `${globalTeamDir}/skills`
+
+    mockExists.mockImplementation((path: string) => {
+      if (path === `/home/user/.amuxd/daemon.toml`) return Promise.resolve(true)
+      if (path === globalTeamDir) return Promise.resolve(true)
+      if (path === globalSkills) return Promise.resolve(true)
+      return Promise.resolve(false)
+    })
+    mockReadTextFile.mockImplementation((path: string) => {
+      if (path === `/home/user/.amuxd/daemon.toml`)
+        return Promise.resolve('team_id = "team-abc"\n')
+      return Promise.resolve("")
+    })
+
+    expect(await collectTeamSkillPaths(workspacePath)).toContain(globalSkills)
+  })
+
+  it("treats an unclaimed daemon as having no team dir", async () => {
+    mockExists.mockImplementation((path: string) =>
+      Promise.resolve(path === `/home/user/.amuxd/daemon.toml`),
+    )
+    mockReadTextFile.mockImplementation((path: string) =>
+      Promise.resolve(path === `/home/user/.amuxd/daemon.toml` ? 'active_team = "_unclaimed"\n' : ""),
+    )
+
+    expect(await collectTeamSkillPaths(workspacePath)).toEqual([])
   })
 
   it("loads nested skills from bundle directories", async () => {
