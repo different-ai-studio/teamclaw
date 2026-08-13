@@ -133,11 +133,20 @@ default_flags = []
 
 ### 3.2 `device-id`
 
-daemon 这一次安装的 id，**只用于 daemon 自己的版本上报**。它与前端的
-`teamclu.client.install-id` 是两个东西，不可互换——后者同时是匿名 / 访客团队的
-身份键，而 AuthGate 跑在 daemon 就绪之前、且在非 Tauri 构建里根本没有 daemon。
+**这台机器的稳定身份，不只是遥测。** #895 之后它同时是 Cloud API 绑定 agent
+actor 的键（`agents.device_id`，团队内唯一），并且改成了从硬件派生
+（macOS `IOPlatformUUID` / Windows `MachineGuid` / Linux `/etc/machine-id`，经
+UUIDv5 哈希），所以删掉文件会重新算出同一个值而不是换一个新身份。解析顺序：
+`$AMUXD_DEVICE_ID` → 本文件 → 硬件派生 → 随机。
 
-路径解析必须走 `teamclu_runtime_env::amuxd_home_from_env()`，不得硬编码。
+> 这一段推翻了本规范早先的写法。排查时它确实只是遥测 id，当时的结论是"前端那份
+> `teamclu.client-version.device-id` 与它职责重合、应各自划清"。上游用另一种方式
+> 收敛了：daemon 这份升格为路由身份，前端那份保持纯遥测。**两者仍然不可互换**，
+> 但理由变了——不再是"重复"，而是"两个不同的东西"。
+
+正因为它现在绑 actor，路径解析绝不能硬编码：白标 daemon 读到官方构建缓存的 id，
+就会去认领官方机器的 agent。必须走
+`teamclu_runtime_env::amuxd_home_from_env()`。
 
 ### 3.3 `logs/`
 
