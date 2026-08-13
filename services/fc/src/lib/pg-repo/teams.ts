@@ -71,7 +71,6 @@ function mapTeam(r: any) {
   return {
     id: r.id, name: r.name, slug: r.slug, createdAt: iso(r.createdAt),
     shareMode: r.shareMode ?? null, shareEnabledAt: iso(r.shareEnabledAt),
-    gitRemoteUrl: r.gitRemoteUrl ?? null, gitAuthKind: r.gitAuthKind ?? null,
     visibility: r.visibility ?? "private",
   };
 }
@@ -146,17 +145,14 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
     },
     async getShareMode(teamId: string) {
       const [r] = await db.select().from(teams).where(eq(teams.id, teamId)).limit(1);
-      if (!r) return { mode: null, enabledAt: null, gitRemoteUrl: null, gitAuthKind: null };
-      return { mode: r.shareMode ?? null, enabledAt: iso(r.shareEnabledAt), gitRemoteUrl: r.gitRemoteUrl ?? null, gitAuthKind: r.gitAuthKind ?? null };
+      if (!r) return { mode: null, enabledAt: null };
+      return { mode: r.shareMode ?? null, enabledAt: iso(r.shareEnabledAt) };
     },
-    async enableShareMode(teamId: string, mode: "oss" | "managed_git" | "custom_git", gitConfig: { remoteUrl?: string; authKind?: string; credentialRef?: string } | null) {
+    async enableShareMode(teamId: string, mode: "oss") {
       const [r] = await (db.update(teams) as any)
         .set({
           shareMode: mode,
           shareEnabledAt: new Date(),
-          gitRemoteUrl: gitConfig?.remoteUrl ?? null,
-          gitAuthKind: gitConfig?.authKind ?? null,
-          gitCredentialRef: gitConfig?.credentialRef ?? null,
           updatedAt: new Date(),
         })
         .where(and(eq(teams.id, teamId), isNull(teams.shareMode)))
@@ -166,7 +162,7 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
         if (!exists) throw new ApiError(404, "not_found", "team not found");
         throw new ApiError(409, "conflict", "share_mode already locked");
       }
-      return { id: r.id, shareMode: r.shareMode, shareEnabledAt: iso(r.shareEnabledAt), gitRemoteUrl: r.gitRemoteUrl ?? null, gitAuthKind: r.gitAuthKind ?? null };
+      return { id: r.id, shareMode: r.shareMode, shareEnabledAt: iso(r.shareEnabledAt) };
     },
     async getTeamWorkspaceConfig(teamId: string) {
       const [r] = await db.select().from(teamWorkspaceConfig).where(eq(teamWorkspaceConfig.teamId, teamId)).limit(1);
@@ -206,8 +202,6 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
       const storedModels = Array.isArray(wc?.llmModels) ? wc.llmModels : [];
       return {
         shareMode: t?.shareMode ?? null,
-        gitRemoteUrl: t?.gitRemoteUrl ?? null,
-        gitAuthKind: t?.gitAuthKind ?? null,
         syncMode: wc?.syncMode ?? null,
         litellmTeamId: wc?.litellmTeamId ?? null,
         // `models` is the STORED, authoritative per-team list; `availableModels`
@@ -366,13 +360,11 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
         .set({
           shareMode: null,
           shareEnabledAt: null,
-          gitRemoteUrl: null,
-          gitAuthKind: null,
           gitCredentialRef: null,
           updatedAt: new Date(),
         })
         .where(eq(teams.id, teamId));
-      return { mode: null, enabledAt: null, gitRemoteUrl: null, gitAuthKind: null };
+      return { mode: null, enabledAt: null };
     },
 
     /**

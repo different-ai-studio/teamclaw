@@ -37,7 +37,7 @@
  *   that domain and seed the UUID fixtures in makeContractDb().
  *
  * WHAT IS GREEN NOW:
- *   renameTeam · getShareMode · enableShareMode (oss / custom_git / lock)
+ *   renameTeam · getShareMode · enableShareMode (oss / lock)
  *   getTeamWorkspaceConfig · putTeamWorkspaceConfig · getWorkspaceConfig
  */
 
@@ -149,8 +149,6 @@ test("pg-repo [teams]: getShareMode returns null mode for fresh team", async () 
   assert.ok(out, "result must be returned");
   assert.equal(out.mode, null);
   assert.equal(out.enabledAt, null);
-  assert.equal(out.gitRemoteUrl, null);
-  assert.equal(out.gitAuthKind, null);
 });
 
 // --- enableShareMode oss ---
@@ -158,36 +156,19 @@ test("pg-repo [teams]: enableShareMode locks team to oss share mode", async () =
   const { pg, repo } = await makeRepo();
   await seedTeam(pg, TS1, "team-share-1-slug");
 
-  const out = await repo.enableShareMode(TS1, "oss", null);
+  const out = await repo.enableShareMode(TS1, "oss");
   assert.ok(out, "result must be returned");
   assert.equal(out.id, TS1);
   assert.equal(out.shareMode, "oss");
   assert.ok(out.shareEnabledAt, "shareEnabledAt must be set");
 });
 
-// --- enableShareMode custom_git ---
-test("pg-repo [teams]: enableShareMode accepts custom_git gitConfig", async () => {
-  const { pg, repo } = await makeRepo();
-  await seedTeam(pg, TS2, "team-share-2-slug");
-
-  const out = await repo.enableShareMode(TS2, "custom_git", {
-    remoteUrl: "git@example.com:team/repo.git",
-    authKind: "ssh_key",
-    credentialRef: "keychain://team-share-2/ssh",
-  });
-  assert.ok(out, "result must be returned");
-  assert.equal(out.shareMode, "custom_git");
-  assert.equal(out.gitRemoteUrl, "git@example.com:team/repo.git");
-  assert.equal(out.gitAuthKind, "ssh_key");
-});
-
-// --- enableShareMode switches mode on second call ---
 test("pg-repo [teams]: enableShareMode switches mode on the same team", async () => {
   const { pg, repo } = await makeRepo();
   await seedTeam(pg, TS3, "team-share-3-slug");
 
-  await repo.enableShareMode(TS3, "managed_git", null);
-  await repo.enableShareMode(TS3, "oss", null);
+  await repo.enableShareMode(TS3, "oss");
+  await repo.enableShareMode(TS3, "oss");
   const out = await repo.getShareMode(TS3);
   assert.equal(out.mode, "oss");
 });
@@ -197,9 +178,9 @@ test("pg-repo [teams]: getShareMode reflects a previously enabled share mode", a
   const { pg, repo } = await makeRepo();
   await seedTeam(pg, TS4, "team-share-4-slug");
 
-  await repo.enableShareMode(TS4, "managed_git", null);
+  await repo.enableShareMode(TS4, "oss");
   const out = await repo.getShareMode(TS4);
-  assert.equal(out.mode, "managed_git");
+  assert.equal(out.mode, "oss");
   assert.ok(out.enabledAt, "enabledAt must be set once mode is enabled");
 });
 
@@ -211,8 +192,6 @@ test("pg-repo [teams]: getWorkspaceConfig returns null share fields for fresh te
   const out = await repo.getWorkspaceConfig(TSF2);
   assert.ok(out, "result must be returned");
   assert.equal(out.shareMode, null);
-  assert.equal(out.gitRemoteUrl, null);
-  assert.equal(out.gitAuthKind, null);
 });
 
 // --- getWorkspaceConfig merges share + workspace fields ---
@@ -220,24 +199,16 @@ test("pg-repo [teams]: getWorkspaceConfig merges share + workspace fields", asyn
   const { pg, repo } = await makeRepo();
   await seedTeam(pg, TS5, "team-share-5-slug");
 
-  await repo.enableShareMode(TS5, "custom_git", {
-    remoteUrl: "https://example.com/team/repo.git",
-    authKind: "https_token",
-    credentialRef: "keychain://team-share-5/token",
-  });
+  await repo.enableShareMode(TS5, "oss");
   const out = await repo.getWorkspaceConfig(TS5);
   assert.ok(out, "result must be returned");
   assert.deepEqual(Object.keys(out).sort(), [
-    "gitAuthKind",
-    "gitRemoteUrl",
     "litellmTeamId",
     "llm",
     "shareMode",
     "syncMode",
   ].sort());
-  assert.equal(out.shareMode, "custom_git");
-  assert.equal(out.gitRemoteUrl, "https://example.com/team/repo.git");
-  assert.equal(out.gitAuthKind, "https_token");
+  assert.equal(out.shareMode, "oss");
   // Additive llm block: no aiGatewayEndpoint persisted → endpoint null, models [].
   assert.ok(out.llm && typeof out.llm === "object");
   assert.equal(out.llm.aiGatewayEndpoint, null);

@@ -69,7 +69,7 @@ export function registerWorkspaces(router) {
 
   // NOTE: GET /v1/teams/:teamId/workspace-config now lives in
   // routes/team-share.mjs and returns the merged share+litellm shape
-  // (shareMode, gitRemoteUrl, gitAuthKind, syncMode, litellmTeamId).
+  // (shareMode, syncMode, litellmTeamId).
   // The legacy { defaultWorkspaceId, pinnedWorkspaceIds } shape is now
   // exposed via GET /v1/teams/:teamId/workspace-defaults so the merged
   // share-mode endpoint can own the canonical path.

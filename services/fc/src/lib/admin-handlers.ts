@@ -1,15 +1,6 @@
 import { json } from "./responses.js";
 import { sha256, ossGet, ossPut } from "./oss-store.js";
 import { litellmFetch, LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD } from "./litellm.js";
-import {
-  codeupFetch,
-  CODEUP_ORG_ID,
-  CODEUP_PAT,
-  CODEUP_BOT_USERNAME,
-} from "./codeup.js";
-
-// Re-exported for pg-repo/apps.ts and supabase-repo.ts (managed-git provisioning).
-export { managedGitCredential } from "./codeup.js";
 import { dispatchPush } from "./push-dispatch.js";
 import { pushDeps } from "./push-deps.js";
 import { sharedSecretMatches } from "./shared-secret.js";
@@ -25,7 +16,7 @@ const PUSH_WEBHOOK_SECRET = () => process.env.PUSH_WEBHOOK_SECRET;
 //
 // These are intentionally thin: each parses/validates its request body, then
 // orchestrates the OSS team registry (oss-store), the LiteLLM proxy (litellm),
-// CodeUp managed git (codeup), or push dispatch (push-deps + push-dispatch).
+// or push dispatch (push-deps + push-dispatch).
 // All infra lives in those modules.
 //
 // /register, /token and /apply used to live here. They minted Alibaba STS
@@ -129,60 +120,6 @@ export async function handleManagedGitSetupLitellm(body: any) {
     key: keyValue,
     keyAlias,
     maxBudgetUsd: maxBudget,
-  });
-}
-
-export async function handleManagedGitCreateRepo(body: any) {
-  // The desktop client only has the (globally unique) team id on hand, so the
-  // repo name is derived from `teamId` — this also guarantees uniqueness and
-  // avoids 409 name-collision races between teams that picked the same name.
-  // `teamName` is optional and only used for the human-readable description.
-  const { teamId, teamName, appId } = body;
-  if (!teamId) {
-    return json(400, { error: "Missing teamId" });
-  }
-
-  const orgId = CODEUP_ORG_ID();
-  const pat = CODEUP_PAT();
-  const botUsername = CODEUP_BOT_USERNAME();
-  if (!orgId || !pat) {
-    return json(500, { error: "Managed Git not configured (missing CODEUP_ORG_ID or CODEUP_PAT)" });
-  }
-
-  const sanitize = (s: string) =>
-    String(s).toLowerCase().replace(/[^a-z0-9一-鿿-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-  // When an `appId` is supplied, the repo is scoped to a single app
-  // (`tc-app-{appId}`); otherwise it falls back to the per-team repo
-  // (`tc-{teamId}`). Both names are globally unique, avoiding 409 races.
-  const repoName = appId ? `tc-app-${sanitize(appId)}` : `tc-${sanitize(teamId)}`;
-
-  const res = await codeupFetch(
-    `/oapi/v1/codeup/organizations/${orgId}/repositories`,
-    "POST",
-    {
-      name: repoName,
-      path: repoName,
-      visibility: "private",
-      description: `TeamClu managed team repo: ${teamName || teamId}`,
-    }
-  );
-
-  if (!res.ok) {
-    if (res.status === 409) {
-      console.error(`[managed-git] Repo name conflict: ${repoName}`);
-      return json(409, { error: "Managed git repo already exists for this team" });
-    }
-    console.error(`[managed-git] CodeUp error:`, res.data);
-    return json(502, { error: "Failed to create repository", detail: res.data });
-  }
-
-  const repoHttpUrl = (res.data as any).httpUrlToRepo;
-  console.log(`[managed-git] Created repo ${repoName} → ${repoHttpUrl}`);
-
-  return json(200, {
-    repoHttpUrl,
-    pat,
-    botUsername,
   });
 }
 

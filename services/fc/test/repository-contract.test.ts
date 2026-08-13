@@ -87,14 +87,11 @@ function contractRepo() {
   const reportStore = [];
   const skillStore = [];
   return {
-    async enableShareMode(teamId, mode, gitConfig) {
+    async enableShareMode(teamId, mode) {
       const row = {
         id: teamId,
         shareMode: mode,
         shareEnabledAt: "2026-05-28T00:00:00Z",
-        gitRemoteUrl: mode === "oss" ? null : (gitConfig?.remoteUrl ?? null),
-        gitAuthKind: mode === "oss" ? null : (gitConfig?.authKind ?? null),
-        gitCredentialRef: mode === "oss" ? null : (gitConfig?.credentialRef ?? null),
       };
       shareModeStore[teamId] = row;
       return row;
@@ -104,15 +101,11 @@ function contractRepo() {
         id: teamId,
         shareMode: null,
         shareEnabledAt: null,
-        gitRemoteUrl: null,
-        gitAuthKind: null,
         gitCredentialRef: null,
       };
       return {
         mode: null,
         enabledAt: null,
-        gitRemoteUrl: null,
-        gitAuthKind: null,
       };
     },
     async getShareMode(teamId) {
@@ -120,8 +113,6 @@ function contractRepo() {
       return {
         mode: row?.shareMode ?? null,
         enabledAt: row?.shareEnabledAt ?? null,
-        gitRemoteUrl: row?.gitRemoteUrl ?? null,
-        gitAuthKind: row?.gitAuthKind ?? null,
       };
     },
     async setupLiteLlm(teamId) {
@@ -153,8 +144,6 @@ function contractRepo() {
       const llm = llmConfigStore[teamId];
       return {
         shareMode: row?.shareMode ?? null,
-        gitRemoteUrl: row?.gitRemoteUrl ?? null,
-        gitAuthKind: row?.gitAuthKind ?? null,
         syncMode: row?.shareMode === "oss" ? "oss" : (row?.shareMode ? "git" : null),
         litellmTeamId: null,
         llm: {
@@ -185,7 +174,6 @@ function contractRepo() {
           type: "tanstack",
           visibility: "team",
           workspaceId: "workspace-1",
-          gitRemoteUrl: null,
           provisionStatus: "ready",
           fcStatus: null,
           createdAt: "2026-05-27T01:00:00Z",

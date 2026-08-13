@@ -7,8 +7,8 @@ function makeRepo(overrides: any = {}) {
   const calls = [];
   const repo = {
     calls,
-    async enableShareMode(teamId, mode, gitConfig) {
-      calls.push({ method: "enableShareMode", teamId, mode, gitConfig });
+    async enableShareMode(teamId, mode) {
+      calls.push({ method: "enableShareMode", teamId, mode });
       if (overrides.enableShareModeError) throw overrides.enableShareModeError;
       return overrides.enableShareModeResult ?? {
         id: teamId,
@@ -17,8 +17,6 @@ function makeRepo(overrides: any = {}) {
         createdAt: null,
         shareMode: mode,
         shareEnabledAt: "2026-05-28T00:00:00Z",
-        gitRemoteUrl: gitConfig?.remoteUrl ?? null,
-        gitAuthKind: gitConfig?.authKind ?? null,
       };
     },
     async getShareMode(teamId) {
@@ -27,8 +25,6 @@ function makeRepo(overrides: any = {}) {
       return overrides.getShareModeResult ?? {
         mode: "oss",
         enabledAt: "2026-05-28T00:00:00Z",
-        gitRemoteUrl: null,
-        gitAuthKind: null,
       };
     },
     async disableShareMode(teamId) {
@@ -37,17 +33,13 @@ function makeRepo(overrides: any = {}) {
       return overrides.disableShareModeResult ?? {
         mode: null,
         enabledAt: null,
-        gitRemoteUrl: null,
-        gitAuthKind: null,
       };
     },
     async getWorkspaceConfig(teamId) {
       calls.push({ method: "getWorkspaceConfig", teamId });
       if (overrides.getWorkspaceConfigError) throw overrides.getWorkspaceConfigError;
       return overrides.getWorkspaceConfigResult ?? {
-        shareMode: "custom_git",
-        gitRemoteUrl: "git@example.com:org/repo.git",
-        gitAuthKind: "ssh_key",
+        shareMode: "oss",
         syncMode: "oss",
         litellmTeamId: "lt-1",
         llm: {
@@ -100,7 +92,6 @@ test("POST /v1/teams/:id/share-mode oss → 200 with team payload", async () => 
     method: "enableShareMode",
     teamId: "team-1",
     mode: "oss",
-    gitConfig: null,
   });
 });
 
@@ -113,7 +104,7 @@ test("POST /v1/teams/:id/share-mode rejects the retired git modes → 400", asyn
       httpMethod: "POST",
       path: "/v1/teams/team-1/share-mode",
       headers: bearerHeaders(),
-      body: JSON.stringify({ mode, gitConfig: { remoteUrl: "git@x.com:o/r.git" } }),
+      body: JSON.stringify({ mode }),
     }, { createRepository: () => repo });
 
     assert.equal(res.statusCode, 400, `${mode} must be refused`);
@@ -137,7 +128,6 @@ test("POST /v1/teams/:id/share-mode with no body enables sync", async () => {
     method: "enableShareMode",
     teamId: "team-1",
     mode: "oss",
-    gitConfig: null,
   });
 });
 
@@ -184,8 +174,6 @@ test("GET /v1/teams/:id/share-mode → 200", async () => {
   assert.deepEqual(body, {
     mode: "oss",
     enabledAt: "2026-05-28T00:00:00Z",
-    gitRemoteUrl: null,
-    gitAuthKind: null,
   });
 });
 
@@ -200,9 +188,7 @@ test("GET /v1/teams/:id/workspace-config → 200 with merged shape", async () =>
   assert.equal(res.statusCode, 200);
   const body = JSON.parse(res.body);
   assert.deepEqual(body, {
-    shareMode: "custom_git",
-    gitRemoteUrl: "git@example.com:org/repo.git",
-    gitAuthKind: "ssh_key",
+    shareMode: "oss",
     syncMode: "oss",
     litellmTeamId: "lt-1",
     llm: {
