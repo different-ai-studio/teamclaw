@@ -1010,27 +1010,6 @@
     "localDaemonRetrying": "Retrying…",
     "ideas": "Ideas"
   },
-  "setupWizard": {
-    "title": "Prepare runtime environment",
-    "intro": "First launch needs to install a few local dependencies. This only takes a moment.",
-    "optional": "Optional",
-    "ready": "Ready",
-    "install": "Install",
-    "installing": "Installing…",
-    "upgrade": "Upgrade",
-    "upgrading": "Upgrading…",
-    "autoInstalling": "Auto-installing…",
-    "retry": "Retry",
-    "currentNeedsUpgrade": "Current {{version}}, upgrade needed",
-    "continue": "Continue",
-    "installRequiredFirst": "Install required items first",
-    "deps": {
-      "amuxd": "Agent daemon (amuxd)",
-      "opencode": "OpenCode runtime",
-      "pi": "Pi runtime",
-      "git": "Git"
-    }
-  },
   "errors": {
     "somethingWentWrong": "Something went wrong",
     "unexpectedError": "An unexpected error occurred",

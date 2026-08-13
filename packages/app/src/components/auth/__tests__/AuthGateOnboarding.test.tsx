@@ -36,7 +36,6 @@ vi.mock('@/components/onboarding/RoleStep', () => ({ RoleStep: () => <div>role s
 vi.mock('@/components/onboarding/SetupStep', () => ({ SetupStep: () => <div>setup step</div> }))
 vi.mock('@/components/onboarding/ModelStep', () => ({ ModelStep: () => <div>model step</div> }))
 vi.mock('../DesktopOnboarding', () => ({ DesktopOnboarding: () => <div>sign in</div> }))
-vi.mock('../SetupWizard', () => ({ SetupWizard: () => <div>legacy setup wizard</div> }))
 vi.mock('@/components/auth/DaemonOnboardingWizard', () => ({ DaemonOnboardingWizard: () => null }))
 vi.mock('@/components/auth/PendingInvitesDialog', () => ({ PendingInvitesDialog: () => null }))
 
