@@ -23,59 +23,59 @@ $$;
 
 -- Auth user present on two teams
 insert into auth.users (id, email, aud, role, instance_id) values
-  ('ctr01001-0000-4000-8000-000000000001', 'ctr-multi@amux.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
+  ('c7a01001-0000-4000-8000-000000000001', 'ctr-multi@amux.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
 on conflict do nothing;
 
 insert into amux.teams (id, slug, name) values
-  ('ctr02001-0000-4000-8000-00000000000a', 'ctr-team-a', 'CTR Team A'),
-  ('ctr02001-0000-4000-8000-00000000000b', 'ctr-team-b', 'CTR Team B');
+  ('c7a02001-0000-4000-8000-00000000000a', 'ctr-team-a', 'CTR Team A'),
+  ('c7a02001-0000-4000-8000-00000000000b', 'ctr-team-b', 'CTR Team B');
 
 -- Team A actor created first (older) → would win under current_member_id()
 insert into amux.actors (id, team_id, actor_type, display_name, user_id, created_at) values
-  ('ctr03001-0000-4000-8000-00000000000a', 'ctr02001-0000-4000-8000-00000000000a', 'member', 'CTR On A', 'ctr01001-0000-4000-8000-000000000001', '2026-01-01T00:00:00Z'),
-  ('ctr03001-0000-4000-8000-00000000000b', 'ctr02001-0000-4000-8000-00000000000b', 'member', 'CTR On B', 'ctr01001-0000-4000-8000-000000000001', '2026-06-01T00:00:00Z');
+  ('c7a03001-0000-4000-8000-00000000000a', 'c7a02001-0000-4000-8000-00000000000a', 'member', 'CTR On A', 'c7a01001-0000-4000-8000-000000000001', '2026-01-01T00:00:00Z'),
+  ('c7a03001-0000-4000-8000-00000000000b', 'c7a02001-0000-4000-8000-00000000000b', 'member', 'CTR On B', 'c7a01001-0000-4000-8000-000000000001', '2026-06-01T00:00:00Z');
 
 insert into amux.members (id, status) values
-  ('ctr03001-0000-4000-8000-00000000000a', 'active'),
-  ('ctr03001-0000-4000-8000-00000000000b', 'active');
+  ('c7a03001-0000-4000-8000-00000000000a', 'active'),
+  ('c7a03001-0000-4000-8000-00000000000b', 'active');
 
 insert into amux.team_members (team_id, member_id, role) values
-  ('ctr02001-0000-4000-8000-00000000000a', 'ctr03001-0000-4000-8000-00000000000a', 'owner'),
-  ('ctr02001-0000-4000-8000-00000000000b', 'ctr03001-0000-4000-8000-00000000000b', 'admin');
+  ('c7a02001-0000-4000-8000-00000000000a', 'c7a03001-0000-4000-8000-00000000000a', 'owner'),
+  ('c7a02001-0000-4000-8000-00000000000b', 'c7a03001-0000-4000-8000-00000000000b', 'admin');
 
 -- Team-visible active agent on B (valid team default)
 insert into amux.actors (id, team_id, actor_type, display_name) values
-  ('ctr04001-0000-4000-8000-00000000000b', 'ctr02001-0000-4000-8000-00000000000b', 'agent', 'CTR Agent B');
+  ('c7a04001-0000-4000-8000-00000000000b', 'c7a02001-0000-4000-8000-00000000000b', 'agent', 'CTR Agent B');
 
 insert into amux.agents (id, owner_member_id, status, visibility) values
-  ('ctr04001-0000-4000-8000-00000000000b', 'ctr03001-0000-4000-8000-00000000000b', 'active', 'team');
+  ('c7a04001-0000-4000-8000-00000000000b', 'c7a03001-0000-4000-8000-00000000000b', 'active', 'team');
 
-select pg_temp.as_user('ctr01001-0000-4000-8000-000000000001');
+select pg_temp.as_user('c7a01001-0000-4000-8000-000000000001');
 
 select is(
   amux.current_member_id(),
-  'ctr03001-0000-4000-8000-00000000000a'::uuid,
+  'c7a03001-0000-4000-8000-00000000000a'::uuid,
   'current_member_id still returns the oldest actor (team A)'
 );
 
 select is(
-  amux.current_team_role('ctr02001-0000-4000-8000-00000000000b'::uuid),
+  amux.current_team_role('c7a02001-0000-4000-8000-00000000000b'::uuid),
   'admin',
   'current_team_role(B) uses team-scoped actor → admin'
 );
 
 select is(
-  amux.current_team_role('ctr02001-0000-4000-8000-00000000000a'::uuid),
+  amux.current_team_role('c7a02001-0000-4000-8000-00000000000a'::uuid),
   'owner',
   'current_team_role(A) still returns owner'
 );
 
 select is(
   amux.set_team_default_agent(
-    'ctr02001-0000-4000-8000-00000000000b'::uuid,
-    'ctr04001-0000-4000-8000-00000000000b'::uuid
+    'c7a02001-0000-4000-8000-00000000000b'::uuid,
+    'c7a04001-0000-4000-8000-00000000000b'::uuid
   ),
-  'ctr04001-0000-4000-8000-00000000000b'::uuid,
+  'c7a04001-0000-4000-8000-00000000000b'::uuid,
   'admin on B can set_team_default_agent even when oldest actor is on A'
 );
 
