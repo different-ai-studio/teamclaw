@@ -33,11 +33,7 @@ pub fn global_team_home_dir(team_id: &str) -> Option<PathBuf> {
     if team_id.trim().is_empty() {
         return None;
     }
-    Some(
-        crate::commands::amuxd_home_dir()
-            .join("teams")
-            .join(team_id),
-    )
+    Some(crate::commands::amuxd_team_dir(team_id))
 }
 
 /// `~/.amuxd/team-secrets/<team_id>.enc` — the daemon's encrypted team secrets.
@@ -251,20 +247,57 @@ mod tests {
         assert!(global.path().exists());
     }
 
+    /// Disconnect must take the whole team directory, not just the synced
+    /// subtree — `state/` holds credentials and sync watermarks that would
+    /// otherwise outlive the team.
+    ///
+    /// Redirects `HOME`. It used to build its fixture in the developer's real
+    /// `~/.amuxd`, and its second write (`sync/state.json`) landed in a
+    /// directory it never created — so it only passed on a machine where an
+    /// earlier run had left one behind, and failed outright on a clean one.
     #[test]
     fn removes_global_team_home_dir() {
+        let _guard = home_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let _home = HomeGuard::set(home.path());
+
         let team_id = "team-disconnect-home-test";
-        let Some(dir) = global_team_home_dir(team_id) else {
-            return;
-        };
-        if dir.exists() {
-            let _ = std::fs::remove_dir_all(&dir);
-        }
-        std::fs::create_dir_all(dir.join(TEAM_REPO_DIR)).unwrap();
-        std::fs::write(dir.join("sync/state.json"), b"{}").unwrap();
+        let dir = global_team_home_dir(team_id).expect("a non-empty team id yields a path");
+
+        let shared = crate::commands::amuxd_team_shared_dir(team_id);
+        std::fs::create_dir_all(&shared).unwrap();
+        let state = dir.join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join("sync.json"), b"{}").unwrap();
 
         remove_global_team_home(team_id).unwrap();
         assert!(!dir.exists());
+    }
+
+    fn home_lock() -> &'static std::sync::Mutex<()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+    }
+
+    struct HomeGuard {
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl HomeGuard {
+        fn set(path: &std::path::Path) -> Self {
+            let original = std::env::var_os("HOME");
+            std::env::set_var("HOME", path);
+            Self { original }
+        }
+    }
+
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+        }
     }
 
     /// The daemon's secrets moved out of `teams/<id>/`, so `remove_global_team_home`

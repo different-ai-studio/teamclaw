@@ -841,10 +841,10 @@ mod tests {
 
         let resolved = resolve_team_dir(workspace, Some("team-abc")).unwrap();
 
-        let expected = crate::commands::amuxd_home_dir()
-            .join("teams")
-            .join("team-abc")
-            .join(crate::commands::TEAM_REPO_DIR);
+        // Under `shared/`, not directly in the team dir: everything else the
+        // daemon writes for this team is a sibling of `shared/`, outside the
+        // one directory the sync engine scans.
+        let expected = crate::commands::amuxd_team_shared_dir("team-abc");
         assert_eq!(resolved, expected);
         assert!(
             resolved.exists(),

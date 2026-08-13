@@ -38,9 +38,54 @@ pub fn cache_dir() -> PathBuf {
     root().join("cache")
 }
 
-/// One directory per team. Populated in PR ④b.
+/// One directory per team.
 pub fn teams_dir() -> PathBuf {
     root().join("teams")
+}
+
+/// Reserved directory name for a daemon that has not been claimed yet.
+///
+/// Unclaimed is a supported resting state (`DeferredBackend::unclaimed()`), and
+/// the embedded `/v1/ui` chat can create sessions in it, so those writes need
+/// somewhere to land. Giving them a directory means the code has exactly one
+/// path — "the current team's directory" — instead of a `None` branch at every
+/// write site. Team ids are UUIDs, so the leading underscore cannot collide.
+pub const UNCLAIMED_TEAM: &str = "_unclaimed";
+
+/// `teams/<id>`, or `teams/_unclaimed` when there is no team yet.
+pub fn team_dir(team_id: &str) -> PathBuf {
+    teams_dir().join(team_slug(team_id))
+}
+
+/// `teams/<id>/shared` — the **only** path the sync engine is allowed to scan.
+///
+/// Everything the daemon writes for a team is a sibling of this, never inside
+/// it. That is what makes "will adding a file here push it to the cloud?"
+/// answerable with a flat no: under the old layout the answer depended on which
+/// level you added it at, and `cloud/` only escaped the scanner by being a
+/// sibling of `teamclu-team/` — an implicit rule with nothing enforcing it.
+pub fn team_shared_dir(team_id: &str) -> PathBuf {
+    team_dir(team_id).join("shared")
+}
+
+/// `teams/<id>/state` — daemon-private, never synced.
+pub fn team_state_dir(team_id: &str) -> PathBuf {
+    team_dir(team_id).join("state")
+}
+
+/// `teams/<id>/workspace` — the writable default worktree for spawns that carry
+/// no workspace of their own.
+pub fn team_workspace_dir(team_id: &str) -> PathBuf {
+    team_dir(team_id).join("workspace")
+}
+
+fn team_slug(team_id: &str) -> &str {
+    let trimmed = team_id.trim();
+    if trimmed.is_empty() {
+        UNCLAIMED_TEAM
+    } else {
+        trimmed
+    }
 }
 
 /// Create the fixed subdirectories so callers can write without each of them

@@ -88,6 +88,21 @@ pub fn amuxd_logs_dir() -> std::path::PathBuf {
     amuxd_home_dir().join("logs")
 }
 
+/// `<amuxd home>/teams/<team_id>` — everything the daemon keeps for one team.
+pub fn amuxd_team_dir(team_id: &str) -> std::path::PathBuf {
+    amuxd_home_dir().join("teams").join(team_id)
+}
+
+/// `<amuxd home>/teams/<team_id>/shared/teamclu-team` — the daemon's synced
+/// copy, and the target every workspace's `teamclu-team` symlink points at.
+///
+/// Mirrors `daemon::config::global_team_store::global_team_dir`. The `shared/`
+/// level is what keeps daemon-private state out of the one directory the sync
+/// engine scans, so this app must not shortcut past it.
+pub fn amuxd_team_shared_dir(team_id: &str) -> std::path::PathBuf {
+    amuxd_team_dir(team_id).join("shared").join(TEAM_REPO_DIR)
+}
+
 /// This desktop brand's own home storage directory (`~/.teamclu` or `~/.<brand>`):
 /// personal secrets, `local-cache.db`, telemetry consent, the PATH cache.
 ///

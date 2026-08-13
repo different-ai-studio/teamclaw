@@ -22,29 +22,25 @@ pub const TEAM_LINK_NAME: &str = "teamclu-team";
 /// had a writer here.
 pub const SHARED_PREFIXES: &[&str] = &["knowledge"];
 
-/// `~/.amuxd/teams/<team_id>/teamclu-team` — the one synced copy.
+/// `~/.amuxd/teams/<team_id>/shared/teamclu-team` — the one synced copy.
 pub fn global_team_dir(team_id: &str) -> PathBuf {
-    DaemonConfig::config_dir()
-        .join("teams")
-        .join(team_id)
-        .join(TEAM_LINK_NAME)
+    super::layout::team_shared_dir(team_id).join(TEAM_LINK_NAME)
 }
 
-/// `~/.amuxd/teams/<team_id>/cloud` — daemon-owned mirror of the team config
-/// that now comes from the Cloud API rather than the sync engine (team MCP,
-/// team env). See `runtime::team_cloud_config`.
+/// `~/.amuxd/teams/<team_id>/state/cloud` — daemon-owned mirror of the team
+/// config that now comes from the Cloud API rather than the sync engine (team
+/// MCP, team env). See `runtime::team_cloud_config`.
 ///
-/// Deliberately a *sibling* of `teamclu-team`, never inside it. Inside, a
-/// daemon writer would show up as a dirty working tree in git share modes
-/// (commit churn, ambiguous ownership) and would be picked up by the sync
-/// scanner as local content to push — including emitting tombstones for other
-/// members when it changed. Outside, the whole feature rolls back by deleting
-/// one directory.
+/// It must stay outside `shared/`: a daemon writer inside the synced tree shows
+/// up as a dirty working tree in git share modes (commit churn, ambiguous
+/// ownership) and the sync scanner treats it as local content to push —
+/// emitting tombstones for other members when it changes.
+///
+/// That used to be enforced by "be a sibling of `teamclu-team/`", which is a
+/// rule you can only follow if you know it. Under `state/` it follows from
+/// where the directory is.
 pub fn global_team_cloud_dir(team_id: &str) -> PathBuf {
-    DaemonConfig::config_dir()
-        .join("teams")
-        .join(team_id)
-        .join("cloud")
+    super::layout::team_state_dir(team_id).join("cloud")
 }
 
 /// `~/.amuxd/teams/<team_id>/workspace` — the writable default worktree used for
@@ -56,10 +52,7 @@ pub fn global_team_cloud_dir(team_id: &str) -> PathBuf {
 /// self-link is created here — relative team reads fall back to `global_team_dir`
 /// via [`resolve_team_dir`].
 pub fn default_workspace_dir(team_id: &str) -> PathBuf {
-    DaemonConfig::config_dir()
-        .join("teams")
-        .join(team_id)
-        .join("workspace")
+    super::layout::team_workspace_dir(team_id)
 }
 
 /// The onboarded team's default worktree ([`default_workspace_dir`]), created if
@@ -84,16 +77,12 @@ pub fn onboarded_default_workspace_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
-/// `~/.amuxd/teams/<team_id>/sync/state.json` — OSS sync state, one per team.
+/// `~/.amuxd/teams/<team_id>/state/sync.json` — OSS sync state, one per team.
 ///
 /// Defines the canonical per-team sync-state location, consumed by the OSS
 /// sync engine's `LocalSyncState::load_at` / `save_at`.
 pub fn global_sync_state_path(team_id: &str) -> PathBuf {
-    DaemonConfig::config_dir()
-        .join("teams")
-        .join(team_id)
-        .join("sync")
-        .join("state.json")
+    super::layout::team_state_dir(team_id).join("sync.json")
 }
 
 /// Where to read this workspace's shared team content. If the in-workspace
@@ -157,8 +146,29 @@ mod tests {
         let a = global_team_dir("team-a");
         let b = global_team_dir("team-b");
         assert_ne!(a, b);
-        assert!(a.ends_with("teams/team-a/teamclu-team"));
-        assert!(global_sync_state_path("team-a").ends_with("teams/team-a/sync/state.json"));
+        assert!(a.ends_with("teams/team-a/shared/teamclu-team"));
+        assert!(global_sync_state_path("team-a").ends_with("teams/team-a/state/sync.json"));
+    }
+
+    /// The load-bearing separation: everything the daemon writes for a team is
+    /// outside the one directory the sync engine scans. A path that satisfies
+    /// this by accident today (`cloud/` as a sibling of `teamclu-team/`) breaks
+    /// the moment someone adds a sibling one level in.
+    #[test]
+    fn daemon_private_paths_stay_out_of_the_synced_tree() {
+        let synced = global_team_dir("team-a");
+        for private in [
+            global_team_cloud_dir("team-a"),
+            global_sync_state_path("team-a"),
+            default_workspace_dir("team-a"),
+        ] {
+            assert!(
+                !private.starts_with(&synced),
+                "{} is inside the synced tree {}",
+                private.display(),
+                synced.display()
+            );
+        }
     }
 
     #[test]
