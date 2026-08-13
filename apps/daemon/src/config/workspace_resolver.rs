@@ -243,19 +243,8 @@ impl WorkspaceResolver {
         candidate: &Path,
         team_id: Option<&str>,
     ) -> Option<WorkspaceIdentity> {
-        self.cache
-            .read()
-            .await
-            .entries
-            .iter()
-            .filter(|(_, resolved)| team_id.is_none() || resolved.team_id.as_deref() == team_id)
-            .filter_map(|(workspace_id, resolved)| {
-                let canonical_root = Path::new(resolved.path.trim()).canonicalize().ok()?;
-                let identity = workspace_identity(workspace_id, resolved)?;
-                owns_worktree(&canonical_root, candidate).then_some((canonical_root, identity))
-            })
-            .max_by_key(|(canonical_root, _)| canonical_root.components().count())
-            .map(|(_, identity)| identity)
+        let cache = self.cache.read().await;
+        select_workspace_identity(&cache.entries, candidate, team_id)
     }
 
     /// Clear the entire cache (call after receiving `workspaces.changed` or
@@ -352,6 +341,35 @@ fn conflicting_workspace_ids(rows: &[crate::backend::WorkspaceRow]) -> HashSet<S
         }
     }
     conflicting_ids
+}
+
+fn select_workspace_identity(
+    entries: &HashMap<String, ResolvedWorkspace>,
+    candidate: &Path,
+    team_id: Option<&str>,
+) -> Option<WorkspaceIdentity> {
+    let candidates: Vec<_> = entries
+        .iter()
+        .filter(|(_, resolved)| team_id.is_none() || resolved.team_id.as_deref() == team_id)
+        .filter_map(|(workspace_id, resolved)| {
+            let canonical_root = Path::new(resolved.path.trim()).canonicalize().ok()?;
+            let identity = workspace_identity(workspace_id, resolved)?;
+            Some((canonical_root, identity))
+        })
+        .collect();
+    let mut canonical_root_counts: HashMap<PathBuf, usize> = HashMap::new();
+    for (canonical_root, _) in &candidates {
+        *canonical_root_counts
+            .entry(canonical_root.clone())
+            .or_default() += 1;
+    }
+
+    candidates
+        .into_iter()
+        .filter(|(canonical_root, _)| canonical_root_counts[canonical_root] == 1)
+        .filter(|(canonical_root, _)| owns_worktree(canonical_root, candidate))
+        .max_by_key(|(canonical_root, _)| canonical_root.components().count())
+        .map(|(_, identity)| identity)
 }
 
 fn workspace_identity(
@@ -605,6 +623,32 @@ mod tests {
 
         assert!(resolver
             .resolve_identity_for_path(root.path(), Some("team-x"))
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn cache_only_identity_rejects_canonical_root_collisions() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical_spelling = root.path().to_string_lossy();
+        let alias_spelling = root.path().join(".").to_string_lossy().into_owned();
+        let mock = MockBackend::new();
+        seed(
+            &mock,
+            "ws-canonical",
+            "team-x",
+            Some(canonical_spelling.as_ref()),
+        );
+        seed(&mock, "ws-alias", "team-x", Some(&alias_spelling));
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let resolver = WorkspaceResolver::new(backend);
+        resolver
+            .warm(&["ws-canonical".into(), "ws-alias".into()])
+            .await
+            .unwrap();
+
+        assert!(resolver
+            .resolve_identity_for_path(root.path(), None)
             .await
             .is_none());
     }
