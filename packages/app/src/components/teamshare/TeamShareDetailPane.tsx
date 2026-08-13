@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useTeamShareBrowserStore, type TeamShareSection } from '@/stores/team-share-browser'
 import { SkillDetail } from './SkillDetail'
 import { SkillFileEditor } from './SkillFileEditor'
+import { KnowledgeVersionHistory } from './KnowledgeVersionHistory'
 import { KnowledgeDetail } from './KnowledgeDetail'
 import { McpDetail, McpEditForm } from './McpDetail'
 import { EnvDetail, EnvCreateForm } from './EnvDetail'
@@ -98,12 +99,19 @@ export function TeamShareDetailPane() {
   // own selectFile, so the pane follows selectedFile rather than a curated id.
   const selectedFile = useWorkspaceStore((s) => s.selectedFile)
   const knowledgeRoot = useTeamShareBrowserStore((s) => s.knowledgeRoot)
+  const knowledgeVersionsPath = useTeamShareBrowserStore((s) => s.knowledgeVersionsPath)
 
   if (!section) return null
   if (creating === section && (section === 'mcp' || section === 'env')) {
     return <CreatePane section={section} />
   }
   if (section === 'knowledge') {
+    // Version history takes the pane before the document does: it was opened
+    // from the tree's context menu, which does not have to move the selection,
+    // so there may well be a different document selected underneath it.
+    if (knowledgeVersionsPath) {
+      return <KnowledgeVersionHistory key={knowledgeVersionsPath} path={knowledgeVersionsPath} />
+    }
     // `selectedFile` is the app-wide workspace selection, not this column's.
     // Rendering it unchecked meant clicking Knowledge while a source file was
     // open put that file in the Knowledge editor — and saving wrote to it,

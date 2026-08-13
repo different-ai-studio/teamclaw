@@ -153,6 +153,17 @@ interface TeamShareBrowserState {
    * composite id back apart.
    */
   selectedSkillFile: string | null
+  /**
+   * Knowledge document whose version history is open in the detail pane.
+   *
+   * The workspace file tree opens version history as a main-area tab, and in
+   * this view the main area is the detail pane — the tab would be created with
+   * nowhere to render. Here it is a pane state instead, carrying the path the
+   * user actually right-clicked.
+   */
+  knowledgeVersionsPath: string | null
+  openKnowledgeVersions: (path: string) => void
+  closeKnowledgeVersions: () => void
   subjectActorId: string | null
 
   counts: () => Record<TeamShareSection, number>
@@ -680,6 +691,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   knowledgeRoot: null,
   selectedId: { skills: null, mcp: null, env: null, knowledge: null },
   selectedSkillFile: null,
+  knowledgeVersionsPath: null,
   subjectActorId: null,
   creating: null,
   skillLocalState: {},
@@ -710,6 +722,9 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     })),
 
   selectSkillFile: (rel) => set({ selectedSkillFile: rel }),
+
+  openKnowledgeVersions: (path) => set({ knowledgeVersionsPath: path }),
+  closeKnowledgeVersions: () => set({ knowledgeVersionsPath: null }),
 
   setCreating: (section) =>
     set((s) => ({

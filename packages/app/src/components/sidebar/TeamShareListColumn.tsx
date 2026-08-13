@@ -211,6 +211,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const selectedSkillFile = useTeamShareBrowserStore((s) => s.selectedSkillFile)
   const selectSkillFile = useTeamShareBrowserStore((s) => s.selectSkillFile)
   const reconcileSkills = useTeamShareBrowserStore((s) => s.reconcileSkills)
+  const closeKnowledgeVersions = useTeamShareBrowserStore((s) => s.closeKnowledgeVersions)
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
   const setCreating = useTeamShareBrowserStore((s) => s.setCreating)
 
@@ -253,8 +254,9 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
     setSearchOpen(false)
     setExpandedSkills(new Set())
     setRootCreate(null)
+    closeKnowledgeVersions()
     void loadSection(section, { force: true, withTools: section === 'mcp' })
-  }, [section, loadSection])
+  }, [section, loadSection, closeKnowledgeVersions])
 
   const { available: syncAvailable, syncing, syncNow } = useTeamCloudSync()
 
