@@ -486,7 +486,8 @@ export function makeAgentsRepo(db: DbLike, ctx: AgentsCtx = {}) {
       defaultAgentType,
     }: {
       supportedTypes: string[];
-      defaultAgentType: string;
+      /** `null` clears the record: this device runs no agent right now. */
+      defaultAgentType: string | null;
     }) {
       let agentActorId = ctx.callerActorId;
       if (!agentActorId && ctx.userId) {

@@ -273,13 +273,12 @@ impl Backend for MockBackend {
     async fn ensure_agent_types(
         &self,
         supported_types: &[String],
-        default_agent_type: &str,
+        default_agent_type: Option<&str>,
     ) -> BackendResult<()> {
-        self.state
-            .lock()
-            .unwrap()
-            .ensured_agent_types
-            .push((supported_types.to_vec(), default_agent_type.to_string()));
+        self.state.lock().unwrap().ensured_agent_types.push((
+            supported_types.to_vec(),
+            default_agent_type.unwrap_or_default().to_string(),
+        ));
         Ok(())
     }
 
