@@ -239,6 +239,22 @@ export function CronJobDialog({
       name: entry.name,
       connected: entry.getConnected(channelsStore),
     }))
+  const availableChannelIds = availableChannels.map((ch) => ch.id).join(',')
+
+  // If Delivery is on but the selected channel is not enabled, jump to the
+  // first available one (e.g. SeaTalk-only setups still defaulted to Discord).
+  React.useEffect(() => {
+    if (!form.deliveryEnabled || availableChannels.length === 0) return
+    if (availableChannels.some((ch) => ch.id === form.deliveryChannel)) return
+    const first = availableChannels[0]
+    const entry = getRegistryEntry(first.id)
+    setForm((prev) => ({
+      ...prev,
+      deliveryChannel: first.id,
+      deliveryTargetMode: entry?.modes?.[0]?.value || '',
+      deliveryTargetValues: {},
+    }))
+  }, [form.deliveryEnabled, form.deliveryChannel, availableChannelIds])
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -743,9 +759,15 @@ export function CronJobDialog({
                     ) : (
                       <Select
                         value={form.deliveryChannel}
-                        onValueChange={(v: DeliveryChannel) =>
-                          update({ deliveryChannel: v })
-                        }
+                        onValueChange={(v: DeliveryChannel) => {
+                          const entry = getRegistryEntry(v)
+                          const nextMode = entry?.modes?.[0]?.value || ''
+                          update({
+                            deliveryChannel: v,
+                            deliveryTargetMode: nextMode,
+                            deliveryTargetValues: {},
+                          })
+                        }}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -773,7 +795,7 @@ export function CronJobDialog({
                   </div>
 
                   {/* Dynamic channel-specific fields from registry */}
-                  {(() => {
+                  {availableChannels.length > 0 && (() => {
                     const entry = getRegistryEntry(form.deliveryChannel)
                     if (!entry) return null
 

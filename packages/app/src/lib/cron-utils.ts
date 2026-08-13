@@ -261,6 +261,50 @@ export const DELIVERY_CHANNEL_REGISTRY: DeliveryChannelRegistryEntry[] = [
       return `DM @${to}`
     },
   },
+  {
+    id: 'seatalk',
+    name: 'SeaTalk',
+    getEnabled: (s) => !!s.seatalk?.enabled,
+    getConnected: (s) => s.seatalkGatewayStatus?.status === 'connected',
+    modes: [
+      { value: 'single', label: 'Direct Message (DM)' },
+      { value: 'group', label: 'Group Chat' },
+    ],
+    fields: {
+      single: [
+        {
+          key: 'employeeCode',
+          label: 'Employee Code',
+          placeholder: 'e.g., E001234',
+          hint: 'SeaTalk employee_code for the DM recipient. Visible in gateway logs when the user messages the bot.',
+          required: true,
+        },
+      ],
+      group: [
+        {
+          key: 'groupId',
+          label: 'Group ID',
+          placeholder: 'e.g., group id from SeaTalk',
+          hint: 'SeaTalk group_id. Visible in gateway logs when the bot is @mentioned in that group.',
+          required: true,
+        },
+      ],
+    },
+    buildTarget: (mode, values) =>
+      mode === 'group' ? `group:${values.groupId}` : `single:${values.employeeCode}`,
+    parseTarget: (to): { mode: string; values: Record<string, string> } => {
+      if (to.startsWith('group:')) {
+        return { mode: 'group', values: { groupId: to.slice('group:'.length) } }
+      }
+      const employeeCode = to.startsWith('single:') ? to.slice('single:'.length) : to
+      return { mode: 'single', values: { employeeCode } }
+    },
+    getTargetDisplay: (to) => {
+      if (to.startsWith('group:')) return `Group ${to.slice(6)}`
+      if (to.startsWith('single:')) return `DM @${to.slice(7)}`
+      return `DM @${to}`
+    },
+  },
 ]
 
 export function getRegistryEntry(channelId: DeliveryChannel): DeliveryChannelRegistryEntry | undefined {

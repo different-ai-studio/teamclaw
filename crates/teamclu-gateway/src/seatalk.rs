@@ -301,6 +301,26 @@ impl SeaTalkGateway {
         self.status.read().await.clone()
     }
 
+    /// Proactive DM send for cron / MCP `send` (HTTP OpenAPI, no WS required).
+    pub async fn send_to_user(&self, employee_code: &str, text: &str) -> Result<(), String> {
+        let client = self.messaging_client().await?;
+        client.send_single_text(employee_code, text, None).await
+    }
+
+    /// Proactive group send for cron / MCP `send`.
+    pub async fn send_to_chat(&self, group_id: &str, text: &str) -> Result<(), String> {
+        let client = self.messaging_client().await?;
+        client.send_group_text(group_id, text, None).await
+    }
+
+    async fn messaging_client(&self) -> Result<SeaTalkClient, String> {
+        let config = self.config.read().await.clone();
+        if config.app_id.trim().is_empty() || config.app_secret.trim().is_empty() {
+            return Err("SeaTalk app_id and app_secret are required".to_string());
+        }
+        Ok(SeaTalkClient::new(config.app_id, config.app_secret))
+    }
+
     /// Probe SeaTalk Open Platform credentials by requesting an app access token.
     pub async fn test_credentials(app_id: &str, app_secret: &str) -> Result<String, String> {
         if app_id.trim().is_empty() || app_secret.trim().is_empty() {

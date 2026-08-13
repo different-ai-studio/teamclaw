@@ -284,9 +284,12 @@ describe('getChannelDisplayName – all channels', () => {
     expect(getChannelDisplayName('wechat')).toBe('WeChat')
   })
 
-  it('returns the raw channel name for channels without an explicit label', () => {
-    // "wecom" is a valid DeliveryChannel but has no switch case → falls through to default
-    expect(getChannelDisplayName('wecom')).toBe('wecom')
+  it('returns "WeCom" for wecom', () => {
+    expect(getChannelDisplayName('wecom')).toBe('WeCom')
+  })
+
+  it('returns "SeaTalk" for seatalk', () => {
+    expect(getChannelDisplayName('seatalk')).toBe('SeaTalk')
   })
 })
 
