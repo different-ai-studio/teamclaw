@@ -210,6 +210,52 @@ mod execution_context_tests {
         assert!(context.spawn_env.extra_env.is_empty());
         std::fs::remove_dir_all(&context.working_directory).unwrap();
     }
+
+    #[tokio::test]
+    async fn stored_gateway_resume_keeps_real_workspace_with_scratch_shaped_path_scoped() {
+        let scratch_shaped_workspace = std::env::temp_dir().join(format!(
+            "amuxd-gateway-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        ));
+        std::fs::create_dir_all(&scratch_shaped_workspace).unwrap();
+        let backend = Arc::new(MockBackend::default());
+        backend.state().workspaces_by_id.insert(
+            "ws-real".into(),
+            WorkspaceRow {
+                id: "ws-real".into(),
+                team_id: "team-a".into(),
+                path: Some(scratch_shaped_workspace.to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        let assembler = assembler(backend, "team-a", "actor-a");
+
+        let context = assembler
+            .assemble_stored(
+                scratch_shaped_workspace.to_string_lossy().as_ref(),
+                "gateway:wecom://bot/chat",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            context.isolation_domain,
+            IsolationDomainKey::Workspace("ws-real".into())
+        );
+        assert_eq!(
+            context
+                .workspace
+                .as_ref()
+                .map(|workspace| workspace.workspace_id.as_str()),
+            Some("ws-real")
+        );
+        assert!(
+            !context.spawn_env.extra_env.is_empty(),
+            "real workspace resumes must assemble workspace environment"
+        );
+        std::fs::remove_dir_all(&scratch_shaped_workspace).unwrap();
+    }
 }
 
 impl ExecutionContextAssembler {
@@ -263,6 +309,23 @@ impl ExecutionContextAssembler {
         }
 
         let working_directory = Path::new(working_directory);
+        if self
+            .workspace_resolver
+            .resolve_identity_for_path(working_directory, self.configured_team_id())
+            .await
+            .is_some()
+        {
+            return self
+                .assemble(
+                    working_directory.to_string_lossy().as_ref(),
+                    None,
+                    None,
+                    true,
+                    None,
+                )
+                .await;
+        }
+
         if is_daemon_gateway_scratch_directory(working_directory) {
             return self
                 .assemble_unscoped_gateway(Some(working_directory))

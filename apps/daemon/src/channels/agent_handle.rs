@@ -62,6 +62,9 @@ pub struct ResolvedSession {
 /// `/workspace` (which also writes the new default back to that file).
 #[derive(Clone, Default)]
 pub struct BotRuntimeConfig {
+    /// Configured workspace ID, retained even when its path lookup fails so a
+    /// scoped bot cannot silently degrade to an unscoped spawn.
+    pub workspace_id: Option<String>,
     /// Already-resolved local workspace directory (workspace_id -> path).
     pub workspace_dir: Option<String>,
     pub agent_type: Option<amux::AgentType>,
@@ -161,7 +164,7 @@ impl AmuxdAgentHandle {
         &self,
         session: &str,
         binding: &str,
-    ) -> (Option<String>, Option<amux::AgentType>) {
+    ) -> Result<(Option<String>, Option<amux::AgentType>), AgentError> {
         let bot = {
             let configs = self.bot_configs.lock().await;
             bot_id_from_binding(binding)
@@ -176,16 +179,18 @@ impl AmuxdAgentHandle {
             let ov = self.workspace_override.lock().await;
             ov.get(session).cloned()
         };
-        let session_ws_dir = match session_ws_id {
-            Some(wid) => self.workspace_dir_for_id(&wid).await,
-            None => None,
+        let workspace_dir = if let Some(workspace_id) = session_ws_id {
+            Some(self.workspace_dir_for_id(&workspace_id).await?)
+        } else if let Some(workspace_id) = bot.workspace_id.as_deref() {
+            match bot.workspace_dir {
+                Some(path) => Some(path),
+                None => Some(self.workspace_dir_for_id(workspace_id).await?),
+            }
+        } else {
+            bot.workspace_dir.or(self.default_workspace_dir.clone())
         };
 
-        let workspace_dir = session_ws_dir
-            .or(bot.workspace_dir.clone())
-            .or(self.default_workspace_dir.clone());
-
-        (workspace_dir, agent_type)
+        Ok((workspace_dir, agent_type))
     }
 
     /// Build the runtime environment for a gateway spawn: team secrets,
@@ -302,7 +307,7 @@ impl AmuxdAgentHandle {
             map.get(session).map(|s| s.binding.clone())
         }
         .unwrap_or_default();
-        let (workspace_dir, _) = self.resolve_spawn_target(session, &binding).await;
+        let (workspace_dir, _) = self.resolve_spawn_target(session, &binding).await?;
         let Some(dir) = workspace_dir else {
             // No resolvable workspace — a spawn would run in a throwaway
             // scratch dir, which tells us nothing useful about the catalog.
@@ -380,9 +385,11 @@ impl AmuxdAgentHandle {
         )
         .map_err(|e| AgentError::Internal(format!("persist bot workspace: {e}")))?;
 
-        let path = self.workspace_dir_for_id(workspace_id).await;
+        let path = self.workspace_dir_for_id(workspace_id).await?;
         let mut configs = self.bot_configs.lock().await;
-        configs.entry(bot_id.to_string()).or_default().workspace_dir = path;
+        let config = configs.entry(bot_id.to_string()).or_default();
+        config.workspace_id = Some(workspace_id.to_string());
+        config.workspace_dir = Some(path);
         Ok(())
     }
 
@@ -410,13 +417,17 @@ impl AmuxdAgentHandle {
     }
 
     /// Resolve a workspace_id to its local path via the `WorkspaceResolver`
-    /// cache (`amux.workspaces` is the sole source of truth). `None` if the
-    /// id is unknown, has no path, or the backend lookup fails.
-    async fn workspace_dir_for_id(&self, workspace_id: &str) -> Option<String> {
+    /// cache (`amux.workspaces` is the sole source of truth). Resolution
+    /// failures remain errors so configured workspace scope cannot be erased.
+    async fn workspace_dir_for_id(&self, workspace_id: &str) -> Result<String, AgentError> {
         self.workspace_resolver
             .resolve(workspace_id)
             .await
-            .ok()
+            .map_err(|error| {
+                AgentError::Create(format!(
+                    "gateway workspace '{workspace_id}' resolution failed: {error}"
+                ))
+            })
             .map(|w| w.path)
     }
 
@@ -506,7 +517,7 @@ impl AmuxdAgentHandle {
             let overrides = self.model_override.lock().await;
             overrides.get(session).cloned()
         };
-        let (workspace_dir, agent_type) = self.resolve_spawn_target(session, &binding).await;
+        let (workspace_dir, agent_type) = self.resolve_spawn_target(session, &binding).await?;
         let context = self
             .assemble_execution_context(workspace_dir.as_deref())
             .await?;
@@ -1024,7 +1035,7 @@ impl AgentHandle for AmuxdAgentHandle {
         // this list, so the useful entries have to be at the front.
         let current = self.current_model(session).await?;
         let recent = {
-            let (_, agent_type) = self.resolve_spawn_target(session, "").await;
+            let (_, agent_type) = self.resolve_spawn_target(session, "").await?;
             let mgr = self.manager.lock().await;
             mgr.recent_models(agent_type)
         };
@@ -1614,6 +1625,49 @@ pub(crate) mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn explicit_gateway_workspace_lookup_failure_does_not_attach_unscoped() {
+        let backend = Arc::new(MockBackend::with_identity("team-a", "actor-a"));
+        backend.state().gateway_session_index.insert(
+            "scoped-missing".into(),
+            (
+                "cloud-scoped-missing".into(),
+                Some("seatalk://app/dm/E001".into()),
+            ),
+        );
+
+        let mut handle = make_handle_with_backend(backend);
+        handle.team_id = "team-a".into();
+        handle.spawn_env.actor_id = "actor-a".into();
+        handle.default_agent_type = Some(amux::AgentType::Opencode);
+        handle
+            .workspace_override
+            .lock()
+            .await
+            .insert("scoped-missing".into(), "ws-missing".into());
+        let captures = {
+            let mut manager = handle.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+
+        let err = match handle
+            .resolve_or_spawn(&AmuxSessionId::from("scoped-missing"))
+            .await
+        {
+            Ok(_) => panic!("configured workspace lookup failure must reject the spawn"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains("ws-missing"),
+            "resolution error must identify the configured workspace: {err}"
+        );
+        assert!(
+            captures.lock().unwrap().is_empty(),
+            "failed scoped resolution must not attach as UnscopedAgent"
+        );
+    }
+
     /// Drive a `TurnAggregator` and `absorb_emitted` — the same pair
     /// `run_turn` uses — over a scripted event stream.
     fn segments_from(events: &[amux::AcpEvent]) -> Vec<String> {
@@ -1763,6 +1817,7 @@ pub(crate) mod tests {
         bots.insert(
             "botA".to_string(),
             BotRuntimeConfig {
+                workspace_id: None,
                 workspace_dir: Some("/ws/bot-a".into()),
                 agent_type: Some(AgentType::Opencode),
                 system_prompt: Some("A".into()),
@@ -1775,13 +1830,15 @@ pub(crate) mod tests {
 
         let (ws, at) = handle
             .resolve_spawn_target("sess-A", "wecom://botA/botA/single/u")
-            .await;
+            .await
+            .unwrap();
         assert_eq!(ws.as_deref(), Some("/ws/bot-a"));
         assert_eq!(at, Some(AgentType::Opencode));
 
         let (ws2, at2) = handle
             .resolve_spawn_target("sess-Z", "wecom://botZ/botZ/single/u")
-            .await;
+            .await
+            .unwrap();
         assert_eq!(ws2.as_deref(), Some("/ws/global"));
         assert_eq!(at2, Some(AgentType::ClaudeCode));
     }
@@ -1901,6 +1958,7 @@ pub(crate) mod tests {
         bots.insert(
             "botA".to_string(),
             BotRuntimeConfig {
+                workspace_id: None,
                 workspace_dir: Some("/ws/bot-a".into()),
                 agent_type: Some(AgentType::Opencode),
                 system_prompt: None,
@@ -1917,7 +1975,8 @@ pub(crate) mod tests {
 
         let (ws, _at) = handle
             .resolve_spawn_target("sess-resolved", "wecom://botA/botA/single/u")
-            .await;
+            .await
+            .unwrap();
         assert_eq!(
             ws.as_deref(),
             Some("/tmp/ws-session"),
@@ -1925,21 +1984,20 @@ pub(crate) mod tests {
              and win over bot-level / global defaults"
         );
 
-        // Sanity: pointing the override at an unseeded id must NOT trivially
-        // pass through as a literal path — the resolver returns None on a
-        // lookup miss, so priority falls back to the bot-level default.
+        // Pointing the override at an unseeded id must fail closed rather than
+        // erasing the session scope and falling back to the bot-level default.
         handle
             .workspace_override
             .lock()
             .await
             .insert("sess-unseeded".to_string(), "ws-does-not-exist".to_string());
-        let (ws2, _at2) = handle
+        let err = handle
             .resolve_spawn_target("sess-unseeded", "wecom://botA/botA/single/u")
-            .await;
-        assert_eq!(
-            ws2.as_deref(),
-            Some("/ws/bot-a"),
-            "unseeded workspace_id must fail to resolve and fall back to bot-level default"
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("ws-does-not-exist"),
+            "unseeded workspace_id must return its resolution error: {err}"
         );
     }
 

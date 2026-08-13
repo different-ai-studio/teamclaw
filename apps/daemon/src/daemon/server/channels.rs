@@ -97,8 +97,8 @@ impl DaemonServer {
 
         // Per-bot runtime registry: resolve each WeCom bot's workspace dir +
         // agent type from `daemon.toml` so a bot's sessions spawn on its own
-        // workspace/agent instead of the daemon-wide gateway defaults. Bots not
-        // listed here (or with unresolved overrides) fall back to the defaults.
+        // workspace/agent instead of the daemon-wide gateway defaults. Retain
+        // the configured ID when resolution fails so spawning fails closed.
         let bot_configs: std::collections::HashMap<String, crate::channels::BotRuntimeConfig> = {
             use crate::channels::BotRuntimeConfig;
             let mut m = std::collections::HashMap::new();
@@ -117,7 +117,7 @@ impl DaemonServer {
                                     bot_id = %bot.bot_id,
                                     workspace_id = %id,
                                     "wecom bot workspace could not be resolved; \
-                                     its sessions fall back to the daemon default workspace"
+                                     its sessions will reject scoped spawns"
                                 );
                             }
                             path
@@ -128,6 +128,7 @@ impl DaemonServer {
                     m.insert(
                         bot.bot_id.clone(),
                         BotRuntimeConfig {
+                            workspace_id: bot.workspace_id.clone(),
                             workspace_dir,
                             agent_type,
                             system_prompt: bot.system_prompt.clone(),
