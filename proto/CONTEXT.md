@@ -74,8 +74,14 @@ worktree 条目两两 diff，全部差异只来自团队 LiteLLM 网关模型与
 无一来自目录本身（#742 决策 3）。
 
 **存储**保留全部 AgentType 的目录（切回旧后端时无需重探）。
-**`ActorPresence` retain 是 client 侧的唯一来源**，携带当前活跃 AgentType 的
-设备级并集 —— 不存在按需查询通道，见 ADR-0002。
+
+**上报**分远近两条路，别混：
+
+- **远端 actor** —— `ActorPresence` retain 是唯一来源，携带当前活跃 AgentType 的
+  设备级并集，无按需查询通道（ADR-0002）
+- **本机 daemon** —— 另有 loopback 按需通道
+  `GET /v1/workspaces/:id/model-catalog`，handler 会按需把后端拉起来。它是
+  **补充不是替代**：retain 落地后即覆盖它（`lib/local-daemon-model-catalog.ts:33-36`）
 
 _Avoid_: available models（字段名可以，术语不要）、模型列表
 
