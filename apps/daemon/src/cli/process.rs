@@ -308,6 +308,14 @@ pub fn reap_managed_agent_trees() {
     }
 }
 
+/// Reap process groups left by a previously hard-killed daemon.
+///
+/// The caller must hold the daemon singleton lock so this cannot signal serve
+/// generations owned by another live daemon.
+pub fn prepare_daemon_start() {
+    reap_managed_agent_trees();
+}
+
 fn finalize_stop() {
     reap_managed_agent_trees();
     cleanup_runtime_artifacts();
@@ -571,6 +579,55 @@ fn request_graceful_stop(pid: i32) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_start_preparation_reaps_a_leftover_registered_group() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::process::CommandExt;
+
+        let _home_guard = crate::config::global_team_store::TEST_HOME_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let previous_home = std::env::var_os("HOME");
+        let home = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", home.path()) };
+
+        let binary = home.path().join("opencode");
+        std::fs::write(&binary, "#!/bin/sh\nsleep 30\n").unwrap();
+        let mut permissions = std::fs::metadata(&binary).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&binary, permissions).unwrap();
+
+        let child = std::process::Command::new(&binary)
+            .arg("serve")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pgid = child.id();
+        crate::runtime::opencode_http::process_registry::ServeProcessRegistry::default()
+            .register("previous-daemon", pgid)
+            .unwrap();
+        drop(child);
+
+        prepare_daemon_start();
+
+        assert!(
+            !process_group_alive(i32::try_from(pgid).unwrap()),
+            "start preparation must reap the previous daemon's serve group"
+        );
+        assert!(
+            crate::runtime::opencode_http::process_registry::ServeProcessRegistry::default()
+                .snapshot()
+                .is_empty(),
+            "reaped groups must be removed from the registry"
+        );
+
+        match previous_home {
+            Some(home) => unsafe { std::env::set_var("HOME", home) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+    }
 
     #[test]
     fn daemon_lock_is_exclusive_until_guard_is_dropped() {
