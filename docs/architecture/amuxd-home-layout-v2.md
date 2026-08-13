@@ -17,12 +17,18 @@
 > | ④a | 根目录收敛 `run/` `logs/` `cache/` + 白名单测试 | ✅ |
 > | ④b-1 | `teams/<id>/{shared,state,workspace}` 三层 | ✅ |
 > | ④b-2 | `backend.toml` + `cloud-token` 下沉、`_unclaimed` + claim 时 rename | ✅ |
-> | ④b-3 | `runtimes.toml` / `sessions/` / `history/` / `mcp-configs/` / `attachments/` / `apps/` / `members.toml` 下沉 | ⬜ |
+> | ④b-3 | `runtimes.toml` / `sessions/` / `history/` / `mcp-configs/` / `attachments/` / `apps/` / `members.toml` 下沉 | ✅ |
 > | ④b-4 | 每团队一把 `secret.key` + `secrets.enc` 下沉、删掉反向搬运器 | ✅ |
-> | ④c | 旧路径一次性清理 + 删除全部迁移代码 | ⬜ |
-> | ⑤ | `daemon.toml` 瘦身（`team.toml` / agents 拆三份 / channels 凭证入库）、日志轮换、`amuxd clear` 重写 | ⬜ |
+> | ④c | 旧路径一次性清理 + 删除全部迁移代码 + `amuxd clear` 重写 | ✅ |
+> | ⑤ | `daemon.toml` 瘦身：`team.toml` 拆分 / `[agents]` 拆三份 / channels 凭证入 `secrets.enc` | ⬜ |
+> | ⑤ | 日志三合一 + 轮换 | ⬜ |
 >
-> ⑤ 里原列的"device-id 改名与边界"已作废，理由见 §3.2。
+> ⑤ 里原列的"device-id 改名与边界"已作废，理由见 §3.2；`amuxd clear` 重写
+> 提前并入 ④c，因为删掉 `legacy_config_dir` 时它是唯一的剩余调用方。
+>
+> **⑤ 尚未开始**，所以 §3.1 的 `active_team` 字段、§4.3 的 `team.toml`、§3.3 的
+> 单文件轮换日志目前都还是目标态：`daemon.toml` 仍持有 `team_id` / `[actor].id`
+> / `[channels]` / `[team_share]`，`logs/` 下仍是三份不轮换的日志。
 
 ---
 
