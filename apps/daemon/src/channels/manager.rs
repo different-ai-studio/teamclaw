@@ -172,9 +172,9 @@ impl ChannelManager {
     ///
     /// `target` shape is `user:<id>` or `chat:<id>`; per-channel adapters
     /// translate that into native IDs (for WeCom, `user` → single chat with
-    /// chat_type=1, `chat` → group chat with chat_type=2). M1 wires WeCom
-    /// only — other channels return an explanatory error until they're
-    /// ported in a follow-up.
+    /// chat_type=1, `chat` → group chat with chat_type=2; for SeaTalk,
+    /// `user` → employee_code DM, `chat` → group_id). WeCom and SeaTalk are
+    /// wired; other channels return an explanatory error until ported.
     pub async fn dispatch_send(
         &self,
         channel: &str,
@@ -225,8 +225,25 @@ impl ChannelManager {
                 };
                 result.map_err(|e| anyhow::anyhow!("wecom send: {e}"))
             }
-            "feishu" | "discord" | "kook" | "wechat" | "email" | "seatalk" => {
-                anyhow::bail!("{channel}: send not yet implemented in v2; only WeCom is wired")
+            "seatalk" => {
+                let g = running
+                    .seatalk
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("seatalk not running"))?;
+                let (kind, id) = parse_send_target(target)?;
+                let text = message.unwrap_or("");
+                if file_path.is_some() {
+                    anyhow::bail!("seatalk: file send not supported yet");
+                }
+                let result = match kind {
+                    "user" => g.send_to_user(id, text).await,
+                    "chat" => g.send_to_chat(id, text).await,
+                    other => anyhow::bail!("unknown target kind: {other}"),
+                };
+                result.map_err(|e| anyhow::anyhow!("seatalk send: {e}"))
+            }
+            "feishu" | "discord" | "kook" | "wechat" | "email" => {
+                anyhow::bail!("{channel}: send not yet implemented in v2; only WeCom/SeaTalk are wired")
             }
             other => anyhow::bail!("unknown channel: {other}"),
         }

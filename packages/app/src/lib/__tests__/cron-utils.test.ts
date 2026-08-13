@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { defaultFormState, formStateToPayload, jobToFormState } from '../cron-utils'
+import {
+  defaultFormState,
+  formStateToPayload,
+  getRegistryEntry,
+  jobToFormState,
+} from '../cron-utils'
 import type { CronJob } from '@/stores/cron'
 
 describe('cron-utils timeout compatibility', () => {
@@ -68,5 +73,22 @@ describe('cron-utils permission mode', () => {
     const form = jobToFormState(legacyJob({ message: 'ask me', permissionMode: 'default' }))
     expect(form.permissionMode).toBe('default')
     expect(formStateToPayload(form).permissionMode).toBe('default')
+  })
+})
+
+describe('cron-utils seatalk delivery registry', () => {
+  it('builds and parses SeaTalk group/DM targets', () => {
+    const entry = getRegistryEntry('seatalk')
+    expect(entry?.name).toBe('SeaTalk')
+    expect(entry?.buildTarget('group', { groupId: 'g1' })).toBe('group:g1')
+    expect(entry?.buildTarget('single', { employeeCode: 'E1' })).toBe('single:E1')
+    expect(entry?.parseTarget('group:g1')).toEqual({
+      mode: 'group',
+      values: { groupId: 'g1' },
+    })
+    expect(entry?.parseTarget('single:E1')).toEqual({
+      mode: 'single',
+      values: { employeeCode: 'E1' },
+    })
   })
 })

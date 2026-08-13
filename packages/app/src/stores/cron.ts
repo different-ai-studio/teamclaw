@@ -160,7 +160,7 @@ export interface CronPayload {
 export type CronPermissionMode = 'full_access' | 'default'
 
 export type DeliveryMode = 'announce' | 'none'
-export type DeliveryChannel = 'discord' | 'feishu' | 'email' | 'kook' | 'wechat' | 'wecom'
+export type DeliveryChannel = 'discord' | 'feishu' | 'email' | 'kook' | 'wechat' | 'wecom' | 'seatalk'
 
 export interface CronDelivery {
   mode: DeliveryMode
@@ -652,6 +652,10 @@ export function getChannelDisplayName(channel: DeliveryChannel): string {
       return 'KOOK'
     case 'wechat':
       return 'WeChat'
+    case 'wecom':
+      return 'WeCom'
+    case 'seatalk':
+      return 'SeaTalk'
     default:
       return channel
   }

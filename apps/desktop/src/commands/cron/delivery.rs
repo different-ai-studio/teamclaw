@@ -8,8 +8,8 @@ use crate::commands::gateway::email_config::EmailConfig;
 /// Manages delivery of cron job results to channels.
 /// Delegates to gateway modules for actual sending — no reimplementation.
 /// Most channels still read credentials from the workspace `.teamclu/teamclu.json`.
-/// WeCom is routed through the amuxd-owned gateway and reads ownerId from the daemon
-/// config dir when no explicit target is set.
+/// WeCom and SeaTalk are routed through the amuxd-owned gateway; WeCom also reads
+/// ownerId from the daemon config dir when no explicit target is set.
 #[derive(Debug, Clone)]
 pub struct DeliveryManager {
     workspace_path: String,
@@ -32,8 +32,12 @@ impl DeliveryManager {
         target: &str,
         message: &str,
     ) -> Result<Option<String>, String> {
-        if matches!(channel, DeliveryChannel::Wecom) {
-            self.send_wecom(target, message).await?;
+        if matches!(channel, DeliveryChannel::Wecom | DeliveryChannel::Seatalk) {
+            match channel {
+                DeliveryChannel::Wecom => self.send_wecom(target, message).await?,
+                DeliveryChannel::Seatalk => self.send_seatalk(target, message).await?,
+                _ => unreachable!(),
+            }
             return Ok(None);
         }
 
@@ -59,7 +63,7 @@ impl DeliveryManager {
                 self.send_wechat(&config, target, message).await?;
                 Ok(None)
             }
-            DeliveryChannel::Wecom => Ok(None),
+            DeliveryChannel::Wecom | DeliveryChannel::Seatalk => Ok(None),
         }
     }
 
@@ -317,6 +321,24 @@ impl DeliveryManager {
         Ok(())
     }
 
+    // ==================== SeaTalk ====================
+
+    /// Send via SeaTalk through amuxd's running gateway.
+    /// Target format: "single:{employee_code}" or "group:{group_id}" or raw employee_code.
+    async fn send_seatalk(&self, target: &str, message: &str) -> Result<(), String> {
+        let dispatch_target = seatalk_cron_target_to_dispatch(target)?;
+        let chunks = split_message(message, 4000);
+        for chunk in chunks {
+            amuxd_client::channel_send("seatalk", &dispatch_target, &chunk).await?;
+        }
+
+        println!(
+            "[Cron Delivery] SeaTalk message sent via amuxd to {}",
+            dispatch_target
+        );
+        Ok(())
+    }
+
     /// Resolve WeCom ownerId from amuxd's persisted gateway state, with a legacy
     /// fallback to the workspace teamclu.json for pre-migration installs.
     fn resolve_wecom_owner_id(&self) -> Result<String, String> {
@@ -359,9 +381,29 @@ fn wecom_cron_target_to_dispatch(target: &str) -> Result<String, String> {
     Ok(format!("user:{target}"))
 }
 
+/// Map SeaTalk cron UI targets (`single:` / `group:` / raw) to amuxd dispatch.
+fn seatalk_cron_target_to_dispatch(target: &str) -> Result<String, String> {
+    if let Some(id) = target.strip_prefix("single:") {
+        if id.trim().is_empty() {
+            return Err("SeaTalk employee_code is empty".into());
+        }
+        return Ok(format!("user:{id}"));
+    }
+    if let Some(id) = target.strip_prefix("group:") {
+        if id.trim().is_empty() {
+            return Err("SeaTalk group_id is empty".into());
+        }
+        return Ok(format!("chat:{id}"));
+    }
+    if target.trim().is_empty() {
+        return Err("SeaTalk target is empty".into());
+    }
+    Ok(format!("user:{target}"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::wecom_cron_target_to_dispatch;
+    use super::{seatalk_cron_target_to_dispatch, wecom_cron_target_to_dispatch};
 
     #[test]
     fn maps_single_and_group_targets() {
@@ -374,6 +416,24 @@ mod tests {
             "chat:chat-1"
         );
         assert_eq!(wecom_cron_target_to_dispatch("bob").unwrap(), "user:bob");
+    }
+
+    #[test]
+    fn maps_seatalk_single_and_group_targets() {
+        assert_eq!(
+            seatalk_cron_target_to_dispatch("single:E001").unwrap(),
+            "user:E001"
+        );
+        assert_eq!(
+            seatalk_cron_target_to_dispatch("group:g-abc").unwrap(),
+            "chat:g-abc"
+        );
+        assert_eq!(
+            seatalk_cron_target_to_dispatch("E002").unwrap(),
+            "user:E002"
+        );
+        assert!(seatalk_cron_target_to_dispatch("group:").is_err());
+        assert!(seatalk_cron_target_to_dispatch("").is_err());
     }
 }
 

@@ -1673,8 +1673,28 @@ impl RuntimeManager {
                  cannot attach"
             )));
         };
+
+        // Desktop (or a concurrent gateway turn) may already hold this session's
+        // attachment. Reuse it — `start_runtime_with_model` rejects a second
+        // attach with "already has an attachment", which SeaTalk/WeCom surface
+        // as a failed bot reply even though the runtime is healthy.
+        if let Some(existing) = self
+            .agents
+            .get(session_id)
+            .map(|h| h.acp_session_id.clone())
+            .filter(|s| !s.is_empty())
+        {
+            info!(
+                session_id,
+                acp_session_id = %existing,
+                logical_session_id,
+                "create_gateway_session: reusing live attachment"
+            );
+            return Ok(existing);
+        }
+
         let workspace_id = format!("{GATEWAY_WORKSPACE_ID_PREFIX}{binding}");
-        let agent_id = self
+        let agent_id = match self
             .start_runtime_with_model(
                 agent_type,
                 &worktree,
@@ -1687,7 +1707,29 @@ impl RuntimeManager {
                 None,
                 spawn_env,
             )
-            .await?;
+            .await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                // Lost the race to another attach between the check above and
+                // start — reuse whatever won rather than failing the chat turn.
+                if let Some(existing) = self
+                    .agents
+                    .get(session_id)
+                    .map(|h| h.acp_session_id.clone())
+                    .filter(|s| !s.is_empty())
+                {
+                    warn!(
+                        session_id,
+                        acp_session_id = %existing,
+                        error = %e,
+                        "create_gateway_session: attach raced; reusing winner"
+                    );
+                    return Ok(existing);
+                }
+                return Err(e);
+            }
+        };
 
         let acp_sid = self
             .agents
@@ -2817,6 +2859,38 @@ mod tests {
         assert_eq!(mgr.runtime_ids_for_session("session_S"), vec!["session_S"]);
         assert_eq!(mgr.runtime_ids_for_session("session_OTHER"), vec!["session_OTHER"]);
         assert!(mgr.runtime_ids_for_session("unknown").is_empty());
+    }
+
+    /// Gateway bots (SeaTalk/WeCom) must reuse a live desktop/gateway
+    /// attachment instead of failing with "already has an attachment".
+    #[tokio::test]
+    async fn create_gateway_session_reuses_live_attachment() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("f8346f4d-62a5-4fdc-b8fc-8cb0e9ee4d93");
+        mgr.get_handle_mut("f8346f4d-62a5-4fdc-b8fc-8cb0e9ee4d93")
+            .unwrap()
+            .acp_session_id = "ses_already_live".into();
+
+        let acp = mgr
+            .create_gateway_session_with_model(
+                "team-1",
+                "logical-acp-hex",
+                "seatalk://app/dm/E001",
+                "SeaTalk DM",
+                None,
+                Some("f8346f4d-62a5-4fdc-b8fc-8cb0e9ee4d93"),
+                None,
+                None,
+                SpawnRuntimeEnv {
+                    is_gateway: true,
+                    ..SpawnRuntimeEnv::default()
+                },
+            )
+            .await
+            .expect("should reuse, not re-attach");
+
+        assert_eq!(acp, "ses_already_live");
+        assert_eq!(mgr.agent_count().await, 1);
     }
 
     #[test]

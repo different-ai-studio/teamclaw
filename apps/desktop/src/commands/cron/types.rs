@@ -94,6 +94,7 @@ pub enum DeliveryChannel {
     Kook,
     Wechat,
     Wecom,
+    Seatalk,
 }
 
 /// Delivery configuration for cron job results
