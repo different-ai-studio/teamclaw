@@ -16,7 +16,6 @@ import {
   FilePlus,
   FolderPlus,
   RefreshCw,
-  Cloud,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -196,6 +195,11 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
     void loadSection(section, { force: true, withTools: section === 'mcp' })
   }, [section, loadSection])
 
+  const { available: syncAvailable, syncing, syncNow } = useTeamCloudSync()
+
+  // One button, two phases: re-read the local catalog first for instant
+  // feedback, then run the cloud sync (when team share is enabled). The
+  // TEAM_SYNCED_EVENT listener below reloads the section again afterwards.
   const [refreshing, setRefreshing] = React.useState(false)
   const handleRefresh = React.useCallback(async () => {
     setRefreshing(true)
@@ -204,9 +208,8 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
     } finally {
       setRefreshing(false)
     }
-  }, [section, loadSection])
-
-  const { available: syncAvailable, syncing, syncNow } = useTeamCloudSync()
+    if (syncAvailable) await syncNow()
+  }, [section, loadSection, syncAvailable, syncNow])
 
   // Reload after any successful cloud sync, ours or another surface's.
   React.useEffect(() => {
@@ -510,31 +513,19 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             variant="ghost"
             size="icon"
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            disabled={refreshing}
+            disabled={refreshing || syncing}
             onClick={() => void handleRefresh()}
-            title={t('common.refresh', 'Refresh')}
+            title={
+              syncAvailable
+                ? t('teamShare.refreshAndSync', 'Refresh and sync with cloud')
+                : t('common.refresh', 'Refresh')
+            }
             data-testid="teamshare-refresh"
           >
-            <RefreshCw className={cn('h-4 w-4', (refreshing || loading) && 'animate-spin')} />
+            <RefreshCw
+              className={cn('h-4 w-4', (refreshing || syncing || loading) && 'animate-spin')}
+            />
           </Button>
-          {syncAvailable && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-              disabled={syncing}
-              onClick={() => void syncNow()}
-              title={t('teamShare.cloudSync', 'Cloud sync')}
-              data-testid="teamshare-cloud-sync"
-            >
-              {syncing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Cloud className="h-4 w-4" />
-              )}
-            </Button>
-          )}
           {section === 'knowledge' && !needsEnabling && knowledgeRoot && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

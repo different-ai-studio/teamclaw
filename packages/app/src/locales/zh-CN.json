@@ -1,6 +1,6 @@
 {
   "teamShare": {
-    "cloudSync": "云端同步",
+    "refreshAndSync": "刷新并同步云端",
     "cloudSyncFailed": "同步失败：{{msg}}",
     "envAdd": "新增环境变量",
     "envAddTeam": "新增团队环境变量",
