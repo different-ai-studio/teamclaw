@@ -61,8 +61,11 @@ _Avoid_: 默认后端、default backend（会读成"可以被覆盖的缺省值"
 
 ### ModelCatalog
 某 [AgentType](#agenttype) 下**可选模型的全集**，**设备级一份**。
-proto: `repeated ModelInfo`；daemon 持久化于 `~/.amuxd/model-catalog.toml`，
+proto: `repeated ModelInfo`；daemon 持久化于 `~/.amuxd/cache/model-catalog.toml`，
 键为 `by_backend.{agent_type}.{worktree}`。
+
+**这是 daemon 唯一持有的模型状态**（ADR-0007）：catalog 是「这台设备**能跑**什么」，
+属于能力；「上次用什么 / 现在用什么」属于偏好与事实，都不再由 daemon 持久化。
 
 ⚠️ 存储按 worktree 分片，**上报不分片**。存储是观测记录（每次探测如实落账），
 上报的是设备级并集。此前正文写的「不是 Actor 的属性 —— 同一 actor 在不同
@@ -77,16 +80,26 @@ worktree 条目两两 diff，全部差异只来自团队 LiteLLM 网关模型与
 _Avoid_: available models（字段名可以，术语不要）、模型列表
 
 ### DefaultModel
-某 ([Actor](#actor), [AgentType](#agenttype)) 组合下**上次实际使用**的模型，
-即该组合 MRU 列表的表头。是**记忆**，不是配置项，用户无处显式设定它。
-daemon 权威：`config::model_mru`（`~/.amuxd/model-mru.toml`）。
 
-键里**不再含 Worktree**（#742 决策 4）：目录级 MRU 已删除，gateway / cron 无论
-在哪个目录启动都得到同一个答案。消费语义是显示兜底
-（`currentModel || defaultModel`）；会话真正用的模型按 ADR-0005 存于
-`session_participants.model`，不受此影响。
+⚠️ **已废弃（ADR-0007）。新代码不要读不要写。** 标题保留是因为 ADR-0002 等文档
+仍链向此锚点。
 
-_Avoid_: 默认配置、preferred model、fallback model（后者指目录首项那一级派生兜底，是另一回事）
+曾指某 ([Actor](#actor), [AgentType](#agenttype)) 组合下**上次实际使用**的模型，
+即设备 MRU 列表的表头，daemon 权威（`config::model_mru`）。#742 决策 4 已把
+Worktree 从键里去掉，ADR-0007 进一步把整个概念从 daemon 移除：MRU 是**偏好**，
+偏好不属于 daemon。
+
+它承担过的两件事现在分别归属：
+
+| 曾经的用途 | 现在问谁 |
+|---|---|
+| 「这个 session 用哪个模型」 | [`session_participants.model`](#participant) —— 唯一答案，daemon 唯一写入者 |
+| 「上次用哪个模型」（新会话的起点） | **客户端偏好**，Tauri / iOS 各持一份，键 `(backend, team)`，两端不承诺一致 |
+
+automation（cron / gateway channel）不再有隐式缺省：**创建时必填 model**，运行时
+零推断。`unpinned 启动`这个状态因此不存在。
+
+_Avoid_: 整个术语。要表达「新会话该从哪个模型起步」，说「客户端 MRU」。
 
 ### Team
 顶层组织单元。所有 Actor / Workspace / Idea / Session 都 scoped to 单个 team。
@@ -101,7 +114,7 @@ DB 权威：`amux.session_participants`，唯一键 `(session_id, actor_id)`。
 | 列 | 含义 |
 |---|---|
 | `workspace_id` | 这个 agent 在这个 session 里用哪个 [Workspace](#workspace) |
-| `model` | 这个 agent 在这个 session 里用哪个模型 |
+| `model` | 这个 agent 在这个 session 里用哪个模型 —— **唯一答案**，daemon 唯一写入者（ADR-0007） |
 | `last_processed_message_id` | 这个 agent 读到哪儿了（重启后 catch-up 用） |
 
 member 参与者这三列恒为 NULL —— 不是数据缺失，是不适用。
@@ -133,8 +146,13 @@ desktop 端的 [Workspace](../packages/app/CONTEXT.md#workspace) 是其本地视
 一个 [Workspace](#workspace) 在**某台设备上**实体化出的本地绝对路径。
 一个 Workspace 在每台设备上有 0 或 1 个 Worktree —— 未注册的设备上映射为空
 （`resolveLocalPathForCloudWorkspace` 返回 `null`）。
-**不再**是 [ModelCatalog](#modelcatalog) 或 [DefaultModel](#defaultmodel) 的键
-（#742 决策 3/4）—— 二者都已收敛为设备级。
+**查询语义上不再是 [ModelCatalog](#modelcatalog) 的键**（#742 决策 3）——
+catalog 已收敛为设备级并集。[DefaultModel](#defaultmodel) 连概念一起废弃了
+（ADR-0007）。
+
+⚠️ catalog 的**存储**目前仍按 worktree 分片（`by_backend.{agent_type}.{worktree}`）。
+那是观测记录，不是语义键 —— 按 #742 决策 3 的查证，catalog 真正的函数是
+`(backend, team)`，收敛存储键是一次尚未做的独立改动。
 
 ⚠️ Worktree 是**绝对路径**，含设备使用者的用户名与目录结构。
 当前 `RuntimeInfo.worktree` 随团队级 retain 广播给全团队 —— 待处理的信息泄漏点。

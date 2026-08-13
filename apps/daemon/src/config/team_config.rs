@@ -80,6 +80,101 @@ pub fn hydrate(config: &mut super::DaemonConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Give a team that never named a runtime one this machine can actually run.
+///
+/// `local_agent` is team-scoped, and a team that has never been told otherwise
+/// falls back to [`super::daemon_config::default_local_agent`] — the string
+/// "opencode", chosen with no knowledge of what is installed. On a machine that
+/// runs pi and has never had opencode, that default is a dead end reached by
+/// doing nothing wrong: every spawn fails with `agent_binary_missing(opencode)`
+/// and the model catalog comes back empty, while the setup that installed pi
+/// sits one directory away.
+///
+/// So: when the team document is silent *and* the default cannot be launched
+/// here, adopt the first runtime that can, and write it into the document. A
+/// machine that does have the default is left exactly as it was — this only
+/// rescues the case that was otherwise unusable.
+///
+/// Persisted rather than resolved per boot on purpose. Installing a second
+/// runtime later must not silently move a team onto it; once a team has an
+/// answer, that answer is the user's to change (Settings → Agent).
+///
+/// Returns whether it seeded anything.
+pub fn seed_local_agent_if_unset(config: &mut super::DaemonConfig) -> anyhow::Result<bool> {
+    seed_local_agent_with(config, local_agent_launchable)
+}
+
+/// The decision, with the host probe injected so it can be tested without
+/// depending on what happens to be installed on the machine running the tests.
+fn seed_local_agent_with(
+    config: &mut super::DaemonConfig,
+    launchable: impl Fn(&str) -> bool,
+) -> anyhow::Result<bool> {
+    let team_id = super::layout::active_team();
+    let team = load_typed(&team_id)?;
+    if team
+        .local_agent
+        .as_deref()
+        .map(|a| !a.trim().is_empty())
+        .unwrap_or(false)
+    {
+        return Ok(false);
+    }
+    if launchable(&config.agents.local_agent) {
+        return Ok(false);
+    }
+    let Some(pick) = LOCAL_AGENT_CANDIDATES
+        .iter()
+        .copied()
+        .find(|id| launchable(id))
+    else {
+        // Nothing runnable at all. Leaving the default in place keeps the error
+        // the user sees pointed at a real runtime name rather than at whatever
+        // this function happened to try last.
+        return Ok(false);
+    };
+    config.agents.local_agent = pick.to_string();
+    persist_from(config)?;
+    tracing::info!(
+        team = %team_id,
+        agent = pick,
+        "team named no local agent and the default is not installed; adopted an installed one"
+    );
+    Ok(true)
+}
+
+/// Runtimes worth adopting, most-preferred first. Deliberately short: these are
+/// the two the product installs and drives end to end. Cursor needs a node
+/// bridge and claude maps onto opencode, so neither is a sensible thing to
+/// pick *for* somebody.
+const LOCAL_AGENT_CANDIDATES: [&str; 2] = ["opencode", "pi"];
+
+/// Whether `agents.local_agent = <id>` could actually start on this machine.
+///
+/// Each runtime is asked the way it resolves itself — pi accepts `~/.pi/bin/pi`
+/// which `command -v pi` never sees, and opencode has its own installer path.
+/// An unknown id is reported launchable so this never demotes a runtime it
+/// simply does not know about.
+fn local_agent_launchable(id: &str) -> bool {
+    match id {
+        "opencode" | "claude" => crate::opencode_install::detect_opencode().is_some(),
+        "pi" => binary_on_disk_or_path(&crate::runtime::pi_rpc::process::resolve_binary(None)),
+        _ => true,
+    }
+}
+
+/// PATH lookup without a shell: `command -v` would need quoting rules, and the
+/// only thing being asked is whether a file of this name is reachable.
+fn binary_on_disk_or_path(binary: &str) -> bool {
+    let path = std::path::Path::new(binary);
+    if path.is_absolute() || binary.contains('/') {
+        return path.exists();
+    }
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(binary).exists()))
+        .unwrap_or(false)
+}
+
 /// Persist the team-scoped fields of an in-memory `DaemonConfig` (the
 /// channel-save sock path and the channel CLI both mutate those fields).
 pub fn persist_from(config: &super::DaemonConfig) -> anyhow::Result<()> {
@@ -395,6 +490,106 @@ mod tests {
 
     fn doc(text: &str) -> Value {
         text.parse().unwrap()
+    }
+
+    fn seed_config() -> super::super::DaemonConfig {
+        super::super::DaemonConfig {
+            actor: crate::config::ActorConfig {
+                id: "dev-1".to_string(),
+                name: "Mac".to_string(),
+            },
+            mqtt: crate::config::MqttConfig {
+                broker_url: "tcp://localhost:1883".to_string(),
+                username: None,
+                password: None,
+            },
+            agents: crate::config::AgentsConfig::default(),
+            transport: None,
+            team_id: None,
+            channels: crate::config::ChannelsConfig::default(),
+            idle_runtime_timeout_secs: None,
+            max_attachments: None,
+            http: None,
+            team_share: crate::config::TeamShareConfig::default(),
+            log: None,
+        }
+    }
+
+    /// Sets up a home whose active team is `team-1`, with `team.toml` as given.
+    fn seed_home(team_toml: Option<&str>) -> (tempfile::TempDir, BrandEnvGuard) {
+        let home = tempfile::tempdir().unwrap();
+        let guard = BrandEnvGuard::set_amuxd_home(home.path());
+        std::fs::write(
+            home.path().join("daemon.toml"),
+            "active_team = \"team-1\"\n",
+        )
+        .unwrap();
+        if let Some(text) = team_toml {
+            save_value("team-1", doc(text)).unwrap();
+        }
+        (home, guard)
+    }
+
+    #[test]
+    fn seeding_leaves_a_team_that_already_named_a_runtime_alone() {
+        // Even an uninstalled one: an explicit choice is the user's, and the
+        // spawn error names it, which is how they find out what to install.
+        let (_home, _guard) = seed_home(Some("local_agent = \"pi\"\n"));
+        let mut config = seed_config();
+        hydrate(&mut config).unwrap();
+
+        let seeded = seed_local_agent_with(&mut config, |_| false).unwrap();
+
+        assert!(!seeded);
+        assert_eq!(config.agents.local_agent, "pi");
+    }
+
+    #[test]
+    fn seeding_does_nothing_when_the_default_runs_here() {
+        // The common machine. Nothing is written, so nothing changes for anyone
+        // who was already working.
+        let (_home, _guard) = seed_home(None);
+        let mut config = seed_config();
+        let before = config.agents.local_agent.clone();
+
+        let seeded = seed_local_agent_with(&mut config, |id| id == before).unwrap();
+
+        assert!(!seeded);
+        assert_eq!(config.agents.local_agent, before);
+        assert!(load_typed("team-1").unwrap().local_agent.is_none());
+    }
+
+    #[test]
+    fn seeding_adopts_an_installed_runtime_and_writes_it_down() {
+        // The reported case: onboarding installed pi, the team never named a
+        // runtime, and the "opencode" default cannot start on this machine.
+        let (_home, _guard) = seed_home(None);
+        let mut config = seed_config();
+
+        let seeded = seed_local_agent_with(&mut config, |id| id == "pi").unwrap();
+
+        assert!(seeded);
+        assert_eq!(config.agents.local_agent, "pi");
+        // Written down, so installing opencode later cannot move the team.
+        assert_eq!(
+            load_typed("team-1").unwrap().local_agent.as_deref(),
+            Some("pi")
+        );
+    }
+
+    #[test]
+    fn seeding_keeps_the_default_when_nothing_is_installed() {
+        // With no runtime at all there is nothing to adopt, and the error the
+        // user gets should keep naming the default rather than whatever this
+        // tried last.
+        let (_home, _guard) = seed_home(None);
+        let mut config = seed_config();
+        let before = config.agents.local_agent.clone();
+
+        let seeded = seed_local_agent_with(&mut config, |_| false).unwrap();
+
+        assert!(!seeded);
+        assert_eq!(config.agents.local_agent, before);
     }
 
     #[test]
