@@ -453,6 +453,19 @@ pub trait Backend: Send + Sync {
         last_processed_message_id: &str,
     ) -> BackendResult<()>;
 
+    /// Persist the model this agent runs on for this session — same participant
+    /// row and same (session, actor) addressing as the cursor above.
+    ///
+    /// The daemon is the only writer: it is the only component that observes
+    /// which model a runtime actually settled on, and the only one present for
+    /// gateway and cron sessions, where no client is (ADR-0007).
+    async fn update_participant_model(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+        model: &str,
+    ) -> BackendResult<()>;
+
     /// Upsert an `actors` row of type `external` keyed on
     /// `(team_id, source, source_id)`. Returns the actor's UUID.
     async fn rpc_upsert_external_actor(

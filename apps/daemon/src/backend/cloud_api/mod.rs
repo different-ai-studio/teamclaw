@@ -1130,6 +1130,23 @@ impl Backend for CloudApiBackend {
         .await
     }
 
+    async fn update_participant_model(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+        model: &str,
+    ) -> BackendResult<()> {
+        #[derive(serde::Serialize)]
+        struct Body<'a> {
+            model: &'a str,
+        }
+        self.patch_no_content(
+            &format!("/v1/sessions/{session_id}/participants/{actor_id}/model"),
+            &Body { model },
+        )
+        .await
+    }
+
     async fn rpc_upsert_external_actor(
         &self,
         team_id: &str,

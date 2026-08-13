@@ -107,6 +107,8 @@ pub struct MockState {
     pub gateway_messages_inserted: Vec<RecordedGatewayMessage>,
     pub external_actors_upserted: Vec<RecordedExternalActor>,
     pub runtime_cursors_updated: Vec<(String, String)>,
+    /// `("{session}:{actor}", model)` pairs passed to `update_participant_model`.
+    pub participant_models_updated: Vec<(String, String)>,
     pub attachments_uploaded: Vec<RecordedAttachment>,
     pub gateway_sessions_ensured: Vec<RecordedGatewayEnsure>,
     /// `(binding, session_id)` pairs passed to `rpc_attach_gateway_session`.
@@ -418,6 +420,20 @@ impl Backend for MockBackend {
             format!("{session_id}:{actor_id}"),
             last_processed_message_id.to_string(),
         ));
+        Ok(())
+    }
+
+    async fn update_participant_model(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+        model: &str,
+    ) -> BackendResult<()> {
+        self.state
+            .lock()
+            .unwrap()
+            .participant_models_updated
+            .push((format!("{session_id}:{actor_id}"), model.to_string()));
         Ok(())
     }
 

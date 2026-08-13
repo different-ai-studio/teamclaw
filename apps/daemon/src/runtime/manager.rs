@@ -485,7 +485,16 @@ impl RuntimeManager {
     /// already been dropped from `agents` falls back to the daemon default,
     /// which is the backend it would have been running on.
     pub fn set_current_model(&mut self, agent_id: &str, model_id: &str) {
+        // Whether this is a real change, decided *before* `set_model` overwrites
+        // it. Attach-time resolution re-applies the same value on every runtime
+        // start, so without this the cloud write below would fire once per
+        // spawn with nothing new to say.
+        let changed = self.agent_state.model(agent_id).map(String::as_str) != Some(model_id);
+
         self.agent_state.set_model(agent_id, model_id);
+        if changed {
+            self.persist_participant_model(agent_id, model_id);
+        }
         let backend = self.backend_id_for_runtime(agent_id);
         // Catalogs differ per worktree (68–72 models for the same opencode on
         // one device), so the choice is attributed to the directory it was made
@@ -502,6 +511,70 @@ impl RuntimeManager {
                 warn!(error = %e, "model MRU save failed");
             }
         }
+    }
+
+    /// Mirror a settled model onto `session_participants.model` (ADR-0005),
+    /// which is the authoritative answer to "what model does this session run
+    /// on" and the one every client reads (ADR-0007).
+    ///
+    /// Fire-and-forget on purpose. The cursor write in `messaging.rs` can await
+    /// its backend call because it already sits in an async handler; this is a
+    /// sync method reached from six call sites, several of them on the runtime
+    /// start path. Blocking any of them on a cloud round trip to persist a
+    /// display value would trade a correct field for a slower spawn.
+    ///
+    /// Skipped when there is no backend (tests, offline daemon) or when the
+    /// attachment carries no session / actor to address the row by —
+    /// `owner_actor_id` is stamped by the env snapshot and back-filled in
+    /// `runtime_lifecycle`, so it is briefly empty on a cold attach.
+    fn persist_participant_model(&self, runtime_id: &str, model_id: &str) {
+        let Some(backend) = self.backend.clone() else {
+            return;
+        };
+        let Some((session_id, actor_id, model)) =
+            self.participant_model_write(runtime_id, model_id)
+        else {
+            return;
+        };
+
+        tokio::spawn(async move {
+            if let Err(e) = backend
+                .update_participant_model(&session_id, &actor_id, &model)
+                .await
+            {
+                // A stale display value is not worth failing anything over; the
+                // next model change re-attempts it.
+                warn!(?e, session_id, "update_participant_model failed");
+            }
+        });
+    }
+
+    /// The `(session, actor, model)` a participant-model write would target, or
+    /// `None` when this runtime cannot address a row.
+    ///
+    /// Split out from the spawn above so the decision is testable without
+    /// waiting on a detached task — the addressing is the part that has a
+    /// wrong answer available (see `owner_actor_id` vs `agent_id`), the spawn
+    /// is glue.
+    fn participant_model_write(
+        &self,
+        runtime_id: &str,
+        model_id: &str,
+    ) -> Option<(String, String, String)> {
+        let handle = self.agents.get(runtime_id)?;
+        let session_id = handle.session_id.trim();
+        // The cloud row is keyed by the *actor*, not by `agent_id` — that one is
+        // the 8-char spawn key and means nothing to Supabase.
+        let actor_id = handle.owner_actor_id.trim();
+        let model = model_id.trim();
+        if session_id.is_empty() || actor_id.is_empty() || model.is_empty() {
+            return None;
+        }
+        Some((
+            session_id.to_string(),
+            actor_id.to_string(),
+            model.to_string(),
+        ))
     }
 
     /// Ask the backend what model it actually ran this runtime's session on,
@@ -1987,6 +2060,40 @@ mod tests {
         mgr.record_catalog("/w1", &[catalog_model("a/x")]);
         mgr.record_catalog("/w1", &[]);
         assert_eq!(mgr.catalog_for_worktree("/w1").len(), 1);
+    }
+
+    /// The cloud row is keyed by the actor, not by the spawn key. `agent_id` is
+    /// an 8-char spawn key that means nothing to Supabase, so addressing the
+    /// participant row with it would write to a row that does not exist —
+    /// silently, since the PATCH matches zero rows and still returns 204.
+    #[test]
+    fn participant_model_write_addresses_the_actor_not_the_spawn_key() {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("session_S");
+        mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "actor-A".into();
+
+        let (session_id, actor_id, model) = mgr
+            .participant_model_write("session_S", "anthropic/claude-sonnet-4-6")
+            .expect("addressable");
+        assert_eq!(session_id, "session_S");
+        assert_eq!(actor_id, "actor-A");
+        assert_eq!(model, "anthropic/claude-sonnet-4-6");
+    }
+
+    /// `owner_actor_id` is stamped by the env snapshot and back-filled in
+    /// `runtime_lifecycle`, so a cold attach can reach here with it still empty.
+    /// Writing then would address `/participants//model`.
+    #[test]
+    fn participant_model_write_skips_what_it_cannot_address() {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("session_S");
+        // owner_actor_id still empty — the cold-attach window.
+        assert_eq!(mgr.participant_model_write("session_S", "a/b"), None);
+
+        mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "actor-A".into();
+        assert_eq!(mgr.participant_model_write("session_S", "   "), None);
+        assert_eq!(mgr.participant_model_write("no-such-runtime", "a/b"), None);
+
+        mgr.get_handle_mut("session_S").unwrap().session_id = String::new();
+        assert_eq!(mgr.participant_model_write("session_S", "a/b"), None);
     }
 
     #[test]
