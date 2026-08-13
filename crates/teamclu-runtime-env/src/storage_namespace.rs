@@ -19,6 +19,20 @@ pub const BRAND_SHORT_NAME_ENV: &str = "TEAMCLU_BRAND_SHORT_NAME";
 /// When unset, derived from [`BRAND_SHORT_NAME_ENV`] via [`amuxd_home_from_env`].
 pub const AMUXD_HOME_ENV: &str = "AMUXD_HOME";
 
+/// The only entries allowed directly inside the amuxd home (`~/.amuxd`).
+///
+/// Normative spec: `docs/architecture/amuxd-home-layout-v2.md` §1. That
+/// document's directory tree and this constant are kept item-for-item aligned;
+/// when they disagree the document wins and the same PR restores the match.
+///
+/// Adding an entry means answering one question first: *should this value change
+/// when the team changes?* Yes → `teams/<id>/state/`. No, and it is a cache →
+/// `cache/`. No, and it belongs to the process → `run/`. Otherwise it very
+/// likely does not belong in the daemon home at all.
+///
+/// Sorted, so the layout test can compare against a sorted directory listing.
+pub const ROOT_ALLOWLIST: &[&str] = &["cache", "daemon.toml", "device-id", "logs", "run", "teams"];
+
 /// Folder name under `$HOME` for official amuxd state (`~/.amuxd`).
 pub const OFFICIAL_AMUXD_DIR_NAME: &str = "amuxd";
 
@@ -60,20 +74,25 @@ pub const STORAGE_NAMESPACE_MIGRATION_MARKER: &str = "official-storage-namespace
 /// One-shot marker for the teamclaw → teamclu rebrand move.
 pub const REBRAND_NAMESPACE_MIGRATION_MARKER: &str = "official-storage-namespace-v2";
 
-/// Whether `short_name` identifies an official TeamClu build (Prod or Dev).
+/// Whether `short_name` identifies the official TeamClu build.
 ///
-/// The pre-rebrand spellings stay recognised: a shipped `build.config.json`
-/// (notably the betly channel's) still declares `shortName: "teamclaw"`, and
-/// dropping it here would silently reclassify those installs as white-label —
-/// moving them to `~/.teamclaw` + `~/.amuxd-teamclaw` and stranding their state.
+/// **Exactly one name is official.** This is the single definition; `build.rs`
+/// calls it as a build-dependency and the frontend mirrors it under a parity
+/// test. Spec: `docs/architecture/amuxd-home-layout-v2.md` §6.
+///
+/// The pre-rebrand spellings (`teamclaw`, `teamclawdev`) and `teamcludev` are
+/// deliberately *not* official. Two of the three implementations already
+/// classified them as white-label, so the codebase never actually agreed; the
+/// disagreement is what split betly's home state across `~/.teamclu/secrets`
+/// and `~/.teamclaw/local-cache.db`. Keeping `teamclaw` official is not an
+/// option either: it is byte-identical to [`LEGACY_BRAND_WORKSPACE_META_DIR`],
+/// which official builds actively consume, so the two brands would fight over
+/// one directory name with nothing on disk able to tell them apart.
+///
+/// Those names survive as `LEGACY_*` constants — historical facts about what
+/// exists on real disks, used to *find* old data, never to resolve a brand.
 pub fn is_official_brand(short_name: &str) -> bool {
-    matches!(
-        short_name,
-        OFFICIAL_STORAGE_DIR
-            | LEGACY_BRAND_STORAGE_DIR
-            | LEGACY_OFFICIAL_DEV_STORAGE_DIR
-            | "teamcludev"
-    )
+    short_name == OFFICIAL_STORAGE_DIR
 }
 
 /// Resolve the home-directory storage folder name (`teamclu`, `copilot361`, …).
@@ -126,6 +145,19 @@ pub fn amuxd_home_from_env() -> PathBuf {
         }
     }
     amuxd_home_for_brand(&brand_short_name_from_env())
+}
+
+/// `$HOME/.teamclu` (official) or `$HOME/.{brand}` — the **desktop's** home
+/// storage directory: personal secrets, `local-cache.db`, telemetry consent.
+///
+/// Sibling of the daemon's [`amuxd_home_for_brand`]; the two are owned by
+/// different processes (`docs/architecture/amuxd-home-layout-v2.md` §1) and must
+/// not be conflated. Every call site that wants this directory calls here —
+/// hand-assembling it from `TEAMCLU_DIR` (a *workspace* metadata constant) is
+/// how `local-cache.db` ended up in a different home than the secrets store.
+pub fn brand_home_dir(brand_short_name: &str) -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+    home.join(format!(".{}", resolve_storage_dir_name(brand_short_name)))
 }
 
 /// Legacy official Dev home dir (`teamclawdev`) when migrating an existing install.
@@ -206,7 +238,9 @@ pub fn resolve_workspace_config_path(workspace: &Path, brand_short_name: &str) -
     if canonical.exists() || is_official_brand(brand_short_name) {
         return canonical;
     }
-    let legacy = workspace.join(WORKSPACE_META_DIR).join(WORKSPACE_CONFIG_FILE);
+    let legacy = workspace
+        .join(WORKSPACE_META_DIR)
+        .join(WORKSPACE_CONFIG_FILE);
     if legacy.exists() {
         legacy
     } else {
@@ -255,15 +289,32 @@ mod tests {
     use crate::test_util::{home_env_lock, HomeGuard};
     use tempfile::tempdir;
 
+    /// Exactly one name is official. The three names below are the ones a
+    /// reader is most likely to assume are still official — they are not.
     #[test]
-    fn official_brands_share_teamclu_storage() {
+    fn only_teamclu_is_official() {
         assert!(is_official_brand("teamclu"));
-        assert!(is_official_brand("teamcludev"));
+
+        assert!(!is_official_brand("teamcludev"));
+        assert!(!is_official_brand("teamclaw"));
+        assert!(!is_official_brand("teamclawdev"));
         assert!(!is_official_brand("copilot361"));
 
         assert_eq!(resolve_storage_dir_name("teamclu"), "teamclu");
-        assert_eq!(resolve_storage_dir_name("teamcludev"), "teamclu");
+        assert_eq!(resolve_storage_dir_name("teamcludev"), "teamcludev");
         assert_eq!(resolve_storage_dir_name("copilot361"), "copilot361");
+    }
+
+    /// The pre-rebrand names keep working as *legacy path facts*. Demoting them
+    /// from the brand table must not stop the cleanup pass from finding old
+    /// data on disk.
+    #[test]
+    fn legacy_names_survive_as_path_constants() {
+        assert_eq!(LEGACY_BRAND_STORAGE_DIR, "teamclaw");
+        assert_eq!(LEGACY_OFFICIAL_DEV_STORAGE_DIR, "teamclawdev");
+        assert_eq!(LEGACY_BRAND_WORKSPACE_META_DIR, ".teamclaw");
+        assert_eq!(LEGACY_BRAND_CONFIG_FILE, "teamclaw.json");
+        assert_eq!(LEGACY_BRAND_TEAM_SHARED_DIR_NAME, "teamclaw-team");
     }
 
     #[test]
@@ -283,7 +334,7 @@ mod tests {
     #[test]
     fn amuxd_dir_name_official_vs_white_label() {
         assert_eq!(resolve_amuxd_dir_name("teamclu"), "amuxd");
-        assert_eq!(resolve_amuxd_dir_name("teamcludev"), "amuxd");
+        assert_eq!(resolve_amuxd_dir_name("teamcludev"), "amuxd-teamcludev");
         assert_eq!(resolve_amuxd_dir_name("copilot361"), "amuxd-copilot361");
     }
 
@@ -298,10 +349,7 @@ mod tests {
         assert_eq!(amuxd_home_from_env(), dir.path().join(".amuxd"));
 
         std::env::set_var(BRAND_SHORT_NAME_ENV, "copilot361");
-        assert_eq!(
-            amuxd_home_from_env(),
-            dir.path().join(".amuxd-copilot361")
-        );
+        assert_eq!(amuxd_home_from_env(), dir.path().join(".amuxd-copilot361"));
 
         let custom = dir.path().join("custom-amuxd");
         std::env::set_var(AMUXD_HOME_ENV, &custom);
@@ -317,8 +365,8 @@ mod tests {
         assert_eq!(workspace_meta_dir_name("teamclu"), ".teamclu");
         assert_eq!(workspace_config_file_name("teamclu"), "teamclu.json");
 
-        assert_eq!(workspace_meta_dir_name("teamcludev"), ".teamclu");
-        assert_eq!(workspace_config_file_name("teamcludev"), "teamclu.json");
+        assert_eq!(workspace_meta_dir_name("teamcludev"), ".teamcludev");
+        assert_eq!(workspace_config_file_name("teamcludev"), "teamcludev.json");
 
         assert_eq!(workspace_meta_dir_name("copilot361"), ".copilot361");
         assert_eq!(workspace_config_file_name("copilot361"), "copilot361.json");
@@ -396,7 +444,7 @@ mod tests {
         let path = resolve_workspace_meta_path(ws, "teamclu", "skills");
         assert_eq!(path, ws.join(".teamclu/skills"));
         assert_eq!(
-            resolve_workspace_config_path(ws, "teamcludev"),
+            resolve_workspace_config_path(ws, "teamclu"),
             ws.join(".teamclu/teamclu.json")
         );
     }

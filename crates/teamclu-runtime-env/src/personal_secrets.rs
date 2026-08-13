@@ -107,8 +107,11 @@ pub fn load_personal_env() -> anyhow::Result<HashMap<String, String>> {
 }
 
 /// Load decrypted personal env vars for a build `brand_short_name` (`teamclu`,
-/// `teamcludev`, `copilot361`, …). Official brands resolve to `~/.teamclu/secrets`.
-pub fn load_personal_env_for_brand(brand_short_name: &str) -> anyhow::Result<HashMap<String, String>> {
+/// `copilot361`, …). Only `teamclu` resolves to `~/.teamclu/secrets`; every
+/// other name gets `~/.{brand}/secrets` (see [`crate::is_official_brand`]).
+pub fn load_personal_env_for_brand(
+    brand_short_name: &str,
+) -> anyhow::Result<HashMap<String, String>> {
     load_personal_env_for_storage_dir(resolve_storage_dir_name(brand_short_name))
 }
 
@@ -133,7 +136,9 @@ pub fn diagnose_personal_env_store() -> PersonalEnvStoreDiagnostics {
     diagnose_personal_env_store_for_brand(&brand_short_name_from_env())
 }
 
-pub fn diagnose_personal_env_store_for_brand(brand_short_name: &str) -> PersonalEnvStoreDiagnostics {
+pub fn diagnose_personal_env_store_for_brand(
+    brand_short_name: &str,
+) -> PersonalEnvStoreDiagnostics {
     diagnose_personal_env_store_for_storage_dir(resolve_storage_dir_name(brand_short_name))
 }
 
@@ -209,9 +214,9 @@ mod tests {
     use super::*;
     // Only the tests assert against the unbranded default, so importing it at
     // module scope left a dead import in every non-test build.
+    use crate::test_util::{home_env_lock, HomeGuard};
     use crate::OFFICIAL_STORAGE_DIR;
     use aes_gcm::aead::{Aead, KeyInit};
-    use crate::test_util::{home_env_lock, HomeGuard};
     use rand::RngCore;
     use std::io::Write;
     use tempfile::tempdir;
@@ -255,10 +260,7 @@ mod tests {
         let mut env = HashMap::new();
         env.insert("MY_API_KEY".to_string(), "secret".to_string());
         env.insert("tc_api_key".to_string(), "sk-tc-x".to_string());
-        env.insert(
-            "_team_secret.abc".to_string(),
-            "team-secret".to_string(),
-        );
+        env.insert("_team_secret.abc".to_string(), "team-secret".to_string());
         assert_eq!(super::count_user_personal_env_keys(&env), 1);
         assert!(super::is_internal_personal_blob_key("tc_api_key"));
         assert!(super::is_internal_personal_blob_key("_team_secret.team-1"));

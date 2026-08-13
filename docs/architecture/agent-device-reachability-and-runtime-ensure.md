@@ -225,8 +225,8 @@ MQTT 重连：**`use-reensure-runtimes-on-mqtt-reconnect.ts`** → `mqtt_reconne
 ### 8.2 本机 daemon
 
 ```bash
-curl -s -H "Authorization: Bearer $(cat ~/.amuxd/amuxd.http.token)" \
-  "http://127.0.0.1:$(cat ~/.amuxd/amuxd.http.port)/v1/info" | python3 -m json.tool
+curl -s -H "Authorization: Bearer $(cat ~/.amuxd/run/amuxd.http.token)" \
+  "http://127.0.0.1:$(cat ~/.amuxd/run/amuxd.http.port)/v1/info" | python3 -m json.tool
 ```
 
 关注：`actor_id`、`mqtt_connected`。

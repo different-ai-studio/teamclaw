@@ -84,12 +84,6 @@ vi.mock("@/stores/setup", () => ({
   setupPreviouslySatisfied: () => false,
 }));
 
-vi.mock("../SetupWizard", () => ({
-  SetupWizard: ({ onDone }: { onDone: () => void }) => (
-    <button onClick={onDone}>Setup wizard</button>
-  ),
-}));
-
 // These cases exercise everything *after* first-run onboarding, so present a
 // machine that has already been through it. The onboarding gate itself is
 // covered in AuthGateOnboarding.test.tsx.

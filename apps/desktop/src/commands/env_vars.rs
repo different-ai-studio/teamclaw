@@ -8,13 +8,13 @@ const LEGACY_MIGRATION_MARKER_KEY: &str = "_localPersonalSecretsMigrationComplet
 
 /// Disk-based path for the legacy plaintext env blob written by older versions.
 /// Read-only now (kept as a one-time migration source); never written.
-fn env_blob_fallback_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| h.join(format!(".{}/env-blob.json", super::home_storage_dir_name())))
+fn env_blob_fallback_path() -> std::path::PathBuf {
+    super::brand_home_dir().join("env-blob.json")
 }
 
 /// Read the env blob from the disk fallback file.
 fn read_env_blob_from_disk() -> Option<serde_json::Map<String, serde_json::Value>> {
-    let path = env_blob_fallback_path()?;
+    let path = env_blob_fallback_path();
     let content = std::fs::read_to_string(&path).ok()?;
     let val: serde_json::Value = serde_json::from_str(&content).ok()?;
     match val {
@@ -464,7 +464,6 @@ pub async fn env_catalog_list(
     workspace_path: Option<String>,
 ) -> Result<teamclu_runtime_env::env_catalog::EnvCatalog, String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
-    super::storage_migration::migrate_workspace_storage_namespace(&workspace_path);
     // team_id is required for the `_team_secret.{team_id}` personal-blob secret
     // fallback: when `teamclu.json` carries no inline `team.envSecret` (the
     // common case), passing None here leaves every team var undecryptable.
@@ -606,14 +605,12 @@ pub async fn team_env_diagnostics(
     })
 }
 
-/// `~/.amuxd/teams/<teamId>/cloud/_secrets` presence + `*.enc.json` count.
+/// `~/.amuxd/teams/<teamId>/state/cloud/_secrets` presence + `*.enc.json` count.
 pub(crate) fn team_cloud_secrets_diag(team_id: Option<&str>) -> (String, bool, usize) {
     let Some(team_id) = team_id.map(str::trim).filter(|s| !s.is_empty()) else {
         return (String::new(), false, 0);
     };
-    let dir = super::amuxd_home_dir()
-        .join("teams")
-        .join(team_id)
+    let dir = super::amuxd_team_state_dir(team_id)
         .join("cloud")
         .join(super::shared_secrets::SECRETS_DIR);
     let exists = dir.exists();

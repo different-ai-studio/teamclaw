@@ -75,6 +75,8 @@ case "$mode" in
     rm -f "$AMUXD_DIR/bin/amuxd" "$AMUXD_DIR/bin/amuxd.exe"
     rm -f "$AMUXD_DIR/amuxd.http.port" "$AMUXD_DIR/amuxd.http.token" \
           "$AMUXD_DIR/amuxd.pid" "$AMUXD_DIR/amuxd.sock"
+    # v2 layout keeps the runtime files under run/.
+    rm -rf "$AMUXD_DIR/run"
     echo "  removed amuxd binary + runtime files (kept daemon.toml/backend.toml)"
     echo "Done."
     ;;

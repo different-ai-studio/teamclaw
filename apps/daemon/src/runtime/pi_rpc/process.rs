@@ -238,13 +238,14 @@ impl PiProcessPool {
 
         info!(binary = %binary, worktree, session_dir = %session_dir.display(), "spawning pi rpc");
         let mut child = cmd.spawn().map_err(|e| {
-            let hint = if e.kind() == std::io::ErrorKind::NotFound {
-                "pi binary not found; install pi or switch agents.local_agent to opencode"
-                    .to_string()
+            if e.kind() == std::io::ErrorKind::NotFound {
+                crate::error::agent_binary_missing(
+                    "pi",
+                    format_args!("pi binary ({binary}) not found"),
+                )
             } else {
-                format!("spawn pi ({binary}): {e}")
-            };
-            crate::error::AmuxError::Agent(hint)
+                crate::error::AmuxError::Agent(format!("spawn pi ({binary}): {e}"))
+            }
         })?;
 
         let stdin = child
@@ -314,9 +315,10 @@ pub(crate) fn worktree_hash(worktree: &str) -> String {
 }
 
 pub(crate) fn session_dir_for(worktree: &str) -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".amuxd")
+    // Keyed by session, so team-scoped like every other session artefact —
+    // and no longer hand-assembling `~/.amuxd`, which ignored both $AMUXD_HOME
+    // and the brand.
+    crate::config::layout::active_state_dir()
         .join("pi-sessions")
         .join(worktree_hash(worktree))
 }
@@ -329,11 +331,14 @@ pub(crate) fn session_dir_for(worktree: &str) -> PathBuf {
 /// disk at spawn (loaded via `pi -e <path>`).
 const TEAMCLU_EXTENSION_TS: &str = include_str!("../../../assets/pi-extension/teamclu.ts");
 
+/// `cache/pi/` — machine-level pi runtime files (the materialized extension
+/// and per-worktree permission grants). Under `cache/` per the layout spec:
+/// deleting it costs a re-materialize and re-prompts, nothing more. Resolved
+/// through the layout, not a hand-written `~/.amuxd` — the old spelling
+/// ignored both `$AMUXD_HOME` and the brand, and squatted an un-allowlisted
+/// directory at the home root.
 fn amuxd_pi_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".amuxd")
-        .join("pi")
+    crate::config::layout::cache_dir().join("pi")
 }
 
 pub(crate) fn extension_path() -> PathBuf {

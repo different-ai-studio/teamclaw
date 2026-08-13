@@ -95,14 +95,17 @@ pub(crate) fn canonical_dir(worktree: &str) -> String {
 }
 
 fn apply_claude_config(pool: &ClaudeProcessPool, claude: Option<&ClaudeAgentConfig>) {
-    let Some(cfg) = claude else {
-        return;
-    };
-    pool.configure(
-        cfg.bridge_command.clone(),
-        cfg.api_key.clone(),
-        cfg.default_model.clone(),
-    );
+    // Personal credential from the personal secret store; absent means the
+    // Agent SDK falls back to the host's own `claude` login.
+    let personal = crate::runtime::personal_api_key("ANTHROPIC_API_KEY");
+    match claude {
+        Some(cfg) => pool.configure(
+            cfg.bridge_command.clone(),
+            personal,
+            cfg.default_model.clone(),
+        ),
+        None => pool.configure(None, personal, None),
+    }
 }
 
 fn load_claude_pool_config(pool: &ClaudeProcessPool) {

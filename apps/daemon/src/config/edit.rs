@@ -71,17 +71,21 @@ pub fn write_config(path: &Path, root: &Value) -> anyhow::Result<()> {
 /// `[[channels.wecom.bots]]` array and the dotted-key walker only descends
 /// tables, so the row has to be located by its `bot_id`.
 pub fn set_wecom_bot_workspace(
-    path: &Path,
+    _path: &Path,
     bot_id: &str,
     workspace_id: &str,
 ) -> anyhow::Result<()> {
-    let mut root = read_config(path)?;
+    // Bots are team config: the document is the active team's team.toml, not
+    // the daemon.toml the caller holds (kept in the signature so call sites
+    // did not have to change).
+    let team = crate::config::layout::active_team();
+    let mut root = super::team_config::load_value(&team)?;
     let bots = root
         .get_mut("channels")
         .and_then(|c| c.get_mut("wecom"))
         .and_then(|w| w.get_mut("bots"))
         .and_then(|b| b.as_array_mut())
-        .ok_or_else(|| anyhow::anyhow!("no [[channels.wecom.bots]] in {}", path.display()))?;
+        .ok_or_else(|| anyhow::anyhow!("no [[channels.wecom.bots]] in team.toml"))?;
     let bot = bots
         .iter_mut()
         .find(|bot| bot.get("bot_id").and_then(Value::as_str) == Some(bot_id))
@@ -93,30 +97,30 @@ pub fn set_wecom_bot_workspace(
         "workspace_id".to_string(),
         Value::String(workspace_id.to_string()),
     );
-    write_config(path, &root)
+    super::team_config::save_value(&team, root)
 }
 
 pub fn get_config_value(path: &Path, key: &str) -> anyhow::Result<String> {
-    let root = read_config(path)?;
-    let value = value_at_key(&root, key).ok_or_else(|| anyhow::anyhow!("missing key: {key}"))?;
+    let root = doc_for_key(path, key)?;
+    let value =
+        value_at_key(&root, doc_key(key)).ok_or_else(|| anyhow::anyhow!("missing key: {key}"))?;
     Ok(format_inline_value(value))
 }
 
 /// The raw TOML value at `key`, for callers that need the value rather than
 /// its display form (the HTTP layer, which re-encodes it as JSON).
 pub fn get_config_toml_value(path: &Path, key: &str) -> anyhow::Result<Value> {
-    let root = read_config(path)?;
-    value_at_key(&root, key)
+    let root = doc_for_key(path, key)?;
+    value_at_key(&root, doc_key(key))
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("missing key: {key}"))
 }
 
 pub fn list_config_values(path: &Path) -> anyhow::Result<Vec<String>> {
-    let root = read_config(path)?;
-    let mut lines = Vec::new();
-    flatten_values(None, &root, &mut lines);
-    lines.sort();
-    Ok(lines)
+    Ok(flatten_config(path)?
+        .into_iter()
+        .map(|(key, value)| format!("{key} = {}", format_inline_value(&value)))
+        .collect())
 }
 
 /// Every dotted key and its value, as `(key, value)` pairs sorted by key.
@@ -128,6 +132,21 @@ pub fn flatten_config(path: &Path) -> anyhow::Result<Vec<(String, Value)>> {
     let root = read_config(path)?;
     let mut out = Vec::new();
     flatten_pairs(None, &root, &mut out);
+    // The team document, under its public spellings (`agents.local_agent`,
+    // `channels.*`, `team_share.*`). Best-effort: a broken team.toml must not
+    // take the whole settings list down with it.
+    if let Ok(team_root) = super::team_config::load_value(&crate::config::layout::active_team()) {
+        let mut team_pairs = Vec::new();
+        flatten_pairs(None, &team_root, &mut team_pairs);
+        for (key, value) in team_pairs {
+            let public = if key == "local_agent" || key.starts_with("local_agent.") {
+                format!("agents.{key}")
+            } else {
+                key
+            };
+            out.push((public, value));
+        }
+    }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(out)
 }
@@ -137,15 +156,56 @@ pub fn set_config_value(path: &Path, key: &str, raw_value: &str) -> anyhow::Resu
 }
 
 pub fn set_config_toml_value(path: &Path, key: &str, value: Value) -> anyhow::Result<()> {
+    if super::team_config::is_team_key(key) {
+        let team = crate::config::layout::active_team();
+        let mut root = super::team_config::load_value(&team)?;
+        set_value_at_key(&mut root, doc_key(key), value)?;
+        return super::team_config::save_value(&team, root);
+    }
     let mut root = read_config(path)?;
     set_value_at_key(&mut root, key, value)?;
     write_config(path, &root)
 }
 
 pub fn unset_config_value(path: &Path, key: &str) -> anyhow::Result<()> {
+    if super::team_config::is_team_key(key) {
+        let team = crate::config::layout::active_team();
+        let mut root = super::team_config::load_value(&team)?;
+        // Credentials never sit in the document — deleting one means dropping
+        // it from the secret store. (Only non-array keys are addressable here;
+        // for those the dotted key and the stored path are identical.)
+        if is_secret_key(key) && remove_value_at_key(&mut root, doc_key(key)).is_err() {
+            return super::team_config::forget_secret(&team, doc_key(key));
+        }
+        remove_value_at_key(&mut root, doc_key(key))?;
+        return super::team_config::save_value(&team, root);
+    }
     let mut root = read_config(path)?;
     remove_value_at_key(&mut root, key)?;
     write_config(path, &root)
+}
+
+/// Which document a key lives in: team keys read the active team's team.toml
+/// (credentials injected), everything else the given daemon.toml.
+///
+/// The team side deliberately ignores `path` — the team document's location
+/// follows the `active_team` pointer, not the daemon.toml the caller holds.
+fn doc_for_key(path: &Path, key: &str) -> anyhow::Result<Value> {
+    if super::team_config::is_team_key(key) {
+        super::team_config::load_value(&crate::config::layout::active_team())
+    } else {
+        read_config(path)
+    }
+}
+
+/// `agents.local_agent` keeps its public spelling; in team.toml it is a root
+/// key. Non-team keys pass through unchanged.
+fn doc_key(key: &str) -> &str {
+    if super::team_config::is_team_key(key) {
+        super::team_config::rewrite_team_key(key)
+    } else {
+        key
+    }
 }
 
 /// Parse a CLI-supplied value as TOML, falling back to a bare string.
@@ -275,20 +335,16 @@ mod tests {
 
     #[test]
     fn set_wecom_bot_workspace_targets_the_matching_bot_only() {
+        // Bots live in the team document now; route the whole test through a
+        // temp amuxd home so the team doc resolves under it.
         let dir = tempdir().unwrap();
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(dir.path());
         let path = dir.path().join("daemon.toml");
-        std::fs::write(
-            &path,
-            r#"
-team_id = "team-1"
-
-[device]
-id = "actor-1"
-name = "Mac"
-
-[mqtt]
-broker_url = "mqtts://example"
-
+        std::fs::write(&path, "active_team = \"team-1\"\n[actor]\nname = \"Mac\"\n[mqtt]\nbroker_url = \"mqtts://example\"\n").unwrap();
+        crate::config::team_config::save_value(
+            "team-1",
+            toml::from_str(
+                r#"
 [channels.wecom]
 enabled = true
 bot_id = ""
@@ -305,20 +361,28 @@ enabled = true
 bot_id = "bot-b"
 secret = "sb"
 "#,
+            )
+            .unwrap(),
         )
         .unwrap();
 
         super::set_wecom_bot_workspace(&path, "bot-b", "ws-new").unwrap();
-        let cfg = super::read_config(&path).unwrap();
+        let cfg = crate::config::team_config::load_value("team-1").unwrap();
         let bots = cfg["channels"]["wecom"]["bots"].as_array().unwrap();
-        // The sibling bot — and the top-level legacy bot_id — stay untouched.
+        // The sibling bot stays untouched; the editable document never carries
+        // credentials, so the stored secrets are checked via the typed load.
         assert_eq!(bots[0]["workspace_id"].as_str(), Some("ws-old"));
         assert_eq!(bots[1]["workspace_id"].as_str(), Some("ws-new"));
+        assert!(bots[0].get("secret").is_none());
+        let typed = crate::config::team_config::load_typed("team-1").unwrap();
+        let typed_bots = typed.channels.wecom.unwrap().bots;
+        assert_eq!(typed_bots[0].secret, "sa");
+        assert_eq!(typed_bots[1].secret, "sb");
 
         // An unknown bot is an error, not a silently appended row.
         let err = super::set_wecom_bot_workspace(&path, "bot-missing", "ws-x").unwrap_err();
         assert!(err.to_string().contains("bot-missing"), "{err}");
-        let cfg = super::read_config(&path).unwrap();
+        let cfg = crate::config::team_config::load_value("team-1").unwrap();
         assert_eq!(
             cfg["channels"]["wecom"]["bots"].as_array().unwrap().len(),
             2
@@ -381,6 +445,9 @@ broker_url = "mqtts://old.example"
     #[test]
     fn list_config_values_flattens_nested_tables() {
         let dir = tempdir().unwrap();
+        // flatten merges the active team's document; pin the home so the test
+        // sees an empty one instead of whatever this machine has.
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(dir.path());
         let path = dir.path().join("daemon.toml");
         std::fs::write(
             &path,
@@ -419,7 +486,10 @@ broker_url = "mqtts://broker.example"
 "#;
         std::fs::write(&path, original).unwrap();
 
-        let err = super::unset_config_value(&path, "device.id").unwrap_err();
+        // `name` is the required actor field now — `id` grew a serde default
+        // when it stopped being persisted (backend.toml owns the identity), so
+        // unsetting it no longer fails validation.
+        let err = super::unset_config_value(&path, "device.name").unwrap_err();
 
         assert!(err.to_string().contains("validate"));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
@@ -448,6 +518,9 @@ broker_url = "mqtts://broker.example"
     #[test]
     fn flatten_config_returns_sorted_typed_pairs() {
         let dir = tempdir().unwrap();
+        // flatten merges the active team's document; pin the home so the test
+        // sees an empty one instead of whatever this machine has.
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(dir.path());
         let path = dir.path().join("daemon.toml");
         std::fs::write(
             &path,

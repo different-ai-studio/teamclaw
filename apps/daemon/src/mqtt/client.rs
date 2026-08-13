@@ -206,6 +206,7 @@ mod tests {
             max_attachments: None,
             http: None,
             team_share: crate::config::TeamShareConfig::default(),
+            log: None,
         }
     }
 

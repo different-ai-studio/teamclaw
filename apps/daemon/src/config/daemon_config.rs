@@ -17,9 +17,25 @@ pub struct DaemonConfig {
     pub transport: Option<TransportConfig>,
     #[serde(default)]
     pub agents: AgentsConfig,
-    #[serde(default)]
+    /// Which `teams/<id>/` directory this daemon currently works out of.
+    ///
+    /// Serialized as `active_team`: it is a **pointer**, not an identity. The
+    /// team's identity (`team_id` + `actor_id`) lives in that directory's
+    /// `state/backend.toml` and only there; this field exists so the daemon
+    /// knows which directory to look in. For a claimed daemon the pointer and
+    /// `backend.toml`'s `team_id` carry the same UUID by construction — the
+    /// file sits inside the directory the pointer names — and
+    /// `DaemonServer::new` rejects the pair when they disagree, which can only
+    /// mean a `backend.toml` was hand-copied into the wrong team directory.
+    ///
+    /// Kept as `team_id` in Rust because that is what it is to every reader;
+    /// the on-disk name says what is different about it.
+    #[serde(default, rename = "active_team", alias = "team_id")]
     pub team_id: Option<String>,
-    #[serde(default)]
+    /// Team-scoped; lives in `teams/<id>/state/team.toml` and is hydrated from
+    /// there (`config::team_config::hydrate`). Never serialized here — a
+    /// `[channels]` section in daemon.toml is simply ignored.
+    #[serde(skip)]
     pub channels: ChannelsConfig,
     /// Detach an Attachment whose `last_active_at` is older than this many
     /// seconds. `None` means the built-in default, not "disabled" — see
@@ -45,8 +61,25 @@ pub struct DaemonConfig {
     /// is unchanged; this only gates timer / workspace-registration / runtime
     /// triggers on this daemon. Manual sync via `POST /v1/team/sync` with
     /// `forceSync: true` still runs.
-    #[serde(default)]
+    /// Team-scoped; lives in team.toml, hydrated like `channels`.
+    #[serde(skip)]
     pub team_share: TeamShareConfig,
+    /// `logs/amuxd.log` rotation. Consumed by a probe in `crate::logging`
+    /// before the full config loads; declared here so `save()` round-trips a
+    /// hand-added `[log]` section instead of silently erasing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log: Option<LogConfig>,
+}
+
+/// `[log]` — caps for the daemon's own rotating log file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogConfig {
+    /// Rotate `amuxd.log` when a write would cross this. Default 32 MiB.
+    #[serde(default)]
+    pub max_bytes: Option<u64>,
+    /// Rotated files kept beside the active one. Default 2.
+    #[serde(default)]
+    pub keep: Option<u32>,
 }
 
 /// Per-daemon team-share behavior. Distinct from the cloud team's `share_mode`.
@@ -212,6 +245,18 @@ pub const BOOTSTRAP_ACTOR_NAME: &str = "amuxd (unclaimed)";
 pub struct ActorConfig {
     /// Actor id — the routing identity for this daemon. Used in topic
     /// paths `amux/{team}/{actor}/...`.
+    ///
+    /// **In-memory only.** On disk this value has exactly one owner:
+    /// `teams/<id>/state/backend.toml` (`[cloud_api] actor_id`). It used to be
+    /// persisted here too — onboarding wrote both files in one pass and nothing
+    /// ever re-checked them, so a drift silently authenticated as one actor
+    /// while publishing under another's topics. `DaemonServer::new` now
+    /// hydrates this field from the backend config; an unclaimed daemon gets a
+    /// per-boot placeholder, which is safe because an unclaimed daemon never
+    /// connects MQTT (empty broker + placeholder client).
+    ///
+    /// Still *deserialized* if present so old fixtures parse; never serialized.
+    #[serde(default, skip_serializing)]
     pub id: String,
     /// Human-friendly host/daemon label (e.g. machine name).
     pub name: String,
@@ -261,7 +306,10 @@ pub struct AgentsConfig {
     /// backend — claude-code/codex additionally require their `[agents.*]`
     /// config section to be present; an unrunnable selection resolves to
     /// `AgentType::Unknown` rather than silently falling back to opencode.
-    #[serde(default = "default_local_agent")]
+    /// Team-scoped (the team decides which runtime its agents run), so it
+    /// lives in `teams/<id>/state/team.toml` and is hydrated from there.
+    /// Never read from or written to daemon.toml.
+    #[serde(skip, default = "default_local_agent")]
     pub local_agent: String,
     #[serde(default)]
     pub claude_code: Option<AgentBackendConfig>,
@@ -278,10 +326,10 @@ pub struct AgentsConfig {
 /// Cursor SDK backend settings (`agents.local_agent = "cursor"`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeAgentConfig {
-    /// Anthropic API key. Optional: with none set the Agent SDK falls back to
-    /// the host's own `claude` login (subscription auth).
-    #[serde(default)]
-    pub api_key: Option<String>,
+    // The Anthropic API key used to live here. It is a *personal* credential,
+    // so it moved to the personal secret store (`~/.{brand}/secrets`, key
+    // `ANTHROPIC_API_KEY`); the pool loader resolves it from there. With
+    // neither set, the Agent SDK falls back to the host's own `claude` login.
     /// Sidecar launch command (default: `node …/claude-bridge/src/main.mjs --mode rpc`).
     #[serde(default)]
     pub bridge_command: Option<Vec<String>>,
@@ -293,9 +341,9 @@ pub struct ClaudeAgentConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct CursorAgentConfig {
-    /// Cursor API key. Falls back to `CURSOR_API_KEY` when unset.
-    #[serde(default)]
-    pub api_key: Option<String>,
+    // The Cursor API key used to live here. Personal credential → personal
+    // secret store (key `CURSOR_API_KEY`); the `CURSOR_API_KEY` env var still
+    // wins at spawn.
     /// Sidecar launch command (default: `node …/cursor-bridge/src/main.mjs --mode rpc`).
     #[serde(default)]
     pub bridge_command: Option<Vec<String>>,
@@ -359,6 +407,8 @@ pub struct ChannelsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordChannel {
     pub enabled: bool,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub bot_token: String,
     #[serde(default)]
     pub default_username: Option<String>,
@@ -373,6 +423,8 @@ pub struct WeComBot {
     #[serde(default = "default_true")]
     pub enabled: bool,
     pub bot_id: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub secret: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding_aes_key: Option<String>,
@@ -428,12 +480,16 @@ impl WeComChannel {
 pub struct FeishuChannel {
     pub enabled: bool,
     pub app_id: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub app_secret: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KookChannel {
     pub enabled: bool,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub bot_token: String,
 }
 
@@ -441,6 +497,8 @@ pub struct KookChannel {
 pub struct WeChatChannel {
     pub enabled: bool,
     pub ilink_account: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub ilink_token: String,
 }
 
@@ -448,6 +506,8 @@ pub struct WeChatChannel {
 pub struct SeaTalkChannel {
     pub enabled: bool,
     pub app_id: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub app_secret: String,
     /// `websocket` (default) or `webhook`
     #[serde(default = "default_seatalk_mode")]
@@ -482,10 +542,14 @@ pub struct EmailChannel {
     pub imap_host: String,
     pub imap_port: u16,
     pub imap_user: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub imap_pass: String,
     pub smtp_host: String,
     pub smtp_port: u16,
     pub smtp_user: String,
+    /// Stored in the team secret store, not in team.toml (absent = unset).
+    #[serde(default)]
     pub smtp_pass: String,
     #[serde(default)]
     pub allowed_senders: Vec<String>,
@@ -527,11 +591,23 @@ impl DaemonConfig {
         self.team_share.auto_sync
     }
 
-    /// Load `daemon.toml` and read [`TeamShareConfig::auto_sync`].
+    /// Read [`TeamShareConfig::auto_sync`] from the active team's team.toml.
+    ///
+    /// A two-field probe on purpose: this runs on the 300s sync timer, every
+    /// runtime spawn and every workspace registration, and the full typed load
+    /// would decrypt the whole secret store to answer one non-secret boolean.
     pub fn team_share_auto_sync_enabled_from_disk() -> bool {
-        Self::load(&Self::default_path())
-            .map(|c| c.team_share_auto_sync_enabled())
-            .unwrap_or(true)
+        #[derive(Default, serde::Deserialize)]
+        struct Probe {
+            #[serde(default)]
+            team_share: TeamShareConfig,
+        }
+        std::fs::read_to_string(super::team_config::active_path())
+            .ok()
+            .and_then(|body| toml::from_str::<Probe>(&body).ok())
+            .unwrap_or_default()
+            .team_share
+            .auto_sync
     }
 }
 
@@ -544,26 +620,27 @@ impl DaemonConfig {
         teamclu_runtime_env::amuxd_home_from_env()
     }
 
-    pub fn legacy_config_dir() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| Self::config_dir())
-            .join("amux")
-    }
-
+    /// Just a path now.
+    ///
+    /// This used to run `migrate_legacy_file`, which copied
+    /// `<config_dir>/amux/daemon.toml` back over a missing one — on essentially
+    /// every daemon entry point, `amuxd init` included. That is why clearing a
+    /// team looped: `clear` deleted the file and the next command resurrected
+    /// it, stale `team_id` and all. ADR-0006 drops the legacy directory instead
+    /// of deleting it in two places forever.
     pub fn default_path() -> PathBuf {
-        Self::migrate_legacy_file("daemon.toml")
+        Self::config_dir().join("daemon.toml")
     }
 
-    pub fn migrate_legacy_file(file_name: &str) -> PathBuf {
-        let path = Self::config_dir().join(file_name);
-        let legacy_path = Self::legacy_config_dir().join(file_name);
-        if !path.exists() && legacy_path.exists() {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::copy(&legacy_path, &path);
-        }
-        path
+    /// [`load`](Self::load) + team hydration, for entry points that go on to
+    /// *use or persist* the team half. Loading without hydrating and then
+    /// persisting is how a CLI arm wipes a team's channels; making hydration
+    /// part of the load is what keeps that unrepresentable.
+    pub fn load_hydrated(path: &Path) -> crate::error::Result<Self> {
+        let mut config = Self::load(path)?;
+        super::team_config::hydrate(&mut config)
+            .map_err(|e| crate::error::AmuxError::Config(format!("team.toml: {e}")))?;
+        Ok(config)
     }
 
     pub fn load(path: &Path) -> crate::error::Result<Self> {
@@ -580,8 +657,10 @@ impl DaemonConfig {
     /// `broker_url` is deliberately empty: the daemon resolves the broker from
     /// `/v1/config/bootstrap` once it has credentials, and runs MQTT on a
     /// placeholder client until then. `actor.id` is a locally-minted
-    /// placeholder — onboarding overwrites it with the cloud's actor_id, which
-    /// MQTT topic ACLs are keyed on.
+    /// placeholder that lives only in memory (the field is never serialized):
+    /// a placeholder identity that rotates per boot costs nothing, because an
+    /// unclaimed daemon never connects MQTT. The real actor_id arrives with
+    /// onboarding, in `backend.toml`, and is hydrated from there.
     pub fn bootstrap() -> Self {
         Self {
             actor: ActorConfig {
@@ -603,15 +682,12 @@ impl DaemonConfig {
             // loopback control plane without a hand edit.
             http: Some(HttpConfig::default()),
             team_share: TeamShareConfig::default(),
+            log: None,
         }
     }
 
     /// Load `path`, or synthesize and persist a [`bootstrap`](Self::bootstrap)
     /// config when it does not exist.
-    ///
-    /// Persisting immediately is what makes the placeholder `actor.id` stable
-    /// across restarts. Deriving it via `#[serde(default)]` instead would mint
-    /// a fresh id on every boot and silently re-key MQTT topic ACLs.
     ///
     /// An existing-but-unparseable config still errors — only true absence
     /// bootstraps.
@@ -623,7 +699,6 @@ impl DaemonConfig {
         config.save(path)?;
         tracing::info!(
             path = %path.display(),
-            actor_id = %config.actor.id,
             "no daemon.toml — wrote a fresh unconfigured one"
         );
         Ok(config)
@@ -640,11 +715,11 @@ impl DaemonConfig {
     }
 
     pub fn pid_path() -> PathBuf {
-        Self::config_dir().join("amuxd.pid")
+        super::layout::run_dir().join("amuxd.pid")
     }
 
     pub fn lock_path() -> PathBuf {
-        Self::config_dir().join("amuxd.lock")
+        super::layout::run_dir().join("amuxd.lock")
     }
 
     /// Control endpoint: a Unix socket path on unix, a named-pipe name on
@@ -652,7 +727,7 @@ impl DaemonConfig {
     /// carries the (sanitized) username for per-user uniqueness.
     #[cfg(not(windows))]
     pub fn sock_path() -> PathBuf {
-        Self::config_dir().join("amuxd.sock")
+        super::layout::run_dir().join("amuxd.sock")
     }
 
     #[cfg(windows)]
@@ -683,25 +758,28 @@ impl DaemonConfig {
     }
 
     pub fn http_token_path() -> PathBuf {
-        Self::config_dir().join("amuxd.http.token")
+        super::layout::run_dir().join("amuxd.http.token")
     }
 
     /// File the daemon keeps refreshed with the current cloud access token
     /// (JWT), written `0600`. Injected into agent processes as
     /// `TC_ACCESS_TOKEN_FILE` so long-running agents can re-read a fresh token.
+    ///
+    /// Refreshed from the active team's `backend.toml` and only valid for that
+    /// team, so it sits beside it.
     pub fn cloud_token_path() -> PathBuf {
-        Self::config_dir().join("amuxd.cloud-token")
+        super::layout::active_state_dir().join("cloud-token")
     }
 
     pub fn http_port_path() -> PathBuf {
-        Self::config_dir().join("amuxd.http.port")
+        super::layout::run_dir().join("amuxd.http.port")
     }
 
     /// Process-group id of the managed `opencode serve` tree (Unix). Written
     /// while serve is live so `amuxd stop` can reap the group even if the
     /// daemon was hard-killed mid-shutdown.
     pub fn opencode_serve_pgid_path() -> PathBuf {
-        Self::config_dir().join("opencode.serve.pgid")
+        super::layout::run_dir().join("opencode.serve.pgid")
     }
 }
 
@@ -710,6 +788,8 @@ mod channels_tests {
     use super::*;
     #[test]
     fn channels_roundtrip_wecom() {
+        // `[channels]` moved to team.toml (config::team_config); daemon.toml
+        // must now *ignore* the section instead of owning it.
         let toml_src = r#"
 [actor]
 id = "d1"
@@ -728,9 +808,17 @@ bot_id = "b1"
 secret = "s"
 encoding_aes_key = "k"
 "#;
+        let team: crate::config::team_config::TeamFileConfig = toml::from_str(
+            "[channels.wecom]\nenabled = true\nbot_id = \"b1\"\nsecret = \"s\"\nencoding_aes_key = \"k\"\n",
+        )
+        .unwrap();
+        assert_eq!(team.channels.wecom.as_ref().unwrap().bot_id, "b1");
+
         let cfg: DaemonConfig = toml::from_str(toml_src).unwrap();
-        assert!(cfg.channels.wecom.is_some());
-        assert_eq!(cfg.channels.wecom.as_ref().unwrap().bot_id, "b1");
+        assert!(
+            cfg.channels.wecom.is_none(),
+            "daemon.toml's [channels] must be ignored, not adopted"
+        );
         assert_eq!(
             cfg.agents
                 .opencode
@@ -854,21 +942,49 @@ mod tests {
         assert!(!cfg.actor.id.is_empty());
     }
 
+    /// The identity has one owner on disk (`backend.toml`), so `daemon.toml`
+    /// must never grow an `actor.id` back — that is the duplicate that used to
+    /// let auth and MQTT routing disagree. The file key is `active_team`, not
+    /// `team_id`: a pointer to a directory, not an identity.
     #[test]
-    fn load_or_bootstrap_persists_a_stable_actor_id() {
+    fn save_persists_the_pointer_but_never_the_actor_id() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.toml");
 
-        let first = DaemonConfig::load_or_bootstrap(&path).unwrap();
-        assert!(
-            path.exists(),
-            "bootstrap must persist, or the id would drift"
-        );
+        let mut cfg = DaemonConfig::bootstrap();
+        cfg.team_id = Some("team-1".to_string());
+        cfg.save(&path).unwrap();
 
-        // The whole point of persisting: a second start reuses the same actor
-        // id rather than silently re-keying MQTT topic ACLs.
-        let second = DaemonConfig::load_or_bootstrap(&path).unwrap();
-        assert_eq!(first.actor.id, second.actor.id);
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !written.contains("id ="),
+            "actor.id must not be persisted; daemon.toml:\n{written}"
+        );
+        assert!(written.contains("active_team = \"team-1\""), "{written}");
+
+        let loaded = DaemonConfig::load(&path).unwrap();
+        assert_eq!(loaded.team_id.as_deref(), Some("team-1"));
+        assert!(
+            loaded.actor.id.is_empty(),
+            "a loaded config carries no identity until the backend hydrates it"
+        );
+    }
+
+    /// Interim v2 files (and old fixtures) spell the pointer `team_id`; the
+    /// alias keeps them readable.
+    #[test]
+    fn team_id_spelling_still_parses_as_the_pointer() {
+        let cfg: DaemonConfig = toml::from_str(
+            r#"
+team_id = "team-9"
+[actor]
+name = "Mac"
+[mqtt]
+broker_url = ""
+"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.team_id.as_deref(), Some("team-9"));
     }
 
     #[test]

@@ -99,11 +99,7 @@ impl RuntimeManager {
     /// `actor_id` is the cloud agent actor from the envelope (and/or MQTT
     /// topic). When non-empty it must match the composite's left side, so one
     /// agent cannot address another's attachment in a shared session.
-    pub fn resolve_command_agent_id(
-        &self,
-        addressed_as: &str,
-        actor_id: &str,
-    ) -> Option<String> {
+    pub fn resolve_command_agent_id(&self, addressed_as: &str, actor_id: &str) -> Option<String> {
         let addressed = addressed_as.trim();
         if addressed.is_empty() {
             return None;

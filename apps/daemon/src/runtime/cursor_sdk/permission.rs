@@ -319,7 +319,7 @@ pub(crate) fn resolve(
 // ---------------------------------------------------------------------------
 
 fn always_store_path() -> PathBuf {
-    crate::config::DaemonConfig::config_dir().join("cursor-permissions.json")
+    crate::config::layout::active_state_dir().join("cursor-permissions.json")
 }
 
 fn read_always_store() -> Value {

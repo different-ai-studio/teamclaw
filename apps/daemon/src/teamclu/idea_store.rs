@@ -50,8 +50,7 @@ pub struct StoredSubmission {
 
 impl IdeaStore {
     fn path_for(base_dir: &Path, session_id: &str) -> std::path::PathBuf {
-        base_dir
-            .join("teamclu")
+        crate::config::layout::team_state_dir_in(base_dir, &crate::config::layout::active_team())
             .join("sessions")
             .join(session_id)
             .join("ideas.toml")
@@ -346,7 +345,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         // Simulate a pre-archive TOML written by an older daemon: no `archived`
         // key at all. serde(default) should apply.
-        let dir = tmp.path().join("teamclu").join("sessions").join("legacy");
+        let dir = IdeaStore::path_for(tmp.path(), "legacy")
+            .parent()
+            .unwrap()
+            .to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         let toml_body = r#"
 [[items]]

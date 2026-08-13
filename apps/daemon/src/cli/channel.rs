@@ -5,23 +5,25 @@ use std::path::Path;
 pub fn run(args: ChannelArgs, config_path: &Path) -> anyhow::Result<()> {
     match args.action {
         ChannelAction::List => {
-            let cfg = DaemonConfig::load(config_path)?;
+            let mut cfg = DaemonConfig::load_hydrated(config_path)?;
             list(&cfg);
         }
         ChannelAction::Bind(b) => {
-            let mut cfg = DaemonConfig::load(config_path)?;
+            let mut cfg = DaemonConfig::load_hydrated(config_path)?;
             bind(&mut cfg, b)?;
-            cfg.save(config_path)?;
+            crate::config::team_config::persist_from(&cfg)
+                .map_err(|e| crate::error::AmuxError::Config(format!("write team.toml: {e}")))?;
             println!("bound.");
         }
         ChannelAction::Unbind { platform } => {
-            let mut cfg = DaemonConfig::load(config_path)?;
+            let mut cfg = DaemonConfig::load_hydrated(config_path)?;
             unbind(&mut cfg, &platform)?;
-            cfg.save(config_path)?;
+            crate::config::team_config::persist_from(&cfg)
+                .map_err(|e| crate::error::AmuxError::Config(format!("write team.toml: {e}")))?;
             println!("unbound.");
         }
         ChannelAction::Test { platform } => {
-            let cfg = DaemonConfig::load(config_path)?;
+            let mut cfg = DaemonConfig::load_hydrated(config_path)?;
             test_channel(&cfg, &platform)?;
         }
         ChannelAction::Reload => {

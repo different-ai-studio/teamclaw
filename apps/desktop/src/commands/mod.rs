@@ -29,7 +29,6 @@ pub mod setup;
 pub mod shared_secrets;
 pub mod shared_secrets_crypto;
 pub mod skillssh;
-pub mod storage_migration;
 pub mod system_appearance;
 pub mod team;
 pub mod team_git;
@@ -73,6 +72,65 @@ pub fn home_storage_dir_name() -> &'static str {
 /// Local amuxd state directory for this desktop brand (`~/.amuxd` or `~/.amuxd-<brand>`).
 pub fn amuxd_home_dir() -> std::path::PathBuf {
     teamclu_runtime_env::amuxd_home_for_brand(APP_SHORT_NAME)
+}
+
+/// `<amuxd home>/run` — where the daemon publishes pid, lock, control socket
+/// and the HTTP port/token the desktop discovers it by. One definition for
+/// both sides, in `teamclu_runtime_env::amuxd_layout` — the daemon's
+/// `config::layout` delegates to the same functions, so the pair cannot drift.
+pub fn amuxd_run_dir() -> std::path::PathBuf {
+    teamclu_runtime_env::amuxd_layout::run_dir(&amuxd_home_dir())
+}
+
+/// `<amuxd home>/logs` — the daemon's rotating log, and the stdout/stderr this
+/// app redirects when it spawns the bundled sidecar.
+pub fn amuxd_logs_dir() -> std::path::PathBuf {
+    teamclu_runtime_env::amuxd_layout::logs_dir(&amuxd_home_dir())
+}
+
+/// `<amuxd home>/teams/<team_id>` — everything the daemon keeps for one team.
+pub fn amuxd_team_dir(team_id: &str) -> std::path::PathBuf {
+    teamclu_runtime_env::amuxd_layout::team_dir(&amuxd_home_dir(), team_id)
+}
+
+/// `<amuxd home>/teams/<team_id>/state` — the daemon-private half.
+pub fn amuxd_team_state_dir(team_id: &str) -> std::path::PathBuf {
+    teamclu_runtime_env::amuxd_layout::team_state_dir(&amuxd_home_dir(), team_id)
+}
+
+/// `<amuxd home>/teams/<team_id>/workspace` — the daemon's default worktree
+/// for this team (gateway sessions run here when no workspace is picked).
+pub fn amuxd_team_workspace_dir(team_id: &str) -> std::path::PathBuf {
+    teamclu_runtime_env::amuxd_layout::team_workspace_dir(&amuxd_home_dir(), team_id)
+}
+
+/// The team this brand's daemon is claimed by (`active_team` in daemon.toml),
+/// or `None` while unclaimed. The one probe — daemon_http, gateway and cron
+/// used to each carry their own copy of this parse.
+pub fn amuxd_active_team() -> Option<String> {
+    let team = teamclu_runtime_env::amuxd_layout::active_team(&amuxd_home_dir());
+    (team != teamclu_runtime_env::amuxd_layout::UNCLAIMED_TEAM).then_some(team)
+}
+
+/// `<amuxd home>/teams/<team_id>/shared/teamclu-team` — the daemon's synced
+/// copy, and the target every workspace's `teamclu-team` symlink points at.
+///
+/// Mirrors `daemon::config::global_team_store::global_team_dir`. The `shared/`
+/// level is what keeps daemon-private state out of the one directory the sync
+/// engine scans, so this app must not shortcut past it.
+pub fn amuxd_team_shared_dir(team_id: &str) -> std::path::PathBuf {
+    amuxd_team_dir(team_id).join("shared").join(TEAM_REPO_DIR)
+}
+
+/// This desktop brand's own home storage directory (`~/.teamclu` or `~/.<brand>`):
+/// personal secrets, `local-cache.db`, telemetry consent, the PATH cache.
+///
+/// Every call site that wants it comes here. Assembling it from [`TEAMCLU_DIR`]
+/// — a *workspace* metadata name that only coincides with this one for the
+/// official brand — is what put `local-cache.db` and the secrets store in
+/// different directories on a white-label build.
+pub fn brand_home_dir() -> std::path::PathBuf {
+    teamclu_runtime_env::brand_home_dir(APP_SHORT_NAME)
 }
 
 /// Stamp brand + `AMUXD_HOME` onto a shell sidecar so CLI (`init` / `clear` /

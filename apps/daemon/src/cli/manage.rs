@@ -69,11 +69,18 @@ fn show_status() -> anyhow::Result<()> {
     let onboarded = match DaemonConfig::load(&config_path) {
         Ok(cfg) => {
             println!("Onboarded: yes");
-            if !cfg.actor.id.trim().is_empty() {
-                println!("  actor_id: {}", cfg.actor.id);
-            }
             if let Some(team) = cfg.team_id.as_deref() {
                 println!("  team_id:  {team}");
+                // The identity lives with the team's credentials, not in
+                // daemon.toml — that file only points at the team directory.
+                match crate::provider_config::ProviderConfig::load_from_path(
+                    &crate::provider_config::ProviderConfig::path_for_team(team),
+                ) {
+                    Ok(crate::provider_config::ProviderConfig::CloudApi(cloud)) => {
+                        println!("  actor_id: {}", cloud.actor_id);
+                    }
+                    Err(e) => println!("  actor_id: (backend.toml unreadable: {e})"),
+                }
             }
             println!("  actor name: {}", cfg.actor.name);
             true
@@ -336,10 +343,18 @@ fn set_local_agent_interactive(theme: &ColorfulTheme) -> anyhow::Result<()> {
         _ => {}
     }
 
-    cfg.agents.local_agent = selected.to_string();
+    // local_agent is team config: daemon.toml serde-skips it, so a cfg.save
+    // here would print success and change nothing. The routed edit surface
+    // writes team.toml; the machine-level agent sections still go to
+    // daemon.toml.
     ensure_opencode_section(&mut cfg);
     cfg.save(&path)
         .map_err(|e| anyhow::anyhow!("save {}: {e}", path.display()))?;
+    crate::config::edit::set_config_toml_value(
+        &path,
+        "agents.local_agent",
+        toml::Value::String(selected.to_string()),
+    )?;
     println!("✓ Default agent set to {selected}.");
     println!("  Restart the daemon (`amuxd stop && amuxd start`) to apply.");
     Ok(())
@@ -347,8 +362,10 @@ fn set_local_agent_interactive(theme: &ColorfulTheme) -> anyhow::Result<()> {
 
 fn load_daemon_config() -> anyhow::Result<(DaemonConfig, PathBuf)> {
     let path = DaemonConfig::default_path();
-    let cfg = DaemonConfig::load_or_bootstrap(&path)
+    let mut cfg = DaemonConfig::load_or_bootstrap(&path)
         .map_err(|e| anyhow::anyhow!("load {}: {e}", path.display()))?;
+    // local_agent / team_share / channels live in the team's team.toml.
+    crate::config::team_config::hydrate(&mut cfg).map_err(|e| anyhow::anyhow!("team.toml: {e}"))?;
     Ok((cfg, path))
 }
 
@@ -562,6 +579,7 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
         } else {
             Some(git_branch)
         },
+        channel_secrets: Default::default(),
     };
     store
         .merge(&team_id, &incoming)
@@ -574,18 +592,20 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
 
 fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
     let config_path = DaemonConfig::default_path();
-    let auto_sync = DaemonConfig::load(&config_path)
-        .map(|c| c.team_share_auto_sync_enabled())
-        .unwrap_or(true);
+    // team_share is serde-skipped on DaemonConfig; a raw load would always
+    // show the default (enabled) and the menu could never re-enable sync.
+    let auto_sync = DaemonConfig::team_share_auto_sync_enabled_from_disk();
     let team_id = resolve_team_id(None)?;
 
     println!("Team: {team_id}");
     println!(
-        "Local auto_sync: {} (daemon.toml [team_share])",
+        "Local auto_sync: {} (team.toml [team_share])",
         if auto_sync { "enabled" } else { "disabled" }
     );
     if !auto_sync {
-        println!("  Cloud share-mode may still be enabled; this daemon skips automatic git/OSS sync.");
+        println!(
+            "  Cloud share-mode may still be enabled; this daemon skips automatic git/OSS sync."
+        );
         println!("  Use manual sync below or `amuxd config set team_share.auto_sync true`.");
     }
 
@@ -600,11 +620,7 @@ fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
     } else {
         "Enable local auto_sync".to_string()
     };
-    let items = [
-        toggle_label.as_str(),
-        "Trigger manual sync now",
-        "Back",
-    ];
+    let items = [toggle_label.as_str(), "Trigger manual sync now", "Back"];
     let choice = Select::with_theme(theme)
         .with_prompt("Sync menu")
         .items(&items)
@@ -671,7 +687,9 @@ fn trigger_manual_sync(theme: &ColorfulTheme, team_id: &str) -> anyhow::Result<(
     match trigger_sync_via_http(&workspace, team_id, true) {
         Ok(status) => {
             if status.skipped {
-                println!("Sync skipped (auto_sync disabled — this should not happen for manual sync).");
+                println!(
+                    "Sync skipped (auto_sync disabled — this should not happen for manual sync)."
+                );
                 return Ok(());
             }
             println!("✓ Sync finished.");

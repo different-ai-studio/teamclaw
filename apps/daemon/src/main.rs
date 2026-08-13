@@ -11,6 +11,7 @@ mod device_id;
 mod error;
 mod history;
 mod http;
+mod logging;
 mod mcp_probe;
 mod mqtt;
 mod nats;
@@ -44,6 +45,19 @@ fn main() -> anyhow::Result<()> {
             cli::setup::run(print_only)?;
         }
         Commands::Init { join_url } => {
+            // A CLI-first machine must not have its freshly written config
+            // eaten later: the v1 purge deletes root `daemon.toml`, and the v2
+            // file init writes sits at the same path. Running the purge (and
+            // its marker) here, before anything is written, closes that
+            // window. Skipped when a daemon holds the lock — a running v2
+            // daemon already purged at its own boot.
+            if let Ok(_lock) = cli::process::acquire_daemon_lock_at(
+                &config::DaemonConfig::lock_path(),
+                std::time::Duration::ZERO,
+            ) {
+                config::layout::purge_v1_layout();
+                config::layout::ensure();
+            }
             let url = match join_url {
                 Some(u) => u,
                 None => prompt_for_invite_url()?,
@@ -71,24 +85,65 @@ fn main() -> anyhow::Result<()> {
             daemonize: _,
             config,
         } => {
-            tracing_subscriber::fmt()
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::from_default_env()
-                        .add_directive("amuxd=info".parse().unwrap()),
-                )
-                .init();
-
             let config_path = config.unwrap_or_else(config::DaemonConfig::default_path);
+
+            // Tracing goes to `logs/amuxd.log`, size-capped, no matter how the
+            // daemon was launched — managed spawn, launchd, or a terminal. The
+            // stdout/stderr redirects the launchers keep pointing at this
+            // directory only catch what tracing cannot (panics, child output),
+            // so they stay small instead of growing without bound. A terminal
+            // additionally gets the log on stdout.
+            let (log_max_bytes, log_keep) = logging::settings_from(&config_path);
+            let file_log = logging::RotatingLog::new(
+                config::layout::logs_dir().join("amuxd.log"),
+                log_max_bytes,
+                log_keep,
+            );
+            {
+                use std::io::IsTerminal;
+                use tracing_subscriber::layer::SubscriberExt;
+                use tracing_subscriber::util::SubscriberInitExt;
+                let registry = tracing_subscriber::registry()
+                    .with(
+                        tracing_subscriber::EnvFilter::from_default_env()
+                            .add_directive("amuxd=info".parse().unwrap()),
+                    )
+                    .with(
+                        tracing_subscriber::fmt::layer()
+                            .with_ansi(false)
+                            .with_writer(file_log),
+                    );
+                if std::io::stdout().is_terminal() {
+                    registry.with(tracing_subscriber::fmt::layer()).init();
+                } else {
+                    registry.init();
+                }
+            }
+
+            // The lock comes first because the two calls under it rewrite the
+            // home directory, and `purge_v1_layout` in particular deletes the
+            // root `daemon.toml` — the v1 config sits at the exact path the v2
+            // one does, so the purge has to happen before anything loads it or
+            // it would delete a config that had just been bootstrapped.
+            let _daemon_lock = cli::process::acquire_daemon_lock()?;
+            config::layout::purge_v1_layout();
+            config::layout::ensure();
+            cli::process::write_pidfile()?;
+            let _pid_guard = PidfileGuard;
             // Absent config bootstraps rather than failing: a fresh install must
             // be able to start and serve the setup UI that configures it.
             let mut daemon_config = config::DaemonConfig::load_or_bootstrap(&config_path)?;
+            // The team half (channels / team_share / local_agent) lives in
+            // teams/<id>/state/team.toml; daemon.toml only points there. An
+            // unreadable team.toml must not stop the daemon booting (the HTTP
+            // control plane is how the operator fixes it), so warn and run on
+            // defaults — the file is left untouched for repair.
+            if let Err(e) = config::team_config::hydrate(&mut daemon_config) {
+                tracing::warn!(error = %e, "team.toml unreadable; running with default team config");
+            }
             if let Err(e) = agent_discover::discover_and_persist(&mut daemon_config, &config_path) {
                 tracing::warn!("agent auto-discovery failed: {e}");
             }
-
-            let _daemon_lock = cli::process::acquire_daemon_lock()?;
-            cli::process::write_pidfile()?;
-            let _pid_guard = PidfileGuard;
 
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {

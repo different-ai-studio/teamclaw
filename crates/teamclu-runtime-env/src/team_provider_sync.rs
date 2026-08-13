@@ -42,7 +42,9 @@ pub fn sync_team_provider_on_disk(
     let provider_section_changed = team_provider::ensure_team_provider(workspace, managed_llm)?;
 
     let opencode_json_original = match scope {
-        SecretResolveScope::FullConfig => mcp_resolve::resolve_config_secret_refs(workspace, secrets)?,
+        SecretResolveScope::FullConfig => {
+            mcp_resolve::resolve_config_secret_refs(workspace, secrets)?
+        }
         SecretResolveScope::ProviderApiKeysOnly => {
             mcp_resolve::resolve_provider_api_keys_on_disk(workspace, secrets)?;
             None

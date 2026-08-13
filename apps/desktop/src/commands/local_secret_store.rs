@@ -37,11 +37,7 @@ struct EncryptedBlobFile {
 
 impl SecretStorePaths {
     pub(crate) fn for_home_dir() -> Result<Self, String> {
-        let home = dirs::home_dir().ok_or_else(|| "Home directory not found".to_string())?;
-        Ok(Self::for_base_dir(
-            home.join(format!(".{}", super::home_storage_dir_name()))
-                .join("secrets"),
-        ))
+        Ok(Self::for_base_dir(super::brand_home_dir().join("secrets")))
     }
 
     pub(crate) fn for_base_dir(base_dir: PathBuf) -> Self {

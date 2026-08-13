@@ -110,10 +110,7 @@ mod tests {
         );
 
         write_active_session_id(dir.path(), "brand-session").unwrap();
-        let brand_path = dir
-            .path()
-            .join(".copilot361")
-            .join(ACTIVE_SESSION_ID_FILE);
+        let brand_path = dir.path().join(".copilot361").join(ACTIVE_SESSION_ID_FILE);
         assert!(brand_path.exists());
         assert_eq!(
             read_active_session_id(dir.path()).as_deref(),

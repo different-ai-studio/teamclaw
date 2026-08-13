@@ -1,5 +1,7 @@
 {
   "teamShare": {
+    "refreshAndSync": "刷新并同步云端",
+    "cloudSyncFailed": "同步失败：{{msg}}",
     "envAdd": "新增环境变量",
     "envAddTeam": "新增团队环境变量",
     "envAddPersonal": "新增个人环境变量",
@@ -1008,27 +1010,6 @@
     "localDaemonRetrying": "正在重试…",
     "ideas": "想法"
   },
-  "setupWizard": {
-    "title": "准备运行环境",
-    "intro": "首次启动需要安装一些本机依赖，稍等片刻即可。",
-    "optional": "可选",
-    "ready": "已就绪",
-    "install": "安装",
-    "installing": "安装中…",
-    "upgrade": "升级",
-    "upgrading": "升级中…",
-    "autoInstalling": "自动安装中…",
-    "retry": "重试",
-    "currentNeedsUpgrade": "当前 {{version}}，需升级",
-    "continue": "继续",
-    "installRequiredFirst": "请先安装必需项",
-    "deps": {
-      "amuxd": "Agent 守护进程 (amuxd)",
-      "opencode": "OpenCode 运行时",
-      "pi": "Pi 运行时",
-      "git": "Git"
-    }
-  },
   "errors": {
     "somethingWentWrong": "出了点问题",
     "unexpectedError": "发生了意外错误",
@@ -1613,6 +1594,12 @@
       "shareWithTeam": "共享给团队",
       "agentId": "Agent ID",
       "runtime": "运行时",
+      "runtimeNotInstalled": "未安装",
+      "runtimeScope": "运行时作用范围",
+      "runtimeCurrentTeam": "当前团队",
+      "runtimePerTeamHint": "运行时按团队独立配置——此设置仅对「{{team}}」生效。",
+      "runtimeMissing": "运行时缺失",
+      "runtimeMissingHint": "本机未安装 {{agent}}，该团队的 agent 无法启动。请改选一个已安装的运行时，或先安装 {{agent}}。",
       "cloudExpiredTitle": "本机 Daemon 云端会话已过期",
       "cloudExpiredDesc": "Daemon 的登录凭证已失效，无法上报后端类型或同步。正在尝试自动重新连接。",
       "cloudExpiredReconnecting": "正在自动重新连接 Daemon（重新签发凭证并重启）…",
@@ -1659,11 +1646,11 @@
         "mint-invite": "连不上服务器。检查网络后重试。",
         "init-daemon": "凭证没能写入。重置可以清掉写了一半的状态。",
         "restart-daemon": "本地服务没能重启。重置可以清掉写了一半的状态。",
-        "await-daemon": "服务起来了但一直没响应，看看 ~/.amuxd/amuxd.managed.log。",
+        "await-daemon": "服务起来了但一直没响应，看看 ~/.amuxd/logs/amuxd.managed.log。",
         "cloud-auth": "这台机器没能通过服务器验证。"
       },
       "elapsed": "仍在进行——已用 {{seconds}} 秒",
-      "stuckHint": "比预期慢。细节看 ~/.amuxd/amuxd.managed.log。",
+      "stuckHint": "比预期慢。细节看 ~/.amuxd/logs/amuxd.managed.log。",
       "errorAtStep": "卡在这一步：{{step}}",
       "reconnect": "重新连接",
       "doneTitle": "这台机器已就绪",
@@ -1683,7 +1670,7 @@
       "retrying": "重试中…",
       "retry": "重试",
       "resetReinit": "重置并重新初始化",
-      "resetIncomplete": "重置未生效：本机仍绑定在团队 {{teamId}} 上。请查看 ~/.amuxd/amuxd.managed.log。"
+      "resetIncomplete": "重置未生效：本机仍绑定在团队 {{teamId}} 上。请查看 ~/.amuxd/logs/amuxd.managed.log。"
     },
     "daemonWorkspaces": {
       "title": "工作区",
@@ -3313,6 +3300,7 @@
     "agentRuntime": {
       "notStartedTitle": "Agent runtime 未启动",
       "notStartedDesc": "Agent {{shortId}} 的 daemon 未响应 runtimeStart（可能未在线或未加入团队）。",
+      "binaryMissingDesc": "当前团队的 agent 运行时是 {{agent}}，但这台机器上没有安装它。请到「设置 → Agent」为本团队换一个已安装的运行时，或先安装 {{agent}}。运行时是每个团队独立配置的。",
       "rpcNotReadyTitle": "MQTT/RPC 未就绪",
       "rpcNotReadyDesc": "无法向 daemon 发送 runtimeStart。请检查 MQTT 连接与团队登录状态。",
       "deviceOfflineDesc": "Agent {{shortId}} 的 daemon 已离线（MQTT presence）。连接恢复后将自动重试。",
@@ -3326,7 +3314,7 @@
       "providerError": "模型服务返回错误，请重试或切换模型。"
     },
     "connection": {
-      "portFileMissing": "amuxd daemon 未连接：HTTP 控制面未就绪（~/.amuxd/amuxd.http.port 不存在）。请重启 amuxd，或确认运行的是本分支构建的版本。",
+      "portFileMissing": "amuxd daemon 未连接：HTTP 控制面未就绪（~/.amuxd/run/amuxd.http.port 不存在）。请重启 amuxd，或确认运行的是本分支构建的版本。",
       "tokenExchangeFailed": "amuxd daemon HTTP 已启动但鉴权失败：请重启 amuxd 后重试。",
       "healthCheckFailed": "amuxd daemon HTTP 无响应：请确认 amuxd 进程仍在运行。",
       "notConnected": "amuxd daemon 未连接：请确认 amuxd 已启动且 HTTP 控制面可用"

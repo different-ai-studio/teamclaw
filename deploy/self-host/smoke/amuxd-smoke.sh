@@ -69,7 +69,7 @@ case "$logs" in
 esac
 
 echo "3. HTTP health probe"
-port="$(docker compose exec -T amuxd sh -c 'cat /state/.amuxd/amuxd.http.port 2>/dev/null || true' | tr -d '[:space:]' || true)"
+port="$(docker compose exec -T amuxd sh -c 'cat /state/.amuxd/run/amuxd.http.port 2>/dev/null || true' | tr -d '[:space:]' || true)"
 if [ -n "$port" ]; then
   if docker compose exec -T amuxd sh -c "wget -qO- http://127.0.0.1:${port}/v1/healthz >/dev/null 2>&1 || curl -sf http://127.0.0.1:${port}/v1/healthz >/dev/null"; then
     ok "/v1/healthz on port ${port}"

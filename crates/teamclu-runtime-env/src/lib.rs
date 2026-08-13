@@ -1,4 +1,5 @@
 pub mod active_session;
+pub mod amuxd_layout;
 pub mod atomic_write;
 pub mod env_activation;
 pub mod env_catalog;
@@ -13,6 +14,10 @@ pub mod team_crypto;
 pub mod team_provider;
 pub mod team_provider_sync;
 
+/// Ratchet keeping home-directory names spelled in `storage_namespace` only.
+/// Test-only: it scans the repo and has no runtime surface.
+#[cfg(test)]
+mod storage_lint;
 #[cfg(test)]
 pub mod test_util;
 
@@ -20,8 +25,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 pub use active_session::{
-    read_active_session_id, write_active_session_id, ACTIVE_SESSION_ID_FILE,
-    TEAMCLU_SESSION_ID_ENV,
+    read_active_session_id, write_active_session_id, ACTIVE_SESSION_ID_FILE, TEAMCLU_SESSION_ID_ENV,
 };
 pub use env_activation::{
     analyze_env_activation, find_unresolved_config_placeholders, EnvActivationAnalysis,
@@ -46,18 +50,19 @@ pub use team_provider_sync::{
 };
 
 pub use storage_namespace::{
-    amuxd_home_for_brand, amuxd_home_from_env, brand_short_name_from_env, is_official_brand,
-    resolve_amuxd_dir_name, resolve_storage_dir_name, resolve_workspace_config_path,
-    resolve_workspace_config_path_from_env, resolve_workspace_meta_path,
-    resolve_workspace_meta_path_from_env, workspace_config_file_name, workspace_config_path,
-    workspace_config_path_from_env, workspace_meta_dir, workspace_meta_dir_from_env,
-    workspace_meta_dir_name, workspace_meta_read_roots, workspace_meta_write_path,
-    workspace_meta_write_path_from_env, AMUXD_HOME_ENV, BRAND_SHORT_NAME_ENV,
-    LEGACY_BRAND_CONFIG_FILE, LEGACY_BRAND_STORAGE_DIR, LEGACY_BRAND_TEAM_SHARED_DIR_NAME,
-    LEGACY_BRAND_WORKSPACE_META_DIR, LEGACY_OFFICIAL_DEV_CONFIG_FILE,
-    LEGACY_OFFICIAL_DEV_STORAGE_DIR, OFFICIAL_AMUXD_DIR_NAME, OFFICIAL_STORAGE_DIR,
-    REBRAND_NAMESPACE_MIGRATION_MARKER, STORAGE_NAMESPACE_MIGRATION_MARKER, TEAM_SHARED_DIR_NAME,
-    WORKSPACE_CONFIG_FILE, WORKSPACE_META_DIR,
+    amuxd_home_for_brand, amuxd_home_from_env, brand_home_dir, brand_short_name_from_env,
+    is_official_brand, resolve_amuxd_dir_name, resolve_storage_dir_name,
+    resolve_workspace_config_path, resolve_workspace_config_path_from_env,
+    resolve_workspace_meta_path, resolve_workspace_meta_path_from_env, workspace_config_file_name,
+    workspace_config_path, workspace_config_path_from_env, workspace_meta_dir,
+    workspace_meta_dir_from_env, workspace_meta_dir_name, workspace_meta_read_roots,
+    workspace_meta_write_path, workspace_meta_write_path_from_env, AMUXD_HOME_ENV,
+    BRAND_SHORT_NAME_ENV, LEGACY_BRAND_CONFIG_FILE, LEGACY_BRAND_STORAGE_DIR,
+    LEGACY_BRAND_TEAM_SHARED_DIR_NAME, LEGACY_BRAND_WORKSPACE_META_DIR,
+    LEGACY_OFFICIAL_DEV_CONFIG_FILE, LEGACY_OFFICIAL_DEV_STORAGE_DIR, OFFICIAL_AMUXD_DIR_NAME,
+    OFFICIAL_STORAGE_DIR, REBRAND_NAMESPACE_MIGRATION_MARKER, ROOT_ALLOWLIST,
+    STORAGE_NAMESPACE_MIGRATION_MARKER, TEAM_SHARED_DIR_NAME, WORKSPACE_CONFIG_FILE,
+    WORKSPACE_META_DIR,
 };
 
 /// Same as [`OFFICIAL_STORAGE_DIR`] — kept for existing call sites.

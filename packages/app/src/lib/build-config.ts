@@ -195,16 +195,26 @@ function deriveShortName(name: string): string {
   return name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
 }
 
-const OFFICIAL_BRAND_SHORT_NAMES = new Set(['teamclu', 'teamcludev'])
+/**
+ * The one official brand short name. Mirrors
+ * `teamclu_runtime_env::storage_namespace::OFFICIAL_STORAGE_DIR`; the mirror is
+ * held by a parity test (`__tests__/brand-parity.test.ts`) that reads the Rust
+ * source, because the two are compiled by different toolchains and a shared
+ * constant would need a codegen step for one string.
+ */
+export const OFFICIAL_BRAND_SHORT_NAME = 'teamclu'
 
-/** Official TeamClu Prod/Dev builds share one on-disk + localStorage namespace. */
+/**
+ * Exactly one name is official. `teamcludev`, `teamclaw` and `teamclawdev` are
+ * deliberately white-label — see `docs/architecture/amuxd-home-layout-v2.md` §6.
+ */
 export function isOfficialBrand(shortName: string): boolean {
-  return OFFICIAL_BRAND_SHORT_NAMES.has(shortName)
+  return shortName === OFFICIAL_BRAND_SHORT_NAME
 }
 
-/** Home dir + localStorage prefix (`teamclu` for official builds). */
+/** Home dir + localStorage prefix (`teamclu` for the official build). */
 export function resolveStorageDirName(shortName: string): string {
-  return isOfficialBrand(shortName) ? 'teamclu' : shortName
+  return isOfficialBrand(shortName) ? OFFICIAL_BRAND_SHORT_NAME : shortName
 }
 
 /**

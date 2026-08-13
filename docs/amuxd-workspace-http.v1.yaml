@@ -3,7 +3,7 @@ info:
   title: amuxd Workspace HTTP API (local control plane)
   version: 1.0.0
   description: |
-    Local daemon HTTP API bound on loopback (`~/.amuxd/amuxd.http.port`).
+    Local daemon HTTP API bound on loopback (`~/.amuxd/run/amuxd.http.port`).
     Desktop and automation clients authenticate with a bearer token from
     `POST /v1/auth/exchange`.
 

@@ -25,10 +25,18 @@ describe("build-config app.displayName", () => {
 });
 
 describe("resolveAmuxdDirName", () => {
-  it("keeps official brands on ~/.amuxd and namespaces white-labels", () => {
+  it("keeps the official brand on ~/.amuxd and namespaces everything else", () => {
     expect(resolveAmuxdDirName("teamclu")).toBe("amuxd");
-    expect(resolveAmuxdDirName("teamcludev")).toBe("amuxd");
     expect(resolveAmuxdDirName("copilot361")).toBe("amuxd-copilot361");
+  });
+
+  it("treats the pre-rebrand and dev spellings as white-label", () => {
+    // Exactly one name is official (docs/architecture/amuxd-home-layout-v2.md §6).
+    // These three used to be official here or in one of the two other copies of
+    // the rule, and the disagreement split betly's home state in half.
+    expect(resolveAmuxdDirName("teamcludev")).toBe("amuxd-teamcludev");
+    expect(resolveAmuxdDirName("teamclaw")).toBe("amuxd-teamclaw");
+    expect(resolveAmuxdDirName("teamclawdev")).toBe("amuxd-teamclawdev");
   });
 });
 

@@ -113,7 +113,7 @@ fn attachment_cache_dir(session_id: &str) -> PathBuf {
     let base = if cfg!(test) {
         std::env::temp_dir().join("amuxd-test-attachments")
     } else {
-        crate::config::DaemonConfig::config_dir().join("attachments")
+        crate::config::layout::active_state_dir().join("attachments")
     };
     base.join(sanitize_for_filename(session_id))
 }

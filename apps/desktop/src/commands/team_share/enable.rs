@@ -548,14 +548,11 @@ pub(crate) fn detect_link_status(workspace_path: &str) -> &'static str {
     }
 }
 
-/// `~/.amuxd/teams/<team_id>/teamclu-team` — the daemon's global copy path,
-/// shown in the UI so users can see where synced content actually lives.
+/// `~/.amuxd/teams/<team_id>/shared/teamclu-team` — the daemon's global copy
+/// path, shown in the UI so users can see where synced content actually lives.
 pub(crate) fn global_team_dir_display(team_id: &str) -> Option<String> {
     Some(
-        crate::commands::amuxd_home_dir()
-            .join("teams")
-            .join(team_id)
-            .join(TEAM_REPO_DIR)
+        crate::commands::amuxd_team_shared_dir(team_id)
             .to_string_lossy()
             .into_owned(),
     )

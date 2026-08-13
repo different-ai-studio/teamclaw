@@ -11,9 +11,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
+use crate::storage_namespace::resolve_workspace_config_path;
 use crate::team_crypto::{self, EncryptedEnvelope};
 use crate::team_provider;
-use crate::storage_namespace::resolve_workspace_config_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -137,7 +137,11 @@ pub fn team_secrets_dir_candidates_workspace(
         }
     };
 
-    push(workspace.join(crate::DEFAULT_TEAM_REPO_DIR).join(SECRETS_SUBDIR));
+    push(
+        workspace
+            .join(crate::DEFAULT_TEAM_REPO_DIR)
+            .join(SECRETS_SUBDIR),
+    );
     if shared_dir_name != crate::DEFAULT_TEAM_REPO_DIR {
         push(workspace.join(shared_dir_name).join(SECRETS_SUBDIR));
     }
@@ -325,25 +329,28 @@ pub fn load_personal_env_listings(
 
     let index_entries: Vec<PersonalEnvListing> = read_teamclu_config_for_brand(workspace, brand)
         .and_then(|config| {
-            config.get("envVars").and_then(|v| v.as_array()).map(|entries| {
-                entries
-                    .iter()
-                    .filter_map(|entry| {
-                        let key = entry.get("key")?.as_str()?.to_string();
-                        Some(PersonalEnvListing {
-                            key,
-                            description: entry
-                                .get("description")
-                                .and_then(|v| v.as_str())
-                                .map(str::to_string),
-                            category: entry
-                                .get("category")
-                                .and_then(|v| v.as_str())
-                                .map(str::to_string),
+            config
+                .get("envVars")
+                .and_then(|v| v.as_array())
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(|entry| {
+                            let key = entry.get("key")?.as_str()?.to_string();
+                            Some(PersonalEnvListing {
+                                key,
+                                description: entry
+                                    .get("description")
+                                    .and_then(|v| v.as_str())
+                                    .map(str::to_string),
+                                category: entry
+                                    .get("category")
+                                    .and_then(|v| v.as_str())
+                                    .map(str::to_string),
+                            })
                         })
-                    })
-                    .collect()
-            })
+                        .collect()
+                })
         })
         .unwrap_or_default();
 
@@ -551,7 +558,10 @@ mod tests {
         assert_eq!(team.len(), 1);
         assert_eq!(team[0].key_id, "api_key");
         assert!(!team[0].decrypted);
-        assert!(!team[0].key_mismatch, "no secret at all → missing, not mismatch");
+        assert!(
+            !team[0].key_mismatch,
+            "no secret at all → missing, not mismatch"
+        );
     }
 
     #[test]
@@ -625,10 +635,8 @@ mod tests {
         .unwrap();
 
         let listings = load_personal_env_listings(workspace.path(), Some("teamclu"));
-        let by_key: std::collections::HashMap<_, _> = listings
-            .iter()
-            .map(|e| (e.key.as_str(), e))
-            .collect();
+        let by_key: std::collections::HashMap<_, _> =
+            listings.iter().map(|e| (e.key.as_str(), e)).collect();
         assert!(by_key.contains_key("ANTHROPIC_AUTH_TOKEN"));
         assert_eq!(
             by_key.get("tc_api_key").and_then(|e| e.category.as_deref()),

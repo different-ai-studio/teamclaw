@@ -73,8 +73,10 @@ pub struct DeviceModelCatalog {
 }
 
 impl DeviceModelCatalog {
+    /// A machine-level probe cache keyed by backend and worktree — never by
+    /// team, so it lives in `cache/` rather than sinking into `teams/`.
     pub fn default_path() -> PathBuf {
-        super::DaemonConfig::migrate_legacy_file("model-catalog.toml")
+        super::layout::cache_dir().join("model-catalog.toml")
     }
 
     /// Read the store, treating any problem (missing, unreadable, malformed) as

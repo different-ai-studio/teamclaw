@@ -122,10 +122,12 @@ fn sanitize_for_filename(s: &str) -> String {
 /// `acp_session_id` hex) so the same file is reused if the runtime is
 /// re-spawned under the same logical id (e.g. after `/reset`).
 pub fn gateway_mcp_config_path(logical_session_id: &str) -> PathBuf {
-    DaemonConfig::config_dir().join("mcp-configs").join(format!(
-        "{}.json",
-        sanitize_for_filename(logical_session_id)
-    ))
+    crate::config::layout::active_state_dir()
+        .join("mcp-configs")
+        .join(format!(
+            "{}.json",
+            sanitize_for_filename(logical_session_id)
+        ))
 }
 
 /// Write the per-session MCP config that points the agent at amuxd's own
@@ -1915,7 +1917,11 @@ mod tests {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
         mgr.add_test_runtime("session-a");
         mgr.add_test_runtime("session-b");
-        let sessions: Vec<String> = mgr.live_sessions().into_iter().map(|s| s.session_id).collect();
+        let sessions: Vec<String> = mgr
+            .live_sessions()
+            .into_iter()
+            .map(|s| s.session_id)
+            .collect();
         assert_eq!(sessions.len(), 2);
         assert!(sessions.contains(&"session-a".to_string()));
         assert!(sessions.contains(&"session-b".to_string()));
@@ -2525,7 +2531,8 @@ mod tests {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
         mgr.add_test_runtime("54809303-ed5b-4f10-893f-2d0fd2db4e00");
         assert_eq!(
-            mgr.resolve_command_agent_id("54809303-ed5b-4f10-893f-2d0fd2db4e00", "").as_deref(),
+            mgr.resolve_command_agent_id("54809303-ed5b-4f10-893f-2d0fd2db4e00", "")
+                .as_deref(),
             Some("54809303-ed5b-4f10-893f-2d0fd2db4e00"),
             "the session id is the key; resolution is identity"
         );
@@ -2534,15 +2541,19 @@ mod tests {
     #[test]
     fn resolve_command_agent_id_rejects_an_unknown_session() {
         let mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        assert_eq!(mgr.resolve_command_agent_id("54809303-ed5b-4f10-893f-2d0fd2db4e00", ""), None);
+        assert_eq!(
+            mgr.resolve_command_agent_id("54809303-ed5b-4f10-893f-2d0fd2db4e00", ""),
+            None
+        );
     }
 
     #[test]
     fn resolve_command_agent_id_accepts_actor_session_composite() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
         mgr.add_test_runtime("54809303-ed5b-4f10-893f-2d0fd2db4e00");
-        mgr.get_handle_mut("54809303-ed5b-4f10-893f-2d0fd2db4e00").unwrap().owner_actor_id =
-            "614433ab-52dd-4ce3-b5f4-14376f8eb680".into();
+        mgr.get_handle_mut("54809303-ed5b-4f10-893f-2d0fd2db4e00")
+            .unwrap()
+            .owner_actor_id = "614433ab-52dd-4ce3-b5f4-14376f8eb680".into();
         assert_eq!(
             mgr.resolve_command_agent_id(
                 "614433ab-52dd-4ce3-b5f4-14376f8eb680::54809303-ed5b-4f10-893f-2d0fd2db4e00",
@@ -2570,7 +2581,8 @@ mod tests {
         mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "actor-A".into();
 
         assert_eq!(
-            mgr.resolve_command_agent_id("actor-A::session_S", "actor-A").as_deref(),
+            mgr.resolve_command_agent_id("actor-A::session_S", "actor-A")
+                .as_deref(),
             Some("session_S")
         );
         assert_eq!(
@@ -2594,7 +2606,8 @@ mod tests {
         mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "actor-A".into();
 
         assert_eq!(
-            mgr.resolve_command_agent_id("session_S", "actor-A").as_deref(),
+            mgr.resolve_command_agent_id("session_S", "actor-A")
+                .as_deref(),
             Some("session_S")
         );
     }
@@ -2608,9 +2621,14 @@ mod tests {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
         mgr.add_test_runtime("session_S");
 
-        assert!(mgr.set_model("session_S", "claude-sonnet-4-6").await.is_ok());
+        assert!(mgr
+            .set_model("session_S", "claude-sonnet-4-6")
+            .await
+            .is_ok());
         assert!(
-            mgr.set_model("session_UNKNOWN", "claude-sonnet-4-6").await.is_err(),
+            mgr.set_model("session_UNKNOWN", "claude-sonnet-4-6")
+                .await
+                .is_err(),
             "an unknown session must not silently succeed"
         );
     }
@@ -2857,7 +2875,10 @@ mod tests {
         mgr.add_test_runtime("session_OTHER");
 
         assert_eq!(mgr.runtime_ids_for_session("session_S"), vec!["session_S"]);
-        assert_eq!(mgr.runtime_ids_for_session("session_OTHER"), vec!["session_OTHER"]);
+        assert_eq!(
+            mgr.runtime_ids_for_session("session_OTHER"),
+            vec!["session_OTHER"]
+        );
         assert!(mgr.runtime_ids_for_session("unknown").is_empty());
     }
 
@@ -2966,7 +2987,10 @@ mod tests {
 
         let turn_lock = mgr.get_handle("session_S").unwrap().turn_lock.clone();
         let guard = turn_lock.lock().await;
-        assert!(mgr.turn_in_flight("session_S"), "a held turn_lock reads as busy");
+        assert!(
+            mgr.turn_in_flight("session_S"),
+            "a held turn_lock reads as busy"
+        );
         drop(guard);
         assert!(
             !mgr.turn_in_flight("rt1"),
@@ -2977,9 +3001,15 @@ mod tests {
     #[test]
     fn session_id_for_runtime_is_the_key_itself() {
         let mut mgr = RuntimeManager::test_dummy_with_runtime("session-1");
-        assert_eq!(mgr.session_id_for_runtime("session-1").as_deref(), Some("session-1"));
+        assert_eq!(
+            mgr.session_id_for_runtime("session-1").as_deref(),
+            Some("session-1")
+        );
         mgr.add_test_runtime("session-2");
-        assert_eq!(mgr.session_id_for_runtime("session-2").as_deref(), Some("session-2"));
+        assert_eq!(
+            mgr.session_id_for_runtime("session-2").as_deref(),
+            Some("session-2")
+        );
         assert_eq!(mgr.session_id_for_runtime("missing"), None);
     }
 
@@ -3002,7 +3032,11 @@ mod tests {
         }
 
         assert_eq!(mgr.last_sent_to("session_S").as_deref(), Some("hi"));
-        assert!(mgr.get_handle("session_S").unwrap().pending_silent.is_empty());
+        assert!(mgr
+            .get_handle("session_S")
+            .unwrap()
+            .pending_silent
+            .is_empty());
     }
 
     /// Simulate the "not mentioned" branch: message is queued as pending_silent.

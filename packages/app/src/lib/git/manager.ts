@@ -41,7 +41,10 @@ export class GitManager {
 
   // ─── Initialization ────────────────────────────────────────────────────
 
-  /** Get the base path for git repos: ~/.teamclu/git/ */
+  /** Get the base path for git repos: `~/.{brand}/git/` (the desktop's brand
+   *  home — documented in docs/architecture/amuxd-home-layout-v2.md §5).
+   *  TEAMCLU_DIR doubles as the home dir name here; the two resolve
+   *  identically for every brand, unlike on the Rust side. */
   async getBasePath(): Promise<string> {
     if (this._basePath) return this._basePath
     const home = await homeDir()

@@ -7,7 +7,6 @@ import { devSkipDaemonOnboarding, devSkipSetup } from "@/lib/dev-onboarding-flag
 import { resolveDefaultDisplayName } from "@/lib/default-display-name";
 import { DesktopOnboarding } from "./DesktopOnboarding";
 import { LoginScreen } from "./LoginScreen";
-import { SetupWizard } from "@/components/auth/SetupWizard";
 import { isLocaleLocked, availableLanguages } from "@/lib/i18n";
 import { LanguageStep } from "@/components/onboarding/LanguageStep";
 import { RoleStep } from "@/components/onboarding/RoleStep";
@@ -75,14 +74,13 @@ export function AuthGate({ children }: AuthGateProps) {
   const savedTeamRestoreUserId = useRef<string | null>(null);
 
   const setupLoaded = useSetupStore((s) => s.loaded);
-  const setupRequiredSatisfied = useSetupStore((s) => s.requiredSatisfied());
   const listSetup = useSetupStore((s) => s.listRequirements);
   // Optimistic skip: if a prior launch confirmed all required deps, don't gate
   // first paint behind the cold `setup_list_requirements` probe (~4s on macOS
   // first launch — it spawns `amuxd doctor`). The probe still runs in the
   // background (effect below) to refresh the cache, and the daemon-onboarding
   // gate is the real backstop if a dependency actually went missing.
-  const [setupAck, setSetupAck] = useState(() => devSkipSetup() || setupPreviouslySatisfied());
+  const [setupAck] = useState(() => devSkipSetup() || setupPreviouslySatisfied());
 
   // First-run onboarding (#881). `onboardingSetupAck` is local rather than
   // persisted: it only sequences the screens within one run.
@@ -397,7 +395,8 @@ export function AuthGate({ children }: AuthGateProps) {
   // step works with no account and no workspace.
   //
   // Returning users skip all of it: `onboardingDone` is set once the flow
-  // completes, and `setupRequiredSatisfied` covers installs that predate it.
+  // completes, and `setupAck` (the setup-ok cache) covers installs that
+  // predate it.
   if (isTauri() && !onboardingDone && (!setupAck || onboardingStarted)) {
     if (!setupLoaded) {
       return null;
@@ -419,18 +418,6 @@ export function AuthGate({ children }: AuthGateProps) {
     }
     removeStartupSkeleton();
     return <ModelStep onDone={markOnboardingCompleted} />;
-  }
-
-  // Pre-#881 installs that never ran the new flow still need their local
-  // prerequisites checked before auth.
-  if (isTauri() && !setupAck) {
-    if (!setupLoaded) {
-      return null;
-    }
-    if (!setupRequiredSatisfied) {
-      removeStartupSkeleton();
-      return <SetupWizard onDone={() => setSetupAck(true)} />;
-    }
   }
 
   if (isTauri() && loading && authFlow === "invite") {

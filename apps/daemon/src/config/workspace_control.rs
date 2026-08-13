@@ -492,9 +492,8 @@ impl OpenCodeCompatStore {
     fn read_opencode_json(
         workspace_path: &std::path::Path,
     ) -> Result<OpencodeJson, WorkspaceControlError> {
-        let value =
-            teamclu_runtime_env::opencode_config::OpencodeConfigStore::load(workspace_path)
-                .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
+        let value = teamclu_runtime_env::opencode_config::OpencodeConfigStore::load(workspace_path)
+            .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
         serde_json::from_value(value).map_err(|e| WorkspaceControlError::Parse(e.to_string()))
     }
 

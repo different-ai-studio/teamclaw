@@ -24,7 +24,7 @@ struct AuthExchangeResponse {
 }
 
 fn daemon_http_base() -> Option<(String, String)> {
-    let amuxd_dir = super::amuxd_home_dir();
+    let amuxd_dir = super::amuxd_run_dir();
     let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
         .ok()?
         .trim()

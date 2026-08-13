@@ -169,7 +169,7 @@ fn amuxd_dir() -> PathBuf {
 }
 
 fn amuxd_pid_is_running() -> bool {
-    let pid_path = amuxd_dir().join("amuxd.pid");
+    let pid_path = crate::commands::amuxd_run_dir().join("amuxd.pid");
     let Ok(body) = std::fs::read_to_string(&pid_path) else {
         return false;
     };
@@ -247,7 +247,7 @@ async fn wait_for_amuxd_stopped(timeout: Duration) {
 
 /// True when GET `/v1/healthz` succeeds (same contract as the frontend probe).
 async fn daemon_healthz_ok() -> bool {
-    let port_path = amuxd_dir().join("amuxd.http.port");
+    let port_path = crate::commands::amuxd_run_dir().join("amuxd.http.port");
     let Ok(port_str) = std::fs::read_to_string(&port_path) else {
         return false;
     };
@@ -540,7 +540,7 @@ async fn stop_with_child_fallback_async(inner: &mut SupervisorInner, grace: Dura
 
 /// When the lifecycle lock is contended, signal via pidfile then stop CLI.
 fn stop_without_lock() {
-    if let Ok(body) = std::fs::read_to_string(amuxd_dir().join("amuxd.pid")) {
+    if let Ok(body) = std::fs::read_to_string(crate::commands::amuxd_run_dir().join("amuxd.pid")) {
         if let Ok(pid) = body.trim().parse::<i32>() {
             #[cfg(unix)]
             unsafe {
@@ -594,7 +594,23 @@ impl AmuxdSupervisor {
         }
 
         let bin = bundled_amuxd()?;
-        let log_path = amuxd_dir().join("amuxd.managed.log");
+        // `create(true)` does not create the parent, and on a fresh install
+        // `logs/` does not exist until the daemon's own layout pass runs —
+        // which happens after this spawn.
+        let logs_dir = crate::commands::amuxd_logs_dir();
+        let _ = std::fs::create_dir_all(&logs_dir);
+        let log_path = logs_dir.join("amuxd.managed.log");
+        // The daemon's tracing goes to its own rotating `amuxd.log`; this file
+        // only catches panics, pre-init prints and child output. Still cap it —
+        // it is append-across-runs and accumulated 76 MB under v1. Rotation
+        // happens here (at spawn) because this side owns the writer.
+        const MANAGED_LOG_MAX_BYTES: u64 = 32 * 1024 * 1024;
+        if std::fs::metadata(&log_path)
+            .map(|m| m.len() > MANAGED_LOG_MAX_BYTES)
+            .unwrap_or(false)
+        {
+            let _ = std::fs::rename(&log_path, logs_dir.join("amuxd.managed.log.1"));
+        }
         let log_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

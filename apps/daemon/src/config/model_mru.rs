@@ -64,7 +64,7 @@ impl ModelMru {
     /// `RuntimeManager::with_local_agent`), so this has no caller there.
     #[allow(dead_code)]
     pub fn default_path() -> PathBuf {
-        super::DaemonConfig::migrate_legacy_file("model-mru.toml")
+        super::layout::cache_dir().join("model-mru.toml")
     }
 
     /// Read the store, treating any problem (missing, unreadable, malformed) as

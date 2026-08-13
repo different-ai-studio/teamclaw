@@ -7,30 +7,50 @@ import { homeDir } from '@tauri-apps/api/path'
  */
 export const TEAM_SHARE_LINK_DIR = 'teamclu-team'
 
+/**
+ * Slug the daemon uses for a team directory it has not been claimed by yet
+ * (`layout::UNCLAIMED_TEAM`). It is a placeholder, not an onboarded team.
+ */
+const UNCLAIMED_TEAM = '_unclaimed'
+
 async function readOnboardedTeamId(): Promise<string | null> {
   try {
     const home = trimTrailingPathSeparators(await homeDir())
     const configPath = `${home}/.amuxd/daemon.toml`
     if (!(await exists(configPath))) return null
     const content = await readTextFile(configPath)
-    const match = content.match(/team_id\s*=\s*"([^"]+)"/)
+    // `active_team` is the v2 name; `team_id` is the v1 one the daemon still
+    // accepts (`DaemonConfig::team_id`'s serde alias), so a daemon older than
+    // the app is read rather than reported as un-onboarded.
+    const match =
+      content.match(/^\s*active_team\s*=\s*"([^"]+)"/m) ??
+      content.match(/^\s*team_id\s*=\s*"([^"]+)"/m)
     const teamId = match?.[1]?.trim()
-    return teamId || null
+    if (!teamId || teamId === UNCLAIMED_TEAM) return null
+    return teamId
   } catch {
     return null
   }
 }
 
-/** Global team share dir: `~/.amuxd/teams/<team_id>/teamclu-team`. */
+/**
+ * Global team share dir: `~/.amuxd/teams/<team_id>/shared/teamclu-team`.
+ *
+ * The `shared/` level is layout v2 (`layout::team_shared_dir`). v1 kept the
+ * link dir directly under `teams/<id>/`, and needs no fallback here: the v2
+ * daemon deletes the v1 directory on its first boot rather than moving it
+ * (`purge_v1_layout`), so it is gone before this ever runs.
+ */
 async function globalTeamDir(teamId: string): Promise<string> {
   const home = trimTrailingPathSeparators(await homeDir())
-  return `${home}/.amuxd/teams/${teamId}/${TEAM_SHARE_LINK_DIR}`
+  return `${home}/.amuxd/teams/${teamId}/shared/${TEAM_SHARE_LINK_DIR}`
 }
 
 /**
- * The single global team share dir `~/.amuxd/teams/<team_id>/teamclu-team`,
- * regardless of whether it exists on disk. Returns `null` only when no team is
- * onboarded (no `team_id` in `~/.amuxd/daemon.toml`).
+ * The single global team share dir
+ * `~/.amuxd/teams/<team_id>/shared/teamclu-team`, regardless of whether it
+ * exists on disk. Returns `null` only when no team is onboarded (no
+ * `active_team` in `~/.amuxd/daemon.toml`).
  *
  * This is the daemon-owned canonical copy. We intentionally do NOT consider the
  * per-workspace `teamclu-team` symlink here — reading the global dir directly

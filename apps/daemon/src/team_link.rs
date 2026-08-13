@@ -251,7 +251,9 @@ mod tests {
         // SAFETY: serialized by TEST_HOME_LOCK.
         unsafe { std::env::set_var("HOME", home.path()) };
 
-        let app_ws = home.path().join(".amuxd").join("apps").join("app-1");
+        // Asks where apps actually live rather than re-deriving it — the
+        // fixture and the predicate must not be able to disagree.
+        let app_ws = crate::http::apps::apps_data_root().join("app-1");
         std::fs::create_dir_all(&app_ws).unwrap();
         let app_ws_str = app_ws.to_str().unwrap();
         assert!(is_app_workspace(app_ws_str));

@@ -102,6 +102,7 @@ fn set(
         user_jwt: None,
         git_credential,
         git_branch,
+        channel_secrets: Default::default(),
     };
 
     let store = SecretStore::new();

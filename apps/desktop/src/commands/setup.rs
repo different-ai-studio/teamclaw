@@ -108,10 +108,25 @@ pub async fn setup_list_requirements<R: Runtime>(
     app: AppHandle<R>,
     local_agent: Option<String>,
 ) -> Result<Vec<RequirementStatus>, String> {
-    // Which local runtime this build targets ("opencode" default | "pi").
-    let use_pi = local_agent.as_deref().map(str::trim) == Some("pi");
     let git_version = detect_git();
     let doctor = read_doctor(&app, local_agent.as_deref()).await;
+
+    let runtime_satisfied_in_doctor = |key: &str| {
+        doctor
+            .as_ref()
+            .and_then(|d| d[key]["satisfied"].as_bool())
+            .unwrap_or(false)
+    };
+    // Which runtime the row reports on. An explicit pick (onboarding's
+    // SetupStep, post-install re-probe) is authoritative. With no pick — the
+    // background probe refreshing the setup-ok cache — any installed runtime
+    // satisfies: a machine running pi must not fail the check just because the
+    // build's default is opencode.
+    let use_pi = match local_agent.as_deref().map(str::trim) {
+        Some("pi") => true,
+        Some(_) => false,
+        None => runtime_satisfied_in_doctor("pi") && !runtime_satisfied_in_doctor("opencode"),
+    };
 
     // `present` = no action needed. For opencode that is simply "installed"
     // (amuxd pins no version); pi still has a lock, so there it means "installed
@@ -122,9 +137,8 @@ pub async fn setup_list_requirements<R: Runtime>(
         .and_then(|d| d["amuxd"]["installedVersion"].as_str())
         .map(|s| s.to_string());
 
-    // The agent-runtime row reflects the build's target: pi or opencode. Its
-    // status comes from the matching key in `amuxd doctor` output (pi is only
-    // present when this build/daemon targets pi, which we force via env above).
+    // The agent-runtime row's status comes from the matching key in the
+    // `amuxd doctor` output (doctor reports every runtime in one pass).
     let runtime_key = if use_pi { "pi" } else { "opencode" };
     let runtime = doctor.as_ref().map(|d| &d[runtime_key]);
     let runtime_satisfied = runtime
@@ -206,9 +220,7 @@ pub async fn setup_list_agent_runtimes<R: Runtime>(
             // `optional: true` marks a runtime the app cannot install, so the
             // frontend can drop it when absent instead of offering a dead action.
             optional: id == "cursor" || id == "claude-code",
-            present: node
-                .and_then(|r| r["satisfied"].as_bool())
-                .unwrap_or(false),
+            present: node.and_then(|r| r["satisfied"].as_bool()).unwrap_or(false),
             version: node
                 .and_then(|r| r["version"].as_str())
                 .map(|s| s.to_string()),

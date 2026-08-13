@@ -1,4 +1,6 @@
-use crate::config::{ActorConfig, AgentsConfig, DaemonConfig, HttpConfig, MqttConfig, TeamShareConfig};
+use crate::config::{
+    ActorConfig, AgentsConfig, DaemonConfig, HttpConfig, MqttConfig, TeamShareConfig,
+};
 use crate::onboarding::invite_url::{self, ParsedInvite};
 use crate::provider_config::{CloudApiConfig, ProviderConfig};
 use anyhow::{anyhow, Context, Result};
@@ -38,10 +40,19 @@ pub async fn run(raw_url: &str, config_path: Option<&Path>) -> Result<InitOutcom
         actor_id: claim.actor_id.clone(),
     };
 
+    // Adopt whatever this daemon wrote while unclaimed before anything is
+    // written under the team id — otherwise the credentials land in the new
+    // directory and the rename then refuses to clobber it, stranding the
+    // pre-onboarding sessions in `_unclaimed`.
+    if let Err(e) = crate::config::layout::promote_unclaimed(&claim.team_id) {
+        tracing::warn!(error = %e, "could not adopt the unclaimed team directory");
+    }
+
     let path = match config_path {
         Some(p) => p.to_path_buf(),
-        None => ProviderConfig::default_path()
-            .map_err(|e| anyhow!("backend config path failed: {e}"))?,
+        // Explicitly by team id, not `default_path()`: `daemon.toml` still
+        // points at the previous team (or nowhere) until it is written below.
+        None => ProviderConfig::path_for_team(&claim.team_id),
     };
     save_backend_toml(&path, &cfg).with_context(|| format!("write {}", path.display()))?;
 
@@ -223,9 +234,12 @@ fn daemon_config_for_invite(
     invite: &ParsedInvite,
 ) -> DaemonConfig {
     let mut daemon_cfg = existing.unwrap_or_else(|| default_daemon_config(display_name, actor_id));
-    // actor.id IS the actor_id — the Cloud API access-token hook embeds ACL
-    // rules under the `amux/{team}/{actor}/...` topic namespace, so any other
-    // value makes EMQX reject the daemon's CONNECT (LWT topic denied).
+    // In-memory convergence only: `actor.id` never reaches daemon.toml (the
+    // field is skip_serializing; the team's backend.toml is the identity's one
+    // owner on disk). It still matters for the process that called init — the
+    // Cloud API access-token hook embeds ACL rules under the
+    // `amux/{team}/{actor}/...` topic namespace, so a running daemon must
+    // converge on the claimed actor_id before its next CONNECT.
     daemon_cfg.actor.id = actor_id.to_string();
     // Replace the placeholder left by a daemon that booted unclaimed, so
     // presence doesn't announce it. An operator-chosen name is preserved.
@@ -297,6 +311,7 @@ mod tests {
                 max_attachments: None,
                 http: None,
                 team_share: TeamShareConfig::default(),
+                log: None,
             }),
             "host",
             "team-1",
@@ -374,6 +389,7 @@ mod tests {
                 max_attachments: None,
                 http: None,
                 team_share: TeamShareConfig::default(),
+                log: None,
             }),
             "new-display-name",
             "team-2",

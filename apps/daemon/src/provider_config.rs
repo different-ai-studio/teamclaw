@@ -26,14 +26,21 @@ impl ProviderConfig {
         }
     }
 
-    /// `backend.toml` under the brand-aware amuxd home (`AMUXD_HOME` /
-    /// `TEAMCLU_BRAND_SHORT_NAME` → `~/.amuxd` or `~/.amuxd-<brand>`).
+    /// `teams/<active>/state/backend.toml` — the active team's cloud credentials.
     ///
-    /// Must stay aligned with [`crate::config::DaemonConfig::config_dir`]; a
-    /// hard-coded `~/.amuxd` here made white-label daemons load the official
-    /// TeamClu credentials and fail identity validation on startup.
+    /// Every field in this file is per-team (`url`, `refresh_token`, `team_id`,
+    /// `actor_id`), so it belongs to the team directory and not to the home
+    /// root. Switching teams then means pointing `daemon.toml` at a different
+    /// directory rather than overwriting one set of credentials with another.
     pub fn default_path() -> Result<PathBuf, ProviderConfigError> {
-        Ok(teamclu_runtime_env::amuxd_home_from_env().join("backend.toml"))
+        Ok(crate::config::layout::active_state_dir().join("backend.toml"))
+    }
+
+    /// The same file for a team that is not the active one yet — what
+    /// onboarding needs, since it writes the credentials *before* `daemon.toml`
+    /// starts pointing at them.
+    pub fn path_for_team(team_id: &str) -> PathBuf {
+        crate::config::layout::team_state_dir(team_id).join("backend.toml")
     }
 
     /// Whether *any* onboarding config exists at `backend_path` — either the
@@ -285,8 +292,16 @@ actor_id = "agent-1"
     fn default_path_follows_amuxd_home_env() {
         let dir = tempfile::tempdir().unwrap();
         let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(dir.path());
+        // Unclaimed: no daemon.toml to point at a team yet.
         let path = ProviderConfig::default_path().unwrap();
-        assert_eq!(path, dir.path().join("backend.toml"));
+        assert_eq!(path, dir.path().join("teams/_unclaimed/state/backend.toml"));
+
+        // Once claimed, the same file lives under the team it belongs to.
+        std::fs::write(dir.path().join("daemon.toml"), "team_id = \"team-a\"\n").unwrap();
+        assert_eq!(
+            ProviderConfig::default_path().unwrap(),
+            dir.path().join("teams/team-a/state/backend.toml")
+        );
     }
 
     #[test]
@@ -294,7 +309,7 @@ actor_id = "agent-1"
         let _guard = crate::test_brand_env::BrandEnvGuard::set("copilot361");
         let path = ProviderConfig::default_path().unwrap();
         assert!(
-            path.ends_with(".amuxd-copilot361/backend.toml"),
+            path.ends_with(".amuxd-copilot361/teams/_unclaimed/state/backend.toml"),
             "got {}",
             path.display()
         );

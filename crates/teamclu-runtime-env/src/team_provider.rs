@@ -176,9 +176,7 @@ pub fn read_disk_team_provider(workspace: &Path) -> Option<serde_json::Value> {
 }
 
 /// Reconstruct a [`ManagedLlmProvider`] from an on-disk `provider.team` object.
-pub fn managed_llm_provider_from_disk_team(
-    team: &serde_json::Value,
-) -> Option<ManagedLlmProvider> {
+pub fn managed_llm_provider_from_disk_team(team: &serde_json::Value) -> Option<ManagedLlmProvider> {
     let base_url = team
         .get("options")
         .and_then(|options| options.get("baseURL"))
@@ -456,8 +454,7 @@ mod tests {
                 "gpt-4": { "name": "GPT-4" }
             }
         });
-        let stabilized =
-            stabilize_managed_llm_for_spawn(&ManagedLlmState::Unknown, Some(&disk));
+        let stabilized = stabilize_managed_llm_for_spawn(&ManagedLlmState::Unknown, Some(&disk));
         let ManagedLlmState::Enabled(from_disk) = stabilized else {
             panic!("expected Enabled");
         };

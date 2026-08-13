@@ -345,8 +345,25 @@ impl DeliveryManager {
         let daemon_root = crate::commands::amuxd_home_dir()
             .to_string_lossy()
             .into_owned();
+        // The gateway's ChannelManager runs sessions in the team's own
+        // worktree now, so that is where wecom.rs records ownerId; the home
+        // root and the cron job's workspace stay as legacy fallbacks.
+        let team_workspace = crate::commands::amuxd_active_team()
+            .map(|t| {
+                crate::commands::amuxd_team_workspace_dir(&t)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .unwrap_or_default();
 
-        for root in [daemon_root.as_str(), self.workspace_path.as_str()] {
+        for root in [
+            team_workspace.as_str(),
+            daemon_root.as_str(),
+            self.workspace_path.as_str(),
+        ]
+        .into_iter()
+        .filter(|r| !r.is_empty())
+        {
             let Ok(config) = gateway::read_config(root) else {
                 continue;
             };

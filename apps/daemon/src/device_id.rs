@@ -112,8 +112,19 @@ fn read_nonempty(p: &Path) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
+/// Resolved through the daemon's own home, never a hand-written `~/.amuxd`.
+///
+/// It used to be hardcoded, which mattered more here than anywhere else: this
+/// id is what the Cloud API binds an agent actor to, so a white-label daemon
+/// reading the official build's cached id would claim the official machine's
+/// agent. `$AMUXD_HOME` — the override every test and ops runbook uses — was
+/// also ignored here alone.
+///
+/// Infallible now: [`crate::config::DaemonConfig::config_dir`] falls back to
+/// `/tmp` rather than returning `None`, so the caller's "no path, derive but
+/// don't persist" branch is only reachable in tests.
 fn device_id_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".amuxd").join("device-id"))
+    Some(crate::config::DaemonConfig::config_dir().join("device-id"))
 }
 
 // ── Per-platform machine identity ───────────────────────────────────────────
@@ -214,6 +225,17 @@ fn parse_reg_machine_guid_impl(stdout: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The cache file must follow `$AMUXD_HOME` / the brand, not a hardcoded
+    /// `~/.amuxd`. Two brands sharing one cached id would have them claim the
+    /// same `agents.device_id` row.
+    #[test]
+    fn cache_path_follows_the_daemon_home() {
+        let dir = tempfile::tempdir().unwrap();
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(dir.path());
+
+        assert_eq!(device_id_path(), Some(dir.path().join("device-id")));
+    }
 
     #[test]
     fn returns_nonempty_stable_id() {

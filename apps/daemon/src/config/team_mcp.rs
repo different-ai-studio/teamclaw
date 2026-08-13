@@ -605,6 +605,8 @@ mod tests {
         let outcome = prune_materialised_team_mcp_entries(ws.path(), &team).unwrap();
 
         assert!(!outcome.changed);
-        assert!(read_persisted_mcp(ws.path()).unwrap().contains_key("playwright"));
+        assert!(read_persisted_mcp(ws.path())
+            .unwrap()
+            .contains_key("playwright"));
     }
 }

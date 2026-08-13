@@ -1,5 +1,7 @@
 {
   "teamShare": {
+    "refreshAndSync": "Refresh and sync with cloud",
+    "cloudSyncFailed": "Sync failed: {{msg}}",
     "envAdd": "Add environment variable",
     "envAddTeam": "Add team env key",
     "envAddPersonal": "Add personal env key",
@@ -1008,27 +1010,6 @@
     "localDaemonRetrying": "Retrying…",
     "ideas": "Ideas"
   },
-  "setupWizard": {
-    "title": "Prepare runtime environment",
-    "intro": "First launch needs to install a few local dependencies. This only takes a moment.",
-    "optional": "Optional",
-    "ready": "Ready",
-    "install": "Install",
-    "installing": "Installing…",
-    "upgrade": "Upgrade",
-    "upgrading": "Upgrading…",
-    "autoInstalling": "Auto-installing…",
-    "retry": "Retry",
-    "currentNeedsUpgrade": "Current {{version}}, upgrade needed",
-    "continue": "Continue",
-    "installRequiredFirst": "Install required items first",
-    "deps": {
-      "amuxd": "Agent daemon (amuxd)",
-      "opencode": "OpenCode runtime",
-      "pi": "Pi runtime",
-      "git": "Git"
-    }
-  },
   "errors": {
     "somethingWentWrong": "Something went wrong",
     "unexpectedError": "An unexpected error occurred",
@@ -1613,6 +1594,12 @@
       "shareWithTeam": "Share with the team",
       "agentId": "Agent ID",
       "runtime": "Runtime",
+      "runtimeNotInstalled": "not installed",
+      "runtimeScope": "Runtime scope",
+      "runtimeCurrentTeam": "the current team",
+      "runtimePerTeamHint": "The runtime is configured per team — this setting applies to {{team}} only.",
+      "runtimeMissing": "Runtime missing",
+      "runtimeMissingHint": "{{agent}} is not installed on this machine, so agents in this team cannot start. Pick a runtime that is installed, or install {{agent}} first.",
       "cloudExpiredTitle": "Local daemon cloud session expired",
       "cloudExpiredDesc": "The daemon's sign-in credentials are no longer valid, so it can't report its backend types or sync. Trying to reconnect automatically.",
       "cloudExpiredReconnecting": "Reconnecting the daemon (reissuing credentials and restarting)…",
@@ -1659,11 +1646,11 @@
         "mint-invite": "The server could not be reached. Check your connection, then try again.",
         "init-daemon": "Credentials could not be written. A reset clears any half-written state.",
         "restart-daemon": "The local service would not restart. A reset clears any half-written state.",
-        "await-daemon": "The service started but never answered. See ~/.amuxd/amuxd.managed.log.",
+        "await-daemon": "The service started but never answered. See ~/.amuxd/logs/amuxd.managed.log.",
         "cloud-auth": "This machine could not verify with the server."
       },
       "elapsed": "Still working — {{seconds}}s",
-      "stuckHint": "Taking longer than expected. Check ~/.amuxd/amuxd.managed.log for details.",
+      "stuckHint": "Taking longer than expected. Check ~/.amuxd/logs/amuxd.managed.log for details.",
       "errorAtStep": "Setup stopped at: {{step}}",
       "reconnect": "Reconnect",
       "doneTitle": "This machine is ready",
@@ -1683,7 +1670,7 @@
       "retrying": "Retrying…",
       "retry": "Retry",
       "resetReinit": "Reset and re-initialize",
-      "resetIncomplete": "Reset did not take effect: this machine is still bound to team {{teamId}}. Check ~/.amuxd/amuxd.managed.log."
+      "resetIncomplete": "Reset did not take effect: this machine is still bound to team {{teamId}}. Check ~/.amuxd/logs/amuxd.managed.log."
     },
     "daemonWorkspaces": {
       "title": "Workspace",
@@ -3313,6 +3300,7 @@
     "agentRuntime": {
       "notStartedTitle": "Agent runtime not started",
       "notStartedDesc": "Agent {{shortId}}'s daemon did not respond to runtimeStart (it may be offline or not joined to the team).",
+      "binaryMissingDesc": "This team's agent runtime is {{agent}}, but it is not installed on this machine. Pick a runtime that is installed for this team under Settings → Agent, or install {{agent}} first. The runtime is configured per team.",
       "rpcNotReadyTitle": "MQTT/RPC not ready",
       "rpcNotReadyDesc": "Unable to send runtimeStart to the daemon. Please check the MQTT connection and team sign-in status.",
       "deviceOfflineDesc": "Agent {{shortId}}'s daemon is offline (MQTT presence). It will retry automatically when the connection returns.",
@@ -3326,7 +3314,7 @@
       "providerError": "The model provider reported an error. Please retry or switch models."
     },
     "connection": {
-      "portFileMissing": "amuxd daemon not connected: the HTTP control plane is not ready (~/.amuxd/amuxd.http.port does not exist). Restart amuxd, or confirm you are running the build from this branch.",
+      "portFileMissing": "amuxd daemon not connected: the HTTP control plane is not ready (~/.amuxd/run/amuxd.http.port does not exist). Restart amuxd, or confirm you are running the build from this branch.",
       "tokenExchangeFailed": "amuxd daemon HTTP started but authentication failed: restart amuxd and try again.",
       "healthCheckFailed": "amuxd daemon HTTP is not responding: confirm the amuxd process is still running.",
       "notConnected": "amuxd daemon not connected: confirm amuxd is started and the HTTP control plane is available."
