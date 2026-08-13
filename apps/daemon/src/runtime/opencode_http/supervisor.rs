@@ -42,6 +42,19 @@ pub struct ServeSupervisor {
     password: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShutdownOutcome {
+    Idle,
+    Stopped,
+    Survived { pgid: u32 },
+}
+
+impl ShutdownOutcome {
+    pub fn was_running(self) -> bool {
+        !matches!(self, Self::Idle)
+    }
+}
+
 fn generate_password() -> String {
     let mut rng = rand::thread_rng();
     (0..32)
@@ -139,19 +152,21 @@ impl ServeSupervisor {
 
     /// Kill the current serve process group (serve + MCP children). Next
     /// `ensure()` respawns. Used on daemon stop and after provider auth/config
-    /// changes. Returns true when a process was running.
-    pub fn shutdown(&self) -> bool {
+    /// changes. A surviving process group remains owned by this supervisor.
+    pub fn shutdown(&self) -> ShutdownOutcome {
         let taken = self.state.lock().take();
         match taken {
             Some(mut inst) => {
                 if self.finish_process_group(&mut inst) {
                     info!(generation_id = %self.generation_id, "opencode serve process group shut down");
+                    ShutdownOutcome::Stopped
                 } else {
+                    let pgid = inst.pgid;
                     self.state.lock().replace(inst);
+                    ShutdownOutcome::Survived { pgid }
                 }
-                true
             }
-            None => false,
+            None => ShutdownOutcome::Idle,
         }
     }
 

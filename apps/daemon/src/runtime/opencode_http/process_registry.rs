@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::io;
+use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tracing::warn;
@@ -114,9 +116,52 @@ fn persist_groups(path: &PathBuf, groups: &HashMap<String, u32>) -> io::Result<(
         std::fs::create_dir_all(parent)?;
     }
     let bytes = serde_json::to_vec(groups).map_err(io::Error::other)?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(tmp, path)
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(1);
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let file_name = path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("opencode-pgids.json"))
+        .to_string_lossy();
+    let (tmp, mut file) = loop {
+        let counter = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let tmp = parent.join(format!(
+            ".{file_name}.{}.{}.tmp",
+            std::process::id(),
+            counter
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(file) => break (tmp, file),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    };
+    if let Err(error) = file.write_all(&bytes).and_then(|_| file.sync_all()) {
+        drop(file);
+        let _ = std::fs::remove_file(&tmp);
+        return Err(error);
+    }
+    drop(file);
+
+    #[cfg(windows)]
+    let replaced = (|| {
+        // Windows rename cannot replace an existing file, so replacement is
+        // remove-then-rename. Unix keeps the atomic rename-over-destination path.
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        std::fs::rename(&tmp, path)
+    })();
+    #[cfg(not(windows))]
+    let replaced = std::fs::rename(&tmp, path);
+
+    if replaced.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    replaced
 }
 
 #[cfg(unix)]
@@ -261,6 +306,7 @@ mod tests {
         let registry = ServeProcessRegistry::new(path.clone());
 
         registry.register("gen-a", 41001).unwrap();
+        std::fs::create_dir(path.with_extension("json.tmp")).unwrap();
         registry.register("gen-b", 41002).unwrap();
 
         let reloaded = ServeProcessRegistry::new(path);

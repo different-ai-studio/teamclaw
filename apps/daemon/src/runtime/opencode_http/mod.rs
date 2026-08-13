@@ -29,7 +29,7 @@ pub mod translate;
 pub use envelope::*;
 
 use client::{PromptBody, PromptPart};
-use supervisor::ServeSupervisor;
+use supervisor::{ServeSupervisor, ShutdownOutcome};
 use translate::TranslateState;
 
 // ---------------------------------------------------------------------------
@@ -421,7 +421,20 @@ impl OpencodeHost {
                     .into(),
             ));
         }
-        self.shared.serve.shutdown();
+        let outcome = self.shared.serve.shutdown();
+        self.replace_generation_after_shutdown(extra_env, outcome)
+    }
+
+    fn replace_generation_after_shutdown(
+        &mut self,
+        extra_env: HashMap<String, String>,
+        outcome: ShutdownOutcome,
+    ) -> crate::error::Result<()> {
+        if let ShutdownOutcome::Survived { pgid } = outcome {
+            return Err(crate::error::AmuxError::Agent(format!(
+                "opencode serve process group {pgid} survived shutdown; refusing to replace its generation"
+            )));
+        }
         self.shared = Shared::new_with_env(extra_env);
         Ok(())
     }
@@ -462,7 +475,7 @@ impl OpencodeHost {
     /// is no per-agent-type host to filter anymore; the name and signature
     /// are kept only for `RuntimeManager` compatibility.
     pub fn evict_agent_types(&mut self, _agent_types: &[amux::AgentType]) -> usize {
-        usize::from(self.shared.serve.shutdown())
+        usize::from(self.shared.serve.shutdown().was_running())
     }
 
     /// Pre-warm: start the global serve process.
@@ -1762,6 +1775,27 @@ mod pool_tests {
     async fn evict_without_serve_is_zero() {
         let mut host = OpencodeHost::new();
         assert_eq!(host.evict_agent_types(&[amux::AgentType::Opencode]), 0);
+    }
+
+    #[test]
+    fn survived_shutdown_refuses_generation_replacement() {
+        let mut host = OpencodeHost::new();
+        let original = Arc::clone(&host.shared);
+        let original_revision = host.shared.serve.process_env_revision().clone();
+        let error = host
+            .replace_generation_after_shutdown(
+                HashMap::from([("API_KEY".to_string(), "replacement".to_string())]),
+                supervisor::ShutdownOutcome::Survived { pgid: 43001 },
+            )
+            .unwrap_err();
+
+        assert!(error.to_string().contains("43001"));
+        assert!(Arc::ptr_eq(&host.shared, &original));
+        assert_eq!(
+            host.shared.serve.process_env_revision(),
+            &original_revision,
+            "failed cleanup must not allocate or install another generation"
+        );
     }
 
     #[test]
