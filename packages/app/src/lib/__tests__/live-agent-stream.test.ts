@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import { AgentStatus } from "@/lib/proto/amux_pb";
-import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
+import {
+  MessageKind,
+  MessageSchema,
+  type Message as TeamcluMessage,
+} from "@/lib/proto/teamclu_pb";
 import {
   buildInterruptedStreamAnchor,
   isAgentActiveStatus,
@@ -22,6 +27,7 @@ import {
   resetFlushedTurnRegistryForTests,
 } from "@/lib/flushed-turn-registry";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
+import { useSessionMessageStore } from "@/stores/session-message-store";
 
 describe("live agent stream event helpers", () => {
   it("normalizes execute tool uses preserving wire name when absent", () => {
@@ -322,6 +328,7 @@ describe("shouldPatchFlushedToolEvent", () => {
       revisionBySession: {},
       interruptedFlushPending: {},
     });
+    useSessionMessageStore.setState({ messages: {} });
   });
 
   it("patches when the live stream is inactive after flush", () => {
@@ -333,7 +340,27 @@ describe("shouldPatchFlushedToolEvent", () => {
     expect(shouldPatchFlushedToolEvent("s1", "a1", "tool-late", undefined)).toBe(true);
   });
 
-  it("patches orphan tools from a prior turn while follow-up dock is open", () => {
+  it("patches orphan tools already on the flushed reply while follow-up dock is open", () => {
+    const reply = create(MessageSchema, {
+      messageId: "m1",
+      sessionId: "s1",
+      senderActorId: "a1",
+      kind: MessageKind.AGENT_REPLY,
+      content: "done",
+      turnId: "turn-1",
+      createdAt: BigInt(100),
+    });
+    Object.assign(reply, {
+      partsJson: JSON.stringify([
+        {
+          id: "stream:tool:turn1-tool",
+          type: "tool-call",
+          toolCallId: "turn1-tool",
+          toolCall: { id: "turn1-tool", name: "grep", status: "calling" },
+        },
+      ]),
+    });
+    useSessionMessageStore.getState().replaceTurnAgentRepliesInStore("s1", reply);
     registerFlushedTurn("s1", "a1", {
       messageId: "m1",
       streamId: "stream-1",
@@ -343,6 +370,35 @@ describe("shouldPatchFlushedToolEvent", () => {
     const live = useV2StreamingStore.getState().byKey["s1::a1"] as AgentStreamEntry;
     expect(live.streamId).not.toBe("stream-1");
     expect(shouldPatchFlushedToolEvent("s1", "a1", "turn1-tool", live)).toBe(true);
+  });
+
+  it("keeps the first turn-2 toolUse on the live stream (not turn-1 parts)", () => {
+    const reply = create(MessageSchema, {
+      messageId: "m1",
+      sessionId: "s1",
+      senderActorId: "a1",
+      kind: MessageKind.AGENT_REPLY,
+      content: "turn 1 reply",
+      turnId: "turn-1",
+      createdAt: BigInt(100),
+    });
+    Object.assign(reply, {
+      partsJson: JSON.stringify([
+        { id: "p1", type: "text", text: "turn 1 reply", content: "turn 1 reply" },
+      ]),
+    });
+    useSessionMessageStore.getState().replaceTurnAgentRepliesInStore("s1", reply);
+    registerFlushedTurn("s1", "a1", {
+      messageId: "m1",
+      streamId: "stream-1",
+      turnId: "turn-1",
+    });
+    useV2StreamingStore.getState().beginPlanningPlaceholder("s1", "a1");
+    const live = useV2StreamingStore.getState().byKey["s1::a1"] as AgentStreamEntry;
+    expect(live.streamId).not.toBe("stream-1");
+    expect(live.toolCalls).toHaveLength(0);
+    // Regression: brand-new tool ids must not patch the prior flushed reply.
+    expect(shouldPatchFlushedToolEvent("s1", "a1", "turn2-tool", live)).toBe(false);
   });
 
   it("keeps current-turn tools on the live stream", () => {
