@@ -70,6 +70,7 @@ import {
   resolveAgentCatalogModels,
   localRecentModelFallback,
 } from '@/lib/agent-model-fallback'
+import { clientMruModels } from '@/stores/client-model-mru'
 import { getKnownLocalDaemonActorId } from "@/lib/local-daemon-identity";
 import { useLocalDaemonCatalogStore } from "@/stores/local-daemon-catalog-store";
 import {
@@ -434,7 +435,7 @@ export function useChatSend({
                   localRecentModelFallback({
                     agentId: sendAgentId,
                     localDaemonActorId: localDaemonActorIdForSend,
-                    recentModels: localCatalogForSend?.recentModels,
+                    recentModels: clientMruModels(backendTypeForSend),
                     available: availableForSend,
                   }) || undefined,
                 sessionEstablishedModel: establishedForSend,

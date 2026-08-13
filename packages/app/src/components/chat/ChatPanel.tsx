@@ -76,10 +76,12 @@ import {
   localRecentModelFallback,
 } from '@/lib/agent-model-fallback'
 import { useLocalDaemonActorId } from "@/lib/daemon-agent-admin";
+import { clientMruModels } from "@/stores/client-model-mru";
 import { useLocalDaemonCatalogStore } from "@/stores/local-daemon-catalog-store";
 import {
   selectAgentModel,
   resolveRuntimeStateEntryForAgent,
+  backendTypeFromRuntimeEntry,
 } from "@/lib/runtime-state-resolve";
 // xterm + its webgl/search addons are ~560KB of the startup chunk and are only
 // needed once the terminal drawer is actually opened, so pay for them then.
@@ -762,7 +764,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           localRecentModelFallback({
             agentId: modelAgentId,
             localDaemonActorId,
-            recentModels: localDaemonCatalog?.recentModels,
+            // This client's MRU, keyed by the backend this agent runs on
+            // (ADR-0007). `localDaemonCatalog` still supplies the catalog.
+            recentModels: clientMruModels(
+              backendTypeFromRuntimeEntry(
+                resolveRuntimeStateEntryForAgent(modelAgentId, runtimeStates),
+              ),
+            ),
             available,
           }) || undefined,
         sessionEstablishedModel: activeEstablishedModel,
