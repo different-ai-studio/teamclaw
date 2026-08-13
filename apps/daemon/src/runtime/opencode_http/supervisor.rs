@@ -28,6 +28,59 @@ struct ServeInstance {
     pgid: u32,
 }
 
+/// Owns a registered process group until its child is stored by the supervisor.
+///
+/// Dropping the spawn future during a health check runs this synchronously, so
+/// descendants cannot outlive the `Child` handle and block a later respawn.
+struct SpawnOwnershipGuard<'a> {
+    child: &'a mut tokio::process::Child,
+    pgid: u32,
+    generation_id: &'a str,
+    registry: &'a ServeProcessRegistry,
+    armed: bool,
+}
+
+impl<'a> SpawnOwnershipGuard<'a> {
+    fn new(
+        child: &'a mut tokio::process::Child,
+        pgid: u32,
+        generation_id: &'a str,
+        registry: &'a ServeProcessRegistry,
+    ) -> Self {
+        Self {
+            child,
+            pgid,
+            generation_id,
+            registry,
+            armed: true,
+        }
+    }
+
+    fn child_mut(&mut self) -> &mut tokio::process::Child {
+        self.child
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for SpawnOwnershipGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed || !kill_serve_tree(self.child, self.pgid) {
+            return;
+        }
+        if let Err(error) = self.registry.unregister(self.generation_id) {
+            warn!(
+                generation_id = %self.generation_id,
+                pgid = self.pgid,
+                %error,
+                "failed to unregister cancelled opencode serve spawn"
+            );
+        }
+    }
+}
+
 pub struct ServeSupervisor {
     generation_id: String,
     registry: Arc<ServeProcessRegistry>,
@@ -319,8 +372,10 @@ impl ServeSupervisor {
             )
         })?;
         self.register_spawned_group(&mut child, pgid)?;
+        let mut spawn_owner =
+            SpawnOwnershipGuard::new(&mut child, pgid, &self.generation_id, &self.registry);
 
-        if let Some(stdout) = child.stdout.take() {
+        if let Some(stdout) = spawn_owner.child_mut().stdout.take() {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
@@ -328,7 +383,7 @@ impl ServeSupervisor {
                 }
             });
         }
-        if let Some(stderr) = child.stderr.take() {
+        if let Some(stderr) = spawn_owner.child_mut().stderr.take() {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
@@ -343,8 +398,10 @@ impl ServeSupervisor {
             if client.health().await {
                 break;
             }
-            if let Ok(Some(status)) = child.try_wait() {
-                if kill_serve_tree(&mut child, pgid) {
+            if let Ok(Some(status)) = spawn_owner.child_mut().try_wait() {
+                let group_dead = kill_serve_tree(spawn_owner.child_mut(), pgid);
+                spawn_owner.disarm();
+                if group_dead {
                     let _ = self.registry.unregister(&self.generation_id);
                 }
                 return Err(crate::error::AmuxError::Agent(format!(
@@ -352,7 +409,9 @@ impl ServeSupervisor {
                 )));
             }
             if started.elapsed() > HEALTH_TIMEOUT {
-                if kill_serve_tree(&mut child, pgid) {
+                let group_dead = kill_serve_tree(spawn_owner.child_mut(), pgid);
+                spawn_owner.disarm();
+                if group_dead {
                     let _ = self.registry.unregister(&self.generation_id);
                 }
                 return Err(crate::error::AmuxError::Agent(
@@ -363,6 +422,8 @@ impl ServeSupervisor {
         }
         info!(base = %base, ready_ms = started.elapsed().as_millis() as u64, "opencode serve ready");
 
+        spawn_owner.disarm();
+        drop(spawn_owner);
         *self.state.lock() = Some(ServeInstance {
             child,
             client: client.clone(),
@@ -511,6 +572,35 @@ mod tests {
         assert!(error
             .to_string()
             .contains("register opencode serve process group"));
+        assert!(!process_group_alive(i32::try_from(pgid).unwrap()));
+        assert!(!registry.snapshot().contains_key("gen-a"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dropping_spawn_ownership_reaps_registered_process_group() {
+        use std::os::unix::process::CommandExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(super::super::process_registry::ServeProcessRegistry::new(
+            dir.path().join("opencode-pgids.json"),
+        ));
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30 & wait")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pgid = child.id().unwrap();
+        registry.register("gen-a", pgid).unwrap();
+
+        drop(SpawnOwnershipGuard::new(
+            &mut child,
+            pgid,
+            "gen-a",
+            registry.as_ref(),
+        ));
+
         assert!(!process_group_alive(i32::try_from(pgid).unwrap()));
         assert!(!registry.snapshot().contains_key("gen-a"));
     }
