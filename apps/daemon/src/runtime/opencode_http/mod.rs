@@ -22,13 +22,13 @@ pub mod client;
 mod env_snapshot_policy;
 mod envelope;
 mod events;
+pub mod process_registry;
 pub mod supervisor;
 pub mod translate;
 
 pub use envelope::*;
 
 use client::{PromptBody, PromptPart};
-use env_snapshot_policy::{decide_env_snapshot_conflict, EnvSnapshotDecision};
 use supervisor::ServeSupervisor;
 use translate::TranslateState;
 
@@ -112,10 +112,6 @@ pub(crate) struct Shared {
     pub(crate) sse_tasks: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
     /// Per-worktree opencode `/event` transport health (for stuck-turn grace).
     pub(crate) sse_transport: parking_lot::Mutex<HashMap<String, SseTransportState>>,
-    /// Serializes env selection with serve spawn/session creation. Without
-    /// this, two concurrent workspace attaches could each validate one
-    /// fingerprint and then create both sessions on whichever env won last.
-    env_switch_lock: tokio::sync::Mutex<()>,
 }
 
 /// Loopback SSE subscription state for one canonical worktree directory.
@@ -139,14 +135,32 @@ impl Default for SseTransportState {
 
 impl Shared {
     fn new() -> Arc<Self> {
+        Self::new_with_env(HashMap::new())
+    }
+
+    fn new_with_env(extra_env: HashMap<String, String>) -> Arc<Self> {
+        static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        static REGISTRY: std::sync::OnceLock<Arc<process_registry::ServeProcessRegistry>> =
+            std::sync::OnceLock::new();
+        let generation = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let revision =
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&extra_env);
         Arc::new(Self {
-            serve: Arc::new(ServeSupervisor::new()),
+            serve: Arc::new(ServeSupervisor::new(
+                format!("legacy-{}-{generation}", std::process::id()),
+                Arc::clone(
+                    REGISTRY.get_or_init(|| {
+                        Arc::new(process_registry::ServeProcessRegistry::default())
+                    }),
+                ),
+                extra_env,
+                revision,
+            )),
             routes: parking_lot::Mutex::new(HashMap::new()),
             permissions: parking_lot::Mutex::new(HashMap::new()),
             questions: parking_lot::Mutex::new(HashMap::new()),
             sse_tasks: parking_lot::Mutex::new(HashMap::new()),
             sse_transport: parking_lot::Mutex::new(HashMap::new()),
-            env_switch_lock: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -362,49 +376,6 @@ fn canonical_dir(worktree: &str) -> String {
         .unwrap_or_else(|_| worktree.to_string())
 }
 
-fn active_route_directories(shared: &Shared) -> Vec<String> {
-    shared
-        .routes
-        .lock()
-        .values()
-        .map(|route| route.directory.clone())
-        .collect()
-}
-
-fn decide_serve_env_switch(
-    shared: &Shared,
-    workspace: &str,
-    incoming: &str,
-) -> EnvSnapshotDecision {
-    decide_env_snapshot_conflict(
-        incoming,
-        shared.serve.active_env_fingerprint().as_deref(),
-        shared.serve.is_running(),
-        &active_route_directories(shared),
-        workspace,
-    )
-}
-
-/// After a route detach, recycle the global serve when nothing holds it and a
-/// newer env snapshot is queued (same-workspace tolerate path — see #779).
-fn maybe_apply_pending_env_after_detach(shared: &Shared) {
-    let routes_empty = shared.routes.lock().is_empty();
-    if shared.serve.apply_pending_env_if_idle(routes_empty) {
-        info!("applied pending opencode env snapshot after last route detached");
-    }
-}
-
-/// Book-keeping after attach/prewarm finishes deciding the serve env.
-///
-/// Same-workspace tolerate leaves a pending refresh (`configured != active`);
-/// keep the conflict mark so diagnostics can show the stale host until idle
-/// restart applies the queued snapshot.
-fn finish_env_snapshot_activation(serve: &ServeSupervisor, workspace: &str) {
-    if !serve.has_pending_env_refresh() {
-        serve.clear_snapshot_conflict(workspace);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // OpencodeHost
 // ---------------------------------------------------------------------------
@@ -431,6 +402,28 @@ impl OpencodeHost {
     /// Handle to the global serve supervisor (shared with settings/OAuth).
     pub fn serve_supervisor(&self) -> Arc<ServeSupervisor> {
         Arc::clone(&self.shared.serve)
+    }
+
+    /// Until the host pool owns generation selection, bind the legacy single
+    /// host to the first immutable environment it actually needs.
+    fn prepare_generation(
+        &mut self,
+        extra_env: HashMap<String, String>,
+    ) -> crate::error::Result<()> {
+        let revision =
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&extra_env);
+        if self.shared.serve.process_env_revision() == &revision {
+            return Ok(());
+        }
+        if !self.shared.routes.lock().is_empty() || self.cmd_tx.get().is_some() {
+            return Err(crate::error::AmuxError::Agent(
+                "env_snapshot_conflict: the legacy opencode host already owns another immutable environment"
+                    .into(),
+            ));
+        }
+        self.shared.serve.shutdown();
+        self.shared = Shared::new_with_env(extra_env);
+        Ok(())
     }
 
     /// Global command sender; spawns the command loop on first use (requires a
@@ -494,70 +487,15 @@ impl OpencodeHost {
         _force_env_override: bool,
         worktree: Option<&str>,
     ) {
-        self.apply_binary_hint(launch_configs);
-        let workspace = canonical_dir(worktree.unwrap_or("<prewarm>"));
-        let incoming = teamclu_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
-        let _env_guard = self.shared.env_switch_lock.lock().await;
-        self.shared
-            .serve
-            .record_requested_env_fingerprint(&workspace, &incoming);
-        match decide_serve_env_switch(&self.shared, &workspace, &incoming) {
-            EnvSnapshotDecision::Continue => {}
-            EnvSnapshotDecision::RestartAllowed => {
-                self.shared.serve.shutdown();
-            }
-            EnvSnapshotDecision::TolerateSameWorkspace => {
-                info!(
-                    workspace,
-                    "opencode serve prewarm tolerating same-workspace env fingerprint drift"
-                );
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-            }
-            EnvSnapshotDecision::ConflictOtherWorkspace => {
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-                warn!(
-                    workspace,
-                    "opencode serve prewarm skipped: another workspace snapshot is already active"
-                );
-                return;
-            }
+        if let Err(error) = self.prepare_generation(extra_env) {
+            warn!(%error, "opencode serve prewarm skipped for conflicting immutable environment");
+            return;
         }
-        self.shared
-            .serve
-            .install_env_snapshot(&workspace, extra_env.clone());
+        self.apply_binary_hint(launch_configs);
         if let Err(e) = self.shared.serve.ensure().await {
             warn!(error = %e, "opencode serve prewarm (session env) failed");
             return;
         }
-        // An unrelated catalog/OAuth request may have begun spawning between
-        // our initial state check and snapshot install. Verify what the child
-        // actually inherited and repair that race before declaring prewarm
-        // successful.
-        match decide_serve_env_switch(&self.shared, &workspace, &incoming) {
-            EnvSnapshotDecision::Continue => {}
-            EnvSnapshotDecision::TolerateSameWorkspace => {
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-            }
-            EnvSnapshotDecision::RestartAllowed => {
-                self.shared.serve.shutdown();
-                self.shared
-                    .serve
-                    .install_env_snapshot(&workspace, extra_env);
-                if let Err(e) = self.shared.serve.ensure().await {
-                    warn!(error = %e, "opencode serve prewarm race recovery failed");
-                    return;
-                }
-            }
-            EnvSnapshotDecision::ConflictOtherWorkspace => {
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-                warn!(
-                    workspace,
-                    "opencode serve prewarm raced with an active snapshot"
-                );
-                return;
-            }
-        }
-        finish_env_snapshot_activation(&self.shared.serve, &workspace);
         if let Some(worktree) = worktree.filter(|w| !w.is_empty()) {
             events::ensure_sse_task(&self.shared, &canonical_dir(worktree));
         }
@@ -608,56 +546,10 @@ impl OpencodeHost {
                 "agent type mapped to the single opencode HTTP backend"
             );
         }
+        self.prepare_generation(extra_env)?;
         self.shared.serve.set_binary_hint(&launch.binary);
-        let workspace = canonical_dir(&worktree);
-        let incoming = teamclu_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
-        let _env_guard = self.shared.env_switch_lock.lock().await;
-        self.shared
-            .serve
-            .record_requested_env_fingerprint(&workspace, &incoming);
-        match decide_serve_env_switch(&self.shared, &workspace, &incoming) {
-            EnvSnapshotDecision::Continue => {}
-            EnvSnapshotDecision::RestartAllowed => {
-                self.shared.serve.shutdown();
-            }
-            EnvSnapshotDecision::TolerateSameWorkspace => {
-                info!(
-                    workspace,
-                    "tolerating same-workspace env fingerprint drift; keeping active serve env"
-                );
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-            }
-            EnvSnapshotDecision::ConflictOtherWorkspace => {
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-                return Err(crate::error::AmuxError::Agent(format!(
-                    "env_snapshot_conflict: workspace {workspace} resolved a different environment while the global opencode host has active sessions"
-                )));
-            }
-        }
         let _ = force_env_override; // preserved in the backend interface during transition
-        self.shared
-            .serve
-            .install_env_snapshot(&workspace, extra_env.clone());
         self.shared.serve.ensure().await?;
-        match decide_serve_env_switch(&self.shared, &workspace, &incoming) {
-            EnvSnapshotDecision::Continue => {}
-            EnvSnapshotDecision::TolerateSameWorkspace => {
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-            }
-            EnvSnapshotDecision::RestartAllowed => {
-                self.shared.serve.shutdown();
-                self.shared
-                    .serve
-                    .install_env_snapshot(&workspace, extra_env);
-                self.shared.serve.ensure().await?;
-            }
-            EnvSnapshotDecision::ConflictOtherWorkspace => {
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-                return Err(crate::error::AmuxError::Agent(format!(
-                    "env_snapshot_conflict: workspace {workspace} lost an environment activation race"
-                )));
-            }
-        }
         let cmd_tx = self.command_sender();
         let startup = attach(
             &self.shared,
@@ -674,8 +566,6 @@ impl OpencodeHost {
         )
         .await
         .map_err(crate::error::AmuxError::Agent)?;
-        finish_env_snapshot_activation(&self.shared.serve, &workspace);
-        drop(_env_guard);
         if !initial_prompt.is_empty() {
             let _ = cmd_tx
                 .send(AcpCommand::Prompt {
@@ -1699,7 +1589,6 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                     .questions
                     .lock()
                     .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
-                maybe_apply_pending_env_after_detach(&shared);
                 info!(acp_session_id, "opencode session detached");
                 if let Some(ack) = ack {
                     let _ = ack.send(());
@@ -1732,9 +1621,8 @@ pub fn start_standalone_runtime(
     mcp_config_path: Option<PathBuf>,
     extra_env: HashMap<String, String>,
 ) -> crate::error::Result<mpsc::Sender<AcpCommand>> {
-    let shared = Shared::new();
+    let shared = Shared::new_with_env(extra_env);
     shared.serve.set_binary_hint(&binary);
-    shared.serve.merge_extra_env(&extra_env, true);
     let (cmd_tx, cmd_rx) = mpsc::channel::<AcpCommand>(64);
     tokio::spawn(command_loop(Arc::clone(&shared), cmd_rx));
     let attach_tx = cmd_tx.clone();
@@ -2346,101 +2234,5 @@ mod turn_activity_tests {
             .turn_last_event_at
             .elapsed();
         assert!(idle_elapsed >= std::time::Duration::from_secs(80));
-    }
-
-    #[test]
-    fn last_route_detach_applies_pending_env_refresh() {
-        let shared = Shared::new();
-        let fingerprint = shared.serve.install_env_snapshot(
-            "/ws",
-            HashMap::from([("KEY".to_string(), "new".to_string())]),
-        );
-        shared
-            .serve
-            .set_active_env_fingerprint_for_test(Some("stale-active".to_string()));
-        {
-            let mut routes = shared.routes.lock();
-            routes.insert("ses_1".to_string(), test_route("/ws"));
-        }
-        shared.routes.lock().remove("ses_1");
-        maybe_apply_pending_env_after_detach(&shared);
-
-        assert!(!shared.serve.has_pending_env_refresh());
-        assert_eq!(
-            shared.serve.configured_env_fingerprint().as_deref(),
-            Some(fingerprint.as_str())
-        );
-        assert_eq!(shared.serve.cached_env_key_count(), 1);
-        assert!(shared.serve.active_env_fingerprint().is_none());
-    }
-
-    #[test]
-    fn detach_with_remaining_routes_keeps_pending_env() {
-        let shared = Shared::new();
-        shared.serve.install_env_snapshot(
-            "/ws",
-            HashMap::from([("KEY".to_string(), "new".to_string())]),
-        );
-        shared
-            .serve
-            .set_active_env_fingerprint_for_test(Some("stale-active".to_string()));
-        {
-            let mut routes = shared.routes.lock();
-            routes.insert("ses_1".to_string(), test_route("/ws"));
-            routes.insert("ses_2".to_string(), test_route("/ws"));
-        }
-        shared.routes.lock().remove("ses_1");
-        maybe_apply_pending_env_after_detach(&shared);
-
-        assert!(shared.serve.has_pending_env_refresh());
-        assert_eq!(
-            shared.serve.active_env_fingerprint().as_deref(),
-            Some("stale-active")
-        );
-    }
-
-    #[test]
-    fn tolerate_surfaces_snapshot_conflict_until_pending_env_applies() {
-        let shared = Shared::new();
-        let old = shared.serve.install_env_snapshot(
-            "/ws",
-            HashMap::from([("KEY".to_string(), "old".to_string())]),
-        );
-        shared
-            .serve
-            .set_active_env_fingerprint_for_test(Some(old));
-
-        // Book-keeping attach/prewarm use on TolerateSameWorkspace:
-        shared.serve.mark_snapshot_conflict("/ws");
-        shared.serve.install_env_snapshot(
-            "/ws",
-            HashMap::from([("KEY".to_string(), "new".to_string())]),
-        );
-        finish_env_snapshot_activation(&shared.serve, "/ws");
-
-        assert!(shared.serve.has_pending_env_refresh());
-        assert_eq!(
-            shared.serve.snapshot_conflict_workspace("/ws").as_deref(),
-            Some("/ws")
-        );
-
-        maybe_apply_pending_env_after_detach(&shared);
-        assert!(!shared.serve.has_pending_env_refresh());
-        assert!(shared.serve.snapshot_conflict_workspace("/ws").is_none());
-    }
-
-    #[test]
-    fn finish_activation_clears_conflict_when_env_already_matches() {
-        let shared = Shared::new();
-        let fingerprint = shared.serve.install_env_snapshot(
-            "/ws",
-            HashMap::from([("KEY".to_string(), "value".to_string())]),
-        );
-        shared
-            .serve
-            .set_active_env_fingerprint_for_test(Some(fingerprint));
-        shared.serve.mark_snapshot_conflict("/ws");
-        finish_env_snapshot_activation(&shared.serve, "/ws");
-        assert!(shared.serve.snapshot_conflict_workspace("/ws").is_none());
     }
 }

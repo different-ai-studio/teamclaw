@@ -293,13 +293,17 @@ pub fn cleanup_runtime_artifacts() {
 /// Kill leftover `opencode serve` process group (and best-effort MCP) so a
 /// prior crashed/hard-killed daemon cannot block the next start.
 pub fn reap_managed_agent_trees() {
+    crate::runtime::opencode_http::process_registry::ServeProcessRegistry::default().reap_all();
     #[cfg(unix)]
     {
+        // Read compatibility for the pre-registry single-PGID file. New serve
+        // generations only write opencode-pgids.json.
         reap_opencode_pgid_file();
         reap_remote_tools_mcp_best_effort();
     }
     #[cfg(windows)]
     {
+        // Read compatibility for the pre-registry single-PID file.
         reap_opencode_pid_file_windows();
     }
 }
