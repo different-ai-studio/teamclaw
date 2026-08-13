@@ -35,10 +35,7 @@ import { TrafficLights } from '@/components/ui/traffic-lights'
 import { useSidebar } from '@/components/ui/sidebar'
 import { useEnvVarsStore } from '@/stores/env-vars'
 import { FileBrowser } from '@/components/workspace/FileBrowser'
-import {
-  KnowledgeEnablePanel,
-  useKnowledgeNeedsEnabling,
-} from '@/components/teamshare/KnowledgeEnablePanel'
+import { TeamDirInitPanel } from '@/components/teamshare/TeamDirInitPanel'
 import { useTeamCloudSync } from '@/hooks/use-team-cloud-sync'
 import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
 import {
@@ -179,8 +176,6 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const knowledgeRoot = useTeamShareBrowserStore((s) => s.knowledgeRoot)
   const personalEnv = useEnvVarsStore((s) => s.envVars)
 
-  // Only meaningful for the knowledge section, but hooks cannot be conditional.
-  const needsEnabling = useKnowledgeNeedsEnabling()
   // Inline "name this thing" row at the top of the knowledge tree.
   const [rootCreating, setRootCreating] = React.useState<'file' | 'folder' | null>(null)
   const refreshFileTree = useWorkspaceStore((s) => s.refreshFileTree)
@@ -526,7 +521,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
               className={cn('h-4 w-4', (refreshing || syncing || loading) && 'animate-spin')}
             />
           </Button>
-          {section === 'knowledge' && !needsEnabling && knowledgeRoot && (
+          {section === 'knowledge' && knowledgeRoot && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -635,11 +630,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             ))
           )
         ) : section === 'knowledge' ? (
-          needsEnabling ? (
-            // Not enabled for this team yet — onboarding belongs here, where
-            // the empty column is the problem it solves.
-            <KnowledgeEnablePanel />
-          ) : knowledgeRoot ? (
+          knowledgeRoot ? (
             // The whole shared root, not just knowledge/ — create / rename /
             // delete / move all come from FileBrowser's existing context menu,
             // and clicking a file opens it exactly as it does in the workspace.
@@ -657,12 +648,9 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
               }}
             />
           ) : (
-            <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
-              {t(
-                'teamShare.knowledgeNoRoot',
-                'Team shared folder is not set up on this machine yet.',
-              )}
-            </div>
+            // The directory is missing locally. Sync is on regardless — this is
+            // a repairable local state, so offer the repair.
+            <TeamDirInitPanel />
           )
         ) : envGroups ? (
           envGroups.every((g) => g.rows.length === 0) ? (
