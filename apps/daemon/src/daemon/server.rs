@@ -3865,16 +3865,11 @@ pub(crate) mod tests {
     #[tokio::test]
     pub(crate) async fn apply_start_runtime_stamps_workspace_id_on_resolve_fail_worktree_fallback()
     {
-        // Mirrors the design decision documented at the resolve-failure
-        // fallback branch in `apply_start_runtime`: when resolve() fails
-        // (cloud unreachable / workspace not yet visible) but the caller
-        // supplied a worktree path, we deliberately keep the client-given
-        // `workspace_id` (a real cloud UUID) rather than discarding it, so
-        // the runtime/session keep the workspace association and self-heal
-        // once the cloud is reachable again. Proof here: resolution fails
-        // (empty `by-ids` response) yet start succeeds using the supplied
-        // worktree, and the spawned runtime carries the supplied
-        // `workspace_id` verbatim.
+        // When resolve() fails (cloud unreachable / workspace not yet visible)
+        // but the caller supplied a worktree path, `apply_start_runtime`
+        // still keeps the client-given `workspace_id` for association metadata.
+        // Execution-context assembly then fails closed: it must not spawn with
+        // bare env just because a worktree path was supplied.
         let srv = MockServer::start().await;
         auth_token_mock(&srv).await;
         Mock::given(method("POST"))
@@ -3885,9 +3880,8 @@ pub(crate) mod tests {
             .mount(&srv)
             .await;
 
-        // An attachment is keyed by its session (ADR-0004), so a spawn needs a
-        // resolvable one before it can reach the workspace fallback this test
-        // is about.
+        // Session lookup must succeed so the failure is at env assembly, not
+        // session validation.
         Mock::given(method("GET"))
             .and(path("/v1/sessions/session-offline"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -3916,26 +3910,24 @@ pub(crate) mod tests {
             )
             .await;
 
-        let outcome = match result {
-            Ok(outcome) => outcome,
-            Err(err) => panic!(
-                "resolve-fail-with-worktree fallback must still start the runtime: {} / {}",
-                err.error_code, err.error_message
+        let err = match result {
+            Ok(_) => panic!(
+                "unresolved workspace with worktree fallback must fail closed at env assembly"
             ),
+            Err(err) => err,
         };
-        assert_ne!(outcome.runtime_id, "");
+        assert_eq!(err.error_code, "ENV_ASSEMBLE_FAILED");
+        assert_eq!(err.failed_stage, "env_setup");
+        assert!(
+            err.error_message.contains("workspace identity resolution failed"),
+            "unexpected error message: {}",
+            err.error_message
+        );
 
         let agents = fixture.server.agents.lock().await;
-        let handle = agents
-            .get_handle(&outcome.runtime_id)
-            .expect("spawned runtime handle must exist");
-        assert_eq!(
-            handle.workspace_id, "ws-cloud-uuid-offline",
-            "runtime must carry the client-supplied cloud UUID even though resolve() failed"
-        );
-        assert_eq!(
-            handle.worktree, worktree_path,
-            "runtime must run in the caller-supplied worktree, not the (unresolved) cloud path"
+        assert!(
+            agents.runtime_ids_for_session("session-offline").is_empty(),
+            "env assembly failure must not spawn a runtime with bare env"
         );
     }
 
