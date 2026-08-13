@@ -4009,6 +4009,151 @@ pub(crate) mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn all_actual_entry_points_propagate_identical_workspace_env_and_revision() {
+        let workspace = TempDir::new().unwrap();
+        let backend = Arc::new(crate::backend::mock::MockBackend::with_identity(
+            "team-test",
+            "actor-config-test",
+        ));
+        backend.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            crate::backend::WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-test".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        backend.state().sessions.insert(
+            "desktop-cross-entry".into(),
+            crate::backend::BackendSessionAndParticipants {
+                session: crate::backend::BackendSessionRow {
+                    id: "desktop-cross-entry".into(),
+                    team_id: "team-test".into(),
+                    created_by_actor_id: Some("human-actor".into()),
+                    primary_agent_id: Some("actor-config-test".into()),
+                    mode: "chat".into(),
+                    title: "Cross entry".into(),
+                    summary: String::new(),
+                    idea_id: None,
+                    created_at: chrono::Utc::now(),
+                },
+                participants: Vec::new(),
+            },
+        );
+
+        let mut fixture = test_server_with_cloud_api(backend.clone());
+        let captures = {
+            let mut manager = fixture.server.agents.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+
+        fixture
+            .server
+            .apply_start_runtime(
+                amux::AgentType::Opencode,
+                "ws-a",
+                workspace.path().to_string_lossy().as_ref(),
+                "desktop-cross-entry",
+                "",
+                None,
+                "",
+            )
+            .await
+            .unwrap_or_else(|error| panic!("desktop spawn failed: {}", error.error_message));
+
+        let cron_context = fixture
+            .server
+            .assemble_execution_context(
+                workspace.path().to_string_lossy().as_ref(),
+                None,
+                Some("ws-a"),
+                true,
+                Some(crate::runtime::PermissionPolicy::Full),
+            )
+            .await
+            .unwrap();
+        fixture
+            .server
+            .create_cron_gateway_session_for_propagation_test(cron_context)
+            .await
+            .unwrap();
+
+        let mut stored = make_stored_session(
+            "resume-cross-entry",
+            "resume-session-cross-entry",
+            amux::AgentType::Opencode,
+            "ws-a",
+            1,
+        );
+        stored.worktree = workspace.path().to_string_lossy().into_owned();
+        fixture.server.sessions.upsert(stored);
+        assert!(
+            fixture
+                .server
+                .resume_historical_runtimes_for_session("resume-session-cross-entry", None)
+                .await
+        );
+
+        let http = crate::http::runtime_adapter::RuntimeManagerAdapter::new_with_execution_context_assembler(
+            fixture.server.agents.clone(),
+            16,
+            None,
+            Some(Arc::new(fixture.server.execution_context_assembler())),
+        );
+        http.spawn_runtime_with_resolved_context(
+            uuid::Uuid::new_v4(),
+            amux::AgentType::Opencode,
+            Some("ws-a".into()),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let (gateway, unscoped_gateway) =
+            crate::channels::agent_handle::tests::capture_workspace_and_unscoped_gateway_attaches(
+                backend,
+                workspace.path(),
+            )
+            .await;
+
+        let captures = captures.lock().unwrap().clone();
+        assert_eq!(captures.len(), 4);
+        let desktop = &captures[0];
+        for (entry_point, capture) in [
+            ("cron", &captures[1]),
+            ("resume", &captures[2]),
+            ("http", &captures[3]),
+            ("workspace gateway", &gateway),
+        ] {
+            assert_eq!(
+                capture.extra_env, desktop.extra_env,
+                "{entry_point} env drifted from desktop"
+            );
+            assert_eq!(
+                capture.process_env_revision, desktop.process_env_revision,
+                "{entry_point} revision drifted from desktop"
+            );
+            assert_eq!(
+                capture.domain,
+                crate::runtime::execution_context::IsolationDomainKey::Workspace("ws-a".into()),
+                "{entry_point} must remain workspace scoped"
+            );
+            assert_eq!(capture.working_directory, workspace.path());
+        }
+        assert_eq!(
+            unscoped_gateway.domain,
+            crate::runtime::execution_context::IsolationDomainKey::UnscopedAgent {
+                team_id: "team-test".into(),
+                actor_id: "actor-config-test".into(),
+            }
+        );
+        assert!(unscoped_gateway.extra_env.is_empty());
+    }
+
     // ── plan_auto_restart_offline_sessions branch coverage ─────────────────
     //
     // The pure-decision half of `auto_restart_offline_sessions` is exposed

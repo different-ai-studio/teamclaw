@@ -274,6 +274,22 @@ impl DaemonServer {
             .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))
     }
 
+    #[cfg(test)]
+    pub(super) async fn create_cron_gateway_session_for_propagation_test(
+        &mut self,
+        context: crate::runtime::execution_context::ExecutionContext,
+    ) -> anyhow::Result<String> {
+        self.create_cron_gateway_session(
+            "team-test",
+            "cron/cross-entry/run",
+            "cloud-cron-cross-entry",
+            None,
+            context,
+            Some(crate::proto::amux::AgentType::Opencode),
+        )
+        .await
+    }
+
     /// Handle a `prompt-await` sock command. Runs the (fast) setup inline, then
     /// spawns the (slow) ACP turn onto a background task so the main run loop is
     /// free to service other sock commands meanwhile. The task hands its result

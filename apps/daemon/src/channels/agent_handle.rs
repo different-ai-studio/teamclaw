@@ -1390,7 +1390,7 @@ impl AgentHandle for AmuxdAgentHandle {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::backend::mock::MockBackend;
     use crate::runtime::RuntimeManager;
@@ -1429,6 +1429,55 @@ mod tests {
             bot_configs: Arc::new(Mutex::new(HashMap::new())),
             daemon_config_path: std::path::PathBuf::from("/nonexistent/daemon.toml"),
         }
+    }
+
+    pub(crate) async fn capture_workspace_and_unscoped_gateway_attaches(
+        backend: Arc<MockBackend>,
+        workspace: &std::path::Path,
+    ) -> (
+        crate::runtime::test_support::CapturedAttach,
+        crate::runtime::test_support::CapturedAttach,
+    ) {
+        backend.state().gateway_session_index.insert(
+            "cross-entry-scoped".into(),
+            ("cloud-scoped".into(), Some("wecom://bot/chat".into())),
+        );
+        backend.state().gateway_session_index.insert(
+            "cross-entry-bare".into(),
+            ("cloud-bare".into(), Some("wecom://bot/chat".into())),
+        );
+
+        let mut scoped = make_handle_with_backend(backend.clone());
+        scoped.team_id = "team-test".into();
+        scoped.spawn_env.actor_id = "actor-config-test".into();
+        scoped.spawn_env.actor_name = "test-host".into();
+        scoped.default_agent_type = Some(amux::AgentType::Opencode);
+        scoped.default_workspace_dir = Some(workspace.to_string_lossy().into_owned());
+        let scoped_captures = {
+            let mut manager = scoped.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        scoped
+            .resolve_or_spawn(&AmuxSessionId::from("cross-entry-scoped"))
+            .await
+            .unwrap();
+
+        let mut bare = make_handle_with_backend(backend);
+        bare.team_id = "team-test".into();
+        bare.spawn_env.actor_id = "actor-config-test".into();
+        bare.spawn_env.actor_name = "test-host".into();
+        bare.default_agent_type = Some(amux::AgentType::Opencode);
+        let bare_captures = {
+            let mut manager = bare.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        bare.resolve_or_spawn(&AmuxSessionId::from("cross-entry-bare"))
+            .await
+            .unwrap();
+
+        let scoped = scoped_captures.lock().unwrap()[0].clone();
+        let bare = bare_captures.lock().unwrap()[0].clone();
+        (scoped, bare)
     }
 
     #[tokio::test]
