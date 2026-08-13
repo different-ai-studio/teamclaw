@@ -60,22 +60,31 @@ Agent 的**后端实现种类**取值域：`'claude-code' | 'opencode' | 'codex'
 _Avoid_: 默认后端、default backend（会读成"可以被覆盖的缺省值"，但它不可被单次覆盖）
 
 ### ModelCatalog
-某 ([AgentType](#agenttype), [Worktree](#worktree)) 组合下**可选模型的全集**。
-不是 [Actor](#actor) 的属性 —— 同一 actor 在不同 worktree 下目录不同
-（实测同一 opencode 跨 worktree 为 68~72 个模型）。
+某 [AgentType](#agenttype) 下**可选模型的全集**，**设备级一份**。
 proto: `repeated ModelInfo`；daemon 持久化于 `~/.amuxd/model-catalog.toml`，
 键为 `by_backend.{agent_type}.{worktree}`。
 
+⚠️ 存储按 worktree 分片，**上报不分片**。存储是观测记录（每次探测如实落账），
+上报的是设备级并集。此前正文写的「不是 Actor 的属性 —— 同一 actor 在不同
+worktree 下目录不同（实测 68~72 个模型）」**已被查证推翻**：某设备 15 个
+worktree 条目两两 diff，全部差异只来自团队 LiteLLM 网关模型与探测时间先后，
+无一来自目录本身（#742 决策 3）。
+
 **存储**保留全部 AgentType 的目录（切回旧后端时无需重探）。
 **`ActorPresence` retain 是 client 侧的唯一来源**，携带当前活跃 AgentType 的
-全部 worktree 分组 —— 不存在按需查询通道，见 ADR-0002。
+设备级并集 —— 不存在按需查询通道，见 ADR-0002。
 
 _Avoid_: available models（字段名可以，术语不要）、模型列表
 
 ### DefaultModel
-某 ([Actor](#actor), [AgentType](#agenttype), [Worktree](#worktree)) 组合下**上次实际使用**的模型，
+某 ([Actor](#actor), [AgentType](#agenttype)) 组合下**上次实际使用**的模型，
 即该组合 MRU 列表的表头。是**记忆**，不是配置项，用户无处显式设定它。
 daemon 权威：`config::model_mru`（`~/.amuxd/model-mru.toml`）。
+
+键里**不再含 Worktree**（#742 决策 4）：目录级 MRU 已删除，gateway / cron 无论
+在哪个目录启动都得到同一个答案。消费语义是显示兜底
+（`currentModel || defaultModel`）；会话真正用的模型按 ADR-0005 存于
+`session_participants.model`，不受此影响。
 
 _Avoid_: 默认配置、preferred model、fallback model（后者指目录首项那一级派生兜底，是另一回事）
 
@@ -124,7 +133,8 @@ desktop 端的 [Workspace](../packages/app/CONTEXT.md#workspace) 是其本地视
 一个 [Workspace](#workspace) 在**某台设备上**实体化出的本地绝对路径。
 一个 Workspace 在每台设备上有 0 或 1 个 Worktree —— 未注册的设备上映射为空
 （`resolveLocalPathForCloudWorkspace` 返回 `null`）。
-是 [ModelCatalog](#modelcatalog) 与 [DefaultModel](#defaultmodel) 的键之一。
+**不再**是 [ModelCatalog](#modelcatalog) 或 [DefaultModel](#defaultmodel) 的键
+（#742 决策 3/4）—— 二者都已收敛为设备级。
 
 ⚠️ Worktree 是**绝对路径**，含设备使用者的用户名与目录结构。
 当前 `RuntimeInfo.worktree` 随团队级 retain 广播给全团队 —— 待处理的信息泄漏点。

@@ -39,6 +39,55 @@ describe("parseActorStateTopic", () => {
 });
 
 describe("projectActorPresence", () => {
+  // The bug #742 decision 3 set out to fix: a device with several worktrees
+  // published catalogs keyed by directory, but LiveSession could not supply a
+  // key that matched, so the lookup missed and every session reported zero
+  // models. The session pill treats that as "connecting" and never recovers.
+  it("reports models on a device with several worktrees", () => {
+    const updates = projectActorPresence(
+      "actor-1",
+      presence({
+        defaultModel: "opencode/b",
+        worktrees: [
+          create(WorktreeCatalogSchema, { worktree: "/w/one", modelIndices: [0] }),
+          create(WorktreeCatalogSchema, { worktree: "/w/two", modelIndices: [1] }),
+        ],
+        liveSessions: [
+          // No worktree — exactly what the daemon sends.
+          create(LiveSessionSchema, { sessionId: "session-1" }),
+        ],
+      }),
+    );
+
+    expect(updates[0]!.info.availableModels.map((m) => m.id)).toEqual([
+      "opencode/a",
+      "opencode/b",
+    ]);
+    expect(updates[0]!.info.currentModel).toBe("opencode/b");
+  });
+
+  // Until every daemon is upgraded, some presences carry only the old
+  // per-worktree copies.
+  it("falls back to the legacy per-worktree fields from an older daemon", () => {
+    const updates = projectActorPresence(
+      "actor-1",
+      presence({
+        defaultModel: "",
+        worktrees: [
+          create(WorktreeCatalogSchema, {
+            worktree: "/w/one",
+            modelIndices: [0, 1],
+            defaultModel: "opencode/a",
+          }),
+        ],
+        liveSessions: [create(LiveSessionSchema, { sessionId: "session-1" })],
+      }),
+    );
+
+    expect(updates[0]!.info.currentModel).toBe("opencode/a");
+    expect(updates[0]!.info.availableModels).toHaveLength(2);
+  });
+
   it("keys entries by session id, resolving the catalog by index", () => {
     const updates = projectActorPresence(
       "actor-1",

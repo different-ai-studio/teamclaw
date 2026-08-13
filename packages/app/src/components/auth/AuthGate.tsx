@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCurrentTeamStore, readCachedCurrentTeam } from "@/stores/current-team";
 import { getBackend } from "@/lib/backend";
@@ -8,6 +8,12 @@ import { resolveDefaultDisplayName } from "@/lib/default-display-name";
 import { DesktopOnboarding } from "./DesktopOnboarding";
 import { LoginScreen } from "./LoginScreen";
 import { SetupWizard } from "@/components/auth/SetupWizard";
+import { isLocaleLocked, availableLanguages } from "@/lib/i18n";
+import { LanguageStep } from "@/components/onboarding/LanguageStep";
+import { RoleStep } from "@/components/onboarding/RoleStep";
+import { SetupStep } from "@/components/onboarding/SetupStep";
+import { ModelStep } from "@/components/onboarding/ModelStep";
+import { useOnboardingStore } from "@/stores/onboarding";
 import { useSetupStore, setupPreviouslySatisfied } from "@/stores/setup";
 import { DaemonOnboardingWizard } from "@/components/auth/DaemonOnboardingWizard";
 import { TeamBootstrapErrorScreen } from "@/components/auth/TeamBootstrapErrorScreen";
@@ -21,6 +27,10 @@ import { PendingInvitesDialog } from "@/components/auth/PendingInvitesDialog";
 import { GuestTeamDiscovery } from "@/components/auth/GuestTeamDiscovery";
 import { getDesktopDeviceIdOrNull } from "@/lib/backend/cloud-api/device-id";
 import type { MembershipTeam } from "@/lib/backend";
+
+/** A one-option "choice" is noise: single-locale builds skip the language step
+ *  entirely rather than showing a screen with nothing to decide. */
+const canChooseLanguage = !isLocaleLocked && availableLanguages.length > 1;
 
 interface AuthGateProps {
   children: React.ReactNode;
@@ -74,8 +84,38 @@ export function AuthGate({ children }: AuthGateProps) {
   // gate is the real backstop if a dependency actually went missing.
   const [setupAck, setSetupAck] = useState(() => devSkipSetup() || setupPreviouslySatisfied());
 
+  // First-run onboarding (#881). `onboardingSetupAck` is local rather than
+  // persisted: it only sequences the screens within one run.
+  const onboardingLanguageAck = useOnboardingStore((s) => s.languageAck);
+  const markOnboardingLanguageAck = useOnboardingStore((s) => s.markLanguageAck);
+  const onboardingRole = useOnboardingStore((s) => s.role);
+  const onboardingDone = useOnboardingStore((s) => s.completed);
+  const setOnboardingRole = useOnboardingStore((s) => s.setRole);
+  const markOnboardingCompleted = useOnboardingStore((s) => s.markCompleted);
+  const onboardingSetupAck = useOnboardingStore((s) => s.setupAck);
+  const setOnboardingSetupAck = useOnboardingStore((s) => s.markSetupAck);
+  // Started-but-unfinished. Whichever screen the user quit on, they come back
+  // to it — and it outranks the `setup-ok` optimistic skip below, which would
+  // otherwise swallow the rest of a flow the user is visibly in the middle of.
+  const onboardingStarted = useOnboardingStore((s) => s.languageAck || s.role !== null || s.setupAck);
+  // Whether a model step follows is decided here, when setup finishes, rather
+  // than as another render branch — that branch would have had to call
+  // `markCompleted` during render to skip itself.
+  //
+  // pi ships without credentials of its own, so a guided user who never
+  // connected a provider would land in an app that cannot answer them.
+  // Developers configure models in Settings on their own terms.
+  const finishSetupStep = useCallback(() => {
+    setOnboardingSetupAck();
+    const { role, runtime } = useOnboardingStore.getState();
+    if (!(role === "guided" && runtime === "pi")) markOnboardingCompleted();
+  }, [markOnboardingCompleted, setOnboardingSetupAck]);
+
   const daemonStatus = useDaemonOnboardingStore((s) => s.status);
   const daemonLoaded = useDaemonOnboardingStore((s) => s.loaded);
+  // The one remaining question in onboarding: name a brand-new agent for this
+  // machine. It must hold the gate, or the shell would render behind the prompt.
+  const daemonAwaitingName = useDaemonOnboardingStore((s) => !!s.pendingName);
   const refreshDaemonOnboarding = useDaemonOnboardingStore((s) => s.refresh);
   const [daemonOnboardingAck, setDaemonOnboardingAck] = useState(() => devSkipDaemonOnboarding());
 
@@ -351,7 +391,38 @@ export function AuthGate({ children }: AuthGateProps) {
   // would stay empty through auth hydrate / team bootstrap / myTeams and
   // the side panel would flash white for seconds.
 
-  // First-run: in Tauri, ensure local prerequisites (amuxd/opencode) before auth.
+  // First-run onboarding (#881), ahead of auth: pick a setup style, get the
+  // runtime and local dependencies in place, and — on the guided path — connect
+  // a model. Provider credentials are device-level since #742, so that last
+  // step works with no account and no workspace.
+  //
+  // Returning users skip all of it: `onboardingDone` is set once the flow
+  // completes, and `setupRequiredSatisfied` covers installs that predate it.
+  if (isTauri() && !onboardingDone && (!setupAck || onboardingStarted)) {
+    if (!setupLoaded) {
+      return null;
+    }
+    // Language first, alone. Everything below it is written in whichever
+    // language this answers, so it cannot share a screen with them. Skipped
+    // outright on single-locale builds, where there is nothing to ask.
+    if (!onboardingLanguageAck && canChooseLanguage) {
+      removeStartupSkeleton();
+      return <LanguageStep onDone={markOnboardingLanguageAck} />;
+    }
+    if (!onboardingRole) {
+      removeStartupSkeleton();
+      return <RoleStep onDone={setOnboardingRole} />;
+    }
+    if (!onboardingSetupAck) {
+      removeStartupSkeleton();
+      return <SetupStep role={onboardingRole} onDone={finishSetupStep} />;
+    }
+    removeStartupSkeleton();
+    return <ModelStep onDone={markOnboardingCompleted} />;
+  }
+
+  // Pre-#881 installs that never ran the new flow still need their local
+  // prerequisites checked before auth.
   if (isTauri() && !setupAck) {
     if (!setupLoaded) {
       return null;
@@ -455,14 +526,17 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   // Daemon readiness gate: after login + workspace bootstrap, ensure the local
-  // daemon is bound to the current team AND running with a valid token. Interactive
-  // states (needs-onboard / mismatch) prompt the user; transient states (starting /
-  // error) auto-recover or offer retry. 'ready'/'unknown' fall through.
+  // daemon is bound to this machine's agent in the current team AND running with a
+  // valid token. None of these states prompt for input any more — needs-onboard
+  // and mismatch are resolved by binding (team, device id) server-side, and the
+  // screen below is progress plus a retry on failure. 'ready'/'unknown' fall
+  // through.
   if (isTauri() && !daemonOnboardingAck) {
     if (!daemonLoaded) {
       return null;
     }
     if (
+      daemonAwaitingName ||
       daemonStatus === 'needs-onboard' ||
       daemonStatus === 'mismatch' ||
       daemonStatus === 'starting' ||

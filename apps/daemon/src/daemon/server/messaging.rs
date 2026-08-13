@@ -78,7 +78,14 @@ impl DaemonServer {
             .await
         };
 
-        let (active_agent_type, catalog_models, worktrees, live_sessions) = {
+        let (
+            active_agent_type,
+            catalog_models,
+            worktrees,
+            live_sessions,
+            actor_default_model,
+            actor_available_commands,
+        ) = {
             let agents = self.agents.lock().await;
             let (catalog_models, worktrees) = agents.actor_catalog_snapshot();
             (
@@ -86,6 +93,8 @@ impl DaemonServer {
                 catalog_models,
                 worktrees,
                 agents.live_sessions(),
+                agents.actor_default_model(),
+                agents.actor_available_commands(),
             )
         };
 
@@ -99,11 +108,16 @@ impl DaemonServer {
             // STARTING/FAILED are wired where the supervisor learns them.
             backend_health: amux::AgentHostHealth::Ready as i32,
             catalog_models,
+            // Dual-written for one release: `worktrees` for clients that have
+            // not moved to the device-level fields yet, and those fields for
+            // the ones that have (#742 decision 6).
             worktrees,
             live_sessions,
             default_workspace_id,
             default_worktree,
             default_workspace_models,
+            default_model: actor_default_model,
+            available_commands: actor_available_commands,
         };
 
         let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);

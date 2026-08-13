@@ -49,4 +49,15 @@ describe('local-daemon-identity', () => {
     noteLocalDaemonActorId('current-local')
     expect(wasEverLocalDaemonIdentity('current-local')).toBe(false)
   })
+
+  it('un-stales an actor when it becomes the current local id again', () => {
+    noteLocalDaemonActorId('kfc')
+    noteLocalDaemonActorId('other-team')
+    expect(isSupersededLocalAgent('kfc')).toBe(true)
+
+    noteLocalDaemonActorId('kfc')
+    expect(isSupersededLocalAgent('kfc')).toBe(false)
+    expect(wasEverLocalDaemonIdentity('kfc')).toBe(false)
+    expect(isSupersededLocalAgent('other-team')).toBe(true)
+  })
 })

@@ -71,6 +71,21 @@ pub fn assemble_spawn_runtime_env(
             teamclu_runtime_env::team_provider_env_payload(provider),
         );
     }
+    // #742: point opencode at the daemon-owned device-level config, which is
+    // where user-configured providers now live. `OPENCODE_CONFIG` loads it as an
+    // *additional* global-scope config after the standard global chain, so these
+    // entries win over the user's hand-edited
+    // `~/.config/opencode/opencode.json` — a file we deliberately never write.
+    //
+    // Only set when the file exists: pointing the variable at a missing path
+    // buys nothing and risks opencode erroring on a config it cannot read.
+    let global_config = teamclu_runtime_env::opencode_config::global_opencode_config_path();
+    if global_config.is_file() {
+        extra_env.insert(
+            "OPENCODE_CONFIG".to_string(),
+            global_config.display().to_string(),
+        );
+    }
     Ok(SpawnRuntimeEnv {
         extra_env,
         resolved_env: Some(bundle.resolved_env),

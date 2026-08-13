@@ -7,6 +7,8 @@ import { AgentType } from '@/lib/proto/amux_pb'
 import {
   encodeWorkspaceId,
   putDaemonProviderAuth,
+  putDaemonDeviceProviderAuth,
+  deleteDaemonDeviceProviderAuth,
   deleteDaemonProviderAuth,
   getDaemonProviders,
   getDaemonProviderAuthMethods,
@@ -511,11 +513,10 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   },
 
   connectProvider: async (providerId: string, apiKey: string) => {
+    // #742: provider credentials are device-level, so a workspace is no longer
+    // required to configure one. First-run onboarding connects a provider
+    // before any project directory has been resolved.
     const workspacePath = useWorkspaceStore.getState().workspacePath
-    if (!workspacePath) {
-      toast.error('No workspace selected')
-      return false
-    }
     const trimmedKey = apiKey.trim()
     if (!trimmedKey) return false
     try {
@@ -526,16 +527,19 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       )
       // Daemon-backed OpenCode reads literal apiKey from opencode.json; it does
       // not resolve desktop ${ref} placeholders from the personal secret store.
-      await putDaemonProviderAuth(encodeWorkspaceId(workspacePath), providerId, {
-        api_key: trimmedKey,
-      })
+      await putDaemonDeviceProviderAuth(providerId, { api_key: trimmedKey })
       set((state) => {
         const newDisconnected = new Set(state._disconnectedIds)
         newDisconnected.delete(providerId)
         return { _disconnectedIds: newDisconnected }
       })
-      await reloadRuntimeAfterProviderChange(workspacePath)
-      await Promise.all([get().refreshProviders(), get().refreshConfiguredProviders()])
+      // Only a live workspace has a runtime to reload. Without one there is
+      // nothing running yet, and whatever starts later reads the config at
+      // spawn time.
+      if (workspacePath) {
+        await reloadRuntimeAfterProviderChange(workspacePath)
+        await Promise.all([get().refreshProviders(), get().refreshConfiguredProviders()])
+      }
       return true
     } catch (err) {
       console.error('[LLM connect] Failed to connect provider:', err)
@@ -548,13 +552,16 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
 
   disconnectProvider: async (providerId: string) => {
     const workspacePath = useWorkspaceStore.getState().workspacePath
-    if (!workspacePath) {
-      toast.error('No workspace selected')
-      return false
-    }
     try {
-      await deleteDaemonProviderAuth(encodeWorkspaceId(workspacePath), providerId)
-      await reloadRuntimeAfterProviderChange(workspacePath)
+      // With a workspace, prefer the workspace-scoped call: it clears the
+      // device-level entry *and* any pre-#742 copy left in that workspace,
+      // which the merged view would otherwise use to resurrect the provider.
+      if (workspacePath) {
+        await deleteDaemonProviderAuth(encodeWorkspaceId(workspacePath), providerId)
+        await reloadRuntimeAfterProviderChange(workspacePath)
+      } else {
+        await deleteDaemonDeviceProviderAuth(providerId)
+      }
       set((state) => {
         const newDisconnected = new Set(state._disconnectedIds)
         newDisconnected.add(providerId)

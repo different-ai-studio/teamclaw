@@ -295,6 +295,50 @@ fn merge_live_provider_catalog(providers: &mut Vec<ProviderInfo>, catalog: &Live
     }
 }
 
+/// `GET /v1/providers`
+///
+/// Device-level provider list (#742). No workspace, and no daemon-managed
+/// `provider.team` entry — just what this user configured on this machine.
+pub async fn get_device_providers(
+    principal: Principal,
+    State(_state): State<HttpState>,
+) -> Result<Json<Vec<ProviderInfo>>, HttpError> {
+    require_scope(&principal, "workspace:read")?;
+    crate::config::workspace_control::device_providers()
+        .map(Json)
+        .map_err(map_control_err)
+}
+
+/// `POST /v1/providers/:provider_id/auth`
+///
+/// Save provider credentials without a workspace — what first-run onboarding
+/// uses to configure a model before any project directory exists. No runtime
+/// reload: there is no workspace whose runtime we could reload, and a runtime
+/// started later reads the config at spawn time anyway.
+pub async fn put_device_provider_auth(
+    principal: Principal,
+    State(_state): State<HttpState>,
+    Path(provider_id): Path<String>,
+    Json(body): Json<ProviderAuthRequest>,
+) -> Result<(StatusCode, Json<ApplyResponse>), HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let outcome = crate::config::workspace_control::put_device_provider_auth(&provider_id, body)
+        .map_err(map_control_err)?;
+    Ok((StatusCode::OK, apply_ok(outcome)))
+}
+
+/// `DELETE /v1/providers/:provider_id/auth`
+pub async fn delete_device_provider_auth(
+    principal: Principal,
+    State(_state): State<HttpState>,
+    Path(provider_id): Path<String>,
+) -> Result<(StatusCode, Json<ApplyResponse>), HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let outcome = crate::config::workspace_control::delete_device_provider_auth(&provider_id)
+        .map_err(map_control_err)?;
+    Ok((StatusCode::OK, apply_ok(outcome)))
+}
+
 /// `POST /v1/workspaces/:id/providers/:provider_id/auth`
 ///
 /// Creates or replaces the authentication credentials for a provider entry.
@@ -807,7 +851,7 @@ pub async fn get_mcp(
     require_scope(&principal, "workspace:read")?;
     let wpath = workspace_path_or_404(&workspace_id).await?;
     crate::runtime::supervisor::ensure_inherent_mcp(&wpath).map_err(map_control_err)?;
-    crate::config::team_mcp::materialize_team_mcp_for_runtime(&wpath).map_err(map_control_err)?;
+    crate::config::team_mcp::prune_materialised_team_mcp(&wpath).map_err(map_control_err)?;
     let store = resolve_store(&state)?;
     let servers = store.get_mcp(&workspace_id).map_err(map_control_err)?;
     Ok(Json(servers))
@@ -850,7 +894,7 @@ pub async fn get_mcp_tools(
     require_scope(&principal, "workspace:read")?;
     let wpath = workspace_path_or_404(&workspace_id).await?;
     crate::runtime::supervisor::ensure_inherent_mcp(&wpath).map_err(map_control_err)?;
-    crate::config::team_mcp::materialize_team_mcp_for_runtime(&wpath).map_err(map_control_err)?;
+    crate::config::team_mcp::prune_materialised_team_mcp(&wpath).map_err(map_control_err)?;
     let store = resolve_store(&state)?;
     let servers = store.get_mcp(&workspace_id).map_err(map_control_err)?;
     let response =
@@ -866,10 +910,14 @@ pub struct MaterializeTeamMcpResponse {
 
 /// `POST /v1/workspaces/:id/mcp/materialize-team`
 ///
-/// Materialize team-shared MCP definitions from `teamclu-team/.mcp/*.json`
-/// into this workspace's `opencode.json`. Only amuxd writes the file (atomic +
-/// process-local lock). Desktop/git join flows call this instead of touching
-/// `opencode.json` directly.
+/// No longer materialises anything: every runtime reads team MCP from
+/// `~/.amuxd/teams/<id>/cloud/mcp.json` directly. The route stays, and now does
+/// the inverse — clearing team copies an older build wrote into this
+/// workspace's `opencode.json`, where they would outrank the team's own file
+/// and freeze those servers at the version that was copied.
+///
+/// Kept rather than removed so a desktop that still calls it keeps working; it
+/// reports what it removed under the old field name.
 pub async fn materialize_team_mcp(
     principal: Principal,
     Path(workspace_id): Path<String>,
@@ -877,11 +925,11 @@ pub async fn materialize_team_mcp(
     require_scope(&principal, "workspace:write")?;
     let wpath = workspace_path_or_404(&workspace_id).await?;
     crate::runtime::supervisor::ensure_inherent_mcp(&wpath).map_err(map_control_err)?;
-    let outcome = crate::config::team_mcp::materialize_team_mcp_for_runtime(&wpath)
-        .map_err(map_control_err)?;
+    let outcome =
+        crate::config::team_mcp::prune_materialised_team_mcp(&wpath).map_err(map_control_err)?;
     Ok(Json(MaterializeTeamMcpResponse {
         changed: outcome.changed,
-        added_count: outcome.added_count,
+        added_count: outcome.removed_count,
     }))
 }
 

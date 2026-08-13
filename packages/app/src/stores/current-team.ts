@@ -83,6 +83,35 @@ export function initialCurrentTeamState(): Pick<State, "team" | "currentMember" 
   };
 }
 
+type TeamListRow = { id: string; name: string; slug?: string | null };
+
+export type ResolveTeamFromListResult =
+  | { action: "revalidate"; row: TeamListRow }
+  | { action: "preserve" }
+  | { action: "clear" }
+  | { action: "no_selection" };
+
+/** Pure team resolution for the active-org listing. Never silently picks rows[0]. */
+export function resolveTeamFromActiveOrgList(
+  rows: TeamListRow[],
+  held: CurrentTeam | null,
+  sessionUserId: string,
+  teamUserId: string | null,
+): ResolveTeamFromListResult {
+  const matched = held ? rows.find((t) => t.id === held.id) : undefined;
+  if (matched) return { action: "revalidate", row: matched };
+
+  if (held && teamUserId === sessionUserId) {
+    return { action: "preserve" };
+  }
+
+  if (!held) {
+    return rows.length === 0 ? { action: "clear" } : { action: "no_selection" };
+  }
+
+  return { action: "clear" };
+}
+
 interface State {
   team: CurrentTeam | null;
   currentMember: CurrentTeamMember | null;
@@ -122,42 +151,38 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
     }
 
     set({ loading: true, error: null });
-    let row;
+    let resolution: ResolveTeamFromListResult;
     try {
-      // Listing the whole active org rather than `limit: 1` is deliberate.
-      // The old code took the first row — an arbitrary pick ordered by
-      // created_at — which silently relocated multi-team users to a team they
-      // never chose on every mount, and dragged the local-cache team gate with
-      // it. That gate then disagreed with the team the rest of the UI was
-      // still working on, which is what produced the `team gate mismatch`
-      // rejections. Keep the held team whenever it is still a member of the
-      // active org; only fall back to the first row when it is not.
       const rows = await getBackend().teams.listCurrentUserTeams({ limit: 50 });
-      const heldId = get().team?.id;
-      row = (heldId ? rows.find((t) => t.id === heldId) : undefined) ?? rows[0];
+      resolution = resolveTeamFromActiveOrgList(
+        rows,
+        get().team,
+        session.user.id,
+        get().teamUserId,
+      );
     } catch (error) {
       set({ loading: false, error: error instanceof Error ? error.message : String(error) });
       return;
     }
-    // RLS replica lag guard: AuthGate auto-creates/joins a team for a fresh
-    // (e.g. anonymous) session and populates this store via setActiveTeam, but
-    // the just-written membership row is not always visible to this follow-up
-    // listCurrentUserTeams() yet. When that race returns an empty list, do NOT
-    // clobber the team AuthGate just set to null — that left the team-share
-    // settings page unable to see the team (showing the git form / prereq
-    // notice even after OSS was enabled). A genuinely team-less session keeps
-    // team === null, so this only preserves a team we already hold.
-    //
-    // Cross-user guard: only preserve when the held team was resolved for the
-    // CURRENT user. After logout + re-login (e.g. a new anonymous user) the new
-    // user's team list lags RLS; without this check the previous user's team
-    // would be preserved and team actions would target the wrong (foreign,
-    // already-locked) team.
-    if (!row && get().team && get().teamUserId === session.user.id) {
+
+    if (resolution.action === "preserve") {
       set({ loading: false });
       return;
     }
-    const activeTeam = row ? { id: row.id, name: row.name, slug: row.slug ?? "" } : null;
+
+    if (resolution.action === "no_selection") {
+      set({ loading: false });
+      return;
+    }
+
+    const activeTeam =
+      resolution.action === "revalidate"
+        ? {
+            id: resolution.row.id,
+            name: resolution.row.name,
+            slug: resolution.row.slug ?? "",
+          }
+        : null;
     await setLocalCacheTeamGate(activeTeam?.id ?? null);
     const currentMember = activeTeam
       ? await loadCurrentMember(activeTeam.id, session.user.id)
@@ -243,14 +268,15 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
   switchToTeam: async (teamId: string) => {
     set({ loading: true, error: null });
     const previousUserId = useAuthStore.getState().session?.user?.id ?? null;
-    const previousTeamId = get().team?.id ?? null;
     try {
       await get().enterTeam(teamId);
     } catch (error) {
       set({ loading: false, error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
-    // 4) Tauri：daemon 重新 onboard 到新 team（绑定新 actor/凭证）。
+    // 4) Tauri：daemon 换绑到新 team 的本机 agent（按 device id 找回或新建）。
+    //    换 team 不需要传标记——refresh 看到 mismatch 就会换绑。只有「同一个 team
+    //    但换了 linked account」需要显式要求，因为那种情况 daemon 指向的 team 没变。
     try {
       const { isTauri } = await import("@/lib/utils");
       if (isTauri()) {
@@ -258,7 +284,6 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
         const currentUserId = useAuthStore.getState().session?.user?.id ?? null;
         await useDaemonOnboardingStore.getState().refresh({
           forceIdentityRebind: !!previousUserId && !!currentUserId && previousUserId !== currentUserId,
-          forceTeamRebind: !!previousTeamId && previousTeamId !== teamId,
         });
       }
     } catch (e) {

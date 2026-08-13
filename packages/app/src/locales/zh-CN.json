@@ -320,8 +320,6 @@
       "verifying": "验证中…"
     },
     "onboarding": {
-      "tagline": "先选择进入 TeamClu 的方式。",
-      "getStarted": "开始使用",
       "setupTitle": "选择启动方式",
       "setupDesc": "可以先试用，也可以登录、加入团队，或连接自建服务。",
       "quickTrial": "快速试用",
@@ -794,6 +792,42 @@
     "openAgentSettings": "打开 Agent 设置"
   },
   "onboarding": {
+    "model": {
+      "title": "连接一个模型",
+      "subtitle": "选一家服务商，把 API key 粘进来。之后还能在设置里加更多。",
+      "getKey": "去申请 API Key",
+      "keyPlaceholder": "粘贴 API key",
+      "connect": "连接",
+      "saving": "保存中…",
+      "saved": "已保存",
+      "failed": "这个 key 没能保存，检查一下再试。",
+      "skip": "先跳过"
+    },
+    "setup": {
+      "title": "正在配置本机 agent",
+      "developerSubtitle": "选择这台机器要用的运行时。",
+      "guidedSubtitle": "稍等片刻就好。",
+      "runtime": "Agent 运行时",
+      "install": "安装",
+      "notDetected": "本机未检测到",
+      "installed": "已安装",
+      "installing": "安装中…",
+      "ready": "就绪",
+      "missing": "未找到",
+      "working": "正在配置…",
+      "continue": "继续",
+      "switchToDeveloper": "我想自己选运行时"
+    },
+    "role": {
+      "title": "想怎么配置 {{app}}？",
+      "subtitle": "这些之后都能在设置里改。",
+      "developerTitle": "我自己来",
+      "developerAudience": "适合开发者",
+      "developerCaption": "自己选运行时，装了什么一目了然。熟悉命令行就选这个。",
+      "guidedTitle": "直接开始用",
+      "guidedAudience": "新手推荐",
+      "guidedCaption": "用推荐配置，带你把一个模型连好。不用选，也不用手动装任何东西。"
+    },
     "common": {
       "back": "上一步"
     }
@@ -973,34 +1007,6 @@
     "localDaemonAutomationAria": "打开自动化任务",
     "localDaemonRetrying": "正在重试…",
     "ideas": "想法"
-  },
-  "setup": {
-    "title": "需要设置",
-    "copyCommand": "复制命令",
-    "required": "必需",
-    "optional": "可选",
-    "recheck": "重新检查",
-    "getStarted": "开始使用",
-    "continue": "继续",
-    "intro": "TeamClu 需要一些工具才能正常工作。请安装以下缺失的依赖项。",
-    "optionalHint": "缺少 {{count}} 个可选{{singular}}。您可以从设置中稍后安装{{pronoun}}。",
-    "back": "返回",
-    "customize": "自定义",
-    "customizeIntro": "选择要安装的依赖。必需工具已预先选中。",
-    "customizeTitle": "选择依赖",
-    "installAllRequired": "安装所有必需项",
-    "installFailed": "{{count}} 项安装失败",
-    "installSelected": "安装所选项",
-    "installSuccess": "{{count}} 项已成功安装",
-    "installing": "安装中",
-    "installingIntro": "正在安装依赖，请稍候...",
-    "installingTitle": "正在安装依赖",
-    "passwordPrompt": "macOS 可能会要求输入系统密码，以完成 Homebrew 安装。",
-    "resultsIntro": "安装已完成。请查看下方结果。",
-    "resultsTitle": "安装完成",
-    "retryFailed": "重试失败项",
-    "skip": "跳过",
-    "waitingForOutput": "等待输出..."
   },
   "setupWizard": {
     "title": "准备运行环境",
@@ -1635,33 +1641,49 @@
       }
     },
     "daemonOnboarding": {
-      "startingTitle": "正在启动服务…",
-      "startingSubtitle": "本机 agent 已绑定，正在确保本地 daemon 运行。",
-      "starting": "启动中，请稍候…",
-      "errorTitle": "无法启动本机服务",
-      "errorSubtitle": "本机 agent 已绑定，但本地 daemon 未能启动。",
+      "steps": {
+        "mint-invite": "申请凭证",
+        "init-daemon": "写入本地配置",
+        "restart-daemon": "重启本地服务",
+        "await-daemon": "等待服务就绪",
+        "cloud-auth": "检查云端连接"
+      },
+      "slowHint": {
+        "mint-invite": "正在等服务器响应，检查一下网络连接。",
+        "init-daemon": "正在往 ~/.amuxd 写入凭证。",
+        "restart-daemon": "正在等上一个进程退出。",
+        "await-daemon": "服务已启动，但还没有响应。",
+        "cloud-auth": "正在向服务器验证这台机器。"
+      },
+      "recovery": {
+        "mint-invite": "连不上服务器。检查网络后重试。",
+        "init-daemon": "凭证没能写入。重置可以清掉写了一半的状态。",
+        "restart-daemon": "本地服务没能重启。重置可以清掉写了一半的状态。",
+        "await-daemon": "服务起来了但一直没响应，看看 ~/.amuxd/amuxd.managed.log。",
+        "cloud-auth": "这台机器没能通过服务器验证。"
+      },
+      "elapsed": "仍在进行——已用 {{seconds}} 秒",
+      "stuckHint": "比预期慢。细节看 ~/.amuxd/amuxd.managed.log。",
+      "errorAtStep": "卡在这一步：{{step}}",
+      "reconnect": "重新连接",
+      "doneTitle": "这台机器已就绪",
+      "doneAs": "已设置为 {{name}}",
+      "continue": "继续",
+      "startingTitle": "正在配置本机 Agent…",
+      "startingSubtitle": "正在把本机接入当前团队，并启动本地 daemon。",
+      "errorTitle": "无法配置本机 Agent",
+      "errorSubtitle": "没有留下半配置状态，重试是安全的。",
       "startFailed": "本地 daemon 启动失败：请确认本机可运行后重试。",
-      "cloudExpiredNotOwner": "该 Daemon 的云端会话已过期，只有其拥有者可以重新连接。请用拥有者账号重新初始化该 Daemon。",
+      "nameTitle": "给本机 Agent 取个名字",
+      "nameSubtitle": "它运行在这台机器上，只有你能看到。之后可以在设置里改名。",
+      "nameConfirm": "继续",
+      "creating": "初始化中…",
+      "bindFailed": "配置本机 Agent 失败：{{detail}}",
+      "deviceIdUnavailable": "读不到本机 ID（由本地 daemon 提供）。请确认 amuxd 正在运行后重试。",
       "retrying": "重试中…",
       "retry": "重试",
-      "mismatchTitle": "本机 Agent 属于其他团队",
-      "mismatchSubtitle": "当前登录团队与本机 daemon 绑定的团队不一致，需要重置后重新初始化。",
-      "resetting": "重置中…",
-      "resetIncomplete": "重置未生效：本机仍绑定在团队 {{teamId}} 上。请查看 ~/.amuxd/amuxd.managed.log。",
       "resetReinit": "重置并重新初始化",
-      "initTitle": "初始化本机 Agent",
-      "initSubtitle": "新建一个 agent，或把本机绑定到你已有的 agent。",
-      "modeNew": "新建",
-      "modeBind": "绑定已有",
-      "name": "名字",
-      "namePlaceholder": "例如：MacBook Pro",
-      "visibility": "可见性",
-      "shareWithTeam": "共享给团队",
-      "visibilityTeamHint": "团队成员都能看到并使用这个 agent。",
-      "visibilityPersonalHint": "只有你能看到和使用，团队其他人不可见。",
-      "creating": "初始化中…",
-      "create": "创建并启动",
-      "noOwnedAgents": "当前团队下没有你创建的 agent 可绑定。"
+      "resetIncomplete": "重置未生效：本机仍绑定在团队 {{teamId}} 上。请查看 ~/.amuxd/amuxd.managed.log。"
     },
     "daemonWorkspaces": {
       "title": "工作区",

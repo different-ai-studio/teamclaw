@@ -204,21 +204,34 @@ describe('locale helpers', () => {
     vi.resetModules()
   })
 
-  it('defaults to English when there is no saved language (system language is not auto-detected)', async () => {
+  it('follows a Chinese system when there is no saved language', async () => {
     setNavigatorLanguage('zh-CN')
+
+    const { getPreferredLanguage } = await import('../locale')
+
+    expect(getPreferredLanguage()).toBe('zh-CN')
+  })
+
+  // Chinese is the only non-English locale shipped, so everything else lands on
+  // English rather than on a language the build cannot render.
+  it.each(['ja', 'fr-FR', 'de'])('falls back to English on a %s system', async (lang) => {
+    setNavigatorLanguage(lang)
 
     const { getPreferredLanguage } = await import('../locale')
 
     expect(getPreferredLanguage()).toBe('en')
   })
 
-  it('prefers a saved language over the English default', async () => {
-    setNavigatorLanguage('en')
-    store[`${appShortName}-language`] = 'zh-CN'
+  it.each([
+    ['en', 'zh-CN'],
+    ['zh-CN', 'en'],
+  ])('prefers the saved language over a %s system', async (system, saved) => {
+    setNavigatorLanguage(system)
+    store[`${appShortName}-language`] = saved
 
     const { getPreferredLanguage } = await import('../locale')
 
-    expect(getPreferredLanguage()).toBe('zh-CN')
+    expect(getPreferredLanguage()).toBe(saved)
   })
 
   it('defaults to English for an unsupported saved or system language', async () => {

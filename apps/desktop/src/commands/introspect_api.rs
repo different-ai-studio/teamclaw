@@ -768,9 +768,7 @@ async fn handle_session_archive(app: &AppHandle, body: &[u8]) -> Result<String, 
     )
     .await
     {
-        eprintln!(
-            "[IntrospectAPI] local cache soft-delete after archive failed: {e}"
-        );
+        eprintln!("[IntrospectAPI] local cache soft-delete after archive failed: {e}");
     }
 
     let payload = serde_json::json!({

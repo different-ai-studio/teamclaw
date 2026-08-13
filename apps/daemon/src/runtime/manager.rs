@@ -1470,6 +1470,26 @@ impl RuntimeManager {
         (union, worktrees)
     }
 
+    /// Device-level default model for the active backend (#742 decision 4/5).
+    ///
+    /// The per-worktree MRU layer is gone: an audit found 10 of 12 worktrees on
+    /// one device already falling through to this device-wide value, and
+    /// gateway/cron picked up whichever directory they happened to start in.
+    /// Consumed purely as a display fallback when a session has no model of its
+    /// own; `session_participants.model` remains authoritative (ADR-0005).
+    pub fn actor_default_model(&self) -> String {
+        self.model_mru
+            .default_model_for_backend(self.local_backend_type())
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    /// Built-ins for the active backend — the same list every worktree carried,
+    /// since it never depended on the directory.
+    pub fn actor_available_commands(&self) -> Vec<amux::AcpAvailableCommand> {
+        builtin_commands(self.default_agent_type())
+    }
+
     pub fn to_proto_agent_list(&self) -> amux::AgentList {
         amux::AgentList {
             runtimes: self

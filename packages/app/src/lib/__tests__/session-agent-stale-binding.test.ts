@@ -64,4 +64,21 @@ describe('resolveEngagedAgentStaleBinding', () => {
       }),
     ).toBe(true)
   })
+
+  it('does not mark the current local agent stale after switching back', () => {
+    noteLocalDaemonActorId('kfc')
+    noteLocalDaemonActorId('other-team')
+    noteLocalDaemonActorId('kfc')
+    expect(
+      resolveEngagedAgentStaleBinding({
+        agentId: 'kfc',
+        localDaemonActorId: 'kfc',
+        presenceOnline: true,
+        agentRuntimeInfo: activeRuntime,
+        agentAvailableModelCount: 2,
+        localRuntimeInfo: activeRuntime,
+        localAvailableModelCount: 2,
+      }),
+    ).toBe(false)
+  })
 })
