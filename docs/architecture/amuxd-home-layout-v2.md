@@ -18,7 +18,7 @@
 > | ④b-1 | `teams/<id>/{shared,state,workspace}` 三层 | ✅ |
 > | ④b-2 | `backend.toml` + `cloud-token` 下沉、`_unclaimed` + claim 时 rename | ✅ |
 > | ④b-3 | `runtimes.toml` / `sessions/` / `history/` / `mcp-configs/` / `attachments/` / `apps/` / `members.toml` 下沉 | ⬜ |
-> | ④b-4 | 每团队一把 `secret.key` + `secrets.enc` 下沉 | ⬜ |
+> | ④b-4 | 每团队一把 `secret.key` + `secrets.enc` 下沉、删掉反向搬运器 | ✅ |
 > | ④c | 旧路径一次性清理 + 删除全部迁移代码 | ⬜ |
 > | ⑤ | `daemon.toml` 瘦身（`team.toml` / agents 拆三份 / channels 凭证入库）、日志轮换、`amuxd clear` 重写 | ⬜ |
 >
@@ -225,6 +225,11 @@ system_prompt = "…"
 **凭证字段一律不在这里**：`bot_token`、`secret`、`app_secret`、
 `encoding_aes_key` 全部存进 `secrets.enc`。分界是"改 system_prompt 不该需要
 解密，而任何凭证不该明文落盘"。
+
+`secrets.enc` 由**同目录下的 `secret.key`** 封装，一团队一把。旧布局是家目录根
+下一把主密钥封所有团队的密文——删掉一个团队的目录，别处还留着它的密文，而幸存的
+那把钥匙照样能打开；轮换一个团队等于轮换全部。现在 `rm -rf teams/<id>` 把钥匙和
+密文一起带走。
 
 `config/edit.rs::is_secret_key` 的 `channels.*` 分支随之失效（`http/config.rs`
 对这些键的打码不再有对象），但该函数本身要保留——`mqtt.password` 仍在
