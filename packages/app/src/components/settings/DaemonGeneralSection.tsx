@@ -597,7 +597,11 @@ export function DaemonGeneralSection() {
                     disabled={switchingAgent || !agent.isOwner || localAgent === null}
                   >
                     <SelectTrigger className="h-7 w-[140px] font-mono text-[12px]" data-testid="local-agent-select">
-                      <SelectValue placeholder="…" />
+                      {/* Children override the selected item's own markup, which
+                          would otherwise drag the "not installed" badge into the
+                          trigger and truncate it. The badge belongs in the list;
+                          the warning row below carries it for the selection. */}
+                      <SelectValue placeholder="…">{localAgent}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {(['opencode', 'pi', 'cursor', 'claude-code'] as DaemonLocalAgent[]).map((id) => {
