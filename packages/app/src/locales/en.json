@@ -1,5 +1,7 @@
 {
   "teamShare": {
+    "cloudSync": "Cloud sync",
+    "cloudSyncFailed": "Sync failed: {{msg}}",
     "envAdd": "Add environment variable",
     "envAddTeam": "Add team env key",
     "envAddPersonal": "Add personal env key",
