@@ -690,10 +690,10 @@ impl DaemonConfig {
     /// (JWT), written `0600`. Injected into agent processes as
     /// `TC_ACCESS_TOKEN_FILE` so long-running agents can re-read a fresh token.
     ///
-    /// A team credential, so it belongs in `teams/<id>/state/` — moved in ④b,
-    /// together with the `backend.toml` it is refreshed from.
+    /// Refreshed from the active team's `backend.toml` and only valid for that
+    /// team, so it sits beside it.
     pub fn cloud_token_path() -> PathBuf {
-        Self::config_dir().join("amuxd.cloud-token")
+        super::layout::active_state_dir().join("cloud-token")
     }
 
     pub fn http_port_path() -> PathBuf {

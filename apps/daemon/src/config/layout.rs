@@ -88,6 +88,69 @@ fn team_slug(team_id: &str) -> &str {
     }
 }
 
+/// Just enough of `daemon.toml` to find the active team, deliberately not the
+/// whole [`DaemonConfig`]: resolving a path must not start failing because some
+/// unrelated field of the config stopped parsing.
+#[derive(serde::Deserialize)]
+struct ActiveTeamProbe {
+    #[serde(default)]
+    team_id: Option<String>,
+}
+
+/// The team this daemon is currently claimed by, or [`UNCLAIMED_TEAM`].
+///
+/// Reads the canonical `daemon.toml` rather than `DaemonConfig::default_path()`
+/// — that one copies from the legacy directory as a side effect, which a path
+/// lookup has no business doing.
+pub fn active_team() -> String {
+    std::fs::read_to_string(root().join("daemon.toml"))
+        .ok()
+        .and_then(|body| toml::from_str::<ActiveTeamProbe>(&body).ok())
+        .and_then(|probe| probe.team_id)
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| UNCLAIMED_TEAM.to_string())
+}
+
+/// `teams/<active>/state` — where this daemon's team-scoped files live now.
+pub fn active_state_dir() -> PathBuf {
+    team_state_dir(&active_team())
+}
+
+/// Adopt whatever an unclaimed daemon wrote, at the moment it gets a team.
+///
+/// A rename, so the sessions and history the daemon accumulated before
+/// onboarding survive it, and so there is only ever one directory to look in.
+///
+/// When the target already exists the daemon is re-claiming a team it already
+/// has state for. Merging two stores is not something a path module can decide,
+/// so `_unclaimed` is left where it is and reported — inert, and still there to
+/// recover by hand.
+pub fn promote_unclaimed(team_id: &str) -> std::io::Result<()> {
+    let slug = team_slug(team_id);
+    if slug == UNCLAIMED_TEAM {
+        return Ok(());
+    }
+    let from = teams_dir().join(UNCLAIMED_TEAM);
+    if !from.is_dir() {
+        return Ok(());
+    }
+    let to = teams_dir().join(slug);
+    if to.exists() {
+        tracing::warn!(
+            from = %from.display(),
+            to = %to.display(),
+            "claimed a team that already has local state; leaving the unclaimed \
+             directory in place rather than merging"
+        );
+        return Ok(());
+    }
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(&from, &to)
+}
+
 /// Create the fixed subdirectories so callers can write without each of them
 /// re-deriving a `create_dir_all`. Best effort: a failure here surfaces at the
 /// actual write, with a path in the message.
@@ -105,6 +168,59 @@ mod tests {
     use crate::test_brand_env::BrandEnvGuard;
     use std::collections::BTreeSet;
     use teamclu_runtime_env::ROOT_ALLOWLIST;
+
+    #[test]
+    fn active_team_is_unclaimed_until_daemon_toml_names_one() {
+        let home = tempfile::tempdir().unwrap();
+        let _guard = BrandEnvGuard::set_amuxd_home(home.path());
+
+        assert_eq!(active_team(), UNCLAIMED_TEAM);
+
+        std::fs::write(home.path().join("daemon.toml"), "team_id = \"team-a\"\n").unwrap();
+        assert_eq!(active_team(), "team-a");
+
+        // A config that no longer parses must not take path resolution down
+        // with it — an unclaimed daemon still has to boot and serve setup.
+        std::fs::write(home.path().join("daemon.toml"), "team_id = [").unwrap();
+        assert_eq!(active_team(), UNCLAIMED_TEAM);
+    }
+
+    #[test]
+    fn claiming_a_team_adopts_the_unclaimed_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let _guard = BrandEnvGuard::set_amuxd_home(home.path());
+
+        let before = team_state_dir("");
+        std::fs::create_dir_all(&before).unwrap();
+        std::fs::write(before.join("runtimes.toml"), b"sessions = []").unwrap();
+
+        promote_unclaimed("team-a").unwrap();
+
+        assert!(!teams_dir().join(UNCLAIMED_TEAM).exists());
+        assert!(team_state_dir("team-a").join("runtimes.toml").is_file());
+    }
+
+    /// Re-claiming a team this daemon already has state for must not clobber it.
+    /// Merging two stores is not a decision this module can make, so the
+    /// unclaimed directory is left behind to recover by hand.
+    #[test]
+    fn claiming_a_team_that_already_has_state_leaves_both() {
+        let home = tempfile::tempdir().unwrap();
+        let _guard = BrandEnvGuard::set_amuxd_home(home.path());
+
+        std::fs::create_dir_all(team_state_dir("")).unwrap();
+        std::fs::create_dir_all(team_state_dir("team-a")).unwrap();
+        std::fs::write(
+            team_state_dir("team-a").join("backend.toml"),
+            b"kind = \"x\"",
+        )
+        .unwrap();
+
+        promote_unclaimed("team-a").unwrap();
+
+        assert!(teams_dir().join(UNCLAIMED_TEAM).exists());
+        assert!(team_state_dir("team-a").join("backend.toml").is_file());
+    }
 
     #[test]
     fn subdirectories_are_all_allowlisted() {

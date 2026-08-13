@@ -1,4 +1,6 @@
-use crate::config::{ActorConfig, AgentsConfig, DaemonConfig, HttpConfig, MqttConfig, TeamShareConfig};
+use crate::config::{
+    ActorConfig, AgentsConfig, DaemonConfig, HttpConfig, MqttConfig, TeamShareConfig,
+};
 use crate::onboarding::invite_url::{self, ParsedInvite};
 use crate::provider_config::{CloudApiConfig, ProviderConfig};
 use anyhow::{anyhow, Context, Result};
@@ -38,10 +40,19 @@ pub async fn run(raw_url: &str, config_path: Option<&Path>) -> Result<InitOutcom
         actor_id: claim.actor_id.clone(),
     };
 
+    // Adopt whatever this daemon wrote while unclaimed before anything is
+    // written under the team id — otherwise the credentials land in the new
+    // directory and the rename then refuses to clobber it, stranding the
+    // pre-onboarding sessions in `_unclaimed`.
+    if let Err(e) = crate::config::layout::promote_unclaimed(&claim.team_id) {
+        tracing::warn!(error = %e, "could not adopt the unclaimed team directory");
+    }
+
     let path = match config_path {
         Some(p) => p.to_path_buf(),
-        None => ProviderConfig::default_path()
-            .map_err(|e| anyhow!("backend config path failed: {e}"))?,
+        // Explicitly by team id, not `default_path()`: `daemon.toml` still
+        // points at the previous team (or nowhere) until it is written below.
+        None => ProviderConfig::path_for_team(&claim.team_id),
     };
     save_backend_toml(&path, &cfg).with_context(|| format!("write {}", path.display()))?;
 
