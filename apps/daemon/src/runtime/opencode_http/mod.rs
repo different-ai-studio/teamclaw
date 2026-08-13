@@ -1,15 +1,14 @@
 //! opencode serve HTTP runtime backend.
 //!
 //! Replaces the Zed-ACP integration (`adapter.rs` + `acp_host.rs`): amuxd now
-//! drives a single global `opencode serve` HTTP instance (see
-//! `docs/architecture/single-agent-opencode-http.md`). The manager-facing
+//! drives a bounded pool of `opencode serve` HTTP generations. The manager-facing
 //! surface (`AcpCommand`, `AcpStartupMetadata`, `OpencodeHost`) keeps the old
 //! names and signatures so `RuntimeManager` / gateway plumbing is unchanged.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
@@ -19,7 +18,6 @@ use crate::runtime::acp_event_frame::AcpEventFrame;
 use crate::runtime::permission_policy::PermissionPolicy;
 
 pub mod client;
-mod env_snapshot_policy;
 mod envelope;
 mod events;
 pub mod host_pool;
@@ -30,7 +28,8 @@ pub mod translate;
 pub use envelope::*;
 
 use client::{PromptBody, PromptPart};
-use supervisor::{ServeSupervisor, ShutdownOutcome};
+use host_pool::{HostGeneration, HostPoolError, OpenCodeHostPool, SupervisorGenerationFactory};
+use supervisor::ServeSupervisor;
 use translate::TranslateState;
 
 // ---------------------------------------------------------------------------
@@ -43,7 +42,7 @@ use translate::TranslateState;
 pub use crate::runtime::backend::{AcpCommand, AcpStartupMetadata};
 
 // ---------------------------------------------------------------------------
-// Shared state
+// Generation-owned routing state
 // ---------------------------------------------------------------------------
 
 pub(crate) struct Route {
@@ -98,23 +97,6 @@ pub(crate) struct Route {
     pub(crate) parent_session_id: Option<String>,
 }
 
-pub(crate) struct Shared {
-    /// Shared with settings/OAuth so provider APIs use the same serve process
-    /// as chat (no second per-workspace `opencode serve`).
-    pub(crate) serve: Arc<ServeSupervisor>,
-    /// opencode session id → route.
-    pub(crate) routes: parking_lot::Mutex<HashMap<String, Route>>,
-    /// permission id → opencode session id (for the reply endpoint path).
-    pub(crate) permissions: parking_lot::Mutex<HashMap<String, String>>,
-    /// question request id → opencode session id (for the reply endpoint's
-    /// `?directory=` scope, resolved via the session's route).
-    pub(crate) questions: parking_lot::Mutex<HashMap<String, String>>,
-    /// canonical directory → SSE subscription task.
-    pub(crate) sse_tasks: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
-    /// Per-worktree opencode `/event` transport health (for stuck-turn grace).
-    pub(crate) sse_transport: parking_lot::Mutex<HashMap<String, SseTransportState>>,
-}
-
 /// Loopback SSE subscription state for one canonical worktree directory.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SseTransportState {
@@ -134,37 +116,7 @@ impl Default for SseTransportState {
     }
 }
 
-impl Shared {
-    fn new() -> Arc<Self> {
-        Self::new_with_env(HashMap::new())
-    }
-
-    fn new_with_env(extra_env: HashMap<String, String>) -> Arc<Self> {
-        static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        static REGISTRY: std::sync::OnceLock<Arc<process_registry::ServeProcessRegistry>> =
-            std::sync::OnceLock::new();
-        let generation = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let revision =
-            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&extra_env);
-        Arc::new(Self {
-            serve: Arc::new(ServeSupervisor::new(
-                format!("legacy-{}-{generation}", std::process::id()),
-                Arc::clone(
-                    REGISTRY.get_or_init(|| {
-                        Arc::new(process_registry::ServeProcessRegistry::default())
-                    }),
-                ),
-                extra_env,
-                revision,
-            )),
-            routes: parking_lot::Mutex::new(HashMap::new()),
-            permissions: parking_lot::Mutex::new(HashMap::new()),
-            questions: parking_lot::Mutex::new(HashMap::new()),
-            sse_tasks: parking_lot::Mutex::new(HashMap::new()),
-            sse_transport: parking_lot::Mutex::new(HashMap::new()),
-        })
-    }
-
+impl HostGeneration {
     fn sse_transport_entry(&self, directory: &str) -> SseTransportState {
         self.sse_transport
             .lock()
@@ -381,84 +333,68 @@ fn canonical_dir(worktree: &str) -> String {
 // OpencodeHost
 // ---------------------------------------------------------------------------
 
-/// Facade over the single global `opencode serve` instance.
-///
-/// Not a pool and not a process launcher: [`ServeSupervisor`] owns the one
-/// `opencode serve` child for the whole device, and everything here is HTTP
-/// against it plus in-memory bookkeeping. "Starting a runtime" is
-/// `POST /session` and a [`Route`] entry — no fork, no exec.
+/// Facade over the bounded workspace-scoped OpenCode host pool.
 pub struct OpencodeHost {
-    shared: Arc<Shared>,
-    cmd_tx: std::sync::OnceLock<mpsc::Sender<AcpCommand>>,
+    pool: Arc<OpenCodeHostPool>,
+    factory: Arc<SupervisorGenerationFactory>,
+    generations: parking_lot::Mutex<HashMap<String, std::sync::Weak<HostGeneration>>>,
+    /// Transitional service host used by settings/catalog until Task 8 gives
+    /// those APIs an isolation domain.
+    service_generation: Arc<HostGeneration>,
 }
 
 impl OpencodeHost {
     pub fn new() -> Self {
-        Self {
-            shared: Shared::new(),
-            cmd_tx: std::sync::OnceLock::new(),
-        }
-    }
-
-    /// Handle to the global serve supervisor (shared with settings/OAuth).
-    pub fn serve_supervisor(&self) -> Arc<ServeSupervisor> {
-        Arc::clone(&self.shared.serve)
-    }
-
-    /// Until the host pool owns generation selection, bind the legacy single
-    /// host to the first immutable environment it actually needs.
-    fn prepare_generation(
-        &mut self,
-        extra_env: HashMap<String, String>,
-    ) -> crate::error::Result<()> {
+        let registry = Arc::new(process_registry::ServeProcessRegistry::default());
+        let factory = Arc::new(SupervisorGenerationFactory::new(Arc::clone(&registry)));
+        let pool = OpenCodeHostPool::new(factory.clone());
         let revision =
-            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&extra_env);
-        if self.shared.serve.process_env_revision() == &revision {
-            return Ok(());
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&HashMap::new());
+        let generation_id = format!("service-{}", uuid::Uuid::new_v4());
+        let serve = Arc::new(ServeSupervisor::new(
+            generation_id.clone(),
+            registry,
+            HashMap::new(),
+            revision.clone(),
+        ));
+        Self {
+            pool,
+            factory,
+            generations: parking_lot::Mutex::new(HashMap::new()),
+            service_generation: Arc::new(HostGeneration::new(
+                generation_id,
+                crate::runtime::execution_context::IsolationDomainKey::UnscopedAgent {
+                    team_id: "service".to_string(),
+                    actor_id: "service".to_string(),
+                },
+                revision,
+                serve,
+            )),
         }
-        if !self.shared.routes.lock().is_empty() || self.cmd_tx.get().is_some() {
-            return Err(crate::error::AmuxError::Agent(
-                "env_snapshot_conflict: the legacy opencode host already owns another immutable environment"
-                    .into(),
-            ));
-        }
-        let outcome = self.shared.serve.shutdown();
-        self.replace_generation_after_shutdown(extra_env, outcome)
     }
 
-    fn replace_generation_after_shutdown(
-        &mut self,
-        extra_env: HashMap<String, String>,
-        outcome: ShutdownOutcome,
-    ) -> crate::error::Result<()> {
-        if let ShutdownOutcome::Survived { pgid } = outcome {
-            return Err(crate::error::AmuxError::Agent(format!(
-                "opencode serve process group {pgid} survived shutdown; refusing to replace its generation"
-            )));
-        }
-        self.shared = Shared::new_with_env(extra_env);
-        Ok(())
-    }
-
-    /// Global command sender; spawns the command loop on first use (requires a
-    /// tokio runtime context, so this is only called from async paths).
-    fn command_sender(&self) -> mpsc::Sender<AcpCommand> {
-        self.cmd_tx
-            .get_or_init(|| {
-                let (tx, rx) = mpsc::channel::<AcpCommand>(64);
-                tokio::spawn(command_loop(Arc::clone(&self.shared), rx));
-                tx
-            })
-            .clone()
+    /// Transitional service supervisor retained until Task 8.
+    pub fn serve_supervisor(&self) -> Arc<ServeSupervisor> {
+        Arc::clone(&self.service_generation.serve)
     }
 
     /// The model opencode has settled on for `session_id`, from its persisted
     /// `session.model`. See `AgentBackend::session_model`.
-    pub async fn session_model(&self, worktree: &str, session_id: &str) -> Option<String> {
-        if session_id.is_empty() {
+    pub async fn session_model(
+        &self,
+        worktree: &str,
+        session_id: &str,
+        host_generation_id: &str,
+    ) -> Option<String> {
+        if session_id.is_empty() || host_generation_id.is_empty() {
             return None;
         }
-        let client = self.shared.serve.ensure().await.ok()?;
+        let generation = self
+            .generations
+            .lock()
+            .get(host_generation_id)
+            .and_then(std::sync::Weak::upgrade)?;
+        let client = generation.serve.ensure().await.ok()?;
         let session = client
             .get_session(&canonical_dir(worktree), session_id)
             .await
@@ -468,7 +404,7 @@ impl OpencodeHost {
 
     /// Number of live backend processes (0 or 1: the global serve instance).
     pub fn host_count(&self) -> usize {
-        usize::from(self.shared.serve.is_running())
+        self.pool.host_count()
     }
 
     /// Restart the single global `opencode serve` process so new sessions
@@ -476,7 +412,7 @@ impl OpencodeHost {
     /// is no per-agent-type host to filter anymore; the name and signature
     /// are kept only for `RuntimeManager` compatibility.
     pub fn evict_agent_types(&mut self, _agent_types: &[amux::AgentType]) -> usize {
-        usize::from(self.shared.serve.shutdown().was_running())
+        usize::from(self.service_generation.serve.shutdown().was_running())
     }
 
     /// Pre-warm: start the global serve process.
@@ -485,7 +421,7 @@ impl OpencodeHost {
         launch_configs: &HashMap<amux::AgentType, super::manager::AgentLaunchConfig>,
     ) {
         self.apply_binary_hint(launch_configs);
-        if let Err(e) = self.shared.serve.ensure().await {
+        if let Err(e) = self.service_generation.serve.ensure().await {
             warn!(error = %e, "opencode serve prewarm failed");
         } else {
             info!("opencode serve prewarmed");
@@ -501,17 +437,14 @@ impl OpencodeHost {
         _force_env_override: bool,
         worktree: Option<&str>,
     ) {
-        if let Err(error) = self.prepare_generation(extra_env) {
-            warn!(%error, "opencode serve prewarm skipped for conflicting immutable environment");
-            return;
-        }
+        let _ = extra_env;
         self.apply_binary_hint(launch_configs);
-        if let Err(e) = self.shared.serve.ensure().await {
+        if let Err(e) = self.service_generation.serve.ensure().await {
             warn!(error = %e, "opencode serve prewarm (session env) failed");
             return;
         }
         if let Some(worktree) = worktree.filter(|w| !w.is_empty()) {
-            events::ensure_sse_task(&self.shared, &canonical_dir(worktree));
+            events::ensure_sse_task(&self.service_generation, &canonical_dir(worktree));
         }
         info!("opencode serve prewarmed (session env)");
     }
@@ -521,7 +454,10 @@ impl OpencodeHost {
         launch_configs: &HashMap<amux::AgentType, super::manager::AgentLaunchConfig>,
     ) {
         if let Some(launch) = launch_configs.get(&amux::AgentType::Opencode) {
-            self.shared.serve.set_binary_hint(&launch.binary);
+            self.factory.set_binary_hint(&launch.binary);
+            self.service_generation
+                .serve
+                .set_binary_hint(&launch.binary);
         }
     }
 
@@ -530,7 +466,7 @@ impl OpencodeHost {
         &mut self,
         workspace_path: &Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {
-        let client = self.shared.serve.ensure().await?;
+        let client = self.service_generation.serve.ensure().await?;
         client
             .model_catalog(&canonical_dir(&workspace_path.to_string_lossy()))
             .await
@@ -542,6 +478,8 @@ impl OpencodeHost {
         &mut self,
         agent_type: amux::AgentType,
         launch: &super::manager::AgentLaunchConfig,
+        isolation_domain: crate::runtime::execution_context::IsolationDomainKey,
+        process_env_revision: crate::runtime::execution_context::ProcessEnvRevision,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
         worktree: String,
@@ -560,13 +498,36 @@ impl OpencodeHost {
                 "agent type mapped to the single opencode HTTP backend"
             );
         }
-        self.prepare_generation(extra_env)?;
-        self.shared.serve.set_binary_hint(&launch.binary);
+        self.factory.set_binary_hint(&launch.binary);
         let _ = force_env_override; // preserved in the backend interface during transition
-        self.shared.serve.ensure().await?;
-        let cmd_tx = self.command_sender();
+        let lease = self
+            .pool
+            .acquire(
+                isolation_domain,
+                process_env_revision,
+                extra_env,
+                Instant::now() + Duration::from_secs(20),
+            )
+            .await
+            .map_err(|error| match error {
+                HostPoolError::CapacityTimeout {
+                    active,
+                    draining,
+                    queued,
+                } => crate::error::AmuxError::Agent(format!(
+                    "host_capacity_timeout: {active} active, {draining} draining, {queued} queued"
+                )),
+                HostPoolError::Spawn(message) => crate::error::AmuxError::Agent(message),
+            })?;
+        let (generation, route_lease) = lease.into_route_parts();
+        self.generations.lock().insert(
+            generation.generation_id.clone(),
+            Arc::downgrade(&generation),
+        );
+        generation.serve.set_binary_hint(&launch.binary);
+        let cmd_tx = command_sender_for_generation(Arc::clone(&generation));
         let startup = attach(
-            &self.shared,
+            &generation,
             AttachArgs {
                 worktree,
                 resume_acp_session_id,
@@ -579,7 +540,8 @@ impl OpencodeHost {
             },
         )
         .await
-        .map_err(crate::error::AmuxError::Agent)?;
+        .map_err(crate::error::AmuxError::Agent)?
+        .with_route_lease(route_lease);
         if !initial_prompt.is_empty() {
             let _ = cmd_tx
                 .send(AcpCommand::Prompt {
@@ -741,7 +703,11 @@ fn prunable_mcp_names(
         .collect()
 }
 
-async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMetadata, String> {
+async fn attach(
+    generation: &Arc<HostGeneration>,
+    args: AttachArgs,
+) -> Result<AcpStartupMetadata, String> {
+    let shared = generation;
     let directory = canonical_dir(&args.worktree);
     let injected_mcp = match args.mcp_config_path.as_deref() {
         Some(mcp_path) => merge_mcp_config_into_worktree(&args.worktree, mcp_path),
@@ -899,6 +865,8 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         available_models,
         initial_model,
         acp_session_id: session_id,
+        host_generation_id: generation.generation_id.clone(),
+        route_lease: None,
     })
 }
 
@@ -935,7 +903,7 @@ async fn emit_frame(
 }
 
 async fn do_prompt(
-    shared: &Arc<Shared>,
+    shared: &Arc<HostGeneration>,
     session_id: &str,
     text: String,
     attachment_urls: Vec<String>,
@@ -1069,7 +1037,7 @@ pub(crate) const TOOL_SILENCE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 /// watchdog polls the snapshot every few seconds so the user sees the
 /// provider's own error within seconds, and falls back to a hard timeout for
 /// providers that hang without reporting anything.
-fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u64) {
+fn spawn_stuck_turn_watchdog(shared: &Arc<HostGeneration>, session_id: &str, turn_seq: u64) {
     let shared = Arc::clone(shared);
     let session_id = session_id.to_string();
     tokio::spawn(async move {
@@ -1190,7 +1158,7 @@ fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u
 /// `Some((provider message, next-retry epoch ms))` when opencode reports the
 /// session in a provider-retry loop.
 async fn retry_status_for(
-    shared: &Arc<Shared>,
+    shared: &Arc<HostGeneration>,
     directory: &str,
     session_id: &str,
 ) -> Option<(String, i64)> {
@@ -1253,7 +1221,7 @@ async fn close_orphaned_turn(
 }
 
 pub(crate) async fn abort_turn_with_error(
-    shared: &Arc<Shared>,
+    shared: &Arc<HostGeneration>,
     session_id: &str,
     message: String,
     details: String,
@@ -1313,7 +1281,7 @@ const CANCEL_CLOSE_GRACE: Duration = Duration::from_secs(10);
 /// successful abort is backstopped by a grace timer in case the terminal SSE
 /// events are lost to a gap — otherwise the client never leaves "replying…"
 /// and cannot even re-interrupt.
-async fn cancel_turn(shared: &Arc<Shared>, session_id: &str) {
+async fn cancel_turn(shared: &Arc<HostGeneration>, session_id: &str) {
     let (directory, turn_seq) = {
         let routes = shared.routes.lock();
         match routes.get(session_id) {
@@ -1356,7 +1324,11 @@ async fn cancel_turn(shared: &Arc<Shared>, session_id: &str) {
 /// interrupted AgentReply, keeping any partial prose) followed by the
 /// Active→Idle terminal. No-op when the turn already closed or a newer
 /// prompt took the route over.
-async fn force_close_interrupted_turn(shared: &Arc<Shared>, session_id: &str, turn_seq: u64) {
+async fn force_close_interrupted_turn(
+    shared: &Arc<HostGeneration>,
+    session_id: &str,
+    turn_seq: u64,
+) {
     let (event_tx, reply_to) = {
         let mut routes = shared.routes.lock();
         let Some(route) = routes.get_mut(session_id) else {
@@ -1397,7 +1369,7 @@ async fn force_close_interrupted_turn(shared: &Arc<Shared>, session_id: &str, tu
 }
 
 async fn resolve_permission(
-    shared: &Arc<Shared>,
+    shared: &Arc<HostGeneration>,
     request_id: &str,
     granted: bool,
     option_id: Option<String>,
@@ -1430,7 +1402,12 @@ async fn resolve_permission(
 }
 
 /// Forward a user's answer (or rejection) to opencode's question endpoint.
-async fn answer_question(shared: &Arc<Shared>, request_id: &str, answers_json: &str, reject: bool) {
+async fn answer_question(
+    shared: &Arc<HostGeneration>,
+    request_id: &str,
+    answers_json: &str,
+    reject: bool,
+) {
     let Some(session_id) = shared.questions.lock().remove(request_id) else {
         warn!(request_id, "no pending opencode question request found");
         return;
@@ -1470,7 +1447,53 @@ async fn answer_question(shared: &Arc<Shared>, request_id: &str, answers_json: &
     }
 }
 
-async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand>) {
+async fn detach_generation_route(generation: &Arc<HostGeneration>, acp_session_id: &str) {
+    let (pruned, orphaned_turn, detached_session_ids) = {
+        let mut routes = generation.routes.lock();
+        let mut detached_session_ids = vec![acp_session_id.to_string()];
+        routes.retain(|id, route| {
+            if route.parent_session_id.as_deref() == Some(acp_session_id) {
+                detached_session_ids.push(id.clone());
+                false
+            } else {
+                true
+            }
+        });
+        let removed = routes.remove(acp_session_id);
+        let mut orphaned_turn = None;
+        let pruned = removed.map(|mut route| {
+            orphaned_turn = take_active_turn(&mut route);
+            let names = prunable_mcp_names(
+                &routes,
+                acp_session_id,
+                &route.directory,
+                &route.injected_mcp,
+            );
+            (route.directory, names)
+        });
+        (pruned, orphaned_turn, detached_session_ids)
+    };
+    close_orphaned_turn(acp_session_id, orphaned_turn).await;
+    if let Some((directory, names)) = pruned {
+        prune_mcp_servers_from_worktree(&directory, &names);
+    }
+    generation
+        .permissions
+        .lock()
+        .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
+    generation
+        .questions
+        .lock()
+        .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
+}
+
+fn command_sender_for_generation(generation: Arc<HostGeneration>) -> mpsc::Sender<AcpCommand> {
+    let (tx, rx) = mpsc::channel::<AcpCommand>(64);
+    tokio::spawn(command_loop(generation, rx));
+    tx
+}
+
+async fn command_loop(shared: Arc<HostGeneration>, mut cmd_rx: mpsc::Receiver<AcpCommand>) {
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
             AcpCommand::AttachSession {
@@ -1562,47 +1585,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 acp_session_id,
                 ack,
             } => {
-                let (pruned, orphaned_turn, detached_session_ids) = {
-                    let mut routes = shared.routes.lock();
-                    let mut detached_session_ids = vec![acp_session_id.clone()];
-                    // Drop lightweight subagent aliases that pointed at this
-                    // parent before removing the parent itself.
-                    routes.retain(|id, route| {
-                        if route.parent_session_id.as_deref() == Some(acp_session_id.as_str()) {
-                            detached_session_ids.push(id.clone());
-                            false
-                        } else {
-                            true
-                        }
-                    });
-                    let removed = routes.remove(&acp_session_id);
-                    let mut orphaned_turn = None;
-                    let pruned = removed.map(|mut route| {
-                        // Detaching mid-turn must not swallow the turn (see
-                        // `take_active_turn`).
-                        orphaned_turn = take_active_turn(&mut route);
-                        let names = prunable_mcp_names(
-                            &routes,
-                            &acp_session_id,
-                            &route.directory,
-                            &route.injected_mcp,
-                        );
-                        (route.directory, names)
-                    });
-                    (pruned, orphaned_turn, detached_session_ids)
-                };
-                close_orphaned_turn(&acp_session_id, orphaned_turn).await;
-                if let Some((directory, names)) = pruned {
-                    prune_mcp_servers_from_worktree(&directory, &names);
-                }
-                shared
-                    .permissions
-                    .lock()
-                    .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
-                shared
-                    .questions
-                    .lock()
-                    .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
+                detach_generation_route(&shared, &acp_session_id).await;
                 info!(acp_session_id, "opencode session detached");
                 if let Some(ack) = ack {
                     let _ = ack.send(());
@@ -1635,10 +1618,25 @@ pub fn start_standalone_runtime(
     mcp_config_path: Option<PathBuf>,
     extra_env: HashMap<String, String>,
 ) -> crate::error::Result<mpsc::Sender<AcpCommand>> {
-    let shared = Shared::new_with_env(extra_env);
-    shared.serve.set_binary_hint(&binary);
-    let (cmd_tx, cmd_rx) = mpsc::channel::<AcpCommand>(64);
-    tokio::spawn(command_loop(Arc::clone(&shared), cmd_rx));
+    let revision = crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&extra_env);
+    let generation_id = format!("standalone-{}", uuid::Uuid::new_v4());
+    let serve = Arc::new(ServeSupervisor::new(
+        generation_id.clone(),
+        Arc::new(process_registry::ServeProcessRegistry::default()),
+        extra_env,
+        revision.clone(),
+    ));
+    serve.set_binary_hint(&binary);
+    let generation = Arc::new(HostGeneration::new(
+        generation_id,
+        crate::runtime::execution_context::IsolationDomainKey::UnscopedAgent {
+            team_id: "standalone".to_string(),
+            actor_id: "standalone".to_string(),
+        },
+        revision,
+        serve,
+    ));
+    let cmd_tx = command_sender_for_generation(generation);
     let attach_tx = cmd_tx.clone();
     tokio::spawn(async move {
         let _ = attach_tx
@@ -1759,6 +1757,7 @@ mod spawn_path_tests {
 #[cfg(test)]
 mod pool_tests {
     use super::*;
+    use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
 
     #[test]
     fn split_and_mime_helpers() {
@@ -1766,37 +1765,128 @@ mod pool_tests {
         assert_eq!(guess_mime("https://x/y/no-ext"), "application/octet-stream");
     }
 
-    #[tokio::test]
-    async fn host_count_zero_without_serve() {
-        let host = OpencodeHost::new();
-        assert_eq!(host.host_count(), 0);
+    fn generation(id: &str) -> Arc<host_pool::HostGeneration> {
+        host_pool::HostGeneration::test_for_routing(
+            id,
+            IsolationDomainKey::Workspace(id.to_string()),
+            ProcessEnvRevision::from_bindings(&HashMap::new()),
+        )
+    }
+
+    fn test_route(directory: &str) -> Route {
+        let (event_tx, _event_rx) = mpsc::channel(1);
+        Route {
+            event_tx,
+            permission: PermissionPolicy::Ask,
+            directory: directory.to_string(),
+            model: None,
+            turn_active: false,
+            turn_reply_to: None,
+            turn_requester: None,
+            turn_seq: 0,
+            turn_saw_output: false,
+            turn_last_event_at: std::time::Instant::now(),
+            retry_streak: None,
+            tools_in_flight: HashSet::new(),
+            translate: TranslateState::default(),
+            injected_mcp: Vec::new(),
+            parent_session_id: None,
+        }
     }
 
     #[tokio::test]
-    async fn evict_without_serve_is_zero() {
-        let mut host = OpencodeHost::new();
-        assert_eq!(host.evict_agent_types(&[amux::AgentType::Opencode]), 0);
+    async fn duplicate_session_commands_stay_on_their_generation() {
+        let a = generation("gen-a");
+        let b = generation("gen-b");
+        a.routes.lock().insert("ses_same".into(), test_route("/a"));
+        b.routes.lock().insert("ses_same".into(), test_route("/b"));
+        let a_tx = command_sender_for_generation(Arc::clone(&a));
+        let b_tx = command_sender_for_generation(Arc::clone(&b));
+
+        a_tx.send(AcpCommand::SetModel {
+            acp_session_id: "ses_same".into(),
+            model_id: "provider/model-a".into(),
+        })
+        .await
+        .unwrap();
+        b_tx.send(AcpCommand::SetModel {
+            acp_session_id: "ses_same".into(),
+            model_id: "provider/model-b".into(),
+        })
+        .await
+        .unwrap();
+        tokio::task::yield_now().await;
+
+        assert_eq!(
+            a.routes.lock()["ses_same"].model.as_ref().unwrap().model_id,
+            "model-a"
+        );
+        assert_eq!(
+            b.routes.lock()["ses_same"].model.as_ref().unwrap().model_id,
+            "model-b"
+        );
     }
 
     #[test]
-    fn survived_shutdown_refuses_generation_replacement() {
-        let mut host = OpencodeHost::new();
-        let original = Arc::clone(&host.shared);
-        let original_revision = host.shared.serve.process_env_revision().clone();
-        let error = host
-            .replace_generation_after_shutdown(
-                HashMap::from([("API_KEY".to_string(), "replacement".to_string())]),
-                supervisor::ShutdownOutcome::Survived { pgid: 43001 },
-            )
-            .unwrap_err();
+    fn permission_ids_are_generation_local() {
+        let a = generation("gen-a");
+        let b = generation("gen-b");
+        a.permissions
+            .lock()
+            .insert("perm-1".into(), "ses_same".into());
 
-        assert!(error.to_string().contains("43001"));
-        assert!(Arc::ptr_eq(&host.shared, &original));
         assert_eq!(
-            host.shared.serve.process_env_revision(),
-            &original_revision,
-            "failed cleanup must not allocate or install another generation"
+            a.permissions.lock().get("perm-1").map(String::as_str),
+            Some("ses_same")
         );
+        assert!(!b.permissions.lock().contains_key("perm-1"));
+    }
+
+    #[tokio::test]
+    async fn detaching_duplicate_session_releases_only_its_generation() {
+        let a = generation("gen-a");
+        let b = generation("gen-b");
+        let a_lease = a.test_route_lease();
+        let _b_lease = b.test_route_lease();
+        a.routes.lock().insert("ses_same".into(), test_route("/a"));
+        b.routes.lock().insert("ses_same".into(), test_route("/b"));
+
+        detach_generation_route(&a, "ses_same").await;
+        drop(a_lease);
+
+        assert!(!a.routes.lock().contains_key("ses_same"));
+        assert!(b.routes.lock().contains_key("ses_same"));
+        assert_eq!(a.route_count(), 0);
+        assert_eq!(b.route_count(), 1);
+    }
+
+    #[test]
+    fn sse_reconnect_keeps_the_route_generation_supervisor() {
+        let a = generation("gen-a");
+        let b = generation("gen-b");
+        a.routes.lock().insert("ses_same".into(), test_route("/a"));
+        b.routes.lock().insert("ses_same".into(), test_route("/b"));
+
+        assert!(Arc::ptr_eq(
+            &events::supervisor_for_route(&a, "ses_same").unwrap(),
+            &a.serve
+        ));
+        assert!(!Arc::ptr_eq(
+            &events::supervisor_for_route(&a, "ses_same").unwrap(),
+            &b.serve
+        ));
+    }
+
+    #[test]
+    fn child_routes_remain_in_the_parent_generation() {
+        let a = generation("gen-a");
+        let b = generation("gen-b");
+        a.routes.lock().insert("ses_same".into(), test_route("/a"));
+        b.routes.lock().insert("ses_same".into(), test_route("/b"));
+
+        assert!(a.ensure_child_route("ses_child", "ses_same"));
+        assert!(a.routes.lock().contains_key("ses_child"));
+        assert!(!b.routes.lock().contains_key("ses_child"));
     }
 
     #[test]
@@ -1907,6 +1997,16 @@ mod turn_activity_tests {
         }
     }
 
+    fn test_generation() -> Arc<HostGeneration> {
+        HostGeneration::test_for_routing(
+            "turn-tests",
+            crate::runtime::execution_context::IsolationDomainKey::Workspace(
+                "turn-tests".to_string(),
+            ),
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&HashMap::new()),
+        )
+    }
+
     /// A route whose runtime goes away mid-turn must still close the turn, or
     /// the client sits on "replying" forever. Reproduces the app-workspace
     /// re-point: a prompt is in flight when the session is detached and
@@ -1934,7 +2034,7 @@ mod turn_activity_tests {
     /// `tools_in_flight` (turn 1 tools still running upstream).
     #[tokio::test]
     async fn second_prompt_while_turn_active_reopens_turn_and_clears_tools() {
-        let shared = Arc::new(Shared::new());
+        let shared = test_generation();
         let (tx, mut rx) = mpsc::channel(8);
         {
             let mut routes = shared.routes.lock();
@@ -1998,7 +2098,7 @@ mod turn_activity_tests {
 
     #[test]
     fn ensure_child_route_aliases_parent_delivery_channel() {
-        let shared = Shared::new();
+        let shared = test_generation();
         {
             let mut routes = shared.routes.lock();
             routes.insert("ses_parent".to_string(), test_route("/ws"));
@@ -2017,7 +2117,7 @@ mod turn_activity_tests {
 
     #[test]
     fn child_progress_refreshes_parent_watchdog_clock() {
-        let shared = Shared::new();
+        let shared = test_generation();
         {
             let mut routes = shared.routes.lock();
             routes.insert("ses_parent".to_string(), test_route("/ws"));
@@ -2046,7 +2146,7 @@ mod turn_activity_tests {
 
     #[test]
     fn detach_clears_permissions_for_parent_and_child_routes() {
-        let shared = Shared::new();
+        let shared = test_generation();
         {
             let mut routes = shared.routes.lock();
             routes.insert("ses_parent".to_string(), test_route("/ws"));
@@ -2119,7 +2219,7 @@ mod turn_activity_tests {
 
     #[test]
     fn child_pending_permission_pauses_parent_watchdog_wait() {
-        let shared = Shared::new();
+        let shared = test_generation();
         {
             let mut routes = shared.routes.lock();
             routes.insert("ses_parent".to_string(), test_route("/ws"));
@@ -2141,7 +2241,7 @@ mod turn_activity_tests {
 
     #[test]
     fn sync_child_routes_follows_parent_reattach_channel() {
-        let shared = Shared::new();
+        let shared = test_generation();
         let (tx_old, _rx_old) = mpsc::channel(1);
         let (tx_new, mut rx_new) = mpsc::channel(1);
         {
@@ -2187,7 +2287,7 @@ mod turn_activity_tests {
 
     #[test]
     fn deduped_tool_running_still_refreshes_transport_clock() {
-        let shared = Shared::new();
+        let shared = test_generation();
         let running = serde_json::json!({"sessionID":"ses_1","part":{
             "id":"prt_t","messageID":"msg_a1","sessionID":"ses_1","type":"tool",
             "callID":"call_1","tool":"bash",
@@ -2220,7 +2320,7 @@ mod turn_activity_tests {
 
     #[test]
     fn sse_reconnect_pauses_watchdog_until_subscribed() {
-        let shared = Shared::new();
+        let shared = test_generation();
         let dir = "/ws";
         assert!(shared.sse_watchdog_paused(dir));
 
@@ -2233,7 +2333,7 @@ mod turn_activity_tests {
 
     #[test]
     fn sse_reconnect_refreshes_active_turn_clocks_for_directory() {
-        let shared = Shared::new();
+        let shared = test_generation();
         {
             let mut routes = shared.routes.lock();
             routes.insert("ses_1".to_string(), test_route("/ws"));

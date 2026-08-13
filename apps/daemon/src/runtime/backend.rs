@@ -88,11 +88,23 @@ pub enum AcpCommand {
     Shutdown,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AcpStartupMetadata {
     pub available_models: Vec<amux::ModelInfo>,
     pub initial_model: Option<String>,
     pub acp_session_id: String,
+    pub host_generation_id: String,
+    pub(crate) route_lease: Option<super::opencode_http::host_pool::RouteLease>,
+}
+
+impl AcpStartupMetadata {
+    pub(crate) fn with_route_lease(
+        mut self,
+        route_lease: super::opencode_http::host_pool::RouteLease,
+    ) -> Self {
+        self.route_lease = Some(route_lease);
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +174,7 @@ pub trait AgentBackend: Send {
         &mut self,
         _worktree: &str,
         _backend_session_id: &str,
+        _host_generation_id: &str,
     ) -> Option<String> {
         None
     }
@@ -212,8 +225,8 @@ impl AgentBackend for OpencodeHttpBackend {
         &mut self,
         agent_type: amux::AgentType,
         launch: &AgentLaunchConfig,
-        _isolation_domain: IsolationDomainKey,
-        _process_env_revision: ProcessEnvRevision,
+        isolation_domain: IsolationDomainKey,
+        process_env_revision: ProcessEnvRevision,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
         worktree: String,
@@ -230,6 +243,8 @@ impl AgentBackend for OpencodeHttpBackend {
             .attach_session(
                 agent_type,
                 launch,
+                isolation_domain,
+                process_env_revision,
                 extra_env,
                 force_env_override,
                 worktree,
@@ -269,8 +284,15 @@ impl AgentBackend for OpencodeHttpBackend {
         self.host.host_count()
     }
 
-    async fn session_model(&mut self, worktree: &str, backend_session_id: &str) -> Option<String> {
-        self.host.session_model(worktree, backend_session_id).await
+    async fn session_model(
+        &mut self,
+        worktree: &str,
+        backend_session_id: &str,
+        host_generation_id: &str,
+    ) -> Option<String> {
+        self.host
+            .session_model(worktree, backend_session_id, host_generation_id)
+            .await
     }
 
     async fn model_catalog(

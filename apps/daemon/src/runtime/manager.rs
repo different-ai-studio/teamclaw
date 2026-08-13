@@ -517,10 +517,16 @@ impl RuntimeManager {
     /// No-op when the backend cannot report a model, or when it reports one we
     /// already have at the front.
     pub async fn learn_session_model(&mut self, agent_id: &str) {
-        let Some((worktree, backend_session_id)) = self
+        let Some((worktree, backend_session_id, host_generation_id)) = self
             .agents
             .get(agent_id)
-            .map(|h| (h.worktree.clone(), h.acp_session_id.clone()))
+            .map(|h| {
+                (
+                    h.worktree.clone(),
+                    h.acp_session_id.clone(),
+                    h.host_generation_id.clone(),
+                )
+            })
         else {
             return;
         };
@@ -542,7 +548,7 @@ impl RuntimeManager {
             .agent_backend
             .lock()
             .await
-            .session_model(&worktree, &backend_session_id)
+            .session_model(&worktree, &backend_session_id, &host_generation_id)
             .await
         else {
             return;
@@ -691,7 +697,7 @@ impl RuntimeManager {
 
         let launch = self.launch_config_for(agent_type);
         let resume_requested = resume_acp_session_id.is_some();
-        let (cmd_tx, startup) = self
+        let (cmd_tx, mut startup) = self
             .agent_backend
             .lock()
             .await
@@ -715,6 +721,8 @@ impl RuntimeManager {
             .await?;
 
         handle.cmd_tx = Some(cmd_tx);
+        handle.host_generation_id = startup.host_generation_id.clone();
+        handle.route_lease = startup.route_lease.take();
 
         self.agents.insert(agent_id.clone(), handle);
         self.mark_actor_state_dirty();
@@ -845,7 +853,7 @@ impl RuntimeManager {
         handle.is_gateway = is_gateway;
 
         let launch = self.launch_config_for(agent_type);
-        let (cmd_tx, startup) = self
+        let (cmd_tx, mut startup) = self
             .agent_backend
             .lock()
             .await
@@ -869,6 +877,8 @@ impl RuntimeManager {
             .await?;
 
         handle.cmd_tx = Some(cmd_tx);
+        handle.host_generation_id = startup.host_generation_id.clone();
+        handle.route_lease = startup.route_lease.take();
         handle.current_prompt = prompt.to_string();
         // No static fallback: models come only from the live serve catalog
         // captured at attach time. Empty until the runtime advertises them.
@@ -2102,7 +2112,12 @@ mod tests {
         ) -> crate::error::Result<Vec<amux::ModelInfo>> {
             Ok(Vec::new())
         }
-        async fn session_model(&mut self, _w: &str, _s: &str) -> Option<String> {
+        async fn session_model(
+            &mut self,
+            _w: &str,
+            _s: &str,
+            _host_generation_id: &str,
+        ) -> Option<String> {
             self.session_model.clone()
         }
     }

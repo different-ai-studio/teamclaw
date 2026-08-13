@@ -377,6 +377,8 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         available_models,
         initial_model,
         acp_session_id,
+        host_generation_id: String::new(),
+        route_lease: None,
     })
 }
 

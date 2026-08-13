@@ -311,6 +311,8 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         available_models,
         initial_model: (!model.is_empty()).then_some(model),
         acp_session_id,
+        host_generation_id: String::new(),
+        route_lease: None,
     })
 }
 
@@ -673,7 +675,12 @@ impl AgentBackend for ClaudeAgentBackend {
     /// Only `sdkModel` — what the SDK reports (init / `result.modelUsage`) — may
     /// teach the device MRU; echoing our own request back would defeat the
     /// point of this hook.
-    async fn session_model(&mut self, worktree: &str, backend_session_id: &str) -> Option<String> {
+    async fn session_model(
+        &mut self,
+        worktree: &str,
+        backend_session_id: &str,
+        _host_generation_id: &str,
+    ) -> Option<String> {
         let session_key = {
             let routes = self.shared.routes.lock();
             routes.get(backend_session_id)?.session_key.clone()

@@ -8,6 +8,7 @@ use async_trait::async_trait;
 
 use super::process_registry::ServeProcessRegistry;
 use super::supervisor::{ServeSupervisor, ShutdownOutcome};
+use super::{Route, SseTransportState};
 use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
 
 const HOST_IDLE_TTL: Duration = Duration::from_secs(300);
@@ -27,6 +28,11 @@ pub struct HostGeneration {
     pub domain: IsolationDomainKey,
     pub process_env_revision: ProcessEnvRevision,
     pub serve: Arc<ServeSupervisor>,
+    pub(crate) routes: parking_lot::Mutex<HashMap<String, Route>>,
+    pub(crate) permissions: parking_lot::Mutex<HashMap<String, String>>,
+    pub(crate) questions: parking_lot::Mutex<HashMap<String, String>>,
+    pub(crate) sse_tasks: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    pub(crate) sse_transport: parking_lot::Mutex<HashMap<String, SseTransportState>>,
     lifecycle: parking_lot::RwLock<HostLifecycle>,
     route_count: AtomicUsize,
     idle_since: parking_lot::Mutex<Option<Instant>>,
@@ -34,6 +40,29 @@ pub struct HostGeneration {
 }
 
 impl HostGeneration {
+    pub(crate) fn new(
+        generation_id: String,
+        domain: IsolationDomainKey,
+        process_env_revision: ProcessEnvRevision,
+        serve: Arc<ServeSupervisor>,
+    ) -> Self {
+        Self {
+            generation_id,
+            domain,
+            process_env_revision,
+            serve,
+            routes: parking_lot::Mutex::new(HashMap::new()),
+            permissions: parking_lot::Mutex::new(HashMap::new()),
+            questions: parking_lot::Mutex::new(HashMap::new()),
+            sse_tasks: parking_lot::Mutex::new(HashMap::new()),
+            sse_transport: parking_lot::Mutex::new(HashMap::new()),
+            lifecycle: parking_lot::RwLock::new(HostLifecycle::Ready),
+            route_count: AtomicUsize::new(0),
+            idle_since: parking_lot::Mutex::new(Some(Instant::now())),
+            stop_lock: parking_lot::Mutex::new(()),
+        }
+    }
+
     pub fn lifecycle(&self) -> HostLifecycle {
         *self.lifecycle.read()
     }
@@ -49,8 +78,41 @@ impl HostGeneration {
             generation: Arc::clone(self),
             route_lease: Some(RouteLease {
                 pool: pool.self_weak.clone(),
-                generation_id: self.generation_id.clone(),
+                generation: Arc::downgrade(self),
             }),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_for_routing(
+        generation_id: &str,
+        domain: IsolationDomainKey,
+        process_env_revision: ProcessEnvRevision,
+    ) -> Arc<Self> {
+        let registry_path = tempfile::tempdir()
+            .expect("temporary process registry")
+            .keep()
+            .join("opencode-pgids.json");
+        let serve = Arc::new(ServeSupervisor::new(
+            generation_id.to_string(),
+            Arc::new(ServeProcessRegistry::new(registry_path)),
+            HashMap::new(),
+            process_env_revision.clone(),
+        ));
+        Arc::new(Self::new(
+            generation_id.to_string(),
+            domain,
+            process_env_revision,
+            serve,
+        ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_route_lease(self: &Arc<Self>) -> RouteLease {
+        self.route_count.fetch_add(1, Ordering::AcqRel);
+        RouteLease {
+            pool: Weak::new(),
+            generation: Arc::downgrade(self),
         }
     }
 }
@@ -82,13 +144,37 @@ impl fmt::Debug for HostLease {
 
 pub struct RouteLease {
     pool: Weak<OpenCodeHostPool>,
-    generation_id: String,
+    generation: Weak<HostGeneration>,
+}
+
+impl fmt::Debug for RouteLease {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RouteLease")
+            .field(
+                "generation_id",
+                &self
+                    .generation
+                    .upgrade()
+                    .map(|generation| generation.generation_id.clone()),
+            )
+            .finish()
+    }
 }
 
 impl Drop for RouteLease {
     fn drop(&mut self) {
+        let Some(generation) = self.generation.upgrade() else {
+            return;
+        };
+        let previous = generation.route_count.fetch_sub(1, Ordering::AcqRel);
+        debug_assert!(previous > 0, "route lease released more than once");
+        if previous != 1 {
+            return;
+        }
+        *generation.idle_since.lock() = Some(Instant::now());
         if let Some(pool) = self.pool.upgrade() {
-            pool.release_route(&self.generation_id);
+            pool.route_released(generation);
         }
     }
 }
@@ -136,11 +222,21 @@ pub trait GenerationFactory: Send + Sync {
 
 pub struct SupervisorGenerationFactory {
     registry: Arc<ServeProcessRegistry>,
+    binary_hint: parking_lot::RwLock<Option<String>>,
 }
 
 impl SupervisorGenerationFactory {
     pub fn new(registry: Arc<ServeProcessRegistry>) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            binary_hint: parking_lot::RwLock::new(None),
+        }
+    }
+
+    pub fn set_binary_hint(&self, binary: &str) {
+        if !binary.is_empty() && binary != "claude" && binary != "opencode" {
+            *self.binary_hint.write() = Some(binary.to_string());
+        }
     }
 }
 
@@ -159,6 +255,9 @@ impl GenerationFactory for SupervisorGenerationFactory {
             env,
             revision,
         ));
+        if let Some(binary) = self.binary_hint.read().as_deref() {
+            serve.set_binary_hint(binary);
+        }
         serve.ensure().await.map_err(|error| error.to_string())?;
         Ok(serve)
     }
@@ -317,16 +416,7 @@ impl OpenCodeHostPool {
                 return Err(HostPoolError::Spawn(error));
             }
         };
-        let generation = Arc::new(HostGeneration {
-            generation_id,
-            domain,
-            process_env_revision: revision,
-            serve,
-            lifecycle: parking_lot::RwLock::new(HostLifecycle::Ready),
-            route_count: AtomicUsize::new(0),
-            idle_since: parking_lot::Mutex::new(Some(Instant::now())),
-            stop_lock: parking_lot::Mutex::new(()),
-        });
+        let generation = Arc::new(HostGeneration::new(generation_id, domain, revision, serve));
 
         let displaced_without_routes = {
             let mut state = slot.state.lock();
@@ -473,25 +563,18 @@ impl OpenCodeHostPool {
             .min_by_key(|(idle_since, _, _)| *idle_since)
     }
 
-    fn release_route(&self, generation_id: &str) {
+    fn route_released(&self, generation: Arc<HostGeneration>) {
         let slots: Vec<Arc<DomainSlot>> = self.domains.lock().values().cloned().collect();
         for slot in slots {
-            let mut state = slot.state.lock();
-            let generation = state
+            let state = slot.state.lock();
+            let belongs_to_slot = state
                 .current
                 .iter()
                 .chain(state.draining.iter())
-                .find(|generation| generation.generation_id == generation_id)
-                .cloned();
-            let Some(generation) = generation else {
+                .any(|candidate| Arc::ptr_eq(candidate, &generation));
+            if !belongs_to_slot {
                 continue;
-            };
-            let previous = generation.route_count.fetch_sub(1, Ordering::AcqRel);
-            debug_assert!(previous > 0, "route lease released more than once");
-            if previous != 1 {
-                return;
             }
-            *generation.idle_since.lock() = Some(Instant::now());
             if generation.lifecycle() == HostLifecycle::Draining {
                 drop(state);
                 if self.stop_generation(&generation) {
@@ -578,6 +661,10 @@ impl OpenCodeHostPool {
             queued_acquisitions,
             last_error: state.last_error.clone(),
         }
+    }
+
+    pub fn host_count(&self) -> usize {
+        self.capacity.lock().active
     }
 
     pub async fn evict_idle(&self, now: Instant) {
