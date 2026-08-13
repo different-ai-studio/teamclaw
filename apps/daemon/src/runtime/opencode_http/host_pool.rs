@@ -309,6 +309,7 @@ struct DomainState {
     draining: Vec<Arc<HostGeneration>>,
     requested_revision: Option<ProcessEnvRevision>,
     replacement_requested: bool,
+    starting: bool,
     last_error: Option<String>,
 }
 
@@ -316,6 +317,23 @@ struct DomainState {
 struct DomainSlot {
     state: parking_lot::Mutex<DomainState>,
     activation_lock: tokio::sync::Mutex<()>,
+}
+
+struct DomainStartGuard {
+    slot: Arc<DomainSlot>,
+}
+
+impl DomainStartGuard {
+    fn new(slot: Arc<DomainSlot>) -> Self {
+        slot.state.lock().starting = true;
+        Self { slot }
+    }
+}
+
+impl Drop for DomainStartGuard {
+    fn drop(&mut self) {
+        self.slot.state.lock().starting = false;
+    }
 }
 
 #[derive(Default)]
@@ -416,15 +434,33 @@ impl OpenCodeHostPool {
                 .map(|current| current.generation_id.clone())
         };
 
-        let mut capacity_permit = match self
+        let capacity_reservation = match self
             .reserve_capacity(
                 &slot,
                 &revision,
                 deadline,
                 protected_idle_generation.as_deref(),
             )
-            .await?
+            .await
         {
+            Ok(reservation) => reservation,
+            Err(HostPoolError::CapacityTimeout {
+                active,
+                draining,
+                queued,
+            }) => {
+                slot.state.lock().last_error = Some(format!(
+                    "OpenCode host capacity timeout ({active} active, {draining} draining, {queued} queued)"
+                ));
+                return Err(HostPoolError::CapacityTimeout {
+                    active,
+                    draining,
+                    queued,
+                });
+            }
+            Err(error) => return Err(error),
+        };
+        let mut capacity_permit = match capacity_reservation {
             CapacityReservation::Permit(permit) => permit,
             CapacityReservation::Reused(lease) => return Ok(lease),
         };
@@ -444,10 +480,12 @@ impl OpenCodeHostPool {
         }
 
         let generation_id = format!("host-{}", uuid::Uuid::new_v4());
+        let starting = DomainStartGuard::new(Arc::clone(&slot));
         let start_result = self
             .factory
             .start(generation_id.clone(), domain.clone(), revision.clone(), env)
             .await;
+        drop(starting);
         let serve = match start_result {
             Ok(serve) => serve,
             Err(error) => {
@@ -687,7 +725,11 @@ impl OpenCodeHostPool {
         let current = state.current.as_ref();
         DomainHostStats {
             current_generation: current.map(|generation| generation.generation_id.clone()),
-            current_lifecycle: current.map(|generation| generation.lifecycle()),
+            current_lifecycle: if state.starting {
+                Some(HostLifecycle::Starting)
+            } else {
+                current.map(|generation| generation.lifecycle())
+            },
             current_revision: current.map(|generation| {
                 generation
                     .process_env_revision
@@ -1097,6 +1139,74 @@ mod tests {
             factory.stopped(),
             vec![old_generation.generation_id.clone()]
         );
+    }
+
+    #[tokio::test]
+    async fn stats_report_starting_while_factory_start_is_in_progress() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let gate = factory.block_next_start();
+
+        let acquiring_pool = Arc::clone(&pool);
+        let acquiring = tokio::spawn(async move {
+            acquiring_pool
+                .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while factory.start_count() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("generation start should block in the fake factory");
+
+        assert_eq!(
+            pool.stats_for(&domain("a")).current_lifecycle,
+            Some(HostLifecycle::Starting)
+        );
+
+        gate.add_permits(1);
+        let lease = acquiring.await.unwrap().unwrap();
+        assert_eq!(
+            pool.stats_for(&domain("a")).current_lifecycle,
+            Some(HostLifecycle::Ready)
+        );
+        drop(lease);
+    }
+
+    #[tokio::test]
+    async fn stats_clear_starting_after_factory_start_fails() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let gate = factory.block_next_start();
+        factory.fail_next.store(true, Ordering::SeqCst);
+
+        let acquiring_pool = Arc::clone(&pool);
+        let acquiring = tokio::spawn(async move {
+            acquiring_pool
+                .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while factory.start_count() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("generation start should block in the fake factory");
+
+        assert_eq!(
+            pool.stats_for(&domain("a")).current_lifecycle,
+            Some(HostLifecycle::Starting)
+        );
+
+        gate.add_permits(1);
+        assert!(matches!(
+            acquiring.await.unwrap(),
+            Err(HostPoolError::Spawn(_))
+        ));
+        assert_eq!(pool.stats_for(&domain("a")).current_lifecycle, None);
     }
 
     #[tokio::test]
@@ -1516,6 +1626,46 @@ mod tests {
                 queued: 0,
             }
         );
+    }
+
+    #[tokio::test]
+    async fn stats_record_capacity_timeout_with_active_count() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory);
+        let _a = pool
+            .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let _b = pool
+            .acquire(domain("b"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let _c = pool
+            .acquire(domain("c"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+
+        let error = pool
+            .acquire(
+                domain("d"),
+                revision("1"),
+                HashMap::new(),
+                Instant::now() + Duration::from_millis(20),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            HostPoolError::CapacityTimeout { active: 3, .. }
+        ));
+
+        let last_error = pool
+            .stats_for(&domain("d"))
+            .last_error
+            .expect("capacity timeout should be observable in domain stats");
+        assert!(last_error.to_lowercase().contains("capacity"));
+        assert!(last_error.to_lowercase().contains("timeout"));
+        assert!(last_error.contains("3 active"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
