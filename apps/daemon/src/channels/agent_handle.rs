@@ -39,6 +39,7 @@ const GATEWAY_TURN_TIMEOUT_SECS: u64 = 120;
 
 use crate::backend::Backend;
 use crate::proto::amux;
+use crate::runtime::execution_context::{ExecutionContext, IsolationDomainKey, WorkspaceIdentity};
 use crate::runtime::RuntimeManager;
 use crate::runtime::SpawnRuntimeEnv;
 
@@ -192,10 +193,13 @@ impl AmuxdAgentHandle {
     /// workspace's `opencode.json` — the same assembly a desktop session runs
     /// (`Daemon::assemble_spawn_runtime_env_for_worktree`).
     ///
-    /// Degrades to the bare gateway env rather than failing the spawn: a
-    /// prompt that reaches an unauthenticated runtime and reports so is worth
-    /// more than a WeCom message that silently never gets answered.
-    async fn assemble_spawn_env(&self, workspace_dir: Option<&str>) -> SpawnRuntimeEnv {
+    /// A genuinely unscoped gateway may use a bare environment. Once a
+    /// workspace resolves, env/config assembly is mandatory and failures are
+    /// surfaced to the caller rather than silently dropping credentials.
+    async fn assemble_execution_context(
+        &self,
+        workspace_dir: Option<&str>,
+    ) -> Result<ExecutionContext, AgentError> {
         let bare = SpawnRuntimeEnv {
             is_gateway: true,
             ..SpawnRuntimeEnv::default()
@@ -203,13 +207,37 @@ impl AmuxdAgentHandle {
         // No resolvable workspace means the spawn lands in a throwaway scratch
         // dir, which has no team config to assemble from.
         let Some(worktree) = workspace_dir else {
-            return bare;
+            return Ok(ExecutionContext {
+                isolation_domain: IsolationDomainKey::UnscopedAgent {
+                    team_id: self.team_id.clone(),
+                    actor_id: self.spawn_env.actor_id.clone(),
+                },
+                workspace: None,
+                working_directory: std::path::PathBuf::new(),
+                spawn_env: bare,
+            });
         };
+        let workspace = self
+            .workspace_resolver
+            .resolve_identity_for_path(
+                std::path::Path::new(worktree),
+                (!self.team_id.trim().is_empty()).then_some(self.team_id.as_str()),
+            )
+            .await
+            .ok_or_else(|| {
+                AgentError::Create(format!(
+                    "gateway workspace identity resolution failed for {worktree}"
+                ))
+            })?;
 
-        let managed_llm = if self.team_id.trim().is_empty() {
-            teamclu_runtime_env::ManagedLlmState::Unknown
+        let env_team_id = workspace
+            .team_id
+            .as_deref()
+            .or((!self.team_id.trim().is_empty()).then_some(self.team_id.as_str()));
+        let managed_llm = if let Some(team_id) = env_team_id {
+            self.spawn_env.managed_llm.resolve(team_id).await
         } else {
-            self.spawn_env.managed_llm.resolve(&self.team_id).await
+            teamclu_runtime_env::ManagedLlmState::Unknown
         };
         let cloud_token_file = self
             .backend
@@ -228,28 +256,36 @@ impl AmuxdAgentHandle {
                 crate::runtime::refresh::INTERNAL_WRITE_SUPPRESS,
             );
         }
+        crate::runtime::supervisor::materialize_inherent_mcp_for_spawn(std::path::Path::new(
+            worktree,
+        ))
+        .map_err(|e| AgentError::Create(format!("materialize inherent gateway MCP config: {e}")))?;
 
-        match crate::runtime::env_assembly::assemble_spawn_runtime_env(
+        let spawn_env = crate::runtime::env_assembly::assemble_spawn_runtime_env_for_execution(
+            &workspace.workspace_root,
             std::path::Path::new(worktree),
-            (!self.team_id.trim().is_empty()).then_some(self.team_id.as_str()),
+            env_team_id,
             &self.spawn_env.actor_id,
             &self.spawn_env.actor_name,
             cloud_token_file.as_deref(),
             &managed_llm,
-        ) {
-            Ok(env) => SpawnRuntimeEnv {
-                is_gateway: true,
-                ..env
-            },
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    workspace = %worktree,
-                    "gateway spawn env assembly failed; runtime starts without team providers"
-                );
-                bare
-            }
-        }
+        )
+        .map(|env| SpawnRuntimeEnv {
+            is_gateway: true,
+            ..env
+        })
+        .map_err(|e| AgentError::Create(format!("gateway runtime env assembly failed: {e}")))?;
+
+        Ok(ExecutionContext {
+            isolation_domain: IsolationDomainKey::Workspace(workspace.workspace_id.clone()),
+            workspace: Some(WorkspaceIdentity {
+                workspace_id: workspace.workspace_id,
+                workspace_root: workspace.workspace_root,
+                team_id: workspace.team_id,
+            }),
+            working_directory: std::path::PathBuf::from(worktree),
+            spawn_env,
+        })
     }
 
     /// Live model catalog for the workspace this session runs in, as gateway
@@ -471,37 +507,9 @@ impl AmuxdAgentHandle {
             overrides.get(session).cloned()
         };
         let (workspace_dir, agent_type) = self.resolve_spawn_target(session, &binding).await;
-        let spawn_env = self.assemble_spawn_env(workspace_dir.as_deref()).await;
-        let workspace = match workspace_dir.as_deref() {
-            Some(path) => {
-                self.workspace_resolver
-                    .resolve_identity_for_path(std::path::Path::new(path), Some(&self.team_id))
-                    .await
-            }
-            None => None,
-        };
-        let isolation_domain = workspace
-            .as_ref()
-            .map(|workspace| {
-                crate::runtime::execution_context::IsolationDomainKey::Workspace(
-                    workspace.workspace_id.clone(),
-                )
-            })
-            .unwrap_or_else(|| {
-                crate::runtime::execution_context::IsolationDomainKey::UnscopedAgent {
-                    team_id: self.team_id.clone(),
-                    actor_id: session.to_string(),
-                }
-            });
-        let context = crate::runtime::execution_context::ExecutionContext {
-            isolation_domain,
-            workspace,
-            working_directory: workspace_dir
-                .as_deref()
-                .map(std::path::PathBuf::from)
-                .unwrap_or_default(),
-            spawn_env,
-        };
+        let context = self
+            .assemble_execution_context(workspace_dir.as_deref())
+            .await?;
         let real = {
             let mut mgr = self.manager.lock().await;
             mgr.create_gateway_session_with_model(
@@ -1421,6 +1429,63 @@ mod tests {
             bot_configs: Arc::new(Mutex::new(HashMap::new())),
             daemon_config_path: std::path::PathBuf::from("/nonexistent/daemon.toml"),
         }
+    }
+
+    #[tokio::test]
+    async fn gateway_without_workspace_is_the_only_bare_unscoped_context() {
+        let handle = make_handle();
+
+        let context = handle.assemble_execution_context(None).await.unwrap();
+
+        assert_eq!(
+            context.isolation_domain,
+            IsolationDomainKey::UnscopedAgent {
+                team_id: "team-test".into(),
+                actor_id: "actor-test".into(),
+            }
+        );
+        assert!(context.workspace.is_none());
+        assert!(context.spawn_env.extra_env.is_empty());
+        assert!(context.spawn_env.is_gateway);
+    }
+
+    #[tokio::test]
+    async fn gateway_with_workspace_uses_workspace_domain_and_full_env() {
+        use crate::backend::WorkspaceRow;
+
+        let workspace = tempfile::tempdir().unwrap();
+        let backend = Arc::new(MockBackend::default());
+        backend.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-test".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        let handle = make_handle_with_backend(backend);
+
+        let context = handle
+            .assemble_execution_context(Some(workspace.path().to_string_lossy().as_ref()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            context.isolation_domain,
+            IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(context.working_directory, workspace.path());
+        assert_eq!(
+            context
+                .spawn_env
+                .resolved_env
+                .as_ref()
+                .and_then(|snapshot| snapshot.bindings.get("actor_id")),
+            Some(&"actor-test".to_string())
+        );
+        assert!(context.spawn_env.is_gateway);
     }
 
     /// Drive a `TurnAggregator` and `absorb_emitted` — the same pair

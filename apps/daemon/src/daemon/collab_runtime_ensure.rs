@@ -101,30 +101,29 @@ impl DaemonServer {
                 "resume_stored_collab_runtimes: resuming stored runtime with prior ACP session"
             );
 
-            // opencode.json suppress is inside assemble (after managed-LLM await).
-            let mut runtime_env = match self
-                .assemble_spawn_runtime_env_for_worktree(&stored.worktree, &stored.workspace_id)
+            let is_gateway = crate::runtime::is_gateway_workspace_id(&stored.workspace_id);
+            let context = match self
+                .assemble_execution_context(
+                    &stored.worktree,
+                    None,
+                    (!is_gateway).then_some(stored.workspace_id.as_str()),
+                    is_gateway,
+                    None,
+                )
                 .await
             {
-                Ok(env) => env,
+                Ok(context) => context,
                 Err(e) => {
                     warn!(
                         runtime_id = %stored.runtime_id,
                         worktree = %stored.worktree,
                         error = %e,
                         log_label,
-                        "resume_stored_collab_runtimes: assemble runtime env failed; continuing with empty env"
+                        "resume_stored_collab_runtimes: assemble execution context failed"
                     );
-                    crate::runtime::SpawnRuntimeEnv::default()
+                    continue;
                 }
             };
-
-            // Both branches above produce a desktop-shaped env, which for a
-            // gateway/cron runtime means it comes back as "ask".
-            crate::runtime::restore_gateway_shape_for_resume(
-                &mut runtime_env,
-                &stored.workspace_id,
-            );
 
             let resume_res = self
                 .agents
@@ -134,12 +133,11 @@ impl DaemonServer {
                     cloud_session_id,
                     &acp_resume,
                     at,
-                    &stored.worktree,
                     &stored.workspace_id,
                     remote_workspace_id.as_deref(),
                     initial_prompt,
                     mcp_config_path.clone(),
-                    runtime_env,
+                    context,
                 )
                 .await;
 

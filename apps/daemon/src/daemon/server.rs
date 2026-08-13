@@ -38,7 +38,7 @@ mod cloud_token_file;
 #[path = "collab_runtime_ensure.rs"]
 mod collab_runtime_ensure;
 #[path = "runtime_env.rs"]
-mod runtime_env;
+pub(crate) mod runtime_env;
 // Cron-style prompt-await handling (`handle_prompt_await` + the cron session
 // cache) lives in `server/cron.rs` as a child module so it can reach the
 // server's private fields directly.
@@ -1000,10 +1000,11 @@ impl DaemonServer {
                 manager.attach_refresh_coordinator(refresh_coordinator.clone());
             }
             let runtime: Arc<dyn crate::http::runtime_adapter::RuntimeAdapter> =
-                crate::http::runtime_adapter::RuntimeManagerAdapter::new(
+                crate::http::runtime_adapter::RuntimeManagerAdapter::new_with_execution_context_assembler(
                     self.agents.clone(),
                     http_cfg.max_event_backlog,
                     Some(refresh_coordinator),
+                    Some(Arc::new(self.execution_context_assembler())),
                 );
             // Start the refresh watchers with an empty workspace set so the
             // (cloud-dependent) `cloud_workspace_list()` fetch does not delay the

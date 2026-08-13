@@ -556,6 +556,8 @@ impl AgentBackend for CursorSdkBackend {
         &mut self,
         _agent_type: amux::AgentType,
         _launch: &AgentLaunchConfig,
+        _isolation_domain: crate::runtime::execution_context::IsolationDomainKey,
+        _process_env_revision: crate::runtime::execution_context::ProcessEnvRevision,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
         worktree: String,

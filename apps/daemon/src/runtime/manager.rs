@@ -8,7 +8,7 @@ use uuid::Uuid;
 use super::agent_runtime_state::PerAgentRuntimeState;
 use super::backend::{agent_type_for_local_agent, create_backend, AgentBackend};
 use super::builtin_commands::builtin_commands;
-use super::execution_context::{ExecutionContext, IsolationDomainKey};
+use super::execution_context::{ExecutionContext, IsolationDomainKey, ProcessEnvRevision};
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
 
@@ -592,15 +592,14 @@ impl RuntimeManager {
     pub async fn start_runtime(
         &mut self,
         agent_type: amux::AgentType,
-        worktree: &str,
         prompt: &str,
         workspace_id: &str,
         remote_workspace_id: Option<&str>,
         session_id: &str,
+        context: ExecutionContext,
     ) -> crate::error::Result<String> {
         self.start_runtime_with_model(
             agent_type,
-            worktree,
             prompt,
             workspace_id,
             remote_workspace_id,
@@ -608,7 +607,7 @@ impl RuntimeManager {
             None,
             None,
             None,
-            SpawnRuntimeEnv::default(),
+            context,
         )
         .await
     }
@@ -624,7 +623,6 @@ impl RuntimeManager {
     pub async fn start_runtime_with_model(
         &mut self,
         agent_type: amux::AgentType,
-        worktree: &str,
         prompt: &str,
         workspace_id: &str,
         remote_workspace_id: Option<&str>,
@@ -632,7 +630,7 @@ impl RuntimeManager {
         initial_model_override: Option<String>,
         mcp_config_path: Option<PathBuf>,
         resume_acp_session_id: Option<String>,
-        runtime_env: SpawnRuntimeEnv,
+        context: ExecutionContext,
     ) -> crate::error::Result<String> {
         // An attachment is an attachment *to a session* (ADR-0004). The map is
         // keyed by that session, so a spawn without one has no identity — it
@@ -651,6 +649,14 @@ impl RuntimeManager {
                 "session {agent_id} already has an attachment on this daemon"
             )));
         }
+        let ExecutionContext {
+            isolation_domain,
+            workspace: _,
+            working_directory,
+            spawn_env: runtime_env,
+        } = context;
+        let worktree = working_directory.to_string_lossy().into_owned();
+        let process_env_revision = ProcessEnvRevision::from_bindings(&runtime_env.extra_env);
         let permission = runtime_env.permission_policy();
         let SpawnRuntimeEnv {
             extra_env,
@@ -661,13 +667,15 @@ impl RuntimeManager {
             is_gateway,
             permission: _,
         } = runtime_env;
-        self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
+        self.register_opencode_snapshot(&worktree, opencode_json_original, &extra_env);
         let mut handle = RuntimeHandle::new(
             agent_id.clone(),
             agent_type,
-            worktree.into(),
+            worktree.clone(),
             workspace_id.into(),
         );
+        handle.isolation_domain = isolation_domain.clone();
+        handle.process_env_revision = process_env_revision.clone();
         handle.current_prompt = prompt.into();
         handle.env_fingerprint = resolved_env
             .as_ref()
@@ -690,9 +698,11 @@ impl RuntimeManager {
             .attach_session(
                 agent_type,
                 &launch,
+                isolation_domain,
+                process_env_revision,
                 extra_env,
                 force_env_override,
-                worktree.to_string(),
+                worktree.clone(),
                 resume_acp_session_id,
                 mcp_config_path,
                 initial_model_override.clone(),
@@ -711,7 +721,7 @@ impl RuntimeManager {
         self.aggregators
             .insert(agent_id.clone(), TurnAggregator::new());
 
-        self.record_catalog(worktree, &startup.available_models);
+        self.record_catalog(&worktree, &startup.available_models);
         if let Some(h) = self.agents.get_mut(&agent_id) {
             h.available_models = startup.available_models;
             h.acp_session_id = startup.acp_session_id.clone();
@@ -791,13 +801,20 @@ impl RuntimeManager {
         session_id: &str,
         acp_session_id: &str,
         agent_type: amux::AgentType,
-        worktree: &str,
         workspace_id: &str,
         remote_workspace_id: Option<&str>,
         prompt: &str,
         mcp_config_path: Option<std::path::PathBuf>,
-        runtime_env: SpawnRuntimeEnv,
+        context: ExecutionContext,
     ) -> crate::error::Result<String> {
+        let ExecutionContext {
+            isolation_domain,
+            workspace: _,
+            working_directory,
+            spawn_env: runtime_env,
+        } = context;
+        let worktree = working_directory.to_string_lossy().into_owned();
+        let process_env_revision = ProcessEnvRevision::from_bindings(&runtime_env.extra_env);
         let permission = runtime_env.permission_policy();
         let SpawnRuntimeEnv {
             extra_env,
@@ -808,14 +825,16 @@ impl RuntimeManager {
             is_gateway,
             permission: _,
         } = runtime_env;
-        self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
+        self.register_opencode_snapshot(&worktree, opencode_json_original, &extra_env);
 
         let mut handle = RuntimeHandle::new(
             session_id.to_string(),
             agent_type,
-            worktree.into(),
+            worktree.clone(),
             workspace_id.into(),
         );
+        handle.isolation_domain = isolation_domain.clone();
+        handle.process_env_revision = process_env_revision.clone();
         handle.env_fingerprint = resolved_env
             .as_ref()
             .map(|snapshot| snapshot.fingerprint.clone());
@@ -833,9 +852,11 @@ impl RuntimeManager {
             .attach_session(
                 agent_type,
                 &launch,
+                isolation_domain,
+                process_env_revision,
                 extra_env,
                 force_env_override,
-                worktree.to_string(),
+                worktree.clone(),
                 Some(acp_session_id.to_string()),
                 mcp_config_path,
                 None,
@@ -860,7 +881,7 @@ impl RuntimeManager {
             .insert(session_id.to_string(), TurnAggregator::new());
 
         let new_acp_sid = startup.acp_session_id.clone();
-        self.record_catalog(worktree, &startup.available_models);
+        self.record_catalog(&worktree, &startup.available_models);
         if let Some(h) = self.agents.get_mut(session_id) {
             h.available_models = startup.available_models;
             h.acp_session_id = startup.acp_session_id;
@@ -1616,8 +1637,8 @@ impl RuntimeManager {
         // passed.
     ) -> crate::error::Result<String> {
         let ExecutionContext {
-            isolation_domain: _isolation_domain,
-            workspace: _workspace,
+            isolation_domain,
+            workspace,
             working_directory,
             spawn_env,
         } = context;
@@ -1712,7 +1733,6 @@ impl RuntimeManager {
         let agent_id = match self
             .start_runtime_with_model(
                 agent_type,
-                &worktree,
                 "",
                 &workspace_id,
                 None,
@@ -1720,7 +1740,12 @@ impl RuntimeManager {
                 initial_model,
                 mcp_cfg_path,
                 None,
-                spawn_env,
+                ExecutionContext {
+                    isolation_domain,
+                    workspace,
+                    working_directory: PathBuf::from(&worktree),
+                    spawn_env,
+                },
             )
             .await
         {
@@ -1896,6 +1921,172 @@ mod tests {
     use super::super::handle::PendingMessage;
     use super::*;
 
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct CapturedAttach {
+        domain: IsolationDomainKey,
+        working_directory: PathBuf,
+        process_env_revision: super::super::execution_context::ProcessEnvRevision,
+        extra_env: HashMap<String, String>,
+    }
+
+    struct CapturingBackend {
+        captures: Arc<std::sync::Mutex<Vec<CapturedAttach>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl AgentBackend for CapturingBackend {
+        async fn attach_session(
+            &mut self,
+            _agent_type: amux::AgentType,
+            _launch: &AgentLaunchConfig,
+            domain: IsolationDomainKey,
+            process_env_revision: super::super::execution_context::ProcessEnvRevision,
+            extra_env: HashMap<String, String>,
+            _force_env_override: bool,
+            worktree: String,
+            _resume_acp_session_id: Option<String>,
+            _mcp_config_path: Option<PathBuf>,
+            _initial_model_override: Option<String>,
+            _model_mru: Vec<String>,
+            _initial_prompt: String,
+            _event_tx: mpsc::Sender<AcpEventFrame>,
+            _permission: PermissionPolicy,
+            _forbid_new_session_fallback: bool,
+        ) -> crate::error::Result<(
+            mpsc::Sender<super::super::backend::AcpCommand>,
+            super::super::backend::AcpStartupMetadata,
+        )> {
+            self.captures.lock().unwrap().push(CapturedAttach {
+                domain,
+                working_directory: worktree.into(),
+                process_env_revision,
+                extra_env,
+            });
+            let (tx, _rx) = mpsc::channel(1);
+            Ok((
+                tx,
+                super::super::backend::AcpStartupMetadata {
+                    available_models: Vec::new(),
+                    initial_model: None,
+                    acp_session_id: format!("backend-{}", self.captures.lock().unwrap().len()),
+                },
+            ))
+        }
+
+        async fn prewarm(&mut self, _c: &HashMap<amux::AgentType, AgentLaunchConfig>) {}
+
+        async fn prewarm_with_env(
+            &mut self,
+            _c: &HashMap<amux::AgentType, AgentLaunchConfig>,
+            _e: HashMap<String, String>,
+            _f: bool,
+            _w: Option<&str>,
+        ) {
+        }
+
+        fn evict_agent_types(&mut self, _t: &[amux::AgentType]) -> usize {
+            0
+        }
+
+        fn host_count(&self) -> usize {
+            0
+        }
+
+        async fn model_catalog(
+            &mut self,
+            _workspace_path: &std::path::Path,
+        ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+            Ok(Vec::new())
+        }
+    }
+
+    fn capturing_manager() -> (RuntimeManager, Arc<std::sync::Mutex<Vec<CapturedAttach>>>) {
+        let captures = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut manager = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        manager.agent_backend = Arc::new(AsyncMutex::new(Box::new(CapturingBackend {
+            captures: captures.clone(),
+        })));
+        (manager, captures)
+    }
+
+    fn workspace_context(path: &std::path::Path) -> ExecutionContext {
+        let extra_env = HashMap::from([
+            ("TEAMCLU_ACTOR_ID".into(), "actor-a".into()),
+            ("TEAMCLU_TOKEN".into(), "secret-a".into()),
+        ]);
+        ExecutionContext {
+            isolation_domain: IsolationDomainKey::Workspace("ws-a".into()),
+            workspace: Some(super::super::execution_context::WorkspaceIdentity {
+                workspace_id: "ws-a".into(),
+                workspace_root: path.to_path_buf(),
+                team_id: Some("team-a".into()),
+            }),
+            working_directory: path.to_path_buf(),
+            spawn_env: SpawnRuntimeEnv {
+                extra_env,
+                ..SpawnRuntimeEnv::default()
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn start_and_resume_propagate_the_same_execution_identity() {
+        let (mut manager, captures) = capturing_manager();
+        let workspace = tempfile::TempDir::new().unwrap();
+
+        manager
+            .start_runtime_with_model(
+                amux::AgentType::Opencode,
+                "",
+                "ws-a",
+                Some("ws-a"),
+                "session-start",
+                None,
+                None,
+                None,
+                workspace_context(workspace.path()),
+            )
+            .await
+            .unwrap();
+        manager
+            .resume_agent(
+                "session-resume",
+                "backend-existing",
+                amux::AgentType::Opencode,
+                "ws-a",
+                Some("ws-a"),
+                "",
+                None,
+                workspace_context(workspace.path()),
+            )
+            .await
+            .unwrap();
+
+        let captures = captures.lock().unwrap();
+        assert_eq!(captures.len(), 2);
+        assert_eq!(captures[0], captures[1]);
+        assert_eq!(
+            captures[0].domain,
+            IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(captures[0].working_directory, workspace.path());
+        assert_eq!(
+            captures[0].process_env_revision,
+            super::super::execution_context::ProcessEnvRevision::from_bindings(
+                &captures[0].extra_env
+            )
+        );
+
+        for session in ["session-start", "session-resume"] {
+            let handle = manager.get_handle(session).unwrap();
+            assert_eq!(handle.isolation_domain, captures[0].domain);
+            assert_eq!(
+                handle.process_env_revision,
+                captures[0].process_env_revision
+            );
+        }
+    }
+
     fn catalog_model(id: &str) -> amux::ModelInfo {
         amux::ModelInfo {
             id: id.to_string(),
@@ -2024,6 +2215,8 @@ mod tests {
             &mut self,
             _agent_type: amux::AgentType,
             _launch: &AgentLaunchConfig,
+            _isolation_domain: IsolationDomainKey,
+            _process_env_revision: ProcessEnvRevision,
             _extra_env: HashMap<String, String>,
             _force_env_override: bool,
             _worktree: String,
@@ -2854,7 +3047,6 @@ mod tests {
         let result = mgr
             .start_runtime_with_model(
                 amux::AgentType::ClaudeCode,
-                tmp.path().to_str().unwrap(),
                 "",
                 "workspace-1",
                 None,
@@ -2862,7 +3054,7 @@ mod tests {
                 None,
                 None,
                 None,
-                SpawnRuntimeEnv::default(),
+                workspace_context(tmp.path()),
             )
             .await;
 

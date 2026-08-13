@@ -566,10 +566,8 @@ impl DaemonServer {
             }
         }
 
-        // Refresh-watch suppress for opencode.json is owned by
-        // `assemble_spawn_runtime_env_for_worktree` (after managed-LLM await).
-        let runtime_env = self
-            .assemble_spawn_runtime_env_for_worktree(&resolved_worktree, &ws_id)
+        let context = self
+            .assemble_execution_context(&resolved_worktree, None, Some(&ws_id), false, None)
             .await
             .map_err(|e| StartRuntimeError {
                 error_code: "ENV_ASSEMBLE_FAILED".to_string(),
@@ -612,7 +610,6 @@ impl DaemonServer {
             .await
             .start_runtime_with_model(
                 agent_type,
-                &resolved_worktree,
                 "",
                 &ws_id,
                 (!ws_id.is_empty()).then_some(ws_id.as_str()),
@@ -620,7 +617,7 @@ impl DaemonServer {
                 initial_model_override,
                 mcp_config_path,
                 resume_acp_session_id,
-                runtime_env,
+                context,
             )
             .await;
         let new_id = match spawn_res {

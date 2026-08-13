@@ -7,7 +7,30 @@ use crate::runtime::{PermissionPolicy, SpawnRuntimeEnv};
 
 use super::DaemonServer;
 
+#[derive(Clone)]
+pub(crate) struct ExecutionContextAssembler {
+    workspace_resolver: std::sync::Arc<crate::config::WorkspaceResolver>,
+    backend: std::sync::Arc<dyn crate::backend::Backend>,
+    managed_llm: std::sync::Arc<crate::runtime::managed_llm::ManagedLlmResolver>,
+    refresh_coordinator: Option<std::sync::Arc<crate::runtime::refresh::RuntimeRefreshCoordinator>>,
+    team_id: Option<String>,
+    actor_id: String,
+    actor_name: String,
+}
+
 impl DaemonServer {
+    pub(super) fn execution_context_assembler(&self) -> ExecutionContextAssembler {
+        ExecutionContextAssembler {
+            workspace_resolver: self.workspace_resolver.clone(),
+            backend: self.backend.clone(),
+            managed_llm: self.managed_llm.clone(),
+            refresh_coordinator: self.refresh_coordinator.clone(),
+            team_id: self.config.team_id.clone(),
+            actor_id: self.config.actor.id.clone(),
+            actor_name: self.config.actor.name.clone(),
+        }
+    }
+
     pub(super) async fn assemble_execution_context(
         &self,
         working_directory: &str,
@@ -16,7 +39,53 @@ impl DaemonServer {
         is_gateway: bool,
         permission: Option<PermissionPolicy>,
     ) -> Result<ExecutionContext, String> {
-        let team_id = self.config.team_id.as_deref();
+        self.execution_context_assembler()
+            .assemble(
+                working_directory,
+                workspace_root_hint,
+                workspace_id_hint,
+                is_gateway,
+                permission,
+            )
+            .await
+    }
+
+    /// Team ID is resolved from the cloud workspace row by UUID; on a cold resolver cache (e.g. right after daemon restart) a bare-agent spawn with an empty workspace_id yields None team_id until the cache warms — intentional under the cloud-source-of-truth / no-local-store design.
+    pub(super) async fn resolve_workspace_team_id(&self, workspace_id: &str) -> Option<String> {
+        let fallback = || {
+            self.config
+                .team_id
+                .as_ref()
+                .map(|id| id.trim().to_string())
+                .filter(|id| !id.is_empty())
+        };
+
+        if workspace_id.is_empty() {
+            // Bare-agent spawns have no workspace id; skip the guaranteed-miss
+            // cloud lookup and go straight to the configured team fallback.
+            return fallback();
+        }
+
+        self.workspace_resolver
+            .resolve(workspace_id)
+            .await
+            .ok()
+            .and_then(|w| w.team_id)
+            .filter(|team_id| !team_id.trim().is_empty())
+            .or_else(fallback)
+    }
+}
+
+impl ExecutionContextAssembler {
+    pub(crate) async fn assemble(
+        &self,
+        working_directory: &str,
+        workspace_root_hint: Option<&str>,
+        workspace_id_hint: Option<&str>,
+        is_gateway: bool,
+        permission: Option<PermissionPolicy>,
+    ) -> Result<ExecutionContext, String> {
+        let team_id = self.team_id.as_deref();
         let workspace = if let Some(workspace_id) =
             workspace_id_hint.filter(|id| !id.trim().is_empty())
         {
@@ -115,7 +184,7 @@ impl DaemonServer {
         working_directory: &Path,
     ) -> Result<SpawnRuntimeEnv, String> {
         let managed_llm = match workspace.team_id.as_deref() {
-            Some(team_id) => self.resolve_managed_llm(team_id).await,
+            Some(team_id) => self.managed_llm.resolve(team_id).await,
             None => ManagedLlmState::Unknown,
         };
         let cloud_token_file = self
@@ -124,46 +193,49 @@ impl DaemonServer {
             .map(|_| crate::config::DaemonConfig::cloud_token_path())
             .map(|path| path.to_string_lossy().into_owned());
 
-        self.suppress_internal_opencode_writes(working_directory.to_string_lossy().as_ref());
+        if let Some(ref refresh) = self.refresh_coordinator {
+            crate::runtime::refresh::refresh_watch::suppress_for_workspace_path(
+                refresh,
+                working_directory,
+                &crate::runtime::refresh::INTERNAL_OPENCODE_KINDS,
+                crate::runtime::refresh::INTERNAL_WRITE_SUPPRESS,
+            );
+        }
         crate::runtime::supervisor::materialize_inherent_mcp_for_spawn(working_directory)
             .map_err(|e| format!("materialize_inherent_mcp_for_spawn failed: {e}"))?;
         crate::runtime::env_assembly::assemble_spawn_runtime_env_for_execution(
             &workspace.workspace_root,
             working_directory,
             workspace.team_id.as_deref(),
-            &self.config.actor.id,
-            &self.config.actor.name,
+            &self.actor_id,
+            &self.actor_name,
             cloud_token_file.as_deref(),
             &managed_llm,
         )
         .map_err(|e| format!("assemble_runtime_env failed: {e}"))
     }
+}
 
-    /// Team ID is resolved from the cloud workspace row by UUID; on a cold resolver cache (e.g. right after daemon restart) a bare-agent spawn with an empty workspace_id yields None team_id until the cache warms — intentional under the cloud-source-of-truth / no-local-store design.
-    pub(super) async fn resolve_workspace_team_id(&self, workspace_id: &str) -> Option<String> {
-        let fallback = || {
-            self.config
-                .team_id
-                .as_ref()
-                .map(|id| id.trim().to_string())
-                .filter(|id| !id.is_empty())
-        };
-
-        if workspace_id.is_empty() {
-            // Bare-agent spawns have no workspace id; skip the guaranteed-miss
-            // cloud lookup and go straight to the configured team fallback.
-            return fallback();
-        }
-
-        self.workspace_resolver
-            .resolve(workspace_id)
-            .await
-            .ok()
-            .and_then(|w| w.team_id)
-            .filter(|team_id| !team_id.trim().is_empty())
-            .or_else(fallback)
+#[async_trait::async_trait]
+impl crate::http::runtime_adapter::RuntimeExecutionContextAssembler for ExecutionContextAssembler {
+    async fn assemble(
+        &self,
+        working_directory: &str,
+        workspace_id: Option<&str>,
+    ) -> Result<ExecutionContext, String> {
+        ExecutionContextAssembler::assemble(
+            self,
+            working_directory,
+            None,
+            workspace_id,
+            false,
+            None,
+        )
+        .await
     }
+}
 
+impl DaemonServer {
     /// Resolve real spawn envs for ALL of the team's linkable on-disk
     /// workspaces, for ACP host prewarming at daemon start. One entry per
     /// workspace: `(worktree_path, extra_env, force_env_override)`.

@@ -4,6 +4,7 @@ use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
 use super::acp_event_frame::AcpEventFrame;
 use super::adapter::AcpCommand;
+use super::execution_context::{IsolationDomainKey, ProcessEnvRevision};
 use super::instruction_delivery::InstructionDelivery;
 use crate::proto::amux;
 
@@ -34,6 +35,10 @@ pub struct RuntimeHandle {
     pub agent_type: amux::AgentType,
     pub worktree: String,
     pub workspace_id: String,
+    /// Stable execution boundary used for backend-host routing.
+    pub isolation_domain: IsolationDomainKey,
+    /// Fingerprint of the exact process environment used for this attachment.
+    pub process_env_revision: ProcessEnvRevision,
     pub branch: String,
     pub status: amux::AgentStatus,
     pub current_prompt: String,
@@ -121,6 +126,13 @@ impl RuntimeHandle {
             agent_type,
             worktree,
             workspace_id,
+            isolation_domain: IsolationDomainKey::UnscopedAgent {
+                team_id: String::new(),
+                actor_id: String::new(),
+            },
+            process_env_revision: ProcessEnvRevision::from_bindings(
+                &std::collections::HashMap::new(),
+            ),
             branch: String::new(),
             status: amux::AgentStatus::Starting,
             current_prompt: String::new(),
@@ -391,6 +403,13 @@ impl RuntimeHandle {
             agent_type: crate::proto::amux::AgentType::ClaudeCode,
             worktree: String::new(),
             workspace_id: String::new(),
+            isolation_domain: IsolationDomainKey::UnscopedAgent {
+                team_id: String::new(),
+                actor_id: String::new(),
+            },
+            process_env_revision: ProcessEnvRevision::from_bindings(
+                &std::collections::HashMap::new(),
+            ),
             branch: String::new(),
             status: crate::proto::amux::AgentStatus::Starting,
             current_prompt: String::new(),

@@ -17,6 +17,7 @@ use tracing::warn;
 
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
+use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
 use crate::runtime::permission_policy::PermissionPolicy;
 
 use super::manager::AgentLaunchConfig;
@@ -111,6 +112,8 @@ pub trait AgentBackend: Send {
         &mut self,
         agent_type: amux::AgentType,
         launch: &AgentLaunchConfig,
+        isolation_domain: IsolationDomainKey,
+        process_env_revision: ProcessEnvRevision,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
         worktree: String,
@@ -209,6 +212,8 @@ impl AgentBackend for OpencodeHttpBackend {
         &mut self,
         agent_type: amux::AgentType,
         launch: &AgentLaunchConfig,
+        _isolation_domain: IsolationDomainKey,
+        _process_env_revision: ProcessEnvRevision,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
         worktree: String,

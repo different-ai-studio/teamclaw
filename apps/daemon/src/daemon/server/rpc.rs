@@ -620,20 +620,26 @@ impl DaemonServer {
                         let session_id = stored.session_id.clone();
                         info!(agent_id, "lazy-resuming historical session");
                         let remote_workspace_id = (!ws_id.is_empty()).then_some(ws_id.clone());
-                        // opencode.json suppress is inside assemble (after managed-LLM await).
-                        let runtime_env = match self
-                            .assemble_spawn_runtime_env_for_worktree(&worktree, &ws_id)
+                        let is_gateway = crate::runtime::is_gateway_workspace_id(&ws_id);
+                        let context = match self
+                            .assemble_execution_context(
+                                &worktree,
+                                None,
+                                (!is_gateway).then_some(ws_id.as_str()),
+                                is_gateway,
+                                None,
+                            )
                             .await
                         {
-                            Ok(env) => env,
+                            Ok(context) => context,
                             Err(e) => {
                                 warn!(
                                     agent_id,
                                     worktree = %worktree,
                                     error = %e,
-                                    "lazy-resume: assemble runtime env failed; continuing with empty env"
+                                    "lazy-resume: assemble execution context failed"
                                 );
-                                crate::runtime::SpawnRuntimeEnv::default()
+                                return;
                             }
                         };
                         // A stored session with no cloud session id cannot be
@@ -653,12 +659,11 @@ impl DaemonServer {
                                 &session_id,
                                 &acp_sid,
                                 at,
-                                &worktree,
                                 &ws_id,
                                 remote_workspace_id.as_deref(),
                                 "",
                                 None,
-                                runtime_env,
+                                context,
                             )
                             .await;
                         match resume_res {
