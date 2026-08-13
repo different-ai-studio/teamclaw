@@ -55,7 +55,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { CommandItem } from '@/components/ui/command'
 import { ModelPickerCommand } from '@/components/model/ModelPickerCommand'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { ToggleSwitch } from '../shared'
@@ -269,6 +268,14 @@ export function CronJobDialog({
       setError(t('settings.cron.requiredCron', 'Cron expression is required'))
       return
     }
+    // Every automation entry point pins a model at creation time (ADR-0007).
+    // The old "use default model" path resolved at run time against the device
+    // MRU, so the same job ran on whatever model this device happened to have
+    // used last — and on a different device, a different model.
+    if (!form.model.trim()) {
+      setError(t('settings.cron.requiredModel', 'Model is required'))
+      return
+    }
     if (form.deliveryEnabled) {
       const entry = getRegistryEntry(form.deliveryChannel)
       if (entry) {
@@ -393,7 +400,7 @@ export function CronJobDialog({
                           title={
                             form.model
                               ? t('settings.cron.modelSelected', `Using: ${form.model}`)
-                              : t('settings.cron.modelOverrideHint', 'Select a model or use workspace default.')
+                              : t('settings.cron.modelRequiredHint', 'Pick the model this job runs on.')
                           }
                           className={cn(
                             'flex h-7 min-h-7 w-fit max-w-[min(100%,18rem)] shrink items-center justify-start gap-1 rounded-md px-1.5 py-0 font-mono text-xs',
@@ -402,7 +409,7 @@ export function CronJobDialog({
                           )}
                         >
                           <span className="truncate">
-                            {form.model || t('settings.cron.useDefaultModel', 'Use default model')}
+                            {form.model || t('settings.cron.selectModel', 'Select a model')}
                           </span>
                           <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
                         </button>
@@ -428,21 +435,11 @@ export function CronJobDialog({
                             update({ model: id, backend: backendByRef.get(id) ?? '' })
                             setModelMenuOpen(false)
                           }}
-                          leadingItems={
-                            <CommandItem
-                              value="__default__ use default model"
-                              data-model-selected={!form.model ? 'true' : undefined}
-                              onSelect={() => {
-                                update({ model: '', backend: '' })
-                                setModelMenuOpen(false)
-                              }}
-                              className="text-xs py-1.5"
-                            >
-                              <span className="text-muted-foreground italic">
-                                {t('settings.cron.useDefaultModel', 'Use default model')}
-                              </span>
-                            </CommandItem>
-                          }
+                          // No "use default model" entry any more: a job with no
+                          // model resolved at run time against the device MRU,
+                          // so the same job ran on a different model depending
+                          // on which device and which directory picked it up
+                          // (ADR-0007). The choice is made here or nowhere.
                           emptyState={
                             modelHint ? (
                               <div className="px-2 py-4 text-center text-[12.5px] text-muted-foreground">
