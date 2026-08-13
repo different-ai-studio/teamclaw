@@ -42,8 +42,7 @@ pub struct StoredMessage {
 
 impl MessageStore {
     fn path_for(base_dir: &Path, session_id: &str) -> std::path::PathBuf {
-        base_dir
-            .join("teamclu")
+        crate::config::layout::team_state_dir_in(base_dir, &crate::config::layout::active_team())
             .join("sessions")
             .join(session_id)
             .join("messages.toml")

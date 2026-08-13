@@ -40,7 +40,9 @@ pub struct StoredParticipant {
 
 impl TeamcluSessionStore {
     pub fn default_path(base_dir: &Path) -> PathBuf {
-        base_dir.join("teamclu").join("sessions.toml")
+        crate::config::layout::team_state_dir_in(base_dir, &crate::config::layout::active_team())
+            .join("sessions")
+            .join("index.toml")
     }
 
     pub fn load(path: &Path) -> crate::error::Result<Self> {

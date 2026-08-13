@@ -40,7 +40,7 @@ use super::state::HttpState;
 ///
 /// Still at the home root; `teams/<id>/state/apps/` is PR ④.
 pub fn apps_data_root() -> PathBuf {
-    crate::config::DaemonConfig::config_dir().join("apps")
+    crate::config::layout::active_state_dir().join("apps")
 }
 
 /// Resolve the clone target for a seed request.

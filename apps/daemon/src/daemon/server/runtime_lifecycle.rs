@@ -559,7 +559,8 @@ impl DaemonServer {
         }
 
         if crate::config::DaemonConfig::team_share_auto_sync_enabled_from_disk() {
-            if let Some(config) = load_team_shared_config_for_workspace(Path::new(&resolved_worktree))
+            if let Some(config) =
+                load_team_shared_config_for_workspace(Path::new(&resolved_worktree))
             {
                 sync_team_shared_dir_for_workspace(Path::new(&resolved_worktree), &config);
             }

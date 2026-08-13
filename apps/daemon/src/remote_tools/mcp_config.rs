@@ -7,7 +7,7 @@ pub const REMOTE_TOOLS_MCP_SERVER_NAME: &str = "amuxd-remote-tools";
 
 pub fn remote_tools_mcp_config_path(session_id: &str) -> PathBuf {
     let _ = session_id;
-    DaemonConfig::config_dir()
+    crate::config::layout::active_state_dir()
         .join("mcp-configs")
         .join("remote-tools-host.json")
 }

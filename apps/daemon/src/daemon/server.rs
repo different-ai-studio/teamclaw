@@ -689,26 +689,22 @@ impl DaemonServer {
             );
         }
 
-        let members_path = config_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("members.toml");
+        // Team-scoped, all three: a member list, a runtime index and an event
+        // history all describe one team's work and follow it when it changes.
+        let state_dir = crate::config::layout::active_state_dir();
+        let members_path = state_dir.join("members.toml");
         let auth = AuthManager::new(members_path)?;
         let peers = PeerTracker::new();
         let permissions = PermissionManager::new();
 
         let workspace_resolver = Arc::new(crate::config::WorkspaceResolver::new(backend.clone()));
 
-        let sessions_path = config_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("sessions.toml");
+        // `runtimes.toml`, not `sessions.toml`: it indexes runtimes, and the
+        // old name collided with the collab session store one directory over.
+        let sessions_path = state_dir.join("runtimes.toml");
         let sessions = SessionStore::load(&sessions_path)?;
 
-        let history_dir = config_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("history");
+        let history_dir = state_dir.join("history");
         let history = EventHistory::new(&history_dir);
 
         let agents = Arc::new(AsyncMutex::new(RuntimeManager::with_local_agent(
@@ -3144,7 +3140,7 @@ pub(crate) mod tests {
     pub(crate) async fn sync_team_shared_dirs_sources_from_cloud_and_skips_missing_paths() {
         let _lock = crate::config::global_team_store::TEST_HOME_LOCK
             .lock()
-.unwrap_or_else(|e| e.into_inner());
+            .unwrap_or_else(|e| e.into_inner());
         let home = tempfile::tempdir().unwrap();
         // SAFETY: serialized by TEST_HOME_LOCK.
         unsafe { std::env::set_var("HOME", home.path()) };
@@ -4321,7 +4317,10 @@ pub(crate) mod tests {
         assert!(fixture.server.catchup_runtime("session-1").await);
         {
             let agents = fixture.server.agents.lock().await;
-            assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("ask once"),);
+            assert_eq!(
+                agents.last_sent_to("session-1").as_deref(),
+                Some("ask once"),
+            );
             assert_eq!(
                 agents
                     .get_handle("session-1")
@@ -4335,7 +4334,10 @@ pub(crate) mod tests {
         // Session refresh → runtimeStart dedup → catchup must not re-prompt.
         assert!(!fixture.server.catchup_runtime("session-1").await);
         let agents = fixture.server.agents.lock().await;
-        assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("ask once"));
+        assert_eq!(
+            agents.last_sent_to("session-1").as_deref(),
+            Some("ask once")
+        );
     }
 
     #[tokio::test]
@@ -4606,7 +4608,10 @@ pub(crate) mod tests {
             agents.current_model("session-1").map(|s| s.as_str()),
             Some("opencode/deepseek-v4-flash-free")
         );
-        assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("which model?"));
+        assert_eq!(
+            agents.last_sent_to("session-1").as_deref(),
+            Some("which model?")
+        );
     }
 
     pub(crate) fn seed_startup_workspace_sync(

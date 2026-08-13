@@ -314,9 +314,10 @@ pub(crate) fn worktree_hash(worktree: &str) -> String {
 }
 
 pub(crate) fn session_dir_for(worktree: &str) -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".amuxd")
+    // Keyed by session, so team-scoped like every other session artefact —
+    // and no longer hand-assembling `~/.amuxd`, which ignored both $AMUXD_HOME
+    // and the brand.
+    crate::config::layout::active_state_dir()
         .join("pi-sessions")
         .join(worktree_hash(worktree))
 }
