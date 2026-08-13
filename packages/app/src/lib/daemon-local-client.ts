@@ -460,11 +460,17 @@ export interface CursorAgentSettings {
 }
 
 const CURSOR_DEFAULT_MODEL = 'composer-2.5'
+const CURSOR_API_KEY_ENV = 'CURSOR_API_KEY'
 
-/** Cursor SDK backend settings stored in daemon.toml under `[agents.cursor]`. */
+/**
+ * Cursor SDK backend settings. The default model is machine config
+ * (daemon.toml `[agents.cursor]`); the API key is a *personal* credential and
+ * lives in the personal env store (`CURSOR_API_KEY`), where the daemon reads
+ * it — never in daemon.toml.
+ */
 export async function getCursorAgentSettings(): Promise<CursorAgentSettings> {
-  const [apiKeyEntry, modelEntry] = await Promise.all([
-    getDaemonConfigEntry('agents.cursor.api_key'),
+  const [apiKeyValue, modelEntry] = await Promise.all([
+    invoke<string>('env_var_get', { key: CURSOR_API_KEY_ENV }).catch(() => ''),
     getDaemonConfigEntry('agents.cursor.default_model'),
   ])
   const defaultModel =
@@ -472,7 +478,7 @@ export async function getCursorAgentSettings(): Promise<CursorAgentSettings> {
       ? modelEntry.value.trim()
       : CURSOR_DEFAULT_MODEL
   return {
-    apiKeyConfigured: apiKeyEntry?.secret === true || typeof apiKeyEntry?.value === 'string',
+    apiKeyConfigured: typeof apiKeyValue === 'string' && apiKeyValue.trim().length > 0,
     defaultModel,
   }
 }
@@ -484,16 +490,21 @@ export async function saveCursorAgentSettings(input: {
   let requiresRestart = false
   const trimmedKey = input.apiKey?.trim()
   if (trimmedKey) {
-    const resp = await setDaemonConfigValue('agents.cursor.api_key', trimmedKey)
-    requiresRestart = requiresRestart || (resp.requiresRestart ?? false)
+    await invoke('env_catalog_set', {
+      scope: 'personal',
+      key: CURSOR_API_KEY_ENV,
+      value: trimmedKey,
+    })
+    // The pool captures the key at config load; a running daemon picks the
+    // new one up on restart.
+    requiresRestart = true
   }
   const trimmedModel = input.defaultModel?.trim()
   if (trimmedModel) {
     const resp = await setDaemonConfigValue('agents.cursor.default_model', trimmedModel)
-    requiresRestart = requiresRestart || (resp.requiresRestart ?? false)
+    requiresRestart = requiresRestart || (resp.requiresRestart ?? true)
   }
-  // agents.* keys always require restart per daemon HTTP config policy.
-  return { requiresRestart: requiresRestart || Boolean(trimmedKey || trimmedModel) }
+  return { requiresRestart }
 }
 
 /** Restart the desktop-managed amuxd after config edits that require it. */

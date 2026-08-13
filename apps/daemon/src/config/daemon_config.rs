@@ -326,10 +326,10 @@ pub struct AgentsConfig {
 /// Cursor SDK backend settings (`agents.local_agent = "cursor"`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeAgentConfig {
-    /// Anthropic API key. Optional: with none set the Agent SDK falls back to
-    /// the host's own `claude` login (subscription auth).
-    #[serde(default)]
-    pub api_key: Option<String>,
+    // The Anthropic API key used to live here. It is a *personal* credential,
+    // so it moved to the personal secret store (`~/.{brand}/secrets`, key
+    // `ANTHROPIC_API_KEY`); the pool loader resolves it from there. With
+    // neither set, the Agent SDK falls back to the host's own `claude` login.
     /// Sidecar launch command (default: `node …/claude-bridge/src/main.mjs --mode rpc`).
     #[serde(default)]
     pub bridge_command: Option<Vec<String>>,
@@ -341,9 +341,9 @@ pub struct ClaudeAgentConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct CursorAgentConfig {
-    /// Cursor API key. Falls back to `CURSOR_API_KEY` when unset.
-    #[serde(default)]
-    pub api_key: Option<String>,
+    // The Cursor API key used to live here. Personal credential → personal
+    // secret store (key `CURSOR_API_KEY`); the `CURSOR_API_KEY` env var still
+    // wins at spawn.
     /// Sidecar launch command (default: `node …/cursor-bridge/src/main.mjs --mode rpc`).
     #[serde(default)]
     pub bridge_command: Option<Vec<String>>,

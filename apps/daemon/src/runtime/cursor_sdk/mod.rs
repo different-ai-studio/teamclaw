@@ -80,14 +80,18 @@ pub(crate) fn canonical_dir(worktree: &str) -> String {
 }
 
 fn apply_cursor_config(pool: &CursorProcessPool, cursor: Option<&CursorAgentConfig>) {
-    let Some(cfg) = cursor else {
-        return;
-    };
-    pool.configure(
-        cfg.bridge_command.clone(),
-        cfg.api_key.clone(),
-        cfg.default_model.clone(),
-    );
+    // The key is personal, not machine config — resolved from the personal
+    // secret store even when daemon.toml has no [agents.cursor] section at
+    // all. `CURSOR_API_KEY` in the process env still wins at spawn.
+    let personal = crate::runtime::personal_api_key("CURSOR_API_KEY");
+    match cursor {
+        Some(cfg) => pool.configure(
+            cfg.bridge_command.clone(),
+            personal,
+            cfg.default_model.clone(),
+        ),
+        None => pool.configure(None, personal, None),
+    }
 }
 
 fn load_cursor_pool_config(pool: &CursorProcessPool) {

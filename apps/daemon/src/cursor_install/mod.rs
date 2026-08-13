@@ -25,7 +25,7 @@ pub fn doctor() -> CursorStatus {
         .ok()
         .filter(|k| !k.trim().is_empty())
         .is_some()
-        || daemon_config_has_cursor_api_key();
+        || personal_store_has_cursor_api_key();
     let sdk_installed = sdk_installed_for_main(&main);
     let satisfied = node_present && bridge_script_present && api_key_present && sdk_installed;
     CursorStatus {
@@ -46,11 +46,6 @@ fn which_node() -> Option<String> {
     out.status.success().then(|| "node".to_string())
 }
 
-fn daemon_config_has_cursor_api_key() -> bool {
-    crate::config::DaemonConfig::load(&crate::config::DaemonConfig::default_path())
-        .ok()
-        .and_then(|c| c.agents.cursor)
-        .and_then(|c| c.api_key)
-        .filter(|k| !k.trim().is_empty())
-        .is_some()
+fn personal_store_has_cursor_api_key() -> bool {
+    crate::runtime::personal_api_key("CURSOR_API_KEY").is_some()
 }

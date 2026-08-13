@@ -183,7 +183,7 @@ impl CursorProcessPool {
             .filter(|k| !k.trim().is_empty())
             .ok_or_else(|| {
                 crate::error::AmuxError::Agent(
-                    "CURSOR_API_KEY is not set; configure [agents.cursor].api_key or the env var"
+                    "CURSOR_API_KEY is not set; add it to your personal env (Settings → Env Vars) or export the env var"
                         .into(),
                 )
             })?;

@@ -23,7 +23,7 @@
 > | ⑤-C | 身份去重：`backend.toml` 独占 `actor_id`，`daemon.toml` 只剩 `active_team` 指针 | ✅ |
 > | ⑤-D | 日志三合一 + 轮换（`logs/amuxd.log`，32 MiB × 3，`[log]` 可调） | ✅ |
 > | ⑤-A | `team.toml` 拆分：`[channels]` / `[team_share]` / `local_agent` 下沉 + 凭证入 `secrets.enc` | ✅ |
-> | ⑤-A′ | `agents.{cursor,claude}.api_key` 出 daemon.toml 入个人密钥库 | ⬜ |
+> | ⑤-A′ | `agents.{cursor,claude}.api_key` 出 daemon.toml 入个人密钥库 | ✅ |
 >
 > ⑤ 里原列的"device-id 改名与边界"已作废，理由见 §3.2；`amuxd clear` 重写
 > 提前并入 ④c，因为删掉 `legacy_config_dir` 时它是唯一的剩余调用方。
@@ -37,8 +37,12 @@
 > `team_share.*` / `agents.local_agent` → team.toml），HTTP/CLI/前端契约零改动。
 >
 > **⑤-A 未经真实网关联测**：wecom 回调、多 bot 轮换等只有单测覆盖，发布前需要
-> 一次真机验证。⑤-A′（api_key 出 toml）未做：`agents.cursor.api_key` 仍在
-> daemon.toml，牵动桌面 CursorLLMSection 与 `amuxd manage` 的 LLM 菜单。
+> 一次真机验证。⑤-A′ 已落地：两个 `api_key` 字段从结构体删除，daemon 侧统一经
+> `runtime::personal_api_key()` 读个人密钥库（`CURSOR_API_KEY` /
+> `ANTHROPIC_API_KEY`，进程 env 仍最优先）；桌面 Cursor 设置写个人 env store，
+> `default_model` 留在 daemon.toml。`amuxd manage` 无需改——它的 LLM 菜单写的是
+> workspace 级 provider，从未碰过 agents.api_key。headless 场景用 env var 或由
+> 桌面端预先写好个人库。
 
 ---
 
@@ -156,7 +160,8 @@ default_flags = []
 ```
 
 `[agents]` 的另外两部分**不在这里**：`local_agent` 属于团队（`team.toml`），
-`api_key` 属于个人（`~/.{brand}/secrets`）。
+`api_key` 属于个人（`~/.{brand}/secrets` 的个人 env store，键
+`CURSOR_API_KEY` / `ANTHROPIC_API_KEY`；daemon 只读，桌面端负责写入）。
 
 ### 3.2 `device-id`
 

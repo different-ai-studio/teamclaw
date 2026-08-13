@@ -42,3 +42,15 @@ pub use permission_policy::PermissionPolicy;
 pub use opencode_http::OpencodeHost;
 pub use supervisor::RuntimeSupervisor;
 pub use workspace_runtime::{apply_workspace_system_instructions, instruction_plugin_installed};
+
+/// A credential from the user's personal secret store
+/// (`~/.{brand}/secrets/personal-secrets.json.enc`, desktop-owned, daemon
+/// read-only). Where `agents.{cursor,claude}.api_key` went: an API key is a
+/// personal credential, not machine configuration, so it lives with the rest
+/// of the user's personal env instead of in plaintext daemon.toml.
+pub(crate) fn personal_api_key(name: &str) -> Option<String> {
+    teamclu_runtime_env::personal_secrets::load_personal_env()
+        .ok()
+        .and_then(|mut env| env.remove(name))
+        .filter(|v| !v.trim().is_empty())
+}

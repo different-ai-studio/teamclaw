@@ -14,8 +14,15 @@
 #
 # Does NOT delete:
 #   - Cloud account / team data (Supabase / Cloud API)
-#   - Workspace content outside `.teamclu/` (e.g. `teamclu-team/` synced files)
+#   - Workspace content outside `.teamclu/` and the `<short>-team` symlink
 #   - The workspace directory itself
+#
+# Covers the amuxd home-layout v2 (`docs/architecture/amuxd-home-layout-v2.md`):
+#   - white-label daemon homes `~/.amuxd-<brand>` next to the official `~/.amuxd`
+#   - `<workspace>/teamclu-team` symlinks into `~/.amuxd/teams/<id>/shared/` —
+#     removed only when they are symlinks (a real directory is left in place)
+# plus the older product generations that may still be on disk
+# (teamclaw / betly / amux / seamux).
 
 set -euo pipefail
 
