@@ -232,7 +232,7 @@ impl Backend for DeferredBackend {
     async fn ensure_agent_types(
         &self,
         supported_types: &[String],
-        default_agent_type: &str,
+        default_agent_type: Option<&str>,
     ) -> BackendResult<()> {
         self.inner()?
             .ensure_agent_types(supported_types, default_agent_type)

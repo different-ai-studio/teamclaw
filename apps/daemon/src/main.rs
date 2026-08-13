@@ -140,6 +140,12 @@ fn main() -> anyhow::Result<()> {
             if let Err(e) = config::team_config::hydrate(&mut daemon_config) {
                 tracing::warn!(error = %e, "team.toml unreadable; running with default team config");
             }
+            // Boot is the moment "which runtime does this team run here" is
+            // decided, and the only caller that should write an answer down —
+            // the other `hydrate` callers are readers (status, channel reload).
+            if let Err(e) = config::team_config::seed_local_agent_if_unset(&mut daemon_config) {
+                tracing::warn!(error = %e, "could not seed team local_agent; keeping the default");
+            }
             if let Err(e) = agent_discover::discover_and_persist(&mut daemon_config, &config_path) {
                 tracing::warn!("agent auto-discovery failed: {e}");
             }

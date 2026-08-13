@@ -161,7 +161,21 @@
 | PUT | `/v1/teams/:id/skills/:slug/install` | 记录安装（`actorId` + version + scope） |
 | DELETE | `/v1/teams/:id/skills/:slug/install` | 记录卸载 |
 
-鉴权：全部要求团队成员身份。`PATCH` 和 `POST versions` 额外要求是 `owner_actor_id` 本人或团队 owner。
+鉴权：**全部只要求团队成员身份**。发版 / 撤回 / 改元数据 / 删除都对任何成员开放。
+
+> 2026-08-13 翻掉了此前「`PATCH` 和 `POST versions` 额外要求 `owner_actor_id`
+> 本人或团队 owner」的写法。理由：registry 是团队资产，不是发布者的私产。成员
+> 发现共享 skill 里有一步是错的却改不了，唯一的出口是换个 slug 发一个近似重复
+> 品——那正是本设计要消灭的重复。发布门是必填字段（§6），从来不是审批人。
+>
+> `owner_actor_id` 保留，含义仍是「谁负责这个 skill」，用于展示和认领，不再是
+> 权限。落地在三处，必须同时改：`pg-repo/team-skills.ts`（应用层，postgres 后端
+> 没有 RLS 可依赖）、`20260813000000_team_skills_member_writes.sql`（RLS，supabase
+> 后端走这条）、`SkillDetail.tsx` 的 `canPublish`（决定按钮是否出现）。
+>
+> **`team_skill_installs` 刻意不变**：写安装记录是往某个人的机器上放文件，和改
+> 共享内容不是一回事，三条闸门（装给自己 / 团队 agent 要管理员 / 永不替别人装）
+> 原样保留。
 
 `install` / 卸载的 `actorId` 决定权限门：
 
@@ -382,7 +396,7 @@ MQTT 通道是现成的（`crates/teamclu-types/src/mqtt.rs` 的 `actor_notify()
           依赖          ← requires（有才显示）
 版本      版本列表 + changelog，可展开
 操作      [安装] / [卸载] + 「安装到」选择器
-          [发新版]         ← owner 本人可见（§8.2 五）
+          [发新版]         ← 任何团队成员可见（§5 鉴权，§8.2 五）
           冲突条            ← 本地有修改时：[发新版] / [丢弃本地]
 ```
 

@@ -24,6 +24,9 @@ import { TEAM_REPO_DIR } from '@/lib/build-config';
 import { ObsidianIcon } from '@/components/knowledge/ObsidianIcon';
 import { useTeamPermissions } from '@/lib/team-permissions';
 import { useTabsStore } from '@/stores/tabs';
+import { useCurrentTeamStore } from '@/stores/current-team';
+import { useVersionHistoryStore } from '@/stores/version-history';
+import { encodeVersionHistoryTarget } from '@/lib/tabs/teamshare-target';
 import { getFileIcon } from '@/lib/file-icons';
 import { formatDateTime, formatRelativeTime } from '@/lib/date-format';
 import type { FileNode } from "@/stores/workspace";
@@ -35,6 +38,25 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
+
+/**
+ * Open version history for one file.
+ *
+ * The path goes into the target rather than into shared store state: a tab is
+ * addressed by its target string, so two files' histories can be open at once
+ * and neither depends on what happens to be selected. The store preselect is
+ * only so the view has data before its own effect runs.
+ */
+export function openVersionHistory(path: string, label: string) {
+  const teamId = useCurrentTeamStore.getState().team?.id;
+  useVersionHistoryStore.getState().selectFile(path);
+  if (teamId) void useVersionHistoryStore.getState().loadFileVersions(teamId, path);
+  useTabsStore.getState().openTab({
+    type: "native",
+    target: encodeVersionHistoryTarget(path),
+    label,
+  });
+}
 
 function getSyncStatusTextColor(status: 'synced' | 'modified' | 'new' | 'conflict'): string {
   switch (status) {
@@ -469,13 +491,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
         )}
         {!isDirectory && (
           <ContextMenuItem
-            onSelect={guardedMenuAction(() => {
-              useTabsStore.getState().openTab({
-                type: "native",
-                target: "version-history",
-                label: t("versionHistory.title", "Version history"),
-              })
-            })}
+            onSelect={guardedMenuAction(() => openVersionHistory(node.path, t("versionHistory.title", "Version history")))}
           >
             <History className="h-4 w-4" />
             {t("versionHistory.title", "Version history")}

@@ -16,7 +16,62 @@ import {
   type SkillLocalState,
 } from '@/lib/skills/auto-follow'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { useTabsStore } from '@/stores/tabs'
+import {
+  decodeTeamShareTarget,
+  encodeTeamShareTarget,
+  tabSelectionForSection,
+} from '@/lib/tabs/teamshare-target'
 import { TEAM_REPO_DIR } from '@/lib/build-config'
+import i18n from '@/lib/i18n'
+
+/** Open, or re-activate: the tabs store already dedupes on `type` + `target`. */
+function openTeamShareTab(target: string, label: string): void {
+  useTabsStore.getState().openTab({ type: 'native', target, label })
+}
+
+function closeTeamShareTabs(match: (target: string) => boolean): void {
+  const { tabs, closeTab } = useTabsStore.getState()
+  for (const tab of tabs) {
+    if (tab.type === 'native' && match(tab.target)) closeTab(tab.id)
+  }
+}
+
+/**
+ * What the tab is called. Ids are addresses, not names — a skill row's id may be
+ * `personal:deploy-check`, and an env key's is scoped `team:OPENAI_API_KEY`.
+ */
+function sectionLabel(
+  state: TeamShareBrowserState,
+  section: TeamShareSection,
+  id: string,
+): string {
+  if (section === 'skills') return state.skills.items.find((s) => s.id === id)?.name ?? id
+  if (section === 'env') return id.includes(':') ? id.slice(id.indexOf(':') + 1) : id
+  return id
+}
+
+/**
+ * Every tab showing this skill: its detail, and any file of its package.
+ *
+ * A row's id is not always its slug — a personal skill whose name the registry
+ * also owns is addressed as `personal:<slug>` — so both spellings are closed.
+ * Leaving one open would leave a tab pointed at a skill that no longer exists.
+ */
+function closeSkillTabs(slug: string): void {
+  const ids = [slug, `personal:${slug}`]
+  closeTeamShareTabs((target) => {
+    const t = decodeTeamShareTarget(target)
+    if (!t) return false
+    return (t.kind === 'skill' || t.kind === 'skill-file') && ids.includes(t.id)
+  })
+}
+
+function createLabel(section: 'mcp' | 'env'): string {
+  return section === 'mcp'
+    ? i18n.t('teamShare.mcpAdd', 'Add MCP server')
+    : i18n.t('teamShare.envAdd', 'Add team env key')
+}
 
 /** `knowledge/` may not exist yet on a freshly enabled team. */
 async function ensureDir(path: string): Promise<void> {
@@ -141,20 +196,27 @@ interface TeamShareBrowserState {
   envCount: number
   /** Absolute path of the team shared root, for the knowledge file tree. */
   knowledgeRoot: string | null
-  selectedId: Record<TeamShareSection, string | null>
   subjectActorId: string | null
 
   counts: () => Record<TeamShareSection, number>
-  select: (section: TeamShareSection, id: string | null) => void
   /**
-   * Which section is currently composing a new item, if any.
+   * Open a section item in the main area, or with `null` close whatever of this
+   * section is open.
    *
-   * Lives in the store rather than in the list column because the trigger and
-   * the form are in different columns: the "+" is in the list (column two) and
-   * the form renders in the detail pane (column three). Column two stays a
-   * list — nothing is ever authored there.
+   * These are tab operations, not stored selection: the open tab is the single
+   * record of what is being looked at, so the list column reads it back rather
+   * than keeping a parallel copy. `knowledge` is not addressed here — documents
+   * are ordinary file tabs and go through the workspace's own selectFile.
    */
-  creating: TeamShareSection | null
+  select: (section: TeamShareSection, id: string | null) => void
+  /** Open one file of a skill package. */
+  selectSkillFile: (id: string, rel: string) => void
+  /**
+   * Close the tabs for a package file that is gone from disk. `rel` may name a
+   * directory, in which case everything under it goes too — deleting a folder
+   * has to take the tabs of the files it contained.
+   */
+  closeSkillFiles: (id: string, rel: string) => void
   setCreating: (section: TeamShareSection | null) => void
   setSubjectActor: (actorId: string | null) => Promise<void>
   installSkill: (slug: string) => Promise<void>
@@ -665,9 +727,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   knowledge: emptySection<TeamKnowledgeItem>(),
   envCount: 0,
   knowledgeRoot: null,
-  selectedId: { skills: null, mcp: null, env: null, knowledge: null },
   subjectActorId: null,
-  creating: null,
   skillLocalState: {},
   skillSyncErrors: {},
   skillArchived: {},
@@ -682,20 +742,44 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     }
   },
 
-  // Selecting an item leaves compose mode: the detail pane can only show one
-  // of the two, and the user just asked for the item.
-  select: (section, id) =>
-    set((s) => ({
-      selectedId: { ...s.selectedId, [section]: id },
-      creating: id ? null : s.creating,
-    })),
+  // Selection *is* the open tab. There is no `selectedId` here to keep in step
+  // with it — two records of "what am I looking at" is how the old detail pane
+  // ended up disagreeing with the tab strip.
+  select: (section, id) => {
+    if (section === 'knowledge') return // documents are plain file tabs
+    if (!id) {
+      closeTeamShareTabs((t) => tabSelectionForSection(t, section) !== null)
+      return
+    }
+    openTeamShareTab(
+      encodeTeamShareTarget(
+        section === 'mcp'
+          ? { kind: 'mcp', name: id }
+          : section === 'env'
+            ? { kind: 'env', keyId: id }
+            : { kind: 'skill', id },
+      ),
+      sectionLabel(get(), section, id),
+    )
+  },
 
-  setCreating: (section) =>
-    set((s) => ({
-      creating: section,
-      // Clear the selection so the detail pane is free to render the form.
-      selectedId: section ? { ...s.selectedId, [section]: null } : s.selectedId,
-    })),
+  selectSkillFile: (id, rel) => {
+    const target = encodeTeamShareTarget({ kind: 'skill-file', id, rel })
+    openTeamShareTab(target, rel.slice(rel.lastIndexOf('/') + 1))
+  },
+
+  closeSkillFiles: (id, rel) => {
+    closeTeamShareTabs((target) => {
+      const t = decodeTeamShareTarget(target)
+      if (t?.kind !== 'skill-file' || t.id !== id) return false
+      return t.rel === rel || t.rel.startsWith(`${rel}/`)
+    })
+  },
+
+  setCreating: (section) => {
+    if (section !== 'mcp' && section !== 'env') return
+    openTeamShareTab(encodeTeamShareTarget({ kind: 'create', section }), createLabel(section))
+  },
 
   setSubjectActor: async (actorId) => {
     set({ subjectActorId: actorId })
@@ -743,7 +827,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     await getBackend().teamSkills.uninstallTeamSkill(teamId, slug, {
       ...(subjectActorId ? { actorId: subjectActorId } : {}),
     })
-    if (get().selectedId.skills === slug) get().select('skills', null)
+    closeSkillTabs(slug)
     await get().loadSection('skills', { force: true })
   },
 
@@ -768,7 +852,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       await remove(`${skill.dirPath}/${skill.filename}`, { recursive: true })
     }
 
-    if (get().selectedId.skills === slug) get().select('skills', null)
+    closeSkillTabs(slug)
     await get().loadSection('skills', { force: true })
     window.dispatchEvent(new CustomEvent(SKILLS_CHANGED_EVENT))
   },
@@ -813,7 +897,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     if (!teamId) throw new Error('no current team')
     await getBackend().teamMcp.deleteTeamMcpServer(teamId, name)
     await materializeTeamMcp()
-    if (get().selectedId.mcp === name) get().select('mcp', null)
+    closeTeamShareTabs((t) => t === encodeTeamShareTarget({ kind: 'mcp', name }))
     await get().loadSection('mcp', { force: true })
   },
 

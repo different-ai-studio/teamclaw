@@ -1380,20 +1380,27 @@ impl DaemonServer {
             let supported_agent_types = supported_agent_type_names(&self.config);
             let default_agent_type = default_advertised_agent_type(&supported_agent_types);
             let advertise_status = agent_types_advertise.clone();
-            if default_agent_type.is_none() {
-                info!("no configured agent backends; skipping cloud agent_types advertise");
-            } else if let Some(default_agent_type) = default_agent_type {
+            // Advertised unconditionally, including the empty case. "This
+            // device currently runs nothing" is an answer the cloud row has to
+            // carry: skipping the call left the previous answer in place, so a
+            // machine whose team points at an uninstalled runtime went on
+            // showing that runtime's badge in every client — a stale value that
+            // reads as a confident one.
+            {
                 tokio::spawn(async move {
                     let mut delay = Duration::from_secs(2);
                     for attempt in 1..=12 {
                         match sb
-                            .ensure_agent_types(&supported_agent_types, &default_agent_type)
+                            .ensure_agent_types(
+                                &supported_agent_types,
+                                default_agent_type.as_deref(),
+                            )
                             .await
                         {
                             Ok(()) => {
                                 info!(
                                     types = ?supported_agent_types,
-                                    default = %default_agent_type,
+                                    default = ?default_agent_type,
                                     "advertised agent backend types to cloud"
                                 );
                                 let mut s = advertise_status.lock();
