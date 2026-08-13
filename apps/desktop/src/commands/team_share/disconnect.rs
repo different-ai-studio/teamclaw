@@ -303,9 +303,20 @@ mod tests {
 
     /// The daemon's secrets moved out of `teams/<id>/`, so `remove_global_team_home`
     /// no longer erases them as a side effect. Disconnect must take them itself.
+    /// Removes its directory on the way out even when the assert fails: these
+    /// tests write the REAL amuxd home (the desktop resolves it by brand, so
+    /// `$AMUXD_HOME` cannot redirect them), and a failed run must not leave a
+    /// fake team behind on a developer machine.
     #[test]
     fn removes_daemon_team_secrets() {
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
         let team_id = "team-disconnect-secrets-test";
+        let _cleanup = Cleanup(crate::commands::amuxd_team_dir(team_id));
         let Some(path) = global_team_secrets_path(team_id) else {
             return;
         };

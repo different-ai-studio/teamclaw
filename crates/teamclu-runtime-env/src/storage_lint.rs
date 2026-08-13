@@ -34,7 +34,6 @@ const DEBT: &[&str] = &[
     "apps/daemon/src/daemon/server.rs",
     "apps/daemon/src/provider_config.rs",
     "apps/daemon/src/runtime/env_assembly.rs",
-    "apps/daemon/src/runtime/pi_rpc/process.rs",
     "apps/daemon/src/runtime/prompt_attachments.rs",
     "apps/daemon/src/runtime/refresh_watch.rs",
     "apps/daemon/src/runtime/supervisor.rs",

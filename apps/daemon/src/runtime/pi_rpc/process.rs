@@ -330,11 +330,14 @@ pub(crate) fn session_dir_for(worktree: &str) -> PathBuf {
 /// disk at spawn (loaded via `pi -e <path>`).
 const TEAMCLU_EXTENSION_TS: &str = include_str!("../../../assets/pi-extension/teamclu.ts");
 
+/// `cache/pi/` — machine-level pi runtime files (the materialized extension
+/// and per-worktree permission grants). Under `cache/` per the layout spec:
+/// deleting it costs a re-materialize and re-prompts, nothing more. Resolved
+/// through the layout, not a hand-written `~/.amuxd` — the old spelling
+/// ignored both `$AMUXD_HOME` and the brand, and squatted an un-allowlisted
+/// directory at the home root.
 fn amuxd_pi_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".amuxd")
-        .join("pi")
+    crate::config::layout::cache_dir().join("pi")
 }
 
 pub(crate) fn extension_path() -> PathBuf {

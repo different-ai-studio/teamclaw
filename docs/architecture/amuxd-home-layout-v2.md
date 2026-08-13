@@ -279,6 +279,8 @@ system_prompt = "…"
 | `~/.{brand}/secrets/` | 桌面端 | `master.key`、`personal-secrets.json.enc`、`meta.json` |
 | `~/.{brand}/local-cache.db` | 桌面端 | 会话 / 消息缓存 |
 | `~/.{brand}/telemetry-consent.json` | 桌面端 | 遥测授权 |
+| `~/.{brand}/git/` | 桌面端 | 个人 skills 等资源的 git 检出（`lib/git/manager.ts`） |
+| `~/.{brand}/config.json` | 桌面端 | `lib/git/manager.ts` 的仓库配置 |
 | `<workspace>/.{brand}/` | 双方 | `{brand}.json`、`knowledge.db`、`bm25_index/`、`stats.json`、`cron-jobs.json`、`allowlist.json` |
 | `<workspace>/teamclu-team` | daemon | 软链 → `~/.amuxd/teams/<id>/shared/teamclu-team`，**链接名跨品牌固定** |
 | `~/.opencode/bin/opencode` | opencode 安装器 | 官方二进制 |
