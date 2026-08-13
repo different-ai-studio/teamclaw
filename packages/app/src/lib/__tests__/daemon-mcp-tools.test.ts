@@ -60,6 +60,6 @@ describe('getDaemonMcpTools', () => {
   it('appends refresh query when requested', async () => {
     await getDaemonMcpTools('ws-id', { refresh: true })
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
-    expect(calls.some((c) => String(c[0]).includes('/mcp/tools?refresh=1'))).toBe(true)
+    expect(calls.some((c) => String(c[0]).includes('/mcp/tools?refresh=true'))).toBe(true)
   })
 })

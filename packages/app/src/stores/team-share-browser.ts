@@ -93,7 +93,7 @@ import {
   deleteDaemonSkill,
   getDaemonMcp,
   getDaemonMcpTools,
-  materializeDaemonTeamMcp,
+  putDaemonMcp,
   type DaemonMcpServerConfig,
   type DaemonMcpServerProbeResult,
 } from '@/lib/daemon-local-client'
@@ -297,21 +297,70 @@ function currentTeamId(): string | null {
 }
 
 /**
- * Nudge the daemon to re-fold team MCP into `opencode.json` after a catalog or
- * install change, so the user sees their action take effect now rather than on
- * the next reconcile tick.
+ * Materialise a team catalog MCP into this workspace's `opencode.json`.
  *
- * Best-effort: the daemon converges on its own schedule regardless, so a
- * failure here is a latency problem, not a correctness one, and must not turn a
- * successful cloud write into a visible error.
+ * No FC / actorId changes: cloud install stays self-only (human). Runtime reads
+ * the workspace file directly (same idea as Skills landing on disk). Use
+ * `source: 'workspace'` so daemon `filter_put_body` persists the entry — a
+ * `team` source would be stripped on PUT.
  */
-async function materializeTeamMcp(): Promise<void> {
+async function writeMcpIntoWorkspace(
+  name: string,
+  entry: TeamMcpServer | DaemonMcpServerConfig,
+): Promise<void> {
+  const wsPath = workspacePath()
+  if (!wsPath) throw new Error('no workspace')
+  const wid = encodeWorkspaceId(wsPath)
+  const current = await getDaemonMcp(wid)
+  const cfg =
+    'transport' in entry
+      ? catalogToWorkspaceConfig(entry)
+      : { ...entry, source: 'workspace' as const, enabled: entry.enabled ?? true }
+  await putDaemonMcp(wid, { ...current, [name]: cfg })
+}
+
+async function removeMcpFromWorkspace(name: string): Promise<void> {
   const wsPath = workspacePath()
   if (!wsPath) return
+  const wid = encodeWorkspaceId(wsPath)
+  const current = await getDaemonMcp(wid)
+  if (!(name in current)) return
+  // Only remove workspace-owned copies we materialised. Leave inherent / true
+  // team overlays alone.
+  if (current[name]?.source && current[name].source !== 'workspace') return
+  const next = { ...current }
+  delete next[name]
+  await putDaemonMcp(wid, next)
+}
+
+/**
+ * Cloud says installed but workspace has no entry (e.g. installed before this
+ * fix). Copy catalog defs into opencode.json so the agent can see them.
+ */
+async function repairMissingWorkspaceMcp(catalog: TeamMcpServer[]): Promise<void> {
+  const wsPath = workspacePath()
+  if (!wsPath) return
+  const wid = encodeWorkspaceId(wsPath)
+  let current: Record<string, DaemonMcpServerConfig>
   try {
-    await materializeDaemonTeamMcp(encodeWorkspaceId(wsPath))
+    current = await getDaemonMcp(wid)
   } catch {
-    // Intentionally swallowed — see above.
+    return
+  }
+  let changed = false
+  const next = { ...current }
+  for (const entry of catalog) {
+    if (!entry.installed) continue
+    if (next[entry.name]) continue
+    next[entry.name] = catalogToWorkspaceConfig(entry)
+    changed = true
+  }
+  if (changed) {
+    try {
+      await putDaemonMcp(wid, next)
+    } catch {
+      // Best-effort repair — list still shows catalog state.
+    }
   }
 }
 
@@ -567,43 +616,48 @@ async function listTeamSkills(
  */
 async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamMcpItem[]> {
   const wid = encodeWorkspaceId(wsPath)
-  const daemonConfig = await getDaemonMcp(wid).catch(() => ({}) as Record<string, DaemonMcpServerConfig>)
-  const daemonTeamEntries = Object.entries(daemonConfig).filter(([, cfg]) => cfg.source === 'team')
+  let daemonConfig = await getDaemonMcp(wid).catch(() => ({}) as Record<string, DaemonMcpServerConfig>)
 
   let catalog: TeamMcpServer[] = []
   if (teamId) {
     catalog = await getBackend()
       .teamMcp.listTeamMcpServers(teamId)
-      // A catalog fetch failure must not blank the servers already running —
-      // fall back to the daemon's view rather than showing an empty team.
       .catch(() => [])
   }
-  const catalogByName = new Map(catalog.map((c) => [c.name, c]))
 
+  // Skill-like repair: cloud install without local materialisation.
+  await repairMissingWorkspaceMcp(catalog)
+  if (catalog.some((c) => c.installed && !daemonConfig[c.name])) {
+    daemonConfig = await getDaemonMcp(wid).catch(() => daemonConfig)
+  }
+
+  const catalogByName = new Map(catalog.map((c) => [c.name, c]))
   const items = new Map<string, TeamMcpItem>()
 
   for (const entry of catalog) {
+    const onDisk = Boolean(daemonConfig[entry.name])
     items.set(entry.name, {
       name: entry.name,
-      config: catalogToDaemonConfig(entry),
+      config: daemonConfig[entry.name] ?? catalogToDaemonConfig(entry),
       probeStatus: 'unknown',
       tools: [],
       error: null,
       catalog: entry,
-      installed: entry.installed,
+      // Installed for UI = cloud bookkeeping OR already on this machine.
+      installed: entry.installed || onDisk,
     })
   }
 
-  for (const [name, cfg] of daemonTeamEntries) {
-    const known = items.get(name)
-    // The daemon's config is the live one, so it wins for display; the catalog
-    // row is still what edit/delete act on.
+  // Daemon-only rows (legacy .mcp / workspace custom not in catalog).
+  for (const [name, cfg] of Object.entries(daemonConfig)) {
+    if (items.has(name)) continue
+    if (cfg.source === 'inherent') continue
     items.set(name, {
       name,
       config: cfg,
-      probeStatus: known?.probeStatus ?? 'unknown',
-      tools: known?.tools ?? [],
-      error: known?.error ?? null,
+      probeStatus: 'unknown',
+      tools: [],
+      error: null,
       catalog: catalogByName.get(name) ?? null,
       installed: true,
     })
@@ -704,10 +758,10 @@ async function listInstalledPacks(): Promise<OnDiskSkill[]> {
   return invoke<OnDiskSkill[]>('team_skill_list_installed')
 }
 
-/** Render a catalog row in the daemon's config shape so one detail view serves both. */
-function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
+/** Catalog row → workspace-persisted daemon shape (`source: workspace`). */
+function catalogToWorkspaceConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
   const base = {
-    source: 'team',
+    source: 'workspace' as const,
     enabled: true,
     environment: entry.env ?? {},
   }
@@ -719,6 +773,12 @@ function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
         command: [entry.command ?? '', ...(entry.args ?? [])].filter(Boolean),
         headers: {},
       } as DaemonMcpServerConfig)
+}
+
+/** Render a catalog row in the daemon's config shape so one detail view serves both. */
+function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
+  // Display-only; writes use catalogToWorkspaceConfig so PUT persists.
+  return { ...catalogToWorkspaceConfig(entry), source: 'team' }
 }
 
 export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get) => ({
@@ -860,18 +920,22 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   installMcp: async (name) => {
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
+    // Cloud bookkeeping stays self-only (existing FC). Local materialisation is
+    // what the agent runtime reads — same pattern as Skills on disk.
     await getBackend().teamMcp.installTeamMcpServer(teamId, name)
-    // The daemon mirrors the cloud on a TTL tick; nudge the workspace so the
-    // server appears without waiting it out.
-    await materializeTeamMcp()
+    const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
+    const entry = catalog.find((c) => c.name === name)
+    if (!entry) throw new Error(`mcp server ${name} missing from catalog after install`)
+    await writeMcpIntoWorkspace(name, entry)
     await get().loadSection('mcp', { force: true })
+    await get().loadMcpTools({ refresh: true })
   },
 
   uninstallMcp: async (name) => {
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
     await getBackend().teamMcp.uninstallTeamMcpServer(teamId, name)
-    await materializeTeamMcp()
+    await removeMcpFromWorkspace(name)
     await get().loadSection('mcp', { force: true })
   },
 
@@ -888,15 +952,20 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
     await getBackend().teamMcp.updateTeamMcpServer(teamId, name, patch)
-    await materializeTeamMcp()
+    const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
+    const entry = catalog.find((c) => c.name === name)
+    if (entry?.installed) {
+      await writeMcpIntoWorkspace(name, entry)
+    }
     await get().loadSection('mcp', { force: true })
+    await get().loadMcpTools({ refresh: true })
   },
 
   deleteMcp: async (name) => {
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
     await getBackend().teamMcp.deleteTeamMcpServer(teamId, name)
-    await materializeTeamMcp()
+    await removeMcpFromWorkspace(name)
     closeTeamShareTabs((t) => t === encodeTeamShareTarget({ kind: 'mcp', name }))
     await get().loadSection('mcp', { force: true })
   },
