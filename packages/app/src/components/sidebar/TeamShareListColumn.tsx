@@ -64,7 +64,8 @@ const SECTION_META: Record<
 
 interface RowProps {
   active: boolean
-  icon: React.ComponentType<{ className?: string }>
+  /** Omitted by the skills list, which identifies rows by name alone. */
+  icon?: React.ComponentType<{ className?: string }>
   iconTint?: string
   title: string
   titleMono?: boolean
@@ -129,14 +130,16 @@ function ItemRow({
       ) : expandable === false ? (
         <span className="h-5 w-5 shrink-0" />
       ) : null}
-      <span
-        className={cn(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-          iconTint ?? 'bg-muted text-muted-foreground',
-        )}
-      >
-        <Icon className="h-[15px] w-[15px]" />
-      </span>
+      {Icon && (
+        <span
+          className={cn(
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+            iconTint ?? 'bg-muted text-muted-foreground',
+          )}
+        >
+          <Icon className="h-[15px] w-[15px]" />
+        </span>
+      )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5">
           <span
@@ -184,10 +187,7 @@ function GroupHeader({ label, count }: { label: string; count: number }) {
 type SkillRow = {
   id: string
   kind: TeamSkillKind
-  icon: typeof Sparkles
-  iconTint: string
   title: string
-  subtitle?: string
   meta?: string
   badge?: React.ReactNode
   dimmed?: boolean
@@ -329,8 +329,6 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
         return {
           id: s.id,
           kind: s.kind,
-          icon: Sparkles,
-          iconTint: 'bg-coral/10 text-coral',
           // The loader stores the parent directory in `dirPath` and the folder
           // name in `filename`; together they are the package root.
           packDir:
@@ -338,7 +336,11 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
               ? `${s.dirPath}/${s.filename}`
               : undefined,
           title: s.name,
-          subtitle: s.summary || undefined,
+          // No icon and no summary line. Every row in this list is a skill, so
+          // the icon repeated the group header without distinguishing anything,
+          // and a truncated one-line summary is not enough to judge a skill by
+          // — that is the detail pane's job. What is left is the name plus the
+          // one line that differs per row.
           meta: metaParts.filter(Boolean).join(' · ') || undefined,
           badge:
             s.status === 'deprecated' ? (
@@ -691,10 +693,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
                     const rowNode = (
                       <ItemRow
                         active={selected === row.id && !selectedSkillFile}
-                        icon={row.icon}
-                        iconTint={row.iconTint}
                         title={row.title}
-                        subtitle={row.subtitle}
                         meta={row.meta}
                         badge={row.badge}
                         trailing={row.trailing}

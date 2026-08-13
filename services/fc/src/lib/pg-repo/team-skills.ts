@@ -16,6 +16,13 @@
  *    installs for. assertCanInstallFor is the single gate; it mirrors the RLS
  *    policy in the migration, because the supabase backend enforces via RLS and
  *    the postgres backend has no RLS to lean on.
+ *
+ * 3. Editing the registry is open to every team member: publish, revert, patch
+ *    metadata, delete. `owner_actor_id` stays as the answer to "who is
+ *    responsible for this", not as a permission — the registry is team
+ *    property, and the publish gate is the required fields, never an approver.
+ *    Installing is the exception that stays gated (see assertCanInstallFor):
+ *    it writes to somebody's machine rather than to shared content.
  */
 
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
@@ -173,13 +180,6 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
       .limit(1);
     if (!row) throw new ApiError(404, "not_found", `skill not found: ${slug}`);
     return row;
-  }
-
-  /** owner of the skill, or a team admin. Mirrors the UPDATE RLS policy. */
-  async function assertCanEdit(userId: string, skill: any, callerActorId: string) {
-    if (skill.ownerActorId === callerActorId) return;
-    if (await isTeamAdmin(userId, skill.teamId)) return;
-    throw new ApiError(403, "forbidden", "only the skill owner or a team admin may do this");
   }
 
   /**
@@ -390,7 +390,6 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
       const userId = requireUser();
       const callerActorId = await requireActorForTeam(db, userId, teamId);
       const skill = await loadSkill(teamId, slug);
-      await assertCanEdit(userId, skill, callerActorId);
 
       const changelog = String(body.changelog ?? "").trim();
       if (!changelog) throw new ApiError(400, "validation_failed", "changelog is required");
@@ -457,7 +456,6 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
       const userId = requireUser();
       const callerActorId = await requireActorForTeam(db, userId, teamId);
       const skill = await loadSkill(teamId, slug);
-      await assertCanEdit(userId, skill, callerActorId);
 
       const [source] = await db
         .select()
@@ -512,9 +510,10 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
     /** Metadata edit, owner transfer, deprecation. */
     async updateTeamSkill(teamId: string, slug: string, patch: any = {}) {
       const userId = requireUser();
-      const callerActorId = await requireActorForTeam(db, userId, teamId);
+      // Team membership is the whole gate. Metadata, ownership and deprecation
+      // are the team's to change, not one member's to hold.
+      await requireActorForTeam(db, userId, teamId);
       const skill = await loadSkill(teamId, slug);
-      await assertCanEdit(userId, skill, callerActorId);
 
       const fields = requirePublishFields(patch, { partial: true });
       const update: Record<string, unknown> = { ...fields };
@@ -552,9 +551,8 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
 
     async deleteTeamSkill(teamId: string, slug: string) {
       const userId = requireUser();
-      const callerActorId = await requireActorForTeam(db, userId, teamId);
+      await requireActorForTeam(db, userId, teamId);
       const skill = await loadSkill(teamId, slug);
-      await assertCanEdit(userId, skill, callerActorId);
       await db.delete(teamSkills).where(eq(teamSkills.id, skill.id));
     },
 

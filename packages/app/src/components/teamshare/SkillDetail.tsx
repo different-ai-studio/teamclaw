@@ -841,7 +841,6 @@ export function SkillDetail({ slug }: { slug: string }) {
   const isDark = useIsDark()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
-  const currentMember = useCurrentTeamStore((s) => s.currentMember)
   // By id, not slug: a personal skill colliding with a registry name carries
   // `personal:<slug>`, and matching on slug would resolve both rows to the
   // registry one.
@@ -1233,16 +1232,12 @@ export function SkillDetail({ slug }: { slug: string }) {
   const isPersonal = item.kind === 'personal'
   const canEdit = Boolean(item.dirPath && item.filename && (item.kind === 'personal' || item.installed))
   const latestChangelog = [...versions].sort((a, b) => b.version - a.version)[0]?.changelog
-  // Publishing is owner-or-admin, matching the RLS policy on
-  // `team_skill_versions` (and the design's "owner 本人可见"). Offering the
-  // button to everyone does not widen anything — the insert is refused — it just
-  // turns the one exit a member cannot take into their most prominent one, and
-  // teaches them that this dialog sometimes fails for no visible reason.
-  const canPublish =
-    isRegistry &&
-    (item.ownerActorId === currentMember?.id ||
-      currentMember?.role === 'owner' ||
-      currentMember?.role === 'admin')
+  // Any team member can publish and revert: the registry is team property, and
+  // the gate on a new version is the required fields, not an approver. `owner`
+  // stays on the row as the answer to "who is responsible for this" — it is
+  // displayed, not enforced (see the member-writes migration and the pg-repo
+  // header).
+  const canPublish = isRegistry
   const baseVersion = localState?.installedVersion
     ? Number(localState.installedVersion)
     : item.installedVersion
