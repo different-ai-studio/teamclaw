@@ -8,10 +8,21 @@
 > 面向用户的说明见 [`../amuxd-home-directory.md`](../amuxd-home-directory.md)。
 >
 > **落地进度**（本文描述的是目标态，不是当前态）：
-> ① 文档 + 棘轮 ✅ · ② 品牌收敛 ✅ · ③ 路径 helper ✅ ·
-> ④a 根目录 `run/` `logs/` `cache/` + 白名单测试 ✅ ·
-> ④b 团队状态下沉 `teams/<id>/{shared,state,workspace}` ⬜ ·
-> ④c 一次性清理 + 删迁移代码 ⬜ · ⑤ 配置拆分 + 日志轮换 + `amuxd clear` 重写 ⬜
+>
+> | 刀 | 内容 | 状态 |
+> |---|---|---|
+> | ① | 规范 + ADR + 字面量棘轮 | ✅ |
+> | ② | 品牌判据收敛到只认 `teamclu` | ✅ |
+> | ③ | 两个家目录各一个 helper 入口 | ✅ |
+> | ④a | 根目录收敛 `run/` `logs/` `cache/` + 白名单测试 | ✅ |
+> | ④b-1 | `teams/<id>/{shared,state,workspace}` 三层 | ✅ |
+> | ④b-2 | `backend.toml` + `cloud-token` 下沉、`_unclaimed` + claim 时 rename | ✅ |
+> | ④b-3 | `runtimes.toml` / `sessions/` / `history/` / `mcp-configs/` / `attachments/` / `apps/` / `members.toml` 下沉 | ⬜ |
+> | ④b-4 | 每团队一把 `secret.key` + `secrets.enc` 下沉 | ⬜ |
+> | ④c | 旧路径一次性清理 + 删除全部迁移代码 | ⬜ |
+> | ⑤ | `daemon.toml` 瘦身（`team.toml` / agents 拆三份 / channels 凭证入库）、日志轮换、`amuxd clear` 重写 | ⬜ |
+>
+> ⑤ 里原列的"device-id 改名与边界"已作废，理由见 §3.2。
 
 ---
 
