@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { isTauri } from '@/lib/utils'
 import { getFreshAccessToken } from '@/lib/auth/session-store'
-import { linkDaemonTeamWorkspace } from '@/lib/daemon-local-client'
 import { getEffectiveServerConfigSync } from '@/lib/server-config'
 
 // ---------------------------------------------------------------------------
@@ -68,11 +67,6 @@ export interface TeamShareState {
   lastError: string | null
 
   refresh(teamId: string, workspacePath: string): Promise<ShareStatus>
-  enableOss(
-    teamId: string,
-    workspacePath: string,
-    teamSecretHex?: string,
-  ): Promise<EnableShareResult>
   /**
    * Save the team secret and deliver it to the daemon. Resolves to a warning
    * string when the save succeeded but the daemon did not take delivery — the
@@ -86,8 +80,6 @@ export interface TeamShareState {
   ): Promise<string | null>
   /** Read back the locally-stored team secret; `null` when none is saved. */
   getSecret(teamId: string, workspacePath: string): Promise<string | null>
-  /** Local teardown + cloud share-mode reset → wizard can run again. */
-  disconnect(teamId: string, workspacePath: string): Promise<void>
 }
 
 const EMPTY_STATUS: ShareStatus = {
@@ -105,7 +97,7 @@ function getCloudApiUrlForNativeCommand(): string {
 let shareRefreshInflight: Promise<ShareStatus> | null = null
 let shareRefreshInflightKey: string | null = null
 
-export const useTeamShareStore = create<TeamShareState>((set, get) => ({
+export const useTeamShareStore = create<TeamShareState>((set) => ({
   status: EMPTY_STATUS,
   loading: false,
   lastError: null,
@@ -153,23 +145,6 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
     return shareRefreshInflight
   },
 
-  async enableOss(teamId, workspacePath, teamSecretHex) {
-    const accessToken = await getFreshAccessToken()
-    const cloudApiUrl = getCloudApiUrlForNativeCommand()
-    const res = await invoke<EnableShareResult>('team_share_enable_oss', {
-      teamId,
-      workspacePath,
-      accessToken,
-      cloudApiUrl,
-      teamSecretHex: teamSecretHex?.trim() || null,
-    })
-    // Materialize the daemon's global dir + workspace symlink now (best-effort)
-    // so the synced directory exists immediately instead of after a restart.
-    await linkDaemonTeamWorkspace(workspacePath)
-    await get().refresh(teamId, workspacePath)
-    return res
-  },
-
   async setSecret(teamId, secretHex, workspacePath) {
     const warning = await invoke<string | null>('team_share_set_team_secret', {
       teamId,
@@ -194,24 +169,4 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
     return secret ?? null
   },
 
-  async disconnect(teamId, workspacePath) {
-    if (!isTauri()) {
-      throw new Error('Team share disconnect requires the desktop app')
-    }
-    const accessToken = await getFreshAccessToken()
-    const cloudApiUrl = getCloudApiUrlForNativeCommand()
-    await invoke<{ success: boolean; message: string }>('team_disconnect_repo', {
-      teamId,
-      workspacePath,
-      accessToken,
-      cloudApiUrl,
-    })
-    set({ status: { ...EMPTY_STATUS }, lastError: null })
-    try {
-      const { useTeamModeStore } = await import('@/stores/team-mode')
-      await useTeamModeStore.getState().clearTeamMode(workspacePath)
-    } catch {
-      // Best-effort: legacy team_mode cleared on disk by the Rust command.
-    }
-  },
 }))

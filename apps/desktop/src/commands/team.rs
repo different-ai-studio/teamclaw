@@ -100,10 +100,35 @@ pub fn workspace_read_team_meta(workspace_path: String) -> Result<Option<TeamMet
     }
 }
 
+/// Remove `<workspace>/teamclu-team` whether it is a symlink, junction, or real
+/// dir. Moved here from `team_share::disconnect` when that module went: this
+/// command was its only surviving caller.
+fn remove_workspace_team_repo_entry(workspace_path: &str) -> Result<(), String> {
+    let link = Path::new(workspace_path).join(TEAM_REPO_DIR);
+    match std::fs::symlink_metadata(&link) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("Failed to inspect {}: {}", link.display(), e)),
+        Ok(meta) if meta.file_type().is_symlink() => {
+            #[cfg(unix)]
+            {
+                std::fs::remove_file(&link)
+                    .map_err(|e| format!("Failed to remove symlink {}: {}", link.display(), e))
+            }
+            #[cfg(windows)]
+            {
+                std::fs::remove_dir(&link)
+                    .map_err(|e| format!("Failed to remove junction {}: {}", link.display(), e))
+            }
+        }
+        Ok(_) => std::fs::remove_dir_all(&link)
+            .map_err(|e| format!("Failed to remove directory {}: {}", link.display(), e)),
+    }
+}
+
 /// Delete the `teamclu-team/` directory inside `workspace_path`.
 #[tauri::command]
 pub fn workspace_delete_team_repo(workspace_path: String) -> Result<(), String> {
-    crate::commands::team_share::disconnect::remove_workspace_team_repo_entry(&workspace_path)
+    remove_workspace_team_repo_entry(&workspace_path)
 }
 
 #[cfg(test)]

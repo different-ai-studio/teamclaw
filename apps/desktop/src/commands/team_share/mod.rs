@@ -4,21 +4,18 @@
 //! `oss_sync::oss_sync_create_team` Tauri command. It does ONLY the
 //! `POST /v1/teams` call and returns `{ team_id, team_slug }`.
 //!
-//! Secret generation, OSS directory setup, and writes to
-//! `.teamclu/teamclu.json` (e.g. `oss_team_id`, `share_mode`,
-//! `ai_gateway_endpoint`) are intentionally NOT performed here. Those
-//! responsibilities live in the `enable_oss` command (`team_share::enable`).
+//! Enabling and disconnecting are both gone: share mode is a server-side
+//! switch that is already on for every team, and the cloud refuses to turn it
+//! back off (`DELETE /v1/teams/:id/share-mode` answers 410). What is left is
+//! team creation, the team encryption key, and read-only status.
 
-pub mod disconnect;
 pub mod enable;
 pub mod join;
 
 #[allow(unused_imports)]
-pub use disconnect::team_disconnect_repo;
-#[allow(unused_imports)]
 pub use enable::{
-    enable_oss_impl, get_share_status_impl, set_team_secret_impl, team_share_enable_oss,
-    team_share_get_status, team_share_set_team_secret, team_sync_paths, EnableShareResult,
+    get_share_status_impl, set_team_secret_impl, team_share_get_status,
+    team_share_set_team_secret,
 };
 #[allow(unused_imports)]
 pub use join::{team_share_join_existing, team_share_join_existing_impl, JoinExistingResult};
