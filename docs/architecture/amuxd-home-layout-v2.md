@@ -20,15 +20,17 @@
 > | ④b-3 | `runtimes.toml` / `sessions/` / `history/` / `mcp-configs/` / `attachments/` / `apps/` / `members.toml` 下沉 | ✅ |
 > | ④b-4 | 每团队一把 `secret.key` + `secrets.enc` 下沉、删掉反向搬运器 | ✅ |
 > | ④c | 旧路径一次性清理 + 删除全部迁移代码 + `amuxd clear` 重写 | ✅ |
-> | ⑤ | `daemon.toml` 瘦身：`team.toml` 拆分 / `[agents]` 拆三份 / channels 凭证入 `secrets.enc` | ⬜ |
-> | ⑤ | 日志三合一 + 轮换 | ⬜ |
+> | ⑤-C | 身份去重：`backend.toml` 独占 `actor_id`，`daemon.toml` 只剩 `active_team` 指针 | ✅ |
+> | ⑤-D | 日志三合一 + 轮换（`logs/amuxd.log`，32 MiB × 3，`[log]` 可调） | ✅ |
+> | ⑤-A | `team.toml` 拆分：`[channels]` / `[team_share]` / `local_agent` 下沉 + 凭证入 `secrets.enc` | ⬜ |
 >
 > ⑤ 里原列的"device-id 改名与边界"已作废，理由见 §3.2；`amuxd clear` 重写
 > 提前并入 ④c，因为删掉 `legacy_config_dir` 时它是唯一的剩余调用方。
 >
-> **⑤ 尚未开始**，所以 §3.1 的 `active_team` 字段、§4.3 的 `team.toml`、§3.3 的
-> 单文件轮换日志目前都还是目标态：`daemon.toml` 仍持有 `team_id` / `[actor].id`
-> / `[channels]` / `[team_share]`，`logs/` 下仍是三份不轮换的日志。
+> **⑤-A 未开始**：§4.3 的 `team.toml` 仍是目标态——`daemon.toml` 今天仍持有
+> `[channels]`、`[team_share]` 和 `agents.local_agent`，桌面端 gateway 设置
+> 也仍直接读写 `daemon.toml` 的 `[channels]` 段。这一刀同时动 7 个 channel
+> 的凭证装载路径和桌面端 gateway 命令，需要真实网关环境联测，不与 C/D 混算。
 
 ---
 
@@ -167,14 +169,16 @@ UUIDv5 哈希），所以删掉文件会重新算出同一个值而不是换一�
 
 ### 3.3 `logs/`
 
-目标是单文件 `amuxd.log`，带轮换（上限与保留份数在 `daemon.toml` 的 `[log]` 段，
-默认 32 MB × 3）。旧布局的 `amuxd.out.log` / `amuxd.err.log` /
-`amuxd.managed.log` 三份并存且永不截断，实测单机 116 MB。
+daemon 的 tracing 输出写进单文件 `amuxd.log`，按大小轮换（写满换名为
+`amuxd.log.1`，逐级后移，最老的丢弃；上限与保留份数在 `daemon.toml` 的 `[log]`
+段，默认 32 MiB × 3 个文件）。终端里跑时额外镜像到 stdout。
 
-**④a 只把这三份搬进 `logs/`**，写入方（桌面端 spawn 时的重定向、launchd 的
-`StandardOutPath`）不变；合并成单文件与轮换在 ⑤。这么切是因为轮换要改的是
-*写入方*，而搬目录要改的是*读取方*——两件事失败的方式不一样，混在一起出问题时
-分不清是哪一半。
+`amuxd.managed.log`（桌面 spawn 重定向）与 `amuxd.out.log` / `amuxd.err.log`
+（launchd / systemd 重定向）仍然存在，但只接得到 tracing 覆盖不了的东西：
+panic、init 前的 print、子进程输出。managed.log 由桌面端在每次 spawn 时超限
+轮换。诊断打包优先取 `amuxd.log`，缺失时回退 managed / out / err。
+
+旧布局三份日志并存且永不截断，实测单机 116 MB——这就是轮换是必修项的原因。
 
 ---
 

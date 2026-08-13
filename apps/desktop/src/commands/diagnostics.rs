@@ -25,7 +25,10 @@ pub struct LogTails {
 #[serde(rename_all = "camelCase")]
 pub struct LogTailsExpanded {
     pub app: Option<String>,
-    /// Desktop-managed amuxd stdout/stderr combined (`amuxd.managed.log`).
+    /// The daemon's own rotating diary (`logs/amuxd.log`) — its tracing output.
+    pub amuxd_log: Option<String>,
+    /// Desktop-managed spawn redirect (`amuxd.managed.log`): panics, pre-init
+    /// prints and child output — everything tracing cannot capture.
     pub amuxd_managed: Option<String>,
     /// Legacy LaunchAgent-era stdout (may be absent under managed mode).
     pub amuxd_out: Option<String>,
@@ -57,6 +60,10 @@ fn amuxd_out_log_path() -> Option<PathBuf> {
 
 fn amuxd_err_log_path() -> Option<PathBuf> {
     amuxd_logs_dir_opt().map(|d| d.join("amuxd.err.log"))
+}
+
+fn amuxd_log_path() -> Option<PathBuf> {
+    amuxd_logs_dir_opt().map(|d| d.join("amuxd.log"))
 }
 
 fn amuxd_managed_log_path() -> Option<PathBuf> {
@@ -114,11 +121,17 @@ fn tail_app_logs<R: Runtime>(app: &AppHandle<R>, max_lines: usize) -> Option<Str
 }
 
 fn merge_amuxd_logs(
+    rotating: Option<String>,
     managed: Option<String>,
     out: Option<String>,
     err: Option<String>,
 ) -> Option<String> {
-    // Prefer the desktop-managed diary; fall back to legacy LaunchAgent streams.
+    // The daemon's own rotating diary carries its tracing output; the managed
+    // redirect only catches panics / pre-init prints. Prefer the diary, fall
+    // back to the redirect, then to the legacy LaunchAgent streams.
+    if rotating.is_some() {
+        return rotating;
+    }
     if managed.is_some() {
         return managed;
     }
@@ -134,6 +147,11 @@ fn collect_log_tails_expanded<R: Runtime>(
     app: &AppHandle<R>,
     max_lines: usize,
 ) -> LogTailsExpanded {
+    let amuxd_log = amuxd_log_path()
+        .filter(|p| p.exists())
+        .and_then(|p| tail_file(&p, max_lines))
+        .map(|s| redact_log_text(&s));
+
     let amuxd_managed = amuxd_managed_log_path()
         .filter(|p| p.exists())
         .and_then(|p| tail_file(&p, max_lines))
@@ -160,6 +178,7 @@ fn collect_log_tails_expanded<R: Runtime>(
 
     LogTailsExpanded {
         app: tail_app_logs(app, max_lines),
+        amuxd_log,
         amuxd_managed,
         amuxd_out,
         amuxd_err,
@@ -171,6 +190,7 @@ fn collect_log_tails<R: Runtime>(app: &AppHandle<R>) -> LogTails {
     let expanded = collect_log_tails_expanded(app, LOG_TAIL_LINES);
     LogTails {
         amuxd: merge_amuxd_logs(
+            expanded.amuxd_log.clone(),
             expanded.amuxd_managed.clone(),
             expanded.amuxd_out.clone(),
             expanded.amuxd_err.clone(),
@@ -386,11 +406,21 @@ mod tests {
     }
 
     #[test]
-    fn merge_amuxd_logs_prefers_managed() {
+    fn merge_amuxd_logs_prefers_the_rotating_diary() {
         let merged = merge_amuxd_logs(
+            Some("rotating diary".into()),
             Some("managed diary".into()),
             Some("stdout line".into()),
             Some("stderr line".into()),
+        )
+        .unwrap();
+        assert_eq!(merged, "rotating diary");
+
+        let merged = merge_amuxd_logs(
+            None,
+            Some("managed diary".into()),
+            Some("stdout line".into()),
+            None,
         )
         .unwrap();
         assert_eq!(merged, "managed diary");
@@ -398,8 +428,13 @@ mod tests {
 
     #[test]
     fn merge_amuxd_logs_combines_legacy_streams() {
-        let merged =
-            merge_amuxd_logs(None, Some("stdout line".into()), Some("stderr line".into())).unwrap();
+        let merged = merge_amuxd_logs(
+            None,
+            None,
+            Some("stdout line".into()),
+            Some("stderr line".into()),
+        )
+        .unwrap();
         assert!(merged.contains("stdout line"));
         assert!(merged.contains("stderr line"));
     }

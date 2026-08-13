@@ -11,6 +11,7 @@ mod device_id;
 mod error;
 mod history;
 mod http;
+mod logging;
 mod mcp_probe;
 mod mqtt;
 mod nats;
@@ -71,12 +72,40 @@ fn main() -> anyhow::Result<()> {
             daemonize: _,
             config,
         } => {
-            tracing_subscriber::fmt()
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::from_default_env()
-                        .add_directive("amuxd=info".parse().unwrap()),
-                )
-                .init();
+            let config_path = config.unwrap_or_else(config::DaemonConfig::default_path);
+
+            // Tracing goes to `logs/amuxd.log`, size-capped, no matter how the
+            // daemon was launched — managed spawn, launchd, or a terminal. The
+            // stdout/stderr redirects the launchers keep pointing at this
+            // directory only catch what tracing cannot (panics, child output),
+            // so they stay small instead of growing without bound. A terminal
+            // additionally gets the log on stdout.
+            let (log_max_bytes, log_keep) = logging::settings_from(&config_path);
+            let file_log = logging::RotatingLog::new(
+                config::layout::logs_dir().join("amuxd.log"),
+                log_max_bytes,
+                log_keep,
+            );
+            {
+                use std::io::IsTerminal;
+                use tracing_subscriber::layer::SubscriberExt;
+                use tracing_subscriber::util::SubscriberInitExt;
+                let registry = tracing_subscriber::registry()
+                    .with(
+                        tracing_subscriber::EnvFilter::from_default_env()
+                            .add_directive("amuxd=info".parse().unwrap()),
+                    )
+                    .with(
+                        tracing_subscriber::fmt::layer()
+                            .with_ansi(false)
+                            .with_writer(file_log),
+                    );
+                if std::io::stdout().is_terminal() {
+                    registry.with(tracing_subscriber::fmt::layer()).init();
+                } else {
+                    registry.init();
+                }
+            }
 
             // The lock comes first because the two calls under it rewrite the
             // home directory, and `purge_v1_layout` in particular deletes the
@@ -88,8 +117,6 @@ fn main() -> anyhow::Result<()> {
             config::layout::ensure();
             cli::process::write_pidfile()?;
             let _pid_guard = PidfileGuard;
-
-            let config_path = config.unwrap_or_else(config::DaemonConfig::default_path);
             // Absent config bootstraps rather than failing: a fresh install must
             // be able to start and serve the setup UI that configures it.
             let mut daemon_config = config::DaemonConfig::load_or_bootstrap(&config_path)?;

@@ -60,6 +60,22 @@ pub struct DaemonConfig {
     /// `forceSync: true` still runs.
     #[serde(default)]
     pub team_share: TeamShareConfig,
+    /// `logs/amuxd.log` rotation. Consumed by a probe in `crate::logging`
+    /// before the full config loads; declared here so `save()` round-trips a
+    /// hand-added `[log]` section instead of silently erasing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log: Option<LogConfig>,
+}
+
+/// `[log]` — caps for the daemon's own rotating log file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogConfig {
+    /// Rotate `amuxd.log` when a write would cross this. Default 32 MiB.
+    #[serde(default)]
+    pub max_bytes: Option<u64>,
+    /// Rotated files kept beside the active one. Default 2.
+    #[serde(default)]
+    pub keep: Option<u32>,
 }
 
 /// Per-daemon team-share behavior. Distinct from the cloud team's `share_mode`.
@@ -620,6 +636,7 @@ impl DaemonConfig {
             // loopback control plane without a hand edit.
             http: Some(HttpConfig::default()),
             team_share: TeamShareConfig::default(),
+            log: None,
         }
     }
 
