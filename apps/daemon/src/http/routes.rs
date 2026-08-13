@@ -112,10 +112,7 @@ pub fn build(state: HttpState) -> Router {
         // Device-level provider config (#742). Credentials are per-machine, not
         // per-workspace, so these need no workspace id — which is what lets
         // first-run onboarding configure a model before a project is chosen.
-        .route(
-            "/v1/providers",
-            get(workspaces::get_device_providers),
-        )
+        .route("/v1/providers", get(workspaces::get_device_providers))
         .route(
             "/v1/providers/:provider_id/auth",
             post(workspaces::put_device_provider_auth)

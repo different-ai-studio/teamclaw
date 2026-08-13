@@ -227,5 +227,4 @@ mod link_status_tests {
             assert!(p.ends_with(TEAM_REPO_DIR));
         }
     }
-
 }

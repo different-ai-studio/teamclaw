@@ -176,7 +176,9 @@ impl Backend for DeferredBackend {
         slug: &str,
         version: i64,
     ) -> BackendResult<TeamSkillDownload> {
-        self.inner()?.team_skill_download(team_id, slug, version).await
+        self.inner()?
+            .team_skill_download(team_id, slug, version)
+            .await
     }
 
     async fn record_team_skill_install(

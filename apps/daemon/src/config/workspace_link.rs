@@ -326,5 +326,4 @@ mod tests {
             .file_type()
             .is_symlink());
     }
-
 }

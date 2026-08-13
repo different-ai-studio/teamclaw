@@ -229,11 +229,7 @@ mod tests {
 
         let (d, _backend) = dispatcher_with_mock(&tmp);
         let st = d
-            .sync_team(
-                "t",
-                "/tmp/ws",
-                SyncOptions { force: false },
-            )
+            .sync_team("t", "/tmp/ws", SyncOptions { force: false })
             .await;
         assert!(st.skipped);
         assert!(st.last_error.is_none());
@@ -264,11 +260,7 @@ mod tests {
         let store = SecretStore::with_base(tmp.path().to_path_buf());
         let d = SyncDispatcher::new(store, None);
         let err_st = d
-            .sync_team(
-                "t",
-                "/tmp/ws",
-                SyncOptions { force: true },
-            )
+            .sync_team("t", "/tmp/ws", SyncOptions { force: true })
             .await;
         assert!(err_st.last_error.is_some());
 
@@ -277,11 +269,7 @@ mod tests {
             .unwrap();
 
         let st = d
-            .sync_team(
-                "t",
-                "/tmp/ws",
-                SyncOptions { force: false },
-            )
+            .sync_team("t", "/tmp/ws", SyncOptions { force: false })
             .await;
         assert!(st.skipped);
         assert!(st.last_error.is_some());

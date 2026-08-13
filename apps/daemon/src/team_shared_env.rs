@@ -186,11 +186,9 @@ pub fn load_team_env(
     shared_dir_name: &str,
     env_secret: &str,
 ) -> anyhow::Result<HashMap<String, String>> {
-    let secrets_dir = crate::config::global_team_store::shared_dir_path(
-        workspace_root,
-        shared_dir_name,
-    )?
-    .join("_secrets");
+    let secrets_dir =
+        crate::config::global_team_store::shared_dir_path(workspace_root, shared_dir_name)?
+            .join("_secrets");
     load_team_env_from_secrets_dir(&secrets_dir, env_secret)
 }
 

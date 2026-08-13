@@ -436,10 +436,7 @@ async fn redeliver_local_team_secret(team_id: &str, workspace_path: &str) -> boo
     let Some(secret) = local_team_secret_for_redelivery(workspace_path, team_id) else {
         return false;
     };
-    if daemon_team_secrets(team_id, Some(&secret))
-        .await
-        .is_err()
-    {
+    if daemon_team_secrets(team_id, Some(&secret)).await.is_err() {
         return false;
     }
     // Re-link is non-fatal — the secret is what unblocks sync.

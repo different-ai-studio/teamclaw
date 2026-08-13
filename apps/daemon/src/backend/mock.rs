@@ -24,8 +24,8 @@ use async_trait::async_trait;
 
 use crate::backend::{
     AgentDefaults, Backend, BackendError, BackendResult, BackendSessionAndParticipants,
-    BootstrapMqttOverride, ClaimResult, GatewaySessionRow, ManagedLlmConfig,
-    ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
+    BootstrapMqttOverride, ClaimResult, GatewaySessionRow, ManagedLlmConfig, ShareModeConfig,
+    StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
