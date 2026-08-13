@@ -3,7 +3,10 @@ import {
   resolveAgentAvailableModels,
   type AgentModelOption,
 } from "@/lib/agent-available-models";
-import { firstAvailableRecentModel } from "@/lib/local-daemon-model-catalog";
+import {
+  firstAvailableMruModel,
+  useClientModelMruStore,
+} from "@/stores/client-model-mru";
 import type { RuntimeInfo } from "@/lib/proto/amux_pb";
 import {
   resolveSessionAttachmentEntry,
@@ -89,9 +92,16 @@ export function agentAvailableModelsWithLocalCatalog(args: {
 }
 
 /**
- * The `providerFallback` slot for `selectAgentModel` — this device's MRU.
+ * The `providerFallback` slot for `selectAgentModel` — this client's MRU.
  *
- * Local agent only: this device's history says nothing about a remote agent's.
+ * The list now comes from `stores/client-model-mru` rather than the daemon's
+ * `model-catalog.recent_models`: ADR-0007 moves the MRU out of amuxd, because a
+ * preference the daemon owns is one a mis-picking client can poison for every
+ * later session (see `agent-model-auto-persist.ts`). Callers pass
+ * `useClientModelMruStore().recentFor(backend, teamId)`.
+ *
+ * Local agent only, unchanged: this client's history is about the backend and
+ * team it has been running, which says nothing about a remote agent's catalog.
  */
 export function localRecentModelFallback(args: {
   agentId: string;
@@ -100,5 +110,27 @@ export function localRecentModelFallback(args: {
   available: AgentModelOption[];
 }): string {
   if (!isLocalDaemonAgent(args.agentId, args.localDaemonActorId)) return "";
-  return firstAvailableRecentModel(args.recentModels, args.available);
+  return firstAvailableMruModel(args.recentModels, args.available);
+}
+
+/**
+ * Record a model the user actually chose.
+ *
+ * Only **explicit** picks land here. An auto-selection must not: writing a
+ * cold-start guess down and reading it back as a preference is the loop
+ * ADR-0007 breaks — every restart re-confirmed the wrong answer.
+ */
+export function recordClientModelPick(args: {
+  agentId: string;
+  localDaemonActorId: string | null | undefined;
+  backendType: string | null | undefined;
+  teamId: string | null | undefined;
+  modelId: string;
+}): void {
+  if (!isLocalDaemonAgent(args.agentId, args.localDaemonActorId)) return;
+  const backend = args.backendType?.trim();
+  const team = args.teamId?.trim();
+  const model = args.modelId.trim();
+  if (!backend || !team || !model) return;
+  useClientModelMruStore.getState().record(backend, team, model);
 }
