@@ -28,6 +28,7 @@ import {
   type DaemonLocalAgent,
 } from '@/lib/daemon-local-client'
 import { useUIStore } from '@/stores/ui'
+import { useSetupStore } from '@/stores/setup'
 import { ensureLocalDaemonCatalog } from '@/stores/local-daemon-catalog-store'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { ensureAgentsSkillsPaths } from '@/lib/skills/ensure-agents-paths'
@@ -123,6 +124,26 @@ export function DaemonGeneralSection() {
   React.useEffect(() => {
     void loadLocalAgent()
   }, [loadLocalAgent])
+
+  // Which runtimes are actually installed on this device. The picker writes a
+  // per-team value, so a team can name a runtime this machine does not have —
+  // that combination only failed at spawn time before, as a raw ENOENT.
+  const agentRuntimes = useSetupStore((s) => s.agentRuntimes)
+  const listAgentRuntimes = useSetupStore((s) => s.listAgentRuntimes)
+
+  React.useEffect(() => {
+    void listAgentRuntimes()
+  }, [listAgentRuntimes])
+
+  const runtimeInstalled = React.useCallback(
+    (id: DaemonLocalAgent): boolean | null => {
+      const row = agentRuntimes.find((r) => r.id === id)
+      return row ? row.present : null
+    },
+    [agentRuntimes],
+  )
+
+  const selectedRuntimeMissing = localAgent !== null && runtimeInstalled(localAgent) === false
 
   React.useEffect(() => {
     if (!isTauri() || localAgent !== 'cursor') {
@@ -579,14 +600,51 @@ export function DaemonGeneralSection() {
                       <SelectValue placeholder="…" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="opencode" className="font-mono text-[12px]">opencode</SelectItem>
-                      <SelectItem value="pi" className="font-mono text-[12px]">pi</SelectItem>
-                      <SelectItem value="cursor" className="font-mono text-[12px]">cursor</SelectItem>
-                      <SelectItem value="claude-code" className="font-mono text-[12px]">claude-code</SelectItem>
+                      {(['opencode', 'pi', 'cursor', 'claude-code'] as DaemonLocalAgent[]).map((id) => {
+                        const installed = runtimeInstalled(id)
+                        return (
+                          <SelectItem key={id} value={id} className="font-mono text-[12px]">
+                            <span className="flex items-center gap-2">
+                              {id}
+                              {installed === false && (
+                                <span className="font-sans text-[10.5px] text-muted-foreground">
+                                  {t('settings.daemonGeneral.runtimeNotInstalled', '未安装')}
+                                </span>
+                              )}
+                            </span>
+                          </SelectItem>
+                        )
+                      })}
                     </SelectContent>
                   </Select>
                   {switchingAgent && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                 </dd>
+                {/* `agents.local_agent` lives in the active team's team.toml, not
+                    daemon.toml — switching teams switches runtimes. Say so here,
+                    since the surrounding card reads as machine-level. */}
+                <dt className="sr-only">{t('settings.daemonGeneral.runtimeScope', 'Runtime scope')}</dt>
+                <dd className="col-span-2 -mt-1 text-[11.5px] leading-relaxed text-faint">
+                  {t(
+                    'settings.daemonGeneral.runtimePerTeamHint',
+                    'The runtime is configured per team — this setting applies to {{team}} only.',
+                    { team: team?.name ?? t('settings.daemonGeneral.runtimeCurrentTeam', 'the current team') },
+                  )}
+                </dd>
+                {selectedRuntimeMissing && (
+                  <>
+                    <dt className="sr-only">{t('settings.daemonGeneral.runtimeMissing', 'Runtime missing')}</dt>
+                    <dd className="col-span-2 flex items-start gap-1.5 text-[11.5px] leading-relaxed text-coral">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        {t(
+                          'settings.daemonGeneral.runtimeMissingHint',
+                          '{{agent}} is not installed on this machine, so agents in this team cannot start. Pick a runtime that is installed, or install {{agent}} first.',
+                          { agent: localAgent },
+                        )}
+                      </span>
+                    </dd>
+                  </>
+                )}
                 {localAgent === 'cursor' && cursorKeyConfigured === false ? (
                   <>
                     <dt className="sr-only">Cursor</dt>

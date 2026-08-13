@@ -362,7 +362,14 @@ impl ServeSupervisor {
 
         info!(binary = %binary, port, "spawning global opencode serve");
         let mut child = cmd.spawn().map_err(|e| {
-            crate::error::AmuxError::Agent(format!("spawn opencode serve ({binary}): {e}"))
+            if e.kind() == std::io::ErrorKind::NotFound {
+                crate::error::agent_binary_missing(
+                    "opencode",
+                    format_args!("spawn opencode serve ({binary}): {e}"),
+                )
+            } else {
+                crate::error::AmuxError::Agent(format!("spawn opencode serve ({binary}): {e}"))
+            }
         })?;
         if let Some(pid) = child.id() {
             write_opencode_pgid(pid);

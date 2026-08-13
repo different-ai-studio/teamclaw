@@ -238,13 +238,14 @@ impl PiProcessPool {
 
         info!(binary = %binary, worktree, session_dir = %session_dir.display(), "spawning pi rpc");
         let mut child = cmd.spawn().map_err(|e| {
-            let hint = if e.kind() == std::io::ErrorKind::NotFound {
-                "pi binary not found; install pi or switch agents.local_agent to opencode"
-                    .to_string()
+            if e.kind() == std::io::ErrorKind::NotFound {
+                crate::error::agent_binary_missing(
+                    "pi",
+                    format_args!("pi binary ({binary}) not found"),
+                )
             } else {
-                format!("spawn pi ({binary}): {e}")
-            };
-            crate::error::AmuxError::Agent(hint)
+                crate::error::AmuxError::Agent(format!("spawn pi ({binary}): {e}"))
+            }
         })?;
 
         let stdin = child

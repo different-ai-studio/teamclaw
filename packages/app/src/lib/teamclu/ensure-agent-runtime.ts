@@ -79,6 +79,13 @@ async function ensureAgentIsSessionParticipant(sessionId: string, agentActorId: 
 function failureDescription(failure: RuntimeStartFailure): string {
   const shortId = failure.agentActorId.slice(0, 8);
   const trimmed = failure.reason.trim();
+  // Stable daemon marker (opencode supervisor / pi process spawn): the
+  // configured runtime for the daemon's team is not installed on that device.
+  // Localize into an actionable message instead of showing the raw ENOENT.
+  const binaryMissing = /agent_binary_missing\(([a-z0-9_.-]+)\)/i.exec(trimmed);
+  if (binaryMissing) {
+    return i18n.t("daemon.agentRuntime.binaryMissingDesc", { agent: binaryMissing[1] });
+  }
   switch (failure.code) {
     case "device_offline":
       return i18n.t("daemon.agentRuntime.deviceOfflineDesc", { shortId });
