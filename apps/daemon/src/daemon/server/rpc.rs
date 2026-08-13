@@ -620,15 +620,8 @@ impl DaemonServer {
                         let session_id = stored.session_id.clone();
                         info!(agent_id, "lazy-resuming historical session");
                         let remote_workspace_id = (!ws_id.is_empty()).then_some(ws_id.clone());
-                        let is_gateway = crate::runtime::is_gateway_workspace_id(&ws_id);
                         let context = match self
-                            .assemble_execution_context(
-                                &worktree,
-                                None,
-                                (!is_gateway).then_some(ws_id.as_str()),
-                                is_gateway,
-                                None,
-                            )
+                            .assemble_stored_execution_context(&worktree, &ws_id)
                             .await
                         {
                             Ok(context) => context,

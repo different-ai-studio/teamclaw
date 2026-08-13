@@ -50,6 +50,16 @@ impl DaemonServer {
             .await
     }
 
+    pub(super) async fn assemble_stored_execution_context(
+        &self,
+        working_directory: &str,
+        workspace_id: &str,
+    ) -> Result<ExecutionContext, String> {
+        self.execution_context_assembler()
+            .assemble_stored(working_directory, workspace_id)
+            .await
+    }
+
     /// Team ID is resolved from the cloud workspace row by UUID; on a cold resolver cache (e.g. right after daemon restart) a bare-agent spawn with an empty workspace_id yields None team_id until the cache warms — intentional under the cloud-source-of-truth / no-local-store design.
     pub(super) async fn resolve_workspace_team_id(&self, workspace_id: &str) -> Option<String> {
         let fallback = || {
@@ -76,7 +86,172 @@ impl DaemonServer {
     }
 }
 
+#[cfg(test)]
+mod execution_context_tests {
+    use super::*;
+    use crate::backend::{mock::MockBackend, WorkspaceRow};
+    use crate::runtime::execution_context::ProcessEnvRevision;
+    use std::sync::Arc;
+
+    fn assembler(
+        backend: Arc<MockBackend>,
+        team_id: &str,
+        actor_id: &str,
+    ) -> ExecutionContextAssembler {
+        ExecutionContextAssembler {
+            workspace_resolver: Arc::new(crate::config::WorkspaceResolver::new(backend.clone())),
+            backend: backend.clone(),
+            managed_llm: Arc::new(crate::runtime::managed_llm::ManagedLlmResolver::new(
+                backend,
+            )),
+            refresh_coordinator: None,
+            team_id: Some(team_id.into()),
+            actor_id: actor_id.into(),
+            actor_name: "Agent A".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn configured_team_fallback_keeps_workspace_context_revisions_equal() {
+        let workspace = tempfile::tempdir().unwrap();
+        let backend = Arc::new(MockBackend::default());
+        backend.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: String::new(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        let assembler = assembler(backend, "team-a", "actor-a");
+
+        let desktop = assembler
+            .assemble(
+                workspace.path().to_string_lossy().as_ref(),
+                None,
+                Some("ws-a"),
+                false,
+                None,
+            )
+            .await
+            .unwrap();
+        let gateway = assembler
+            .assemble(
+                workspace.path().to_string_lossy().as_ref(),
+                None,
+                Some("ws-a"),
+                true,
+                Some(PermissionPolicy::Full),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(desktop.isolation_domain, gateway.isolation_domain);
+        assert_eq!(desktop.spawn_env.extra_env, gateway.spawn_env.extra_env);
+        assert_eq!(desktop.spawn_env.env_team_id.as_deref(), Some("team-a"));
+        assert_eq!(
+            ProcessEnvRevision::from_bindings(&desktop.spawn_env.extra_env),
+            ProcessEnvRevision::from_bindings(&gateway.spawn_env.extra_env)
+        );
+    }
+
+    #[tokio::test]
+    async fn unscoped_gateway_resume_recreates_daemon_scratch_directory() {
+        let backend = Arc::new(MockBackend::default());
+        let assembler = assembler(backend, "team-a", "actor-a");
+        let scratch = std::env::temp_dir().join(format!(
+            "amuxd-gateway-test-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+
+        let context = assembler
+            .assemble_stored(
+                scratch.to_string_lossy().as_ref(),
+                "gateway:wecom://bot/chat",
+            )
+            .await
+            .unwrap();
+
+        assert!(scratch.is_dir());
+        assert_eq!(
+            context.isolation_domain,
+            IsolationDomainKey::UnscopedAgent {
+                team_id: "team-a".into(),
+                actor_id: "actor-a".into(),
+            }
+        );
+        assert_eq!(context.working_directory, scratch);
+        assert!(context.spawn_env.extra_env.is_empty());
+        std::fs::remove_dir_all(&context.working_directory).unwrap();
+    }
+}
+
 impl ExecutionContextAssembler {
+    fn configured_team_id(&self) -> Option<&str> {
+        self.team_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|team_id| !team_id.is_empty())
+    }
+
+    pub(crate) async fn assemble_unscoped_gateway(
+        &self,
+        working_directory: Option<&Path>,
+    ) -> Result<ExecutionContext, String> {
+        let working_directory = working_directory
+            .filter(|path| !path.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        if !working_directory.as_os_str().is_empty() {
+            std::fs::create_dir_all(&working_directory).map_err(|e| {
+                format!(
+                    "create unscoped gateway working directory {} failed: {e}",
+                    working_directory.display()
+                )
+            })?;
+        }
+
+        Ok(ExecutionContext {
+            isolation_domain: IsolationDomainKey::UnscopedAgent {
+                team_id: self.configured_team_id().unwrap_or_default().to_string(),
+                actor_id: self.actor_id.clone(),
+            },
+            workspace: None,
+            working_directory,
+            spawn_env: SpawnRuntimeEnv {
+                is_gateway: true,
+                ..SpawnRuntimeEnv::default()
+            },
+        })
+    }
+
+    async fn assemble_stored(
+        &self,
+        working_directory: &str,
+        workspace_id: &str,
+    ) -> Result<ExecutionContext, String> {
+        if !crate::runtime::is_gateway_workspace_id(workspace_id) {
+            return self
+                .assemble(working_directory, None, Some(workspace_id), false, None)
+                .await;
+        }
+
+        if self
+            .workspace_resolver
+            .resolve_identity_for_path(Path::new(working_directory), self.configured_team_id())
+            .await
+            .is_some()
+        {
+            self.assemble(working_directory, None, None, true, None)
+                .await
+        } else {
+            self.assemble_unscoped_gateway(Some(Path::new(working_directory)))
+                .await
+        }
+    }
+
     pub(crate) async fn assemble(
         &self,
         working_directory: &str,
@@ -183,7 +358,13 @@ impl ExecutionContextAssembler {
         workspace: &WorkspaceIdentity,
         working_directory: &Path,
     ) -> Result<SpawnRuntimeEnv, String> {
-        let managed_llm = match workspace.team_id.as_deref() {
+        let team_id = workspace
+            .team_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|team_id| !team_id.is_empty())
+            .or_else(|| self.configured_team_id());
+        let managed_llm = match team_id {
             Some(team_id) => self.managed_llm.resolve(team_id).await,
             None => ManagedLlmState::Unknown,
         };
@@ -206,7 +387,7 @@ impl ExecutionContextAssembler {
         crate::runtime::env_assembly::assemble_spawn_runtime_env_for_execution(
             &workspace.workspace_root,
             working_directory,
-            workspace.team_id.as_deref(),
+            team_id,
             &self.actor_id,
             &self.actor_name,
             cloud_token_file.as_deref(),

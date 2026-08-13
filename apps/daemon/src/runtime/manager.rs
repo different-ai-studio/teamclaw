@@ -2030,27 +2030,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_and_resume_propagate_the_same_execution_identity() {
+    async fn all_entry_points_propagate_workspace_context_and_only_bare_gateway_is_unscoped() {
         let (mut manager, captures) = capturing_manager();
         let workspace = tempfile::TempDir::new().unwrap();
 
-        manager
-            .start_runtime_with_model(
-                amux::AgentType::Opencode,
-                "",
-                "ws-a",
-                Some("ws-a"),
-                "session-start",
-                None,
-                None,
-                None,
-                workspace_context(workspace.path()),
-            )
-            .await
-            .unwrap();
+        for session in ["desktop", "workspace-gateway", "http", "cron"] {
+            manager
+                .start_runtime_with_model(
+                    amux::AgentType::Opencode,
+                    "",
+                    "ws-a",
+                    Some("ws-a"),
+                    session,
+                    None,
+                    None,
+                    None,
+                    workspace_context(workspace.path()),
+                )
+                .await
+                .unwrap();
+        }
         manager
             .resume_agent(
-                "session-resume",
+                "resume",
                 "backend-existing",
                 amux::AgentType::Opencode,
                 "ws-a",
@@ -2061,28 +2063,75 @@ mod tests {
             )
             .await
             .unwrap();
+        let unscoped_worktree = tempfile::TempDir::new().unwrap();
+        manager
+            .start_runtime_with_model(
+                amux::AgentType::Opencode,
+                "",
+                "gateway:bare",
+                None,
+                "bare-gateway",
+                None,
+                None,
+                None,
+                ExecutionContext {
+                    isolation_domain: IsolationDomainKey::UnscopedAgent {
+                        team_id: "team-a".into(),
+                        actor_id: "actor-a".into(),
+                    },
+                    workspace: None,
+                    working_directory: unscoped_worktree.path().to_path_buf(),
+                    spawn_env: SpawnRuntimeEnv {
+                        is_gateway: true,
+                        ..SpawnRuntimeEnv::default()
+                    },
+                },
+            )
+            .await
+            .unwrap();
 
         let captures = captures.lock().unwrap();
-        assert_eq!(captures.len(), 2);
-        assert_eq!(captures[0], captures[1]);
+        assert_eq!(captures.len(), 6);
+        let expected_workspace_capture = captures[0].clone();
+        for capture in &captures[..5] {
+            assert_eq!(capture, &expected_workspace_capture);
+            assert_eq!(capture.domain, IsolationDomainKey::Workspace("ws-a".into()));
+            assert_eq!(capture.working_directory, workspace.path());
+            assert_eq!(
+                capture.process_env_revision,
+                super::super::execution_context::ProcessEnvRevision::from_bindings(
+                    &capture.extra_env
+                )
+            );
+        }
         assert_eq!(
-            captures[0].domain,
-            IsolationDomainKey::Workspace("ws-a".into())
+            captures[5].domain,
+            IsolationDomainKey::UnscopedAgent {
+                team_id: "team-a".into(),
+                actor_id: "actor-a".into(),
+            }
         );
-        assert_eq!(captures[0].working_directory, workspace.path());
-        assert_eq!(
-            captures[0].process_env_revision,
-            super::super::execution_context::ProcessEnvRevision::from_bindings(
-                &captures[0].extra_env
-            )
-        );
+        assert_eq!(captures[5].working_directory, unscoped_worktree.path());
+        assert!(captures[5].extra_env.is_empty());
 
-        for session in ["session-start", "session-resume"] {
+        for session in [
+            "desktop",
+            "workspace-gateway",
+            "http",
+            "cron",
+            "resume",
+            "bare-gateway",
+        ] {
             let handle = manager.get_handle(session).unwrap();
-            assert_eq!(handle.isolation_domain, captures[0].domain);
+            let expected_capture = if session == "bare-gateway" {
+                &captures[5]
+            } else {
+                &captures[0]
+            };
+            assert_eq!(handle.isolation_domain, expected_capture.domain);
             assert_eq!(
                 handle.process_env_revision,
-                captures[0].process_env_revision
+                expected_capture.process_env_revision
             );
         }
     }

@@ -101,15 +101,8 @@ impl DaemonServer {
                 "resume_stored_collab_runtimes: resuming stored runtime with prior ACP session"
             );
 
-            let is_gateway = crate::runtime::is_gateway_workspace_id(&stored.workspace_id);
             let context = match self
-                .assemble_execution_context(
-                    &stored.worktree,
-                    None,
-                    (!is_gateway).then_some(stored.workspace_id.as_str()),
-                    is_gateway,
-                    None,
-                )
+                .assemble_stored_execution_context(&stored.worktree, &stored.workspace_id)
                 .await
             {
                 Ok(context) => context,
