@@ -51,6 +51,8 @@ import {
   type TeamShareSection,
   type TeamSkillKind,
 } from '@/stores/team-share-browser'
+import { useTabsStore, selectActiveTab } from '@/stores/tabs'
+import { decodeTeamShareTarget, tabSelectionForSection } from '@/lib/tabs/teamshare-target'
 
 const SECTION_META: Record<
   TeamShareSection,
@@ -206,12 +208,21 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const sidebarCollapsed = sidebarState === 'collapsed'
   const meta = SECTION_META[section]
 
-  const selected = useTeamShareBrowserStore((s) => s.selectedId[section])
+  // What is highlighted comes from the open tab, not from a copy kept here.
+  // The two used to be separate records and could disagree; now the tab strip
+  // and this column cannot say different things about where you are.
+  const activeTab = useTabsStore(selectActiveTab)
+  const activeTarget = activeTab?.type === 'native' ? activeTab.target : null
+  const selected = activeTarget ? tabSelectionForSection(activeTarget, section) : null
+  const activeSkillFile = React.useMemo(() => {
+    const t = activeTarget ? decodeTeamShareTarget(activeTarget) : null
+    return t?.kind === 'skill-file' ? t : null
+  }, [activeTarget])
+
   const select = useTeamShareBrowserStore((s) => s.select)
-  const selectedSkillFile = useTeamShareBrowserStore((s) => s.selectedSkillFile)
   const selectSkillFile = useTeamShareBrowserStore((s) => s.selectSkillFile)
+  const closeSkillFiles = useTeamShareBrowserStore((s) => s.closeSkillFiles)
   const reconcileSkills = useTeamShareBrowserStore((s) => s.reconcileSkills)
-  const closeKnowledgeVersions = useTeamShareBrowserStore((s) => s.closeKnowledgeVersions)
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
   const setCreating = useTeamShareBrowserStore((s) => s.setCreating)
 
@@ -254,9 +265,8 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
     setSearchOpen(false)
     setExpandedSkills(new Set())
     setRootCreate(null)
-    closeKnowledgeVersions()
     void loadSection(section, { force: true, withTools: section === 'mcp' })
-  }, [section, loadSection, closeKnowledgeVersions])
+  }, [section, loadSection])
 
   const { available: syncAvailable, syncing, syncNow } = useTeamCloudSync()
 
@@ -694,7 +704,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
                     const isExpanded = expandedSkills.has(row.id)
                     const rowNode = (
                       <ItemRow
-                        active={selected === row.id && !selectedSkillFile}
+                        active={selected === row.id && !activeSkillFile}
                         title={row.title}
                         meta={row.meta}
                         badge={row.badge}
@@ -704,14 +714,8 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
                         expanded={isExpanded}
                         onToggleExpand={() => toggleSkillExpanded(row.id)}
                         onClick={() => {
-                          const wasSelected = selected === row.id && !selectedSkillFile
+                          const wasSelected = selected === row.id && !activeSkillFile
                           select(section, row.id)
-                          // Clicking the skill itself closes whichever of its
-                          // files was open — the store keeps the file across a
-                          // re-select so that clicking a *file* row can select
-                          // both, which leaves this the only place that says
-                          // "the user asked for the skill, not a file".
-                          selectSkillFile(null)
                           if (!row.packDir) return
                           // Opening a skill opens its folder. Clicking the row
                           // it is already on collapses it again, so the folder
@@ -755,11 +759,11 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
                         {row.packDir && isExpanded && (
                           <SkillFileTree
                             packDir={row.packDir}
-                            selectedRel={selected === row.id ? selectedSkillFile : null}
-                            onSelectFile={(rel) => {
-                              select(section, row.id)
-                              selectSkillFile(rel)
-                            }}
+                            selectedRel={
+                              activeSkillFile?.id === row.id ? activeSkillFile.rel : null
+                            }
+                            onSelectFile={(rel) => selectSkillFile(row.id, rel)}
+                            onFileRemoved={(rel) => closeSkillFiles(row.id, rel)}
                             onMutated={() => {
                               void loadSection('skills', { force: true })
                               void reconcileSkills().catch(() => {})

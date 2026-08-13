@@ -42,7 +42,7 @@ export function SkillFileEditor({ slug, rel }: { slug: string; rel: string }) {
   const item = useTeamShareBrowserStore(
     (s) => s.skills.items.find((x) => x.id === slug) ?? s.skills.items.find((x) => x.slug === slug),
   )
-  const selectSkillFile = useTeamShareBrowserStore((s) => s.selectSkillFile)
+  const select = useTeamShareBrowserStore((s) => s.select)
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
   const reconcileSkills = useTeamShareBrowserStore((s) => s.reconcileSkills)
 
@@ -148,7 +148,7 @@ export function SkillFileEditor({ slug, rel }: { slug: string; rel: string }) {
           variant="ghost"
           size="icon"
           className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-          onClick={() => selectSkillFile(null)}
+          onClick={() => select('skills', slug)}
           title={t('teamShare.skillBackToSkill', 'Back to {{slug}}', { slug: item.slug })}
           data-testid="skill-file-back"
         >
@@ -157,7 +157,7 @@ export function SkillFileEditor({ slug, rel }: { slug: string; rel: string }) {
         <div className="min-w-0 flex-1">
           <button
             type="button"
-            onClick={() => selectSkillFile(null)}
+            onClick={() => select('skills', slug)}
             className="block max-w-full truncate text-left text-[11px] font-medium uppercase tracking-wide text-faint hover:text-muted-foreground"
           >
             {item.name}

@@ -24,10 +24,9 @@ import { TEAM_REPO_DIR } from '@/lib/build-config';
 import { ObsidianIcon } from '@/components/knowledge/ObsidianIcon';
 import { useTeamPermissions } from '@/lib/team-permissions';
 import { useTabsStore } from '@/stores/tabs';
-import { useUIStore } from '@/stores/ui';
 import { useCurrentTeamStore } from '@/stores/current-team';
 import { useVersionHistoryStore } from '@/stores/version-history';
-import { useTeamShareBrowserStore } from '@/stores/team-share-browser';
+import { encodeVersionHistoryTarget } from '@/lib/tabs/teamshare-target';
 import { getFileIcon } from '@/lib/file-icons';
 import { formatDateTime, formatRelativeTime } from '@/lib/date-format';
 import type { FileNode } from "@/stores/workspace";
@@ -41,25 +40,22 @@ import {
 } from "@/components/ui/context-menu";
 
 /**
- * Open version history for one file, in whichever surface is currently showing.
+ * Open version history for one file.
  *
- * In team-share mode App.tsx replaces the whole main column with the detail
- * pane, so the tab this used to open unconditionally was created with nothing
- * to render it — the panel just never appeared. There it becomes pane state.
- *
- * Both routes now carry the path. The tab route used to open on the team-wide
- * file list with nothing selected, which is not what right-clicking one file
- * asks for.
+ * The path goes into the target rather than into shared store state: a tab is
+ * addressed by its target string, so two files' histories can be open at once
+ * and neither depends on what happens to be selected. The store preselect is
+ * only so the view has data before its own effect runs.
  */
 export function openVersionHistory(path: string, label: string) {
-  if (useUIStore.getState().sidebarFilter?.kind === "teamShare") {
-    useTeamShareBrowserStore.getState().openKnowledgeVersions(path);
-    return;
-  }
   const teamId = useCurrentTeamStore.getState().team?.id;
   useVersionHistoryStore.getState().selectFile(path);
   if (teamId) void useVersionHistoryStore.getState().loadFileVersions(teamId, path);
-  useTabsStore.getState().openTab({ type: "native", target: "version-history", label });
+  useTabsStore.getState().openTab({
+    type: "native",
+    target: encodeVersionHistoryTarget(path),
+    label,
+  });
 }
 
 function getSyncStatusTextColor(status: 'synced' | 'modified' | 'new' | 'conflict'): string {

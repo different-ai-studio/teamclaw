@@ -79,8 +79,9 @@ export interface SkillFileTreeProps {
   packDir: string
   /** Currently open file, relative to `packDir`. */
   selectedRel: string | null
-  /** `null` closes the open file and returns the detail pane to the skill. */
-  onSelectFile: (rel: string | null) => void
+  onSelectFile: (rel: string) => void
+  /** A file (or directory) left the package — whatever showed it should close. */
+  onFileRemoved?: (rel: string) => void
   /**
    * Fired after the tree changes the package on disk. Adding a file leaves a
    * team pack clean (the baseline only tracks what the package shipped), but
@@ -103,6 +104,7 @@ export function SkillFileTree({
   packDir,
   selectedRel,
   onSelectFile,
+  onFileRemoved,
   onMutated,
   refreshKey = 0,
   rootCreate = null,
@@ -230,11 +232,10 @@ export function SkillFileTree({
     const parentRel = target.rel.includes('/') ? target.rel.slice(0, target.rel.lastIndexOf('/')) : ''
     await loadDir(parentRel)
     onMutated?.()
-    // The open file may have been inside what just went away.
-    if (selectedRel && (selectedRel === target.rel || selectedRel.startsWith(`${target.rel}/`))) {
-      onSelectFile(null)
-    }
-  }, [deleting, abs, loadDir, onMutated, onSelectFile, selectedRel, t])
+    // Whatever was showing this file — or anything inside this directory — is
+    // now pointed at something that does not exist.
+    onFileRemoved?.(target.rel)
+  }, [deleting, abs, loadDir, onMutated, onFileRemoved, t])
 
   const renderRows = (rel: string, depth: number): React.ReactNode => {
     const rows = children[rel]
