@@ -151,7 +151,7 @@ export async function getSkillDirectories(workspacePath: string | null): Promise
  * Load skills from all sources with priority-based merging.
  *
  * Workspace paths (project-level):
- * 1. `.teamclu/skills/`   → source: 'local' / 'builtin' / 'clawhub'
+ * 1. TEAMCLU_DIR/skills/  → source: 'local' / 'builtin' / 'clawhub'
  * 2. `.claude/skills/`     → source: 'claude'
  * 3. `.agents/skills/`     → source: 'shared'
  *
