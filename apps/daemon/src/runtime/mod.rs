@@ -24,6 +24,8 @@ pub mod sidecar;
 pub mod supervisor;
 pub mod team_cloud_config;
 pub mod team_skills;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod turn_aggregator;
 mod workspace_runtime;
 

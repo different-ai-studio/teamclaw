@@ -90,6 +90,7 @@ impl DaemonServer {
 mod execution_context_tests {
     use super::*;
     use crate::backend::{mock::MockBackend, WorkspaceRow};
+    use crate::backend::{ManagedLlmConfig, ManagedLlmModelInfo};
     use crate::runtime::execution_context::ProcessEnvRevision;
     use std::sync::Arc;
 
@@ -125,6 +126,18 @@ mod execution_context_tests {
                 agent_id: None,
             },
         );
+        backend.state().managed_llm_configs.insert(
+            "team-a".into(),
+            ManagedLlmConfig {
+                enabled: true,
+                base_url: Some("https://gateway.example/v1".into()),
+                name: Some("Team A".into()),
+                models: vec![ManagedLlmModelInfo {
+                    id: "team-model".into(),
+                    name: "Team Model".into(),
+                }],
+            },
+        );
         let assembler = assembler(backend, "team-a", "actor-a");
 
         let desktop = assembler
@@ -141,16 +154,27 @@ mod execution_context_tests {
             .assemble(
                 workspace.path().to_string_lossy().as_ref(),
                 None,
-                Some("ws-a"),
+                None,
                 true,
                 Some(PermissionPolicy::Full),
             )
             .await
             .unwrap();
 
+        assert_eq!(
+            desktop.isolation_domain,
+            IsolationDomainKey::Workspace("ws-a".into())
+        );
         assert_eq!(desktop.isolation_domain, gateway.isolation_domain);
         assert_eq!(desktop.spawn_env.extra_env, gateway.spawn_env.extra_env);
         assert_eq!(desktop.spawn_env.env_team_id.as_deref(), Some("team-a"));
+        assert!(
+            desktop
+                .spawn_env
+                .extra_env
+                .contains_key("TEAMCLU_TEAM_PROVIDER"),
+            "configured-team managed LLM credentials must be assembled"
+        );
         assert_eq!(
             ProcessEnvRevision::from_bindings(&desktop.spawn_env.extra_env),
             ProcessEnvRevision::from_bindings(&gateway.spawn_env.extra_env)

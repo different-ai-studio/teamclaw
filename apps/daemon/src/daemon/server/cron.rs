@@ -197,21 +197,16 @@ impl DaemonServer {
                 .and_then(agent_type_from_name)
                 .map(|requested| resolve_requested_agent_type(&self.config, requested));
 
-            let mut mgr = self.agents.lock().await;
-            let acp_sid = mgr
-                .create_gateway_session_with_model(
+            let acp_sid = self
+                .create_cron_gateway_session(
                     &team_id,
-                    parsed.session_key,                        // logical id
-                    &format!("cron://{}", parsed.session_key), // binding
-                    "cron",                                    // title (display only)
+                    parsed.session_key,
+                    &sb_sid,
                     parsed.model_override.clone(),
-                    Some(&sb_sid), // bind AgentReply to the cloud session
                     context,
                     agent_type_override,
                 )
-                .await
-                .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))?;
-            drop(mgr);
+                .await?;
 
             tracing::debug!(
                 session_key = %parsed.session_key,
@@ -251,6 +246,32 @@ impl DaemonServer {
             parsed.message.to_string(),
             Duration::from_secs(parsed.timeout_secs),
         ))
+    }
+
+    async fn create_cron_gateway_session(
+        &mut self,
+        team_id: &str,
+        session_key: &str,
+        remote_session_id: &str,
+        model_override: Option<(String, String)>,
+        context: crate::runtime::execution_context::ExecutionContext,
+        agent_type_override: Option<crate::proto::amux::AgentType>,
+    ) -> anyhow::Result<String> {
+        self.agents
+            .lock()
+            .await
+            .create_gateway_session_with_model(
+                team_id,
+                session_key,
+                &format!("cron://{session_key}"),
+                "cron",
+                model_override,
+                Some(remote_session_id),
+                context,
+                agent_type_override,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))
     }
 
     /// Handle a `prompt-await` sock command. Runs the (fast) setup inline, then
@@ -938,6 +959,66 @@ mod tests {
         assert_eq!(
             context.spawn_env.permission_policy(),
             PermissionPolicy::Full
+        );
+    }
+
+    #[tokio::test]
+    async fn cron_gateway_spawn_propagates_workspace_attach_context() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        mock.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-test".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let mut test_server = test_server_with_cloud_api(backend);
+        let captures = {
+            let mut manager = test_server.server.agents.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        let context = test_server
+            .server
+            .assemble_execution_context(
+                workspace.path().to_string_lossy().as_ref(),
+                None,
+                Some("ws-a"),
+                true,
+                Some(PermissionPolicy::Full),
+            )
+            .await
+            .unwrap();
+
+        test_server
+            .server
+            .create_cron_gateway_session(
+                "team-test",
+                "cron/job-a/run-a",
+                "cloud-session-a",
+                None,
+                context,
+                Some(crate::proto::amux::AgentType::Opencode),
+            )
+            .await
+            .unwrap();
+
+        let captures = captures.lock().unwrap();
+        assert_eq!(captures.len(), 1);
+        assert_eq!(
+            captures[0].domain,
+            IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(captures[0].working_directory, workspace.path());
+        assert_eq!(
+            captures[0].process_env_revision,
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(
+                &captures[0].extra_env
+            )
         );
     }
 

@@ -1488,6 +1488,83 @@ mod tests {
         assert!(context.spawn_env.is_gateway);
     }
 
+    #[tokio::test]
+    async fn agent_handle_spawn_propagates_scoped_and_bare_attach_contexts() {
+        use crate::backend::WorkspaceRow;
+
+        let workspace = tempfile::tempdir().unwrap();
+        let backend = Arc::new(MockBackend::with_identity("team-a", "actor-a"));
+        backend.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-a".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        backend.state().gateway_session_index.insert(
+            "scoped".into(),
+            ("cloud-scoped".into(), Some("wecom://bot/chat".into())),
+        );
+        backend.state().gateway_session_index.insert(
+            "bare".into(),
+            ("cloud-bare".into(), Some("wecom://bot/chat".into())),
+        );
+
+        let mut scoped = make_handle_with_backend(backend.clone());
+        scoped.team_id = "team-a".into();
+        scoped.spawn_env.actor_id = "actor-a".into();
+        scoped.default_agent_type = Some(amux::AgentType::Opencode);
+        scoped.default_workspace_dir = Some(workspace.path().to_string_lossy().into_owned());
+        scoped.workspace_resolver.resolve("ws-a").await.unwrap();
+        let scoped_captures = {
+            let mut manager = scoped.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        scoped
+            .resolve_or_spawn(&AmuxSessionId::from("scoped"))
+            .await
+            .unwrap();
+
+        let mut bare = make_handle_with_backend(backend);
+        bare.team_id = "team-a".into();
+        bare.spawn_env.actor_id = "actor-a".into();
+        bare.default_agent_type = Some(amux::AgentType::Opencode);
+        let bare_captures = {
+            let mut manager = bare.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        bare.resolve_or_spawn(&AmuxSessionId::from("bare"))
+            .await
+            .unwrap();
+
+        let scoped_captures = scoped_captures.lock().unwrap();
+        assert_eq!(scoped_captures.len(), 1);
+        assert_eq!(
+            scoped_captures[0].domain,
+            IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(scoped_captures[0].working_directory, workspace.path());
+        assert_eq!(
+            scoped_captures[0].process_env_revision,
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(
+                &scoped_captures[0].extra_env
+            )
+        );
+
+        let bare_captures = bare_captures.lock().unwrap();
+        assert_eq!(bare_captures.len(), 1);
+        assert_eq!(
+            bare_captures[0].domain,
+            IsolationDomainKey::UnscopedAgent {
+                team_id: "team-a".into(),
+                actor_id: "actor-a".into(),
+            }
+        );
+    }
+
     /// Drive a `TurnAggregator` and `absorb_emitted` — the same pair
     /// `run_turn` uses — over a scripted event stream.
     fn segments_from(events: &[amux::AcpEvent]) -> Vec<String> {

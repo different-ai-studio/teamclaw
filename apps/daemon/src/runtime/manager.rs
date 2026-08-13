@@ -232,7 +232,7 @@ pub struct RuntimeManager {
     launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
     /// Local agent backend selected by daemon config `agents.local_agent`
     /// (`opencode` / `pi` / `cursor` / `claude-code` via `dyn AgentBackend`).
-    agent_backend: Arc<AsyncMutex<Box<dyn AgentBackend>>>,
+    pub(super) agent_backend: Arc<AsyncMutex<Box<dyn AgentBackend>>>,
     /// The agent type `agents.local_agent` resolved to — the same value
     /// [`create_backend`] dispatched on when building `agent_backend`.
     ///
@@ -1921,99 +1921,7 @@ mod tests {
     use super::super::handle::PendingMessage;
     use super::*;
 
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    struct CapturedAttach {
-        domain: IsolationDomainKey,
-        working_directory: PathBuf,
-        process_env_revision: super::super::execution_context::ProcessEnvRevision,
-        extra_env: HashMap<String, String>,
-    }
-
-    struct CapturingBackend {
-        captures: Arc<std::sync::Mutex<Vec<CapturedAttach>>>,
-    }
-
-    #[async_trait::async_trait]
-    impl AgentBackend for CapturingBackend {
-        async fn attach_session(
-            &mut self,
-            _agent_type: amux::AgentType,
-            _launch: &AgentLaunchConfig,
-            domain: IsolationDomainKey,
-            process_env_revision: super::super::execution_context::ProcessEnvRevision,
-            extra_env: HashMap<String, String>,
-            _force_env_override: bool,
-            worktree: String,
-            _resume_acp_session_id: Option<String>,
-            _mcp_config_path: Option<PathBuf>,
-            _initial_model_override: Option<String>,
-            _model_mru: Vec<String>,
-            _initial_prompt: String,
-            _event_tx: mpsc::Sender<AcpEventFrame>,
-            _permission: PermissionPolicy,
-            _forbid_new_session_fallback: bool,
-        ) -> crate::error::Result<(
-            mpsc::Sender<super::super::backend::AcpCommand>,
-            super::super::backend::AcpStartupMetadata,
-        )> {
-            self.captures.lock().unwrap().push(CapturedAttach {
-                domain,
-                working_directory: worktree.into(),
-                process_env_revision,
-                extra_env,
-            });
-            let (tx, _rx) = mpsc::channel(1);
-            Ok((
-                tx,
-                super::super::backend::AcpStartupMetadata {
-                    available_models: Vec::new(),
-                    initial_model: None,
-                    acp_session_id: format!("backend-{}", self.captures.lock().unwrap().len()),
-                },
-            ))
-        }
-
-        async fn prewarm(&mut self, _c: &HashMap<amux::AgentType, AgentLaunchConfig>) {}
-
-        async fn prewarm_with_env(
-            &mut self,
-            _c: &HashMap<amux::AgentType, AgentLaunchConfig>,
-            _e: HashMap<String, String>,
-            _f: bool,
-            _w: Option<&str>,
-        ) {
-        }
-
-        fn evict_agent_types(&mut self, _t: &[amux::AgentType]) -> usize {
-            0
-        }
-
-        fn host_count(&self) -> usize {
-            0
-        }
-
-        async fn model_catalog(
-            &mut self,
-            _workspace_path: &std::path::Path,
-        ) -> crate::error::Result<Vec<amux::ModelInfo>> {
-            Ok(Vec::new())
-        }
-    }
-
-    fn capturing_manager() -> (RuntimeManager, Arc<std::sync::Mutex<Vec<CapturedAttach>>>) {
-        let captures = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let mut manager = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        manager.agent_backend = Arc::new(AsyncMutex::new(Box::new(CapturingBackend {
-            captures: captures.clone(),
-        })));
-        (manager, captures)
-    }
-
     fn workspace_context(path: &std::path::Path) -> ExecutionContext {
-        let extra_env = HashMap::from([
-            ("TEAMCLU_ACTOR_ID".into(), "actor-a".into()),
-            ("TEAMCLU_TOKEN".into(), "secret-a".into()),
-        ]);
         ExecutionContext {
             isolation_domain: IsolationDomainKey::Workspace("ws-a".into()),
             workspace: Some(super::super::execution_context::WorkspaceIdentity {
@@ -2022,117 +1930,7 @@ mod tests {
                 team_id: Some("team-a".into()),
             }),
             working_directory: path.to_path_buf(),
-            spawn_env: SpawnRuntimeEnv {
-                extra_env,
-                ..SpawnRuntimeEnv::default()
-            },
-        }
-    }
-
-    #[tokio::test]
-    async fn all_entry_points_propagate_workspace_context_and_only_bare_gateway_is_unscoped() {
-        let (mut manager, captures) = capturing_manager();
-        let workspace = tempfile::TempDir::new().unwrap();
-
-        for session in ["desktop", "workspace-gateway", "http", "cron"] {
-            manager
-                .start_runtime_with_model(
-                    amux::AgentType::Opencode,
-                    "",
-                    "ws-a",
-                    Some("ws-a"),
-                    session,
-                    None,
-                    None,
-                    None,
-                    workspace_context(workspace.path()),
-                )
-                .await
-                .unwrap();
-        }
-        manager
-            .resume_agent(
-                "resume",
-                "backend-existing",
-                amux::AgentType::Opencode,
-                "ws-a",
-                Some("ws-a"),
-                "",
-                None,
-                workspace_context(workspace.path()),
-            )
-            .await
-            .unwrap();
-        let unscoped_worktree = tempfile::TempDir::new().unwrap();
-        manager
-            .start_runtime_with_model(
-                amux::AgentType::Opencode,
-                "",
-                "gateway:bare",
-                None,
-                "bare-gateway",
-                None,
-                None,
-                None,
-                ExecutionContext {
-                    isolation_domain: IsolationDomainKey::UnscopedAgent {
-                        team_id: "team-a".into(),
-                        actor_id: "actor-a".into(),
-                    },
-                    workspace: None,
-                    working_directory: unscoped_worktree.path().to_path_buf(),
-                    spawn_env: SpawnRuntimeEnv {
-                        is_gateway: true,
-                        ..SpawnRuntimeEnv::default()
-                    },
-                },
-            )
-            .await
-            .unwrap();
-
-        let captures = captures.lock().unwrap();
-        assert_eq!(captures.len(), 6);
-        let expected_workspace_capture = captures[0].clone();
-        for capture in &captures[..5] {
-            assert_eq!(capture, &expected_workspace_capture);
-            assert_eq!(capture.domain, IsolationDomainKey::Workspace("ws-a".into()));
-            assert_eq!(capture.working_directory, workspace.path());
-            assert_eq!(
-                capture.process_env_revision,
-                super::super::execution_context::ProcessEnvRevision::from_bindings(
-                    &capture.extra_env
-                )
-            );
-        }
-        assert_eq!(
-            captures[5].domain,
-            IsolationDomainKey::UnscopedAgent {
-                team_id: "team-a".into(),
-                actor_id: "actor-a".into(),
-            }
-        );
-        assert_eq!(captures[5].working_directory, unscoped_worktree.path());
-        assert!(captures[5].extra_env.is_empty());
-
-        for session in [
-            "desktop",
-            "workspace-gateway",
-            "http",
-            "cron",
-            "resume",
-            "bare-gateway",
-        ] {
-            let handle = manager.get_handle(session).unwrap();
-            let expected_capture = if session == "bare-gateway" {
-                &captures[5]
-            } else {
-                &captures[0]
-            };
-            assert_eq!(handle.isolation_domain, expected_capture.domain);
-            assert_eq!(
-                handle.process_env_revision,
-                expected_capture.process_env_revision
-            );
+            spawn_env: SpawnRuntimeEnv::default(),
         }
     }
 

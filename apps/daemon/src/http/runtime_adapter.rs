@@ -701,36 +701,56 @@ impl RuntimeManagerAdapter {
         #[cfg(not(test))]
         {
             let worktree = resolve_spawn_worktree(workspace_id.as_deref())?;
-            if let Some(ref refresh) = self.refresh {
-                crate::runtime::refresh::refresh_watch::suppress_for_workspace_path(
-                    refresh,
-                    std::path::Path::new(&worktree),
-                    &crate::runtime::refresh::INTERNAL_PREPARE_KINDS,
-                    crate::runtime::refresh::INTERNAL_WRITE_SUPPRESS,
-                );
-            }
-            prepare_workspace(std::path::Path::new(&worktree)).map_err(|e| {
-                HttpError::internal(format!("prepare workspace for runtime spawn: {e}"))
-            })?;
-            let context = self
-                .assemble_execution_context(&worktree, workspace_id.as_deref())
-                .await?;
-            let mut manager = self.manager.lock().await;
-            manager
-                .start_runtime_with_model(
-                    agent_type,
-                    initial_prompt.as_deref().unwrap_or(""),
-                    workspace_id.as_deref().unwrap_or(""),
-                    None,
-                    &session_id.to_string(),
-                    model,
-                    None,
-                    None,
-                    context,
-                )
-                .await
-                .map_err(|e| HttpError::internal(format!("spawn runtime: {e}")))
+            self.spawn_runtime_in_worktree(
+                session_id,
+                agent_type,
+                workspace_id,
+                model,
+                initial_prompt,
+                &worktree,
+            )
+            .await
         }
+    }
+
+    async fn spawn_runtime_in_worktree(
+        &self,
+        session_id: Uuid,
+        agent_type: amux::AgentType,
+        workspace_id: Option<String>,
+        model: Option<String>,
+        initial_prompt: Option<String>,
+        worktree: &str,
+    ) -> Result<String, HttpError> {
+        if let Some(ref refresh) = self.refresh {
+            crate::runtime::refresh::refresh_watch::suppress_for_workspace_path(
+                refresh,
+                std::path::Path::new(worktree),
+                &crate::runtime::refresh::INTERNAL_PREPARE_KINDS,
+                crate::runtime::refresh::INTERNAL_WRITE_SUPPRESS,
+            );
+        }
+        prepare_workspace(std::path::Path::new(worktree)).map_err(|e| {
+            HttpError::internal(format!("prepare workspace for runtime spawn: {e}"))
+        })?;
+        let context = self
+            .assemble_execution_context(worktree, workspace_id.as_deref())
+            .await?;
+        let mut manager = self.manager.lock().await;
+        manager
+            .start_runtime_with_model(
+                agent_type,
+                initial_prompt.as_deref().unwrap_or(""),
+                workspace_id.as_deref().unwrap_or(""),
+                None,
+                &session_id.to_string(),
+                model,
+                None,
+                None,
+                context,
+            )
+            .await
+            .map_err(|e| HttpError::internal(format!("spawn runtime: {e}")))
     }
 
     fn emit(&self, session_id: Uuid, event: SessionEvent) {
@@ -1420,7 +1440,10 @@ mod tests {
                 ),
                 workspace: None,
                 working_directory: working_directory.into(),
-                spawn_env: crate::runtime::SpawnRuntimeEnv::default(),
+                spawn_env: crate::runtime::SpawnRuntimeEnv {
+                    extra_env: HashMap::from([("TEAMCLU_ACTOR_ID".into(), "actor-a".into())]),
+                    ..crate::runtime::SpawnRuntimeEnv::default()
+                },
             })
         }
     }
@@ -1479,6 +1502,46 @@ mod tests {
                 .to_string()
                 .contains("execution context assembler unavailable"),
             "got {missing}"
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_adapter_spawn_propagates_workspace_attach_context() {
+        let captures = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut manager = RuntimeManager::new(RuntimeManager::default_launch_configs(), None);
+        let attach_captures = crate::runtime::test_support::install_capturing_backend(&mut manager);
+        let adapter = RuntimeManagerAdapter::new_with_execution_context_assembler(
+            Arc::new(tokio::sync::Mutex::new(manager)),
+            16,
+            None,
+            Some(Arc::new(CapturingContextAssembler { captured: captures })),
+        );
+        let workspace = tempfile::tempdir().unwrap();
+
+        adapter
+            .spawn_runtime_in_worktree(
+                Uuid::new_v4(),
+                amux::AgentType::Opencode,
+                Some("ws-a".into()),
+                None,
+                None,
+                workspace.path().to_string_lossy().as_ref(),
+            )
+            .await
+            .unwrap();
+
+        let captures = attach_captures.lock().unwrap();
+        assert_eq!(captures.len(), 1);
+        assert_eq!(
+            captures[0].domain,
+            crate::runtime::execution_context::IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(captures[0].working_directory, workspace.path());
+        assert_eq!(
+            captures[0].process_env_revision,
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(
+                &captures[0].extra_env
+            )
         );
     }
 

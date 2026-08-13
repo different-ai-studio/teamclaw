@@ -350,7 +350,11 @@ fn select_workspace_identity(
 ) -> Option<WorkspaceIdentity> {
     let candidates: Vec<_> = entries
         .iter()
-        .filter(|(_, resolved)| team_id.is_none() || resolved.team_id.as_deref() == team_id)
+        .filter(|(_, resolved)| {
+            team_id.is_none()
+                || resolved.team_id.is_none()
+                || resolved.team_id.as_deref() == team_id
+        })
         .filter_map(|(workspace_id, resolved)| {
             let canonical_root = Path::new(resolved.path.trim()).canonicalize().ok()?;
             let identity = workspace_identity(workspace_id, resolved)?;
@@ -651,6 +655,29 @@ mod tests {
             .resolve_identity_for_path(root.path(), None)
             .await
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_identity_for_path_keeps_legacy_empty_team_row_as_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        let mock = MockBackend::new();
+        seed(
+            &mock,
+            "ws-a",
+            "",
+            Some(root.path().to_string_lossy().as_ref()),
+        );
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let resolver = WorkspaceResolver::new(backend);
+        resolver.resolve("ws-a").await.unwrap();
+
+        let identity = resolver
+            .resolve_identity_for_path(root.path(), Some("team-a"))
+            .await
+            .expect("empty-team workspace remains eligible for configured-team fallback");
+
+        assert_eq!(identity.workspace_id, "ws-a");
+        assert_eq!(identity.team_id, None);
     }
 
     #[tokio::test]

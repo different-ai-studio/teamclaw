@@ -3939,6 +3939,76 @@ pub(crate) mod tests {
         );
     }
 
+    #[tokio::test]
+    pub(crate) async fn runtime_lifecycle_apply_start_runtime_propagates_workspace_attach_context()
+    {
+        let workspace = TempDir::new().unwrap();
+        let backend = Arc::new(crate::backend::mock::MockBackend::with_identity(
+            "team-test",
+            "agent-actor",
+        ));
+        backend.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            crate::backend::WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-test".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        backend.state().sessions.insert(
+            "desktop-session".into(),
+            crate::backend::BackendSessionAndParticipants {
+                session: crate::backend::BackendSessionRow {
+                    id: "desktop-session".into(),
+                    team_id: "team-test".into(),
+                    created_by_actor_id: Some("human-actor".into()),
+                    primary_agent_id: Some("agent-actor".into()),
+                    mode: "chat".into(),
+                    title: "Desktop".into(),
+                    summary: String::new(),
+                    idea_id: None,
+                    created_at: chrono::Utc::now(),
+                },
+                participants: Vec::new(),
+            },
+        );
+        let mut fixture = test_server_with_cloud_api(backend);
+        let captures = {
+            let mut manager = fixture.server.agents.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+
+        fixture
+            .server
+            .apply_start_runtime(
+                amux::AgentType::Opencode,
+                "ws-a",
+                workspace.path().to_string_lossy().as_ref(),
+                "desktop-session",
+                "",
+                None,
+                "",
+            )
+            .await
+            .unwrap_or_else(|error| panic!("desktop spawn failed: {}", error.error_message));
+
+        let captures = captures.lock().unwrap();
+        assert_eq!(captures.len(), 1);
+        assert_eq!(
+            captures[0].domain,
+            crate::runtime::execution_context::IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(captures[0].working_directory, workspace.path());
+        assert_eq!(
+            captures[0].process_env_revision,
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(
+                &captures[0].extra_env
+            )
+        );
+    }
+
     // ── plan_auto_restart_offline_sessions branch coverage ─────────────────
     //
     // The pure-decision half of `auto_restart_offline_sessions` is exposed

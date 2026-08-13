@@ -309,3 +309,64 @@ impl DaemonServer {
         self.catchup_runtime(runtime_id).await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::backend::mock::MockBackend;
+    use crate::backend::{Backend, WorkspaceRow};
+    use crate::daemon::server::tests::{make_stored_session, test_server_with_cloud_api};
+    use crate::proto::amux;
+    use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
+
+    #[tokio::test]
+    async fn collab_runtime_ensure_resume_propagates_workspace_attach_context() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        mock.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-test".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let mut fixture = test_server_with_cloud_api(backend);
+        let captures = {
+            let mut manager = fixture.server.agents.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        let mut stored = make_stored_session(
+            "runtime-a",
+            "session-a",
+            amux::AgentType::Opencode,
+            "ws-a",
+            1,
+        );
+        stored.worktree = workspace.path().to_string_lossy().into_owned();
+        fixture.server.sessions.upsert(stored);
+
+        assert!(
+            fixture
+                .server
+                .resume_historical_runtimes_for_session("session-a", None)
+                .await
+        );
+
+        let captures = captures.lock().unwrap();
+        assert_eq!(captures.len(), 1);
+        assert_eq!(
+            captures[0].domain,
+            IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(captures[0].working_directory, workspace.path());
+        assert_eq!(
+            captures[0].process_env_revision,
+            ProcessEnvRevision::from_bindings(&captures[0].extra_env)
+        );
+    }
+}
