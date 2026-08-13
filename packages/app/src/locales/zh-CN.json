@@ -1195,7 +1195,6 @@
       "leaderboard": "排行榜",
       "shortcuts": "快捷方式",
       "channels": "通道",
-      "team": "团队共享",
       "tokenUsage": "Token 用量",
       "knowledge": "知识库",
       "privacy": "隐私与遥测",
@@ -2153,10 +2152,6 @@
       }
     },
     "team": {
-      "prereqTitle": "暂无法配置团队共享",
-      "prereqNoTeam": "尚未创建或选择团队，请先创建/选择一个团队后再配置团队共享。",
-      "prereqNoWorkspace": "workspacePath 为空，请先打开一个工作区。",
-      "loadingShareMode": "正在加载团队共享状态…",
       "oss": {
         "title": "OSS 同步",
         "status": "状态",
@@ -2173,8 +2168,6 @@
       "noWorkspace": "未选择 workspace",
       "noCurrentTeam": "当前没有团队",
       "availableModelsHint": "网关可用模型（点击添加）",
-      "title": "团队共享",
-      "description": "配置团队共享 Git 仓库、本地共享目录和同步状态",
       "hostLlm": "托管 LLM（团队共享 AI 模型）",
       "hostLlmPaneDesc": "为团队配置共享 AI 模型代理地址与模型列表，所有成员可直接使用。",
       "saveLlm": "保存",
@@ -2802,7 +2795,6 @@
       "title": "团队共享",
       "lockSubtitle": "团队共享模式一经开通，不可切换。",
       "signInRequired": "请先登录后再管理团队共享。",
-      "enableMovedToKnowledge": "团队知识库同步未开通。请在侧边栏的 Knowledge 面板中开通。",
       "notEnabled": "团队共享未开通",
       "ownerOnlyDisconnect": "仅团队 owner 可断开团队共享",
       "enable": "开通",
@@ -2989,8 +2981,6 @@
     "generatePatch": "生成补丁",
     "openFile": "打开文件",
     "pathCopied": "路径已复制",
-    "revertFailed": "还原文件失败",
-    "revertFile": "还原文件",
     "reviewCode": "审查代码",
     "suggestRefactor": "建议重构"
   },

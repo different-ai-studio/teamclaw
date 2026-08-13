@@ -1195,7 +1195,6 @@
       "leaderboard": "Leaderboard",
       "shortcuts": "Shortcuts",
       "channels": "Channels",
-      "team": "Team Shared",
       "tokenUsage": "Token Usage",
       "knowledge": "Knowledge Base",
       "privacy": "Privacy & Telemetry",
@@ -2153,10 +2152,6 @@
       }
     },
     "team": {
-      "prereqTitle": "Team sharing can't be configured yet",
-      "prereqNoTeam": "No team has been created or selected yet — create or pick a team before configuring team sharing.",
-      "prereqNoWorkspace": "workspacePath is empty — open a workspace first.",
-      "loadingShareMode": "Loading team share status…",
       "oss": {
         "title": "OSS sync",
         "status": "Status",
@@ -2173,8 +2168,6 @@
       "noWorkspace": "No workspace selected",
       "noCurrentTeam": "No team selected",
       "availableModelsHint": "Gateway models (click to add)",
-      "title": "Team Shared",
-      "description": "Configure the team shared Git repository, local shared directory, and sync status",
       "hostLlm": "Host LLM (team shared AI model)",
       "hostLlmPaneDesc": "Configure the shared AI model proxy URL and model list for your team — every member can use them directly.",
       "saveLlm": "Save",
@@ -2802,7 +2795,6 @@
       "title": "Team sharing",
       "lockSubtitle": "Once a team sharing mode is enabled, it cannot be changed.",
       "signInRequired": "Please sign in to manage team sharing.",
-      "enableMovedToKnowledge": "Team knowledge sync is not enabled. Turn it on from the Knowledge panel in the sidebar.",
       "notEnabled": "Team sharing is not enabled",
       "ownerOnlyDisconnect": "Only the team owner can disconnect team share",
       "enable": "Enable",
@@ -2989,8 +2981,6 @@
     "generatePatch": "Generate Patch",
     "openFile": "Open File",
     "pathCopied": "Path copied",
-    "revertFailed": "Failed to revert file",
-    "revertFile": "Revert File",
     "reviewCode": "Review Code",
     "suggestRefactor": "Suggest Refactor"
   },
