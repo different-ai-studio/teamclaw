@@ -91,6 +91,7 @@ impl OpenCodeSettingsService {
             client.base_url().to_string(),
             client.password().to_string(),
             workspace,
+            lease,
         ))
     }
 }
@@ -179,6 +180,7 @@ mod pool_aware_tests {
         tempfile::TempDir,
         tempfile::TempDir,
         Arc<FixtureFactory>,
+        Arc<OpenCodeHostPool>,
     ) {
         let a = tempfile::tempdir().unwrap();
         let b = tempfile::tempdir().unwrap();
@@ -195,22 +197,76 @@ mod pool_aware_tests {
             root_b: b.path().to_path_buf(),
         });
         (
-            OpenCodeSettingsService::with_host_pool(pool, resolver),
+            OpenCodeSettingsService::with_host_pool(Arc::clone(&pool), resolver),
             a,
             b,
             factory,
+            pool,
         )
     }
 
     #[tokio::test]
     async fn settings_clients_for_two_workspaces_use_distinct_host_urls() {
-        let (service, a, b, factory) = pooled_service();
+        let (service, a, b, factory, _pool) = pooled_service();
 
         let client_a = service.client_for_workspace(a.path()).await.unwrap();
         let client_b = service.client_for_workspace(b.path()).await.unwrap();
 
         assert_ne!(client_a.base_url(), client_b.base_url());
         assert_eq!(factory.starts.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn settings_client_retains_its_host_route_until_drop_at_capacity() {
+        let (service, a, b, _factory, pool) = pooled_service();
+        let revision = ProcessEnvRevision::from_bindings(&HashMap::new());
+        let other_a = pool
+            .acquire(
+                IsolationDomainKey::Workspace("other-a".into()),
+                revision.clone(),
+                HashMap::new(),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+        let _other_b = pool
+            .acquire(
+                IsolationDomainKey::Workspace("other-b".into()),
+                revision,
+                HashMap::new(),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+
+        let client_a = service.client_for_workspace(a.path()).await.unwrap();
+        let domain_a = IsolationDomainKey::Workspace("ws-a".into());
+        let generation_a = pool.current_generation(&domain_a).unwrap();
+        assert_eq!(generation_a.route_count(), 1);
+        assert_eq!(
+            generation_a.lifecycle(),
+            crate::runtime::opencode_http::host_pool::HostLifecycle::Ready
+        );
+
+        pool.evict_idle(Instant::now() + Duration::from_secs(301))
+            .await;
+        assert_eq!(
+            generation_a.lifecycle(),
+            crate::runtime::opencode_http::host_pool::HostLifecycle::Ready
+        );
+
+        drop(other_a);
+        let client_b = service.client_for_workspace(b.path()).await.unwrap();
+        assert_ne!(client_a.base_url(), client_b.base_url());
+        assert_ne!(
+            generation_a.generation_id,
+            pool.current_generation(&IsolationDomainKey::Workspace("ws-b".into()))
+                .unwrap()
+                .generation_id
+        );
+
+        drop(client_a);
+        assert_eq!(generation_a.route_count(), 0);
     }
 
     #[tokio::test]
