@@ -432,6 +432,34 @@ impl DaemonServer {
         self.reload_channels().await;
     }
 
+    /// Persist the gateway-wide model (`channels.model`) and reload channels so
+    /// the next spawn picks it up.
+    ///
+    /// An empty string clears the setting rather than storing `""` — that is
+    /// how the UI expresses "back to unpinned", and an empty ref would spawn on
+    /// a nameless model.
+    pub(crate) async fn save_gateway_model(&mut self, model: &str) {
+        let trimmed = model.trim();
+        self.config.channels.model = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+
+        // Same destination as the per-platform sections: team-scoped team.toml,
+        // never daemon.toml.
+        if let Err(e) = crate::config::team_config::persist_from(&self.config) {
+            error!("gateway-model: failed to persist team.toml: {e:?}");
+            return;
+        }
+
+        info!(
+            model = trimmed,
+            "gateway-model: persisted, reloading channel manager"
+        );
+        self.reload_channels().await;
+    }
+
     /// Tear down any running channels. Idempotent — safe to call when
     /// `channel_mgr` is `None`.
     pub(crate) async fn shutdown_channels(&mut self) {

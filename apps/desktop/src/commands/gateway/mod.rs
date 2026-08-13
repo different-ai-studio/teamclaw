@@ -183,6 +183,53 @@ pub async fn save_channel_config(platform: String, config_json: String) -> Resul
     }
 }
 
+/// Read `channels.model` — the model every gateway session starts on when the
+/// chat has not set its own with `/model` (ADR-0007).
+///
+/// Reads team.toml directly, like `load_channel_config`: it is plain structure
+/// with no credential in it, so there is nothing for the daemon to decrypt.
+/// `None` means unset, which is the pre-ADR-0007 unpinned behaviour.
+#[tauri::command]
+pub fn load_gateway_model() -> Result<Option<String>, String> {
+    let Some(path) = team_config_path() else {
+        return Ok(None);
+    };
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let parsed: toml::Value =
+        toml::from_str(&content).map_err(|e| format!("parse {}: {e}", path.display()))?;
+
+    Ok(parsed
+        .get("channels")
+        .and_then(|channels| channels.get("model"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .filter(|s| !s.trim().is_empty()))
+}
+
+/// Set `channels.model`. An empty string clears it, restoring the unpinned
+/// spawn. Goes through amuxd rather than writing team.toml directly so the
+/// channel manager reloads and the next spawn actually uses it.
+#[tauri::command]
+pub async fn save_gateway_model(model: String) -> Result<(), String> {
+    #[cfg(windows)]
+    return Err(amuxd_unavailable());
+    #[cfg(unix)]
+    {
+        let mut s =
+            UnixStream::connect(sock_path()).map_err(|e| format!("amuxd not reachable: {e}"))?;
+        // Two newline-terminated tokens, matching the sock's line framing.
+        let payload = format!("gateway-model\n{}\n", model.trim().replace('\n', " "));
+        s.write_all(payload.as_bytes())
+            .map_err(|e| format!("write failed: {e}"))?;
+        Ok(())
+    }
+}
+
 /// Tell amuxd to re-read `daemon.toml` and restart all channels. Cheap;
 /// useful when the daemon-managed config file was edited out-of-band.
 #[tauri::command]
