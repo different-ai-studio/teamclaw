@@ -32,6 +32,7 @@ pub struct HostGeneration {
     pub(crate) permissions: parking_lot::Mutex<HashMap<String, String>>,
     pub(crate) questions: parking_lot::Mutex<HashMap<String, String>>,
     pub(crate) sse_tasks: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    pub(crate) reconcile_tasks: parking_lot::Mutex<Vec<tokio::task::JoinHandle<()>>>,
     pub(crate) sse_transport: parking_lot::Mutex<HashMap<String, SseTransportState>>,
     lifecycle: parking_lot::RwLock<HostLifecycle>,
     route_count: AtomicUsize,
@@ -55,6 +56,7 @@ impl HostGeneration {
             permissions: parking_lot::Mutex::new(HashMap::new()),
             questions: parking_lot::Mutex::new(HashMap::new()),
             sse_tasks: parking_lot::Mutex::new(HashMap::new()),
+            reconcile_tasks: parking_lot::Mutex::new(Vec::new()),
             sse_transport: parking_lot::Mutex::new(HashMap::new()),
             lifecycle: parking_lot::RwLock::new(HostLifecycle::Ready),
             route_count: AtomicUsize::new(0),
@@ -79,6 +81,12 @@ impl HostGeneration {
             directories.push(directory);
         }
         directories
+    }
+
+    fn abort_reconcile_tasks(&self) {
+        for task in std::mem::take(&mut *self.reconcile_tasks.lock()) {
+            task.abort();
+        }
     }
 
     fn reserve_route(self: &Arc<Self>, pool: &OpenCodeHostPool) -> HostLease {
@@ -129,6 +137,17 @@ impl HostGeneration {
     #[cfg(test)]
     pub(crate) fn test_mark_stopped(&self) {
         *self.lifecycle.write() = HostLifecycle::Stopped;
+    }
+
+    pub(crate) fn shutdown_unpooled(&self) -> ShutdownOutcome {
+        let _stop = self.stop_lock.lock();
+        if self.lifecycle() == HostLifecycle::Stopped {
+            return ShutdownOutcome::Idle;
+        }
+        *self.lifecycle.write() = HostLifecycle::Stopped;
+        self.abort_sse_tasks();
+        self.abort_reconcile_tasks();
+        self.serve.shutdown()
     }
 }
 
@@ -614,6 +633,7 @@ impl OpenCodeHostPool {
         let previous_lifecycle = generation.lifecycle();
         *generation.lifecycle.write() = HostLifecycle::Stopped;
         let sse_directories = generation.abort_sse_tasks();
+        generation.abort_reconcile_tasks();
         match self.factory.stop(generation) {
             ShutdownOutcome::Idle | ShutdownOutcome::Stopped => {
                 self.release_capacity();
@@ -1285,6 +1305,55 @@ mod tests {
             .expect("SSE task drop notification should be delivered");
         assert_eq!(generation.lifecycle(), HostLifecycle::Stopped);
         assert!(generation.sse_tasks.lock().is_empty());
+        assert_eq!(factory.stopped(), vec![generation.generation_id.clone()]);
+    }
+
+    #[tokio::test]
+    async fn stopping_generation_aborts_reconnect_reconciliation_tasks() {
+        struct NotifyOnDrop(Option<tokio::sync::oneshot::Sender<()>>);
+
+        impl Drop for NotifyOnDrop {
+            fn drop(&mut self) {
+                if let Some(tx) = self.0.take() {
+                    let _ = tx.send(());
+                }
+            }
+        }
+
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let lease = pool
+            .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let generation = Arc::clone(&lease.generation);
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let task_generation = Arc::clone(&generation);
+        generation
+            .reconcile_tasks
+            .lock()
+            .push(tokio::spawn(async move {
+                if task_generation.lifecycle() == HostLifecycle::Stopped {
+                    return;
+                }
+                let _guard = NotifyOnDrop(Some(dropped_tx));
+                let _ = started_tx.send(());
+                // Park after the lifecycle check, at the point immediately
+                // before reconciliation would call serve.ensure().
+                std::future::pending::<()>().await;
+            }));
+        started_rx.await.expect("reconciliation task should start");
+        drop(lease);
+
+        pool.shutdown_all().await;
+
+        tokio::time::timeout(Duration::from_millis(100), dropped_rx)
+            .await
+            .expect("reconciliation task should be aborted when its generation stops")
+            .expect("reconciliation task drop notification should be delivered");
+        assert_eq!(generation.lifecycle(), HostLifecycle::Stopped);
+        assert!(generation.reconcile_tasks.lock().is_empty());
         assert_eq!(factory.stopped(), vec![generation.generation_id.clone()]);
     }
 

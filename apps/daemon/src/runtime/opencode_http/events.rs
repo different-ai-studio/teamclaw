@@ -23,6 +23,24 @@ use super::ServeSupervisor;
 const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
 
+async fn ensure_live(
+    shared: &Arc<HostGeneration>,
+) -> crate::error::Result<super::client::ServeClient> {
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        return Err(crate::error::AmuxError::Agent(
+            "opencode host generation is stopped".to_string(),
+        ));
+    }
+    let client = shared.serve.ensure().await?;
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        shared.serve.shutdown();
+        return Err(crate::error::AmuxError::Agent(
+            "opencode host generation retired while starting".to_string(),
+        ));
+    }
+    Ok(client)
+}
+
 #[cfg(test)]
 pub(super) fn supervisor_for_route(
     generation: &Arc<HostGeneration>,
@@ -62,7 +80,7 @@ async fn sse_loop(shared: Arc<HostGeneration>, directory: String) {
             return;
         }
         shared.mark_sse_disconnected(&directory);
-        let client = match shared.serve.ensure().await {
+        let client = match ensure_live(&shared).await {
             Ok(c) => c,
             Err(e) => {
                 warn!(directory = %directory, error = %e, "SSE: serve unavailable; retrying");
@@ -78,10 +96,7 @@ async fn sse_loop(shared: Arc<HostGeneration>, directory: String) {
                 shared.mark_sse_connected(&directory);
                 // Events emitted while the stream was down are gone (no
                 // replay) — read back anything an active turn missed.
-                tokio::spawn(reconcile_turns_after_reconnect(
-                    Arc::clone(&shared),
-                    directory.clone(),
-                ));
+                spawn_reconcile_task(&shared, directory.clone());
                 let mut stream = resp.bytes_stream();
                 let mut buf = Vec::new();
                 while let Some(chunk) = stream.next().await {
@@ -124,6 +139,18 @@ async fn sse_loop(shared: Arc<HostGeneration>, directory: String) {
     }
 }
 
+fn spawn_reconcile_task(shared: &Arc<HostGeneration>, directory: String) {
+    let mut tasks = shared.reconcile_tasks.lock();
+    tasks.retain(|task| !task.is_finished());
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        return;
+    }
+    let generation = Arc::clone(shared);
+    tasks.push(tokio::spawn(reconcile_turns_after_reconnect(
+        generation, directory,
+    )));
+}
+
 /// After an SSE (re)subscribe, events emitted during the gap are lost — the
 /// stream has no cursor/replay. For every turn still marked active in this
 /// directory, read the persisted messages back and replay the tail through
@@ -152,7 +179,7 @@ async fn reconcile_turns_after_reconnect(shared: Arc<HostGeneration>, directory:
     if shared.lifecycle() == HostLifecycle::Stopped {
         return;
     }
-    let client = match shared.serve.ensure().await {
+    let client = match ensure_live(&shared).await {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -362,7 +389,7 @@ async fn handle_permission_asked(
         // itself fails, abort the turn so channel clients are not stuck for
         // the full gateway timeout with nobody able to approve.
         info!(session_id, permission_id = %permission_id, "auto-allow full-access permission");
-        let respond_ok = match shared.serve.ensure().await {
+        let respond_ok = match ensure_live(shared).await {
             Ok(client) => client
                 .permission_respond(&directory, session_id, &permission_id, "once")
                 .await
@@ -492,7 +519,7 @@ async fn resolve_parent_session_id(shared: &Arc<HostGeneration>, child_id: &str)
     if directories.is_empty() {
         return None;
     }
-    let client = shared.serve.ensure().await.ok()?;
+    let client = ensure_live(shared).await.ok()?;
     for directory in directories {
         match client.get_session(&directory, child_id).await {
             Ok(Some(session)) => {
@@ -567,7 +594,7 @@ async fn handle_question_asked(
         // Same fail-closed path as permissions: unanswered questions park the
         // stuck-turn watchdog, so a failed reject must end the turn.
         info!(session_id, request_id, "auto-reject full-access question");
-        let reject_ok = match shared.serve.ensure().await {
+        let reject_ok = match ensure_live(shared).await {
             Ok(client) => client
                 .question_reject(&directory, request_id)
                 .await
@@ -633,7 +660,7 @@ pub(super) async fn resync_pending_questions(shared: &Arc<HostGeneration>, sessi
         };
         route.directory.clone()
     };
-    let client = match shared.serve.ensure().await {
+    let client = match ensure_live(shared).await {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -869,5 +896,24 @@ mod tests {
         )
         .await
         .expect("stopped generation must exit without attempting serve.ensure()");
+    }
+
+    #[tokio::test]
+    async fn stopped_generation_cannot_ensure_a_serve_for_reconciliation() {
+        let generation = HostGeneration::test_for_routing(
+            "stopped-reconcile",
+            IsolationDomainKey::Workspace("stopped-reconcile".to_string()),
+            ProcessEnvRevision::from_bindings(&HashMap::new()),
+        );
+        generation
+            .serve
+            .set_binary_hint("/definitely/missing/opencode");
+        generation.test_mark_stopped();
+
+        let result = tokio::time::timeout(Duration::from_millis(100), ensure_live(&generation))
+            .await
+            .expect("lifecycle guard must return without attempting to spawn");
+
+        assert!(result.is_err());
     }
 }

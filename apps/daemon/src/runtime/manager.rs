@@ -1049,11 +1049,7 @@ impl RuntimeManager {
         for id in ids {
             let _ = self.stop_runtime(&id).await;
         }
-        let removed = self
-            .agent_backend
-            .lock()
-            .await
-            .evict_agent_types(Self::EVICTABLE_AGENT_TYPES);
+        let removed = self.agent_backend.lock().await.shutdown_for_exit().await;
         info!(
             removed_hosts = removed,
             "local agent backends shut down for daemon exit"
@@ -2064,6 +2060,7 @@ mod tests {
     /// exercising the "learn what the backend chose" path without a process.
     struct StubBackend {
         session_model: Option<String>,
+        shutdown_called: Arc<std::sync::atomic::AtomicBool>,
     }
 
     #[async_trait::async_trait]
@@ -2103,6 +2100,11 @@ mod tests {
         fn evict_agent_types(&mut self, _t: &[amux::AgentType]) -> usize {
             0
         }
+        async fn shutdown_for_exit(&mut self) -> usize {
+            self.shutdown_called
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            0
+        }
         fn host_count(&self) -> usize {
             0
         }
@@ -2126,12 +2128,27 @@ mod tests {
         let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-1");
         mgr.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
             session_model: session_model.map(str::to_string),
+            shutdown_called: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })));
         if let Some(h) = mgr.agents.get_mut("rt-1") {
             h.acp_session_id = "ses_stub".to_string();
             h.worktree = "/tmp/ws".to_string();
         }
         mgr
+    }
+
+    #[tokio::test]
+    async fn daemon_exit_uses_backend_exit_teardown() {
+        let shutdown_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
+            session_model: None,
+            shutdown_called: Arc::clone(&shutdown_called),
+        })));
+
+        mgr.shutdown_for_exit().await;
+
+        assert!(shutdown_called.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     #[tokio::test]

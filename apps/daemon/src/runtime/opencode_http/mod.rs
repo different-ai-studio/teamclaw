@@ -415,6 +415,21 @@ impl OpencodeHost {
         usize::from(self.service_generation.serve.shutdown().was_running())
     }
 
+    pub async fn shutdown_for_exit(&mut self) -> usize {
+        let service_removed =
+            usize::from(self.service_generation.shutdown_unpooled().was_running());
+        let pooled_before = self.pool.host_count();
+        self.pool.shutdown_all().await;
+        service_removed + pooled_before.saturating_sub(self.pool.host_count())
+    }
+
+    #[cfg(test)]
+    fn test_with_pool(pool: Arc<OpenCodeHostPool>) -> Self {
+        let mut host = Self::new();
+        host.pool = pool;
+        host
+    }
+
     /// Pre-warm: start the global serve process.
     pub async fn prewarm(
         &mut self,
@@ -1756,6 +1771,12 @@ mod spawn_path_tests {
 
 #[cfg(test)]
 mod pool_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use parking_lot::Mutex;
+
     #[cfg(unix)]
     use std::io::Write;
     #[cfg(unix)]
@@ -1763,6 +1784,97 @@ mod pool_tests {
 
     use super::*;
     use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
+    use crate::runtime::opencode_http::host_pool::GenerationFactory;
+    use crate::runtime::opencode_http::process_registry::ServeProcessRegistry;
+    use crate::runtime::opencode_http::supervisor::ShutdownOutcome;
+
+    struct ExitFactory {
+        registry: Arc<ServeProcessRegistry>,
+        stops: Mutex<Vec<String>>,
+        starts: AtomicUsize,
+    }
+
+    impl ExitFactory {
+        fn new() -> Arc<Self> {
+            let registry_path = tempfile::tempdir()
+                .expect("temporary process registry")
+                .keep()
+                .join("opencode-pgids.json");
+            Arc::new(Self {
+                registry: Arc::new(ServeProcessRegistry::new(registry_path)),
+                stops: Mutex::new(Vec::new()),
+                starts: AtomicUsize::new(0),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl GenerationFactory for ExitFactory {
+        async fn start(
+            &self,
+            generation_id: String,
+            _domain: IsolationDomainKey,
+            revision: ProcessEnvRevision,
+            env: HashMap<String, String>,
+        ) -> Result<Arc<ServeSupervisor>, String> {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            Ok(Arc::new(ServeSupervisor::new(
+                generation_id,
+                Arc::clone(&self.registry),
+                env,
+                revision,
+            )))
+        }
+
+        fn stop(&self, generation: &HostGeneration) -> ShutdownOutcome {
+            self.stops.lock().push(generation.generation_id.clone());
+            ShutdownOutcome::Stopped
+        }
+    }
+
+    fn exit_test_deadline() -> Instant {
+        Instant::now() + Duration::from_secs(2)
+    }
+
+    #[tokio::test]
+    async fn backend_exit_stops_every_pooled_generation() {
+        let factory = ExitFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let first = pool
+            .acquire(
+                IsolationDomainKey::Workspace("exit-a".to_string()),
+                ProcessEnvRevision::from_bindings(&HashMap::new()),
+                HashMap::new(),
+                exit_test_deadline(),
+            )
+            .await
+            .expect("first generation");
+        let second = pool
+            .acquire(
+                IsolationDomainKey::Workspace("exit-b".to_string()),
+                ProcessEnvRevision::from_bindings(&HashMap::new()),
+                HashMap::new(),
+                exit_test_deadline(),
+            )
+            .await
+            .expect("second generation");
+        let generations = [
+            Arc::clone(&first.generation),
+            Arc::clone(&second.generation),
+        ];
+        let mut backend = crate::runtime::backend::OpencodeHttpBackend::test_with_host(
+            OpencodeHost::test_with_pool(pool),
+        );
+
+        let removed = crate::runtime::backend::AgentBackend::shutdown_for_exit(&mut backend).await;
+
+        assert_eq!(removed, 2);
+        assert_eq!(factory.starts.load(Ordering::SeqCst), 2);
+        assert_eq!(factory.stops.lock().len(), 2);
+        assert!(generations
+            .iter()
+            .all(|generation| generation.lifecycle() == host_pool::HostLifecycle::Stopped));
+    }
 
     #[test]
     fn split_and_mime_helpers() {

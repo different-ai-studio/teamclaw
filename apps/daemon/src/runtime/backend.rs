@@ -156,6 +156,16 @@ pub trait AgentBackend: Send {
     /// pick up provider auth/config changes. Returns the number removed.
     fn evict_agent_types(&mut self, agent_types: &[amux::AgentType]) -> usize;
 
+    /// Permanently retire backend processes and background tasks during daemon exit.
+    async fn shutdown_for_exit(&mut self) -> usize {
+        self.evict_agent_types(&[
+            amux::AgentType::Opencode,
+            amux::AgentType::Pi,
+            amux::AgentType::Cursor,
+            amux::AgentType::ClaudeCode,
+        ])
+    }
+
     /// Number of live backend processes.
     fn host_count(&self) -> usize;
 
@@ -210,6 +220,11 @@ impl OpencodeHttpBackend {
         Self {
             host: OpencodeHost::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_with_host(host: OpencodeHost) -> Self {
+        Self { host }
     }
 }
 
@@ -278,6 +293,10 @@ impl AgentBackend for OpencodeHttpBackend {
 
     fn evict_agent_types(&mut self, agent_types: &[amux::AgentType]) -> usize {
         self.host.evict_agent_types(agent_types)
+    }
+
+    async fn shutdown_for_exit(&mut self) -> usize {
+        self.host.shutdown_for_exit().await
     }
 
     fn host_count(&self) -> usize {
