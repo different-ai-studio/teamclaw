@@ -596,10 +596,24 @@ impl crate::http::runtime_adapter::RuntimeExecutionContextAssembler for Executio
     }
 }
 
+#[async_trait::async_trait]
+impl crate::opencode_settings::WorkspaceSettingsContextResolver for ExecutionContextAssembler {
+    async fn resolve_settings_context(&self, workspace: &Path) -> Result<ExecutionContext, String> {
+        self.assemble(
+            workspace.to_string_lossy().as_ref(),
+            None,
+            None,
+            false,
+            None,
+        )
+        .await
+    }
+}
+
 impl DaemonServer {
     /// Resolve real spawn envs for ALL of the team's linkable on-disk
     /// workspaces, for ACP host prewarming at daemon start. One entry per
-    /// workspace: `(worktree_path, extra_env, force_env_override)`.
+    /// workspace: `(workspace_id, worktree_path, extra_env, force_env_override)`.
     ///
     /// Reusing `assemble_spawn_runtime_env_for_worktree` here is deliberate: it
     /// (a) syncs `provider.team` into each workspace's `opencode.json` (via
@@ -619,14 +633,43 @@ impl DaemonServer {
     /// install) — the caller then falls back to an empty-env prewarm.
     pub(super) async fn resolve_all_prewarm_envs(
         &self,
-    ) -> Vec<(String, std::collections::HashMap<String, String>, bool)> {
+    ) -> Vec<(
+        String,
+        String,
+        std::collections::HashMap<String, String>,
+        bool,
+    )> {
         let mut out = Vec::new();
-        for ws in self.cloud_workspace_list().await {
+        let (default_workspace_id, default_workspace_path) =
+            self.resolve_default_workspace_for_publish().await;
+        let mut workspaces = self.cloud_workspace_list().await;
+        if let Some(index) = workspaces
+            .iter()
+            .position(|workspace| workspace.workspace_id == default_workspace_id)
+        {
+            let default = workspaces.remove(index);
+            workspaces.insert(0, default);
+        } else if !default_workspace_id.is_empty() && !default_workspace_path.is_empty() {
+            workspaces.insert(
+                0,
+                crate::proto::amux::WorkspaceInfo {
+                    workspace_id: default_workspace_id,
+                    path: default_workspace_path,
+                    display_name: String::new(),
+                },
+            );
+        }
+        for ws in workspaces.into_iter().take(2) {
             match self
                 .assemble_spawn_runtime_env_for_worktree(&ws.path, &ws.workspace_id)
                 .await
             {
-                Ok(env) => out.push((ws.path, env.extra_env, env.force_env_override)),
+                Ok(env) => out.push((
+                    ws.workspace_id,
+                    ws.path,
+                    env.extra_env,
+                    env.force_env_override,
+                )),
                 Err(e) => {
                     tracing::warn!(
                         workspace = %ws.path,
@@ -656,13 +699,15 @@ impl DaemonServer {
             }
         };
         let agents = self.agents.clone();
+        let workspace_id_for_prewarm = workspace_id.to_string();
         let worktree_for_prewarm = worktree.to_string();
         tokio::spawn(async move {
             let mut mgr = agents.lock().await;
-            mgr.prewarm_agent_backend_with_env(
+            mgr.prewarm_agent_backend_for_workspace(
+                &workspace_id_for_prewarm,
                 env.extra_env,
                 env.force_env_override,
-                Some(worktree_for_prewarm.as_str()),
+                worktree_for_prewarm.as_str(),
             )
             .await;
         });

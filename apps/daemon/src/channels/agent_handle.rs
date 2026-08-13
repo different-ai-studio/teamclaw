@@ -328,9 +328,12 @@ impl AmuxdAgentHandle {
             // scratch dir, which tells us nothing useful about the catalog.
             return Ok(Vec::new());
         };
+        let context = self
+            .assemble_execution_context(Some(&dir))
+            .await?;
         let catalog = {
             let mut mgr = self.manager.lock().await;
-            mgr.probe_catalog_models(std::path::Path::new(&dir)).await
+            mgr.probe_catalog_models_with_context(context).await
         };
         let catalog = match catalog {
             Ok(models) => models,

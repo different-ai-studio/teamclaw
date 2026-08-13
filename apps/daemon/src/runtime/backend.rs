@@ -152,9 +152,36 @@ pub trait AgentBackend: Send {
         worktree: Option<&str>,
     );
 
+    async fn prewarm_workspace(
+        &mut self,
+        launch_configs: &HashMap<amux::AgentType, AgentLaunchConfig>,
+        isolation_domain: IsolationDomainKey,
+        process_env_revision: ProcessEnvRevision,
+        extra_env: HashMap<String, String>,
+        force_env_override: bool,
+        worktree: &str,
+    ) {
+        let _ = (isolation_domain, process_env_revision);
+        self.prewarm_with_env(
+            launch_configs,
+            extra_env,
+            force_env_override,
+            Some(worktree),
+        )
+        .await;
+    }
+
     /// Invalidate backend processes for the given agent types so new sessions
     /// pick up provider auth/config changes. Returns the number removed.
     fn evict_agent_types(&mut self, agent_types: &[amux::AgentType]) -> usize;
+
+    fn invalidate_workspace_host(&mut self, _domain: &IsolationDomainKey) -> bool {
+        self.evict_agent_types(&[amux::AgentType::Opencode]) > 0
+    }
+
+    fn invalidate_all_workspace_hosts(&mut self) -> usize {
+        self.evict_agent_types(&[amux::AgentType::Opencode])
+    }
 
     /// Permanently retire backend processes and background tasks during daemon exit.
     async fn shutdown_for_exit(&mut self) -> usize {
@@ -195,12 +222,20 @@ pub trait AgentBackend: Send {
         workspace_path: &Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>>;
 
-    /// Shared handle to the global `opencode serve` supervisor, when this
-    /// backend is the HTTP opencode runtime. Used by settings/OAuth to avoid
-    /// spawning a second serve process. Default: none (e.g. pi).
-    fn opencode_serve_supervisor(
+    async fn model_catalog_for_context(
+        &mut self,
+        workspace_path: &Path,
+        isolation_domain: IsolationDomainKey,
+        process_env_revision: ProcessEnvRevision,
+        extra_env: HashMap<String, String>,
+    ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+        let _ = (isolation_domain, process_env_revision, extra_env);
+        self.model_catalog(workspace_path).await
+    }
+
+    fn opencode_host_pool(
         &self,
-    ) -> Option<std::sync::Arc<super::opencode_http::supervisor::ServeSupervisor>> {
+    ) -> Option<std::sync::Arc<super::opencode_http::host_pool::OpenCodeHostPool>> {
         None
     }
 }
@@ -291,8 +326,37 @@ impl AgentBackend for OpencodeHttpBackend {
             .await;
     }
 
+    async fn prewarm_workspace(
+        &mut self,
+        launch_configs: &HashMap<amux::AgentType, AgentLaunchConfig>,
+        isolation_domain: IsolationDomainKey,
+        process_env_revision: ProcessEnvRevision,
+        extra_env: HashMap<String, String>,
+        force_env_override: bool,
+        worktree: &str,
+    ) {
+        self.host
+            .prewarm_workspace(
+                launch_configs,
+                isolation_domain,
+                process_env_revision,
+                extra_env,
+                force_env_override,
+                worktree,
+            )
+            .await;
+    }
+
     fn evict_agent_types(&mut self, agent_types: &[amux::AgentType]) -> usize {
         self.host.evict_agent_types(agent_types)
+    }
+
+    fn invalidate_workspace_host(&mut self, domain: &IsolationDomainKey) -> bool {
+        self.host.invalidate_workspace_host(domain)
+    }
+
+    fn invalidate_all_workspace_hosts(&mut self) -> usize {
+        self.host.invalidate_all_workspace_hosts()
     }
 
     async fn shutdown_for_exit(&mut self) -> usize {
@@ -321,10 +385,27 @@ impl AgentBackend for OpencodeHttpBackend {
         self.host.model_catalog(workspace_path).await
     }
 
-    fn opencode_serve_supervisor(
+    async fn model_catalog_for_context(
+        &mut self,
+        workspace_path: &Path,
+        isolation_domain: IsolationDomainKey,
+        process_env_revision: ProcessEnvRevision,
+        extra_env: HashMap<String, String>,
+    ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+        self.host
+            .model_catalog_for_context(
+                workspace_path,
+                isolation_domain,
+                process_env_revision,
+                extra_env,
+            )
+            .await
+    }
+
+    fn opencode_host_pool(
         &self,
-    ) -> Option<std::sync::Arc<super::opencode_http::supervisor::ServeSupervisor>> {
-        Some(self.host.serve_supervisor())
+    ) -> Option<std::sync::Arc<super::opencode_http::host_pool::OpenCodeHostPool>> {
+        Some(self.host.pool())
     }
 }
 

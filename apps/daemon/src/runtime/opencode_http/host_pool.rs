@@ -15,7 +15,8 @@ const HOST_IDLE_TTL: Duration = Duration::from_secs(300);
 const HOST_SOFT_LIMIT: usize = 2;
 const HOST_HARD_LIMIT: usize = 3;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HostLifecycle {
     Starting,
     Ready,
@@ -227,7 +228,8 @@ pub enum HostPoolError {
     Spawn(String),
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DomainHostStats {
     pub current_generation: Option<String>,
     pub current_lifecycle: Option<HostLifecycle>,
@@ -306,6 +308,7 @@ struct DomainState {
     current: Option<Arc<HostGeneration>>,
     draining: Vec<Arc<HostGeneration>>,
     requested_revision: Option<ProcessEnvRevision>,
+    replacement_requested: bool,
     last_error: Option<String>,
 }
 
@@ -400,6 +403,7 @@ impl OpenCodeHostPool {
             if let Some(current) = state.current.clone() {
                 if current.process_env_revision == revision
                     && current.lifecycle() == HostLifecycle::Ready
+                    && !state.replacement_requested
                 {
                     state.last_error = None;
                     return Ok(current.reserve_route(self));
@@ -431,6 +435,7 @@ impl OpenCodeHostPool {
             if let Some(current) = state.current.clone() {
                 if current.process_env_revision == revision
                     && current.lifecycle() == HostLifecycle::Ready
+                    && !state.replacement_requested
                 {
                     state.last_error = None;
                     return Ok(current.reserve_route(self));
@@ -466,6 +471,7 @@ impl OpenCodeHostPool {
                 None
             };
             state.last_error = None;
+            state.replacement_requested = false;
             displaced
         };
         self.capacity_changed.notify_waiters();
@@ -496,6 +502,7 @@ impl OpenCodeHostPool {
                 if let Some(current) = state.current.clone() {
                     if current.process_env_revision == *revision
                         && current.lifecycle() == HostLifecycle::Ready
+                        && !state.replacement_requested
                     {
                         state.last_error = None;
                         return Ok(CapacityReservation::Reused(current.reserve_route(self)));
@@ -704,6 +711,41 @@ impl OpenCodeHostPool {
             queued_acquisitions,
             last_error: state.last_error.clone(),
         }
+    }
+
+    /// Request a rolling replacement for one domain without stopping routes.
+    pub fn invalidate_domain(&self, domain: &IsolationDomainKey) -> bool {
+        let Some(slot) = self.domains.lock().get(domain).cloned() else {
+            return false;
+        };
+        let mut state = slot.state.lock();
+        let exists = state.current.is_some();
+        state.replacement_requested |= exists;
+        exists
+    }
+
+    /// Request rolling replacements for every current domain.
+    pub fn invalidate_all_domains(&self) -> usize {
+        let slots: Vec<Arc<DomainSlot>> = self.domains.lock().values().cloned().collect();
+        slots
+            .into_iter()
+            .filter(|slot| {
+                let mut state = slot.state.lock();
+                let exists = state.current.is_some();
+                state.replacement_requested |= exists;
+                exists
+            })
+            .count()
+    }
+
+    pub(crate) fn current_generation(
+        &self,
+        domain: &IsolationDomainKey,
+    ) -> Option<Arc<HostGeneration>> {
+        self.domains
+            .lock()
+            .get(domain)
+            .and_then(|slot| slot.state.lock().current.clone())
     }
 
     pub fn host_count(&self) -> usize {

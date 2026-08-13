@@ -93,6 +93,8 @@ pub struct ServeSupervisor {
     /// Serializes spawn attempts without holding `state` across awaits.
     spawn_lock: tokio::sync::Mutex<()>,
     password: String,
+    #[cfg(test)]
+    test_client: Option<ServeClient>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +143,34 @@ impl ServeSupervisor {
             state: parking_lot::Mutex::new(None),
             spawn_lock: tokio::sync::Mutex::new(()),
             password: generate_password(),
+            #[cfg(test)]
+            test_client: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_with_base_url(
+        generation_id: String,
+        revision: ProcessEnvRevision,
+        base_url: String,
+    ) -> Self {
+        let password = generate_password();
+        let registry = Arc::new(ServeProcessRegistry::new(
+            tempfile::tempdir()
+                .expect("temporary process registry")
+                .keep()
+                .join("opencode-pgids.json"),
+        ));
+        Self {
+            generation_id,
+            registry,
+            binary_override: parking_lot::Mutex::new(None),
+            extra_env: HashMap::new(),
+            process_env_revision: revision,
+            state: parking_lot::Mutex::new(None),
+            spawn_lock: tokio::sync::Mutex::new(()),
+            test_client: Some(ServeClient::new(base_url, password.clone())),
+            password,
         }
     }
 
@@ -225,6 +255,10 @@ impl ServeSupervisor {
 
     /// Ensure the global serve instance is up; returns a client for it.
     pub async fn ensure(&self) -> crate::error::Result<ServeClient> {
+        #[cfg(test)]
+        if let Some(client) = self.test_client.clone() {
+            return Ok(client);
+        }
         if let Some(client) = self.client_if_running()? {
             return Ok(client);
         }

@@ -306,12 +306,11 @@ impl RuntimeManager {
         self.refresh_coordinator = Some(coordinator);
     }
 
-    /// Shared global `opencode serve` supervisor (settings/OAuth + chat).
-    /// `None` when the local agent backend is not opencode HTTP (e.g. pi).
-    pub async fn opencode_serve_supervisor(
+    /// Shared OpenCode host pool used by chat and workspace services.
+    pub async fn opencode_host_pool(
         &self,
-    ) -> Option<Arc<crate::runtime::opencode_http::supervisor::ServeSupervisor>> {
-        self.agent_backend.lock().await.opencode_serve_supervisor()
+    ) -> Option<Arc<crate::runtime::opencode_http::host_pool::OpenCodeHostPool>> {
+        self.agent_backend.lock().await.opencode_host_pool()
     }
 
     pub fn agent_backend_handle(&self) -> Arc<AsyncMutex<Box<dyn AgentBackend>>> {
@@ -448,6 +447,28 @@ impl RuntimeManager {
             .await
             .prewarm_with_env(
                 &self.launch_configs,
+                extra_env,
+                force_env_override,
+                worktree,
+            )
+            .await;
+    }
+
+    pub async fn prewarm_agent_backend_for_workspace(
+        &mut self,
+        workspace_id: &str,
+        extra_env: HashMap<String, String>,
+        force_env_override: bool,
+        worktree: &str,
+    ) {
+        let revision = ProcessEnvRevision::from_bindings(&extra_env);
+        self.agent_backend
+            .lock()
+            .await
+            .prewarm_workspace(
+                &self.launch_configs,
+                IsolationDomainKey::Workspace(workspace_id.to_string()),
+                revision,
                 extra_env,
                 force_env_override,
                 worktree,
@@ -941,6 +962,27 @@ impl RuntimeManager {
         Ok(models)
     }
 
+    pub async fn probe_catalog_models_with_context(
+        &mut self,
+        context: crate::runtime::execution_context::ExecutionContext,
+    ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+        let workspace_path = context.working_directory;
+        let revision = ProcessEnvRevision::from_bindings(&context.spawn_env.extra_env);
+        let models = self
+            .agent_backend
+            .lock()
+            .await
+            .model_catalog_for_context(
+                &workspace_path,
+                context.isolation_domain,
+                revision,
+                context.spawn_env.extra_env,
+            )
+            .await?;
+        self.record_catalog(&workspace_path.to_string_lossy(), &models);
+        Ok(models)
+    }
+
     /// Live-probe a workspace catalog without holding the outer `agents`
     /// mutex across slow backend I/O (attach/detach only contend on the
     /// backend lock, not the whole manager).
@@ -1039,6 +1081,20 @@ impl RuntimeManager {
                 "evicted ACP hosts so new sessions pick up provider auth"
             );
         }
+    }
+
+    pub async fn request_workspace_host_refresh(&mut self, workspace_id: &str) -> bool {
+        self.agent_backend
+            .lock()
+            .await
+            .invalidate_workspace_host(&IsolationDomainKey::Workspace(workspace_id.to_string()))
+    }
+
+    pub async fn request_all_workspace_host_refreshes(&mut self) -> usize {
+        self.agent_backend
+            .lock()
+            .await
+            .invalidate_all_workspace_hosts()
     }
 
     /// Full local-runtime teardown for daemon exit (`amuxd stop` / SIGTERM).

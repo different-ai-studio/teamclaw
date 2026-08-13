@@ -50,6 +50,11 @@ impl OpenCodeSettingsClient {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     pub async fn fetch_provider_auth_methods(
         &self,
     ) -> Result<

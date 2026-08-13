@@ -990,7 +990,20 @@ impl DaemonServer {
             meta.mqtt_connected = mqtt_connected_flag.clone();
             // The HTTP workspace runtime endpoints share this supervisor's
             // refresh coordinator for status + apply-intent semantics.
-            let runtime_supervisor = crate::runtime::RuntimeSupervisor::new(self.agents.clone());
+            let execution_context_assembler = Arc::new(self.execution_context_assembler());
+            let opencode_host_pool = {
+                let manager = self.agents.lock().await;
+                manager.opencode_host_pool().await
+            };
+            let runtime_supervisor = if let Some(pool) = opencode_host_pool.clone() {
+                crate::runtime::RuntimeSupervisor::new_with_workspace_services(
+                    self.agents.clone(),
+                    pool,
+                    execution_context_assembler.clone(),
+                )
+            } else {
+                crate::runtime::RuntimeSupervisor::new(self.agents.clone())
+            };
             supervisor_for_prewarm = Some(runtime_supervisor.clone());
             runtime_supervisor.clone().start_refresh_auto_applier();
             let refresh_coordinator = runtime_supervisor.refresh_coordinator();
@@ -1004,7 +1017,7 @@ impl DaemonServer {
                     self.agents.clone(),
                     http_cfg.max_event_backlog,
                     Some(refresh_coordinator),
-                    Some(Arc::new(self.execution_context_assembler())),
+                    Some(execution_context_assembler.clone()),
                 );
             // Start the refresh watchers with an empty workspace set so the
             // (cloud-dependent) `cloud_workspace_list()` fetch does not delay the
@@ -1022,14 +1035,14 @@ impl DaemonServer {
             > = Some(std::sync::Arc::new(
                 crate::config::OpenCodeCompatStore::new(),
             ));
-            let opencode_settings = {
-                let manager = self.agents.lock().await;
-                manager.opencode_serve_supervisor().await.map(|serve| {
-                    std::sync::Arc::new(
-                        crate::opencode_settings::OpenCodeSettingsService::with_global_serve(serve),
-                    )
-                })
-            };
+            let opencode_settings = opencode_host_pool.map(|pool| {
+                std::sync::Arc::new(
+                    crate::opencode_settings::OpenCodeSettingsService::with_host_pool(
+                        pool,
+                        execution_context_assembler,
+                    ),
+                )
+            });
             match crate::http::spawn(
                 http_cfg,
                 meta,
@@ -1089,12 +1102,13 @@ impl DaemonServer {
                 // spawns take 20s+ each, and re-acquiring the lock between
                 // workspaces lets real session/cron traffic interleave instead
                 // of queueing behind the whole prewarm sweep.
-                for (worktree, extra_env, force_env_override) in prewarm_envs {
+                for (workspace_id, worktree, extra_env, force_env_override) in prewarm_envs {
                     let mut mgr = agents.lock().await;
-                    mgr.prewarm_agent_backend_with_env(
+                    mgr.prewarm_agent_backend_for_workspace(
+                        &workspace_id,
                         extra_env,
                         force_env_override,
-                        Some(worktree.as_str()),
+                        worktree.as_str(),
                     )
                     .await;
                 }

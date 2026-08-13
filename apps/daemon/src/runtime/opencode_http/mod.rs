@@ -338,9 +338,6 @@ pub struct OpencodeHost {
     pool: Arc<OpenCodeHostPool>,
     factory: Arc<SupervisorGenerationFactory>,
     generations: parking_lot::Mutex<HashMap<String, std::sync::Weak<HostGeneration>>>,
-    /// Transitional service host used by settings/catalog until Task 8 gives
-    /// those APIs an isolation domain.
-    service_generation: Arc<HostGeneration>,
 }
 
 impl OpencodeHost {
@@ -348,34 +345,15 @@ impl OpencodeHost {
         let registry = Arc::new(process_registry::ServeProcessRegistry::default());
         let factory = Arc::new(SupervisorGenerationFactory::new(Arc::clone(&registry)));
         let pool = OpenCodeHostPool::new(factory.clone());
-        let revision =
-            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&HashMap::new());
-        let generation_id = format!("service-{}", uuid::Uuid::new_v4());
-        let serve = Arc::new(ServeSupervisor::new(
-            generation_id.clone(),
-            registry,
-            HashMap::new(),
-            revision.clone(),
-        ));
         Self {
             pool,
             factory,
             generations: parking_lot::Mutex::new(HashMap::new()),
-            service_generation: Arc::new(HostGeneration::new(
-                generation_id,
-                crate::runtime::execution_context::IsolationDomainKey::UnscopedAgent {
-                    team_id: "service".to_string(),
-                    actor_id: "service".to_string(),
-                },
-                revision,
-                serve,
-            )),
         }
     }
 
-    /// Transitional service supervisor retained until Task 8.
-    pub fn serve_supervisor(&self) -> Arc<ServeSupervisor> {
-        Arc::clone(&self.service_generation.serve)
+    pub fn pool(&self) -> Arc<OpenCodeHostPool> {
+        Arc::clone(&self.pool)
     }
 
     /// The model opencode has settled on for `session_id`, from its persisted
@@ -407,20 +385,25 @@ impl OpencodeHost {
         self.pool.host_count()
     }
 
-    /// Restart the single global `opencode serve` process so new sessions
-    /// pick up provider auth/config changes. The parameter is ignored — there
-    /// is no per-agent-type host to filter anymore; the name and signature
-    /// are kept only for `RuntimeManager` compatibility.
     pub fn evict_agent_types(&mut self, _agent_types: &[amux::AgentType]) -> usize {
-        usize::from(self.service_generation.serve.shutdown().was_running())
+        self.pool.invalidate_all_domains()
+    }
+
+    pub fn invalidate_workspace_host(
+        &self,
+        domain: &crate::runtime::execution_context::IsolationDomainKey,
+    ) -> bool {
+        self.pool.invalidate_domain(domain)
+    }
+
+    pub fn invalidate_all_workspace_hosts(&self) -> usize {
+        self.pool.invalidate_all_domains()
     }
 
     pub async fn shutdown_for_exit(&mut self) -> usize {
-        let service_removed =
-            usize::from(self.service_generation.shutdown_unpooled().was_running());
         let pooled_before = self.pool.host_count();
         self.pool.shutdown_all().await;
-        service_removed + pooled_before.saturating_sub(self.pool.host_count())
+        pooled_before.saturating_sub(self.pool.host_count())
     }
 
     #[cfg(test)]
@@ -430,17 +413,11 @@ impl OpencodeHost {
         host
     }
 
-    /// Pre-warm: start the global serve process.
     pub async fn prewarm(
         &mut self,
         launch_configs: &HashMap<amux::AgentType, super::manager::AgentLaunchConfig>,
     ) {
         self.apply_binary_hint(launch_configs);
-        if let Err(e) = self.service_generation.serve.ensure().await {
-            warn!(error = %e, "opencode serve prewarm failed");
-        } else {
-            info!("opencode serve prewarmed");
-        }
     }
 
     /// Pre-warm with a real session env (merged into the serve process env on
@@ -452,16 +429,46 @@ impl OpencodeHost {
         _force_env_override: bool,
         worktree: Option<&str>,
     ) {
-        let _ = extra_env;
-        self.apply_binary_hint(launch_configs);
-        if let Err(e) = self.service_generation.serve.ensure().await {
-            warn!(error = %e, "opencode serve prewarm (session env) failed");
+        let Some(worktree) = worktree.filter(|worktree| !worktree.is_empty()) else {
             return;
+        };
+        let domain = crate::runtime::execution_context::IsolationDomainKey::Workspace(
+            canonical_dir(worktree),
+        );
+        let revision =
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&extra_env);
+        self.prewarm_workspace(launch_configs, domain, revision, extra_env, false, worktree)
+            .await;
+    }
+
+    pub async fn prewarm_workspace(
+        &mut self,
+        launch_configs: &HashMap<amux::AgentType, super::manager::AgentLaunchConfig>,
+        isolation_domain: crate::runtime::execution_context::IsolationDomainKey,
+        process_env_revision: crate::runtime::execution_context::ProcessEnvRevision,
+        extra_env: HashMap<String, String>,
+        _force_env_override: bool,
+        worktree: &str,
+    ) {
+        self.apply_binary_hint(launch_configs);
+        match self
+            .pool
+            .acquire(
+                isolation_domain.clone(),
+                process_env_revision,
+                extra_env,
+                std::time::Instant::now() + std::time::Duration::from_secs(30),
+            )
+            .await
+        {
+            Ok(lease) => {
+                events::ensure_sse_task(&lease.generation, &canonical_dir(worktree));
+                info!(?isolation_domain, "workspace opencode host prewarmed");
+            }
+            Err(error) => {
+                warn!(?isolation_domain, %error, "workspace opencode host prewarm failed");
+            }
         }
-        if let Some(worktree) = worktree.filter(|w| !w.is_empty()) {
-            events::ensure_sse_task(&self.service_generation, &canonical_dir(worktree));
-        }
-        info!("opencode serve prewarmed (session env)");
     }
 
     fn apply_binary_hint(
@@ -470,9 +477,6 @@ impl OpencodeHost {
     ) {
         if let Some(launch) = launch_configs.get(&amux::AgentType::Opencode) {
             self.factory.set_binary_hint(&launch.binary);
-            self.service_generation
-                .serve
-                .set_binary_hint(&launch.binary);
         }
     }
 
@@ -481,7 +485,36 @@ impl OpencodeHost {
         &mut self,
         workspace_path: &Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {
-        let client = self.service_generation.serve.ensure().await?;
+        let env = HashMap::new();
+        self.model_catalog_for_context(
+            workspace_path,
+            crate::runtime::execution_context::IsolationDomainKey::Workspace(canonical_dir(
+                &workspace_path.to_string_lossy(),
+            )),
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&env),
+            env,
+        )
+        .await
+    }
+
+    pub async fn model_catalog_for_context(
+        &mut self,
+        workspace_path: &Path,
+        isolation_domain: crate::runtime::execution_context::IsolationDomainKey,
+        process_env_revision: crate::runtime::execution_context::ProcessEnvRevision,
+        extra_env: HashMap<String, String>,
+    ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+        let lease = self
+            .pool
+            .acquire(
+                isolation_domain,
+                process_env_revision,
+                extra_env,
+                std::time::Instant::now() + std::time::Duration::from_secs(30),
+            )
+            .await
+            .map_err(|error| crate::error::AmuxError::Agent(error.to_string()))?;
+        let client = lease.generation.serve.ensure().await?;
         client
             .model_catalog(&canonical_dir(&workspace_path.to_string_lossy()))
             .await
