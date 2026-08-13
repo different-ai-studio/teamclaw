@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 
 use super::process_registry::ServeProcessRegistry;
-use super::supervisor::ServeSupervisor;
+use super::supervisor::{ServeSupervisor, ShutdownOutcome};
 use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
 
 const HOST_IDLE_TTL: Duration = Duration::from_secs(300);
@@ -30,6 +30,7 @@ pub struct HostGeneration {
     lifecycle: parking_lot::RwLock<HostLifecycle>,
     route_count: AtomicUsize,
     idle_since: parking_lot::Mutex<Option<Instant>>,
+    stop_lock: parking_lot::Mutex<()>,
 }
 
 impl HostGeneration {
@@ -130,7 +131,7 @@ pub trait GenerationFactory: Send + Sync {
         env: HashMap<String, String>,
     ) -> Result<Arc<ServeSupervisor>, String>;
 
-    fn stop(&self, generation: &HostGeneration);
+    fn stop(&self, generation: &HostGeneration) -> ShutdownOutcome;
 }
 
 pub struct SupervisorGenerationFactory {
@@ -162,8 +163,8 @@ impl GenerationFactory for SupervisorGenerationFactory {
         Ok(serve)
     }
 
-    fn stop(&self, generation: &HostGeneration) {
-        generation.serve.shutdown();
+    fn stop(&self, generation: &HostGeneration) -> ShutdownOutcome {
+        generation.serve.shutdown()
     }
 }
 
@@ -254,8 +255,29 @@ impl OpenCodeHostPool {
         deadline: Instant,
     ) -> Result<HostLease, HostPoolError> {
         let slot = self.slot_for(&domain);
-        let _activation = slot.activation_lock.lock().await;
+        let protected_idle_generation = {
+            let _activation = slot.activation_lock.lock().await;
+            let mut state = slot.state.lock();
+            state.requested_revision = Some(revision.clone());
+            if let Some(current) = state.current.clone() {
+                if current.process_env_revision == revision
+                    && current.lifecycle() == HostLifecycle::Ready
+                {
+                    state.last_error = None;
+                    return Ok(current.reserve_route(self));
+                }
+            }
+            state
+                .current
+                .as_ref()
+                .filter(|current| current.route_count() == 0)
+                .map(|current| current.generation_id.clone())
+        };
 
+        let mut capacity_permit = self
+            .reserve_capacity(deadline, protected_idle_generation.as_deref())
+            .await?;
+        let _activation = slot.activation_lock.lock().await;
         {
             let mut state = slot.state.lock();
             state.requested_revision = Some(revision.clone());
@@ -269,29 +291,6 @@ impl OpenCodeHostPool {
             }
         }
 
-        let replace_idle = {
-            let state = slot.state.lock();
-            state
-                .current
-                .as_ref()
-                .filter(|current| current.route_count() == 0)
-                .cloned()
-        };
-        if let Some(old) = replace_idle {
-            {
-                let mut state = slot.state.lock();
-                if state
-                    .current
-                    .as_ref()
-                    .is_some_and(|current| Arc::ptr_eq(current, &old))
-                {
-                    state.current = None;
-                }
-            }
-            self.stop_generation(&old);
-        }
-
-        let mut capacity_permit = self.reserve_capacity(deadline).await?;
         let generation_id = format!("host-{}", uuid::Uuid::new_v4());
         let start_result = self
             .factory
@@ -312,15 +311,29 @@ impl OpenCodeHostPool {
             lifecycle: parking_lot::RwLock::new(HostLifecycle::Ready),
             route_count: AtomicUsize::new(0),
             idle_since: parking_lot::Mutex::new(Some(Instant::now())),
+            stop_lock: parking_lot::Mutex::new(()),
         });
 
-        {
+        let displaced_without_routes = {
             let mut state = slot.state.lock();
-            if let Some(old) = state.current.replace(Arc::clone(&generation)) {
+            let displaced = if let Some(old) = state.current.replace(Arc::clone(&generation)) {
                 *old.lifecycle.write() = HostLifecycle::Draining;
-                state.draining.push(old);
-            }
+                if old.route_count() == 0 {
+                    Some(old)
+                } else {
+                    state.draining.push(old);
+                    None
+                }
+            } else {
+                None
+            };
             state.last_error = None;
+            displaced
+        };
+        if let Some(old) = displaced_without_routes {
+            if !self.stop_generation(&old) {
+                slot.state.lock().draining.push(old);
+            }
         }
         capacity_permit.commit();
         Ok(generation.reserve_route(self))
@@ -329,6 +342,7 @@ impl OpenCodeHostPool {
     async fn reserve_capacity(
         &self,
         deadline: Instant,
+        protected_idle_generation: Option<&str>,
     ) -> Result<CapacityPermit<'_>, HostPoolError> {
         let mut ticket = QueueTicket {
             pool: self,
@@ -336,7 +350,8 @@ impl OpenCodeHostPool {
         };
         loop {
             let notified = self.capacity_changed.notified();
-            self.evict_one_idle_for_capacity().await;
+            self.evict_one_idle_for_capacity(protected_idle_generation)
+                .await;
             {
                 let mut capacity = self.capacity.lock();
                 let must_queue = capacity.active >= HOST_HARD_LIMIT || !capacity.queue.is_empty();
@@ -385,11 +400,11 @@ impl OpenCodeHostPool {
         }
     }
 
-    async fn evict_one_idle_for_capacity(&self) {
+    async fn evict_one_idle_for_capacity(&self, protected_generation: Option<&str>) {
         if self.capacity.lock().active < HOST_SOFT_LIMIT {
             return;
         }
-        let Some((_, slot, generation)) = self.oldest_idle_current() else {
+        let Some((_, slot, generation)) = self.oldest_idle_current(protected_generation) else {
             return;
         };
         let _activation = slot.activation_lock.lock().await;
@@ -403,17 +418,25 @@ impl OpenCodeHostPool {
             matches.then(|| state.current.take().expect("matched current"))
         };
         if let Some(removed) = removed {
-            self.stop_generation(&removed);
+            if !self.stop_generation(&removed) {
+                slot.state.lock().current = Some(removed);
+            }
         }
     }
 
-    fn oldest_idle_current(&self) -> Option<(Instant, Arc<DomainSlot>, Arc<HostGeneration>)> {
+    fn oldest_idle_current(
+        &self,
+        protected_generation: Option<&str>,
+    ) -> Option<(Instant, Arc<DomainSlot>, Arc<HostGeneration>)> {
         let slots: Vec<Arc<DomainSlot>> = self.domains.lock().values().cloned().collect();
         slots
             .into_iter()
             .filter_map(|slot| {
                 let generation = slot.state.lock().current.clone()?;
-                if generation.route_count() != 0 || generation.lifecycle() != HostLifecycle::Ready {
+                if protected_generation == Some(generation.generation_id.as_str())
+                    || generation.route_count() != 0
+                    || generation.lifecycle() != HostLifecycle::Ready
+                {
                     return None;
                 }
                 let idle_since = (*generation.idle_since.lock())?;
@@ -442,11 +465,13 @@ impl OpenCodeHostPool {
             }
             *generation.idle_since.lock() = Some(Instant::now());
             if generation.lifecycle() == HostLifecycle::Draining {
-                state
-                    .draining
-                    .retain(|candidate| !Arc::ptr_eq(candidate, &generation));
                 drop(state);
-                self.stop_generation(&generation);
+                if self.stop_generation(&generation) {
+                    slot.state
+                        .lock()
+                        .draining
+                        .retain(|candidate| !Arc::ptr_eq(candidate, &generation));
+                }
             } else {
                 drop(state);
                 self.capacity_changed.notify_waiters();
@@ -455,18 +480,19 @@ impl OpenCodeHostPool {
         }
     }
 
-    fn stop_generation(&self, generation: &Arc<HostGeneration>) {
-        let previous = {
-            let mut lifecycle = generation.lifecycle.write();
-            let previous = *lifecycle;
-            *lifecycle = HostLifecycle::Stopped;
-            previous
-        };
-        if previous == HostLifecycle::Stopped {
-            return;
+    fn stop_generation(&self, generation: &Arc<HostGeneration>) -> bool {
+        let _stop = generation.stop_lock.lock();
+        if generation.lifecycle() == HostLifecycle::Stopped {
+            return true;
         }
-        self.factory.stop(generation);
-        self.release_capacity();
+        match self.factory.stop(generation) {
+            ShutdownOutcome::Idle | ShutdownOutcome::Stopped => {
+                *generation.lifecycle.write() = HostLifecycle::Stopped;
+                self.release_capacity();
+                true
+            }
+            ShutdownOutcome::Survived { .. } => false,
+        }
     }
 
     fn release_capacity(&self) {
@@ -528,7 +554,7 @@ impl OpenCodeHostPool {
 
     pub async fn evict_idle(&self, now: Instant) {
         loop {
-            let Some((idle_since, slot, generation)) = self.oldest_idle_current() else {
+            let Some((idle_since, slot, generation)) = self.oldest_idle_current(None) else {
                 return;
             };
             if now.saturating_duration_since(idle_since) < HOST_IDLE_TTL {
@@ -548,7 +574,10 @@ impl OpenCodeHostPool {
                 matches.then(|| state.current.take().expect("matched current"))
             };
             if let Some(removed) = removed {
-                self.stop_generation(&removed);
+                if !self.stop_generation(&removed) {
+                    slot.state.lock().current = Some(removed);
+                    return;
+                }
             }
         }
     }
@@ -567,7 +596,9 @@ impl OpenCodeHostPool {
                     .collect::<Vec<_>>()
             };
             for generation in generations {
-                self.stop_generation(&generation);
+                if !self.stop_generation(&generation) {
+                    slot.state.lock().draining.push(generation);
+                }
             }
         }
     }
@@ -594,6 +625,8 @@ mod tests {
         stops: Mutex<Vec<String>>,
         start_order: Mutex<Vec<IsolationDomainKey>>,
         fail_next: AtomicBool,
+        block_next: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
+        survive_next_stop: AtomicBool,
     }
 
     impl FakeGenerationFactory {
@@ -606,6 +639,8 @@ mod tests {
                 stops: Mutex::new(Vec::new()),
                 start_order: Mutex::new(Vec::new()),
                 fail_next: AtomicBool::new(false),
+                block_next: Mutex::new(None),
+                survive_next_stop: AtomicBool::new(false),
             })
         }
 
@@ -615,6 +650,12 @@ mod tests {
 
         fn stopped(&self) -> Vec<String> {
             self.stops.lock().clone()
+        }
+
+        fn block_next_start(&self) -> Arc<tokio::sync::Semaphore> {
+            let gate = Arc::new(tokio::sync::Semaphore::new(0));
+            *self.block_next.lock() = Some(Arc::clone(&gate));
+            gate
         }
     }
 
@@ -629,6 +670,13 @@ mod tests {
         ) -> Result<Arc<ServeSupervisor>, String> {
             self.starts.fetch_add(1, Ordering::SeqCst);
             self.start_order.lock().push(domain);
+            let gate = self.block_next.lock().take();
+            if let Some(gate) = gate {
+                gate.acquire()
+                    .await
+                    .expect("fake start gate must remain open")
+                    .forget();
+            }
             if self.fail_next.swap(false, Ordering::SeqCst) {
                 return Err("fake health failure".to_string());
             }
@@ -640,8 +688,13 @@ mod tests {
             )))
         }
 
-        fn stop(&self, generation: &HostGeneration) {
-            self.stops.lock().push(generation.generation_id.clone());
+        fn stop(&self, generation: &HostGeneration) -> ShutdownOutcome {
+            if self.survive_next_stop.swap(false, Ordering::SeqCst) {
+                ShutdownOutcome::Survived { pgid: 41001 }
+            } else {
+                self.stops.lock().push(generation.generation_id.clone());
+                ShutdownOutcome::Stopped
+            }
         }
     }
 
@@ -732,6 +785,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_idle_replacement_keeps_old_current_ready() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let old = pool
+            .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let old_generation = Arc::clone(&old.generation);
+        drop(old);
+        factory.fail_next.store(true, Ordering::SeqCst);
+
+        let error = pool
+            .acquire(domain("a"), revision("2"), HashMap::new(), deadline())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, HostPoolError::Spawn(_)));
+        assert_eq!(
+            pool.stats_for(&domain("a")).current_generation.as_deref(),
+            Some(old_generation.generation_id.as_str())
+        );
+        assert_eq!(old_generation.lifecycle(), HostLifecycle::Ready);
+        assert!(factory.stopped().is_empty());
+    }
+
+    #[tokio::test]
     async fn active_revision_change_rolls_only_after_new_generation_is_healthy() {
         let factory = FakeGenerationFactory::new();
         let pool = OpenCodeHostPool::new(factory.clone());
@@ -780,6 +859,44 @@ mod tests {
 
         assert_eq!(factory.stopped(), vec![old_id]);
         assert_eq!(pool.stats_for(&domain("a")).draining_generations, 0);
+    }
+
+    #[tokio::test]
+    async fn old_route_dropped_during_replacement_start_is_stopped_on_publish() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let old = pool
+            .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let old_generation = Arc::clone(&old.generation);
+        let gate = factory.block_next_start();
+
+        let replacement_pool = Arc::clone(&pool);
+        let replacement = tokio::spawn(async move {
+            replacement_pool
+                .acquire(domain("a"), revision("2"), HashMap::new(), deadline())
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while factory.start_count() < 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("replacement start should block in the fake factory");
+        drop(old);
+        gate.add_permits(1);
+
+        let new = replacement.await.unwrap().unwrap();
+
+        assert_eq!(new.generation.lifecycle(), HostLifecycle::Ready);
+        assert_eq!(old_generation.lifecycle(), HostLifecycle::Stopped);
+        assert_eq!(pool.stats_for(&domain("a")).draining_generations, 0);
+        assert_eq!(
+            factory.stopped(),
+            vec![old_generation.generation_id.clone()]
+        );
     }
 
     #[tokio::test]
@@ -857,6 +974,85 @@ mod tests {
 
         let order = factory.start_order.lock().clone();
         assert_eq!(&order[3..], &[domain("d"), domain("e")]);
+    }
+
+    #[tokio::test]
+    async fn same_domain_capacity_wait_can_evict_its_newly_idle_current() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory);
+        let a = pool
+            .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let _b = pool
+            .acquire(domain("b"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let _c = pool
+            .acquire(domain("c"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+
+        let replacement_pool = Arc::clone(&pool);
+        let replacement = tokio::spawn(async move {
+            replacement_pool
+                .acquire(domain("a"), revision("2"), HashMap::new(), deadline())
+                .await
+        });
+        wait_for_queue(&pool, &domain("a"), 1).await;
+        drop(a);
+
+        let acquired = tokio::time::timeout(Duration::from_secs(2), replacement)
+            .await
+            .expect("same-domain capacity waiter must not deadlock")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            acquired.generation.process_env_revision,
+            revision("2"),
+            "replacement should complete after evicting the idle old current"
+        );
+    }
+
+    #[tokio::test]
+    async fn surviving_stopped_group_keeps_capacity_at_hard_limit() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let a = pool
+            .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let _b = pool
+            .acquire(domain("b"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let _c = pool
+            .acquire(domain("c"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        drop(a);
+        factory.survive_next_stop.store(true, Ordering::SeqCst);
+
+        let error = pool
+            .acquire(
+                domain("d"),
+                revision("1"),
+                HashMap::new(),
+                Instant::now() + Duration::from_millis(50),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            HostPoolError::CapacityTimeout { active: 3, .. }
+        ));
+        assert_eq!(
+            factory.start_count(),
+            3,
+            "a surviving process group must block a fourth spawn"
+        );
     }
 
     #[tokio::test]
