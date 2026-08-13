@@ -62,7 +62,30 @@ vi.mock('@/stores/member-preferences-store', () => ({
   },
 }))
 vi.mock('@/stores/current-team', () => ({
-  useCurrentTeamStore: { getState: () => ({ team: h.currentTeam }) },
+  useCurrentTeamStore: { getState: () => ({ team: h.currentTeam, currentMember: { id: 'member-1' } }) },
+}))
+vi.mock('@/lib/daemon-workspaces', () => ({
+  createDaemonWorkspace: vi.fn(async (input: { path: string; name: string }) => ({
+    id: 'ws-cloud-1',
+    teamId: 't1',
+    agentId: 'actor-1',
+    createdByMemberId: 'member-1',
+    name: input.name,
+    path: input.path,
+    archived: false,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  })),
+  getCurrentDaemonWorkspaceAgent: vi.fn(async () => ({
+    id: 'actor-1',
+    displayName: 'Local',
+    agentTypes: [],
+    defaultAgentType: null,
+    defaultWorkspaceId: null,
+    status: 'online',
+    lastActiveAt: null,
+  })),
+  setAgentDefaultWorkspace: vi.fn(async () => {}),
 }))
 vi.mock('@/stores/auth-store', () => ({
   useAuthStore: { getState: () => ({ session: h.currentUserId ? { user: { id: h.currentUserId } } : null }) },
@@ -124,6 +147,7 @@ const reset = () =>
     cloudAuthExpired: false,
     healing: false,
     healError: null,
+    workspaceSyncEpoch: 0,
   })
 
 beforeEach(() => {
@@ -141,6 +165,7 @@ beforeEach(() => {
   h.deviceAgents = new Map()
   localStorage.clear()
   reset()
+  vi.clearAllMocks()
 })
 
 afterEach(() => {
@@ -320,24 +345,40 @@ describe('daemon-onboarding refresh() orchestration', () => {
 
   it('ready registers the active workspace when it is a real project dir', async () => {
     const { fetchDaemonCloudAuthStatus } = await import('@/lib/daemon-local-client')
+    const { createDaemonWorkspace, setAgentDefaultWorkspace } = await import('@/lib/daemon-workspaces')
     vi.mocked(fetchDaemonCloudAuthStatus).mockResolvedValue('ok')
     h.currentTeam = { id: 't1' }
     h.daemonTeam = 't1'
     h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
     await useDaemonOnboardingStore.getState().refresh()
     expect(useDaemonOnboardingStore.getState().status).toBe('ready')
+    expect(createDaemonWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teamId: 't1',
+        agentId: 'actor-1',
+        path: '/home/u/projects/app',
+        name: 'app',
+      }),
+    )
+    expect(setAgentDefaultWorkspace).toHaveBeenCalledWith('actor-1', 'ws-cloud-1')
     expect(h.invokeCalls).toContain('register_daemon_workspace')
     expect(h.registerArgs?.workspacePath).toBe('/home/u/projects/app')
+    expect(useDaemonOnboardingStore.getState().workspaceSyncEpoch).toBe(1)
   })
 
-  it('skips workspace registration while daemon cloud auth is expired', async () => {
+  it('skips local daemon mirror while cloud auth is expired but still registers cloud workspace', async () => {
     const { fetchDaemonCloudAuthStatus } = await import('@/lib/daemon-local-client')
+    const { createDaemonWorkspace } = await import('@/lib/daemon-workspaces')
     vi.mocked(fetchDaemonCloudAuthStatus).mockResolvedValue('expired')
     h.currentTeam = { id: 't1' }
     h.daemonTeam = 't1'
     h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
     await useDaemonOnboardingStore.getState().refresh()
     expect(useDaemonOnboardingStore.getState().status).toBe('ready')
+    // Cloud row is written with the app JWT so the sidebar can populate.
+    expect(createDaemonWorkspace).toHaveBeenCalled()
+    expect(useDaemonOnboardingStore.getState().workspaceSyncEpoch).toBe(1)
+    // Local amuxd mirror needs daemon cloud auth — skipped while expired.
     expect(h.invokeCalls).not.toContain('register_daemon_workspace')
   })
 

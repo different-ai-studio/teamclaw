@@ -419,6 +419,7 @@ export function LocalDaemonRow({
   const refreshDaemon = useDaemonOnboardingStore((s) => s.refresh)
   const checkCloudSession = useDaemonOnboardingStore((s) => s.checkCloudSession)
   const daemonBusy = useDaemonOnboardingStore((s) => s.busy)
+  const workspaceSyncEpoch = useDaemonOnboardingStore((s) => s.workspaceSyncEpoch)
 
   const daemonOffline = runtimeStatus === 'offline'
   const daemonMqttDisconnected = runtimeStatus === 'daemonMqttDisconnected'
@@ -463,7 +464,7 @@ export function LocalDaemonRow({
     loadGenerationRef.current += 1
     setWorkspaces([])
     void loadWorkspaces({ forceLoading: true })
-  }, [daemonOffline, teamId, agentId, loadWorkspaces])
+  }, [daemonOffline, teamId, agentId, loadWorkspaces, workspaceSyncEpoch])
 
   const handleNewWorkspace = async () => {
     if (!teamId || !agentId || creating || daemonOffline) return
