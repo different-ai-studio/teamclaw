@@ -27,6 +27,16 @@ impl ServeProcessRegistry {
             ));
         }
         let mut groups = self.groups.lock();
+        if let Some(existing_pgid) = groups.get(generation_id).copied() {
+            if existing_pgid != pgid && registered_group_alive(existing_pgid) {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    format!(
+                        "generation {generation_id} still owns live process group {existing_pgid}"
+                    ),
+                ));
+            }
+        }
         let mut updated = groups.clone();
         updated.insert(generation_id.to_string(), pgid);
         persist_groups(&self.path, &updated)?;
@@ -45,6 +55,14 @@ impl ServeProcessRegistry {
 
     pub fn snapshot(&self) -> HashMap<String, u32> {
         self.groups.lock().clone()
+    }
+
+    pub fn live_pgid(&self, generation_id: &str) -> Option<u32> {
+        self.groups
+            .lock()
+            .get(generation_id)
+            .copied()
+            .filter(|pgid| registered_group_alive(*pgid))
     }
 
     pub fn reap_all(&self) {
@@ -138,6 +156,11 @@ fn process_group_alive(pgid: i32) -> bool {
 }
 
 #[cfg(unix)]
+fn registered_group_alive(pgid: u32) -> bool {
+    i32::try_from(pgid).is_ok_and(process_group_alive)
+}
+
+#[cfg(unix)]
 fn group_has_managed_member(pgid: i32) -> bool {
     let Ok(out) = std::process::Command::new("pgrep")
         .args(["-g", &pgid.to_string()])
@@ -212,8 +235,18 @@ fn windows_pid_alive(pid: u32) -> bool {
         })
 }
 
+#[cfg(windows)]
+fn registered_group_alive(pid: u32) -> bool {
+    windows_pid_alive(pid)
+}
+
 #[cfg(not(any(unix, windows)))]
 fn reap_verified_group(_pgid: u32) -> bool {
+    false
+}
+
+#[cfg(not(any(unix, windows)))]
+fn registered_group_alive(_pgid: u32) -> bool {
     false
 }
 
@@ -248,6 +281,34 @@ mod tests {
         let reloaded = ServeProcessRegistry::new(path);
         assert!(!reloaded.snapshot().contains_key("gen-a"));
         assert_eq!(reloaded.snapshot().get("gen-b"), Some(&42002));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn registering_generation_refuses_to_overwrite_a_live_group() {
+        use std::os::unix::process::CommandExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("opencode-pgids.json");
+        let registry = ServeProcessRegistry::new(path.clone());
+        let mut live = std::process::Command::new("sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let live_pgid = live.id();
+        registry.register("gen-a", live_pgid).unwrap();
+
+        let error = registry.register("gen-a", 42003).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(registry.snapshot().get("gen-a"), Some(&live_pgid));
+        assert_eq!(
+            ServeProcessRegistry::new(path).snapshot().get("gen-a"),
+            Some(&live_pgid)
+        );
+        let _ = live.kill();
+        let _ = live.wait();
     }
 
     #[test]

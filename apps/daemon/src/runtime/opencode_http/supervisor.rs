@@ -127,7 +127,9 @@ impl ServeSupervisor {
                 Ok(None) => true,
                 _ => {
                     let mut inst = guard.take().expect("serve instance present");
-                    self.finish_process_group(&mut inst);
+                    if !self.finish_process_group(&mut inst) {
+                        *guard = Some(inst);
+                    }
                     false
                 }
             },
@@ -142,8 +144,11 @@ impl ServeSupervisor {
         let taken = self.state.lock().take();
         match taken {
             Some(mut inst) => {
-                self.finish_process_group(&mut inst);
-                info!(generation_id = %self.generation_id, "opencode serve process group shut down");
+                if self.finish_process_group(&mut inst) {
+                    info!(generation_id = %self.generation_id, "opencode serve process group shut down");
+                } else {
+                    self.state.lock().replace(inst);
+                }
                 true
             }
             None => false,
@@ -152,31 +157,41 @@ impl ServeSupervisor {
 
     /// Ensure the global serve instance is up; returns a client for it.
     pub async fn ensure(&self) -> crate::error::Result<ServeClient> {
-        if let Some(client) = self.client_if_running() {
+        if let Some(client) = self.client_if_running()? {
             return Ok(client);
         }
         let _guard = self.spawn_lock.lock().await;
-        if let Some(client) = self.client_if_running() {
+        if let Some(client) = self.client_if_running()? {
             return Ok(client);
+        }
+        if let Some(pgid) = self.registry.live_pgid(&self.generation_id) {
+            return Err(surviving_group_error(&self.generation_id, pgid));
         }
         self.spawn().await
     }
 
-    fn client_if_running(&self) -> Option<ServeClient> {
+    fn client_if_running(&self) -> crate::error::Result<Option<ServeClient>> {
         let mut guard = self.state.lock();
-        let inst = guard.as_mut()?;
+        let Some(inst) = guard.as_mut() else {
+            return Ok(None);
+        };
         match inst.child.try_wait() {
-            Ok(None) => Some(inst.client.clone()),
+            Ok(None) => Ok(Some(inst.client.clone())),
             other => {
                 warn!(exit = ?other, "opencode serve process is gone; will respawn");
                 let mut inst = guard.take().expect("serve instance present");
-                self.finish_process_group(&mut inst);
-                None
+                if self.finish_process_group(&mut inst) {
+                    Ok(None)
+                } else {
+                    let pgid = inst.pgid;
+                    *guard = Some(inst);
+                    Err(surviving_group_error(&self.generation_id, pgid))
+                }
             }
         }
     }
 
-    fn finish_process_group(&self, inst: &mut ServeInstance) {
+    fn finish_process_group(&self, inst: &mut ServeInstance) -> bool {
         if kill_serve_tree(&mut inst.child, inst.pgid) {
             if let Err(error) = self.registry.unregister(&self.generation_id) {
                 warn!(
@@ -186,6 +201,9 @@ impl ServeSupervisor {
                     "failed to unregister dead opencode serve group"
                 );
             }
+            true
+        } else {
+            false
         }
     }
 
@@ -323,6 +341,12 @@ impl ServeSupervisor {
         });
         Ok(client)
     }
+}
+
+fn surviving_group_error(generation_id: &str, pgid: u32) -> crate::error::AmuxError {
+    crate::error::AmuxError::Agent(format!(
+        "opencode serve process group {pgid} for generation {generation_id} is still alive after cleanup; refusing to respawn until cleanup succeeds"
+    ))
 }
 
 /// SIGTERM the serve process group, wait briefly, then SIGKILL the group.
