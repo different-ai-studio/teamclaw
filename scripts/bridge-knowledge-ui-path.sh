@@ -2,17 +2,20 @@
 # =============================================================================
 # bridge-knowledge-ui-path.sh
 #
-# 临时绕过：白牌 App（如 Copilot 361）同步成功后，知识库侧栏仍显示
+# 临时绕过（App 已按 brand 解析 amuxd home 后，新版本通常不再需要本脚本；
+# 仍可用于尚未升级的安装，或本机 ~/.amuxd 与白牌 home 不一致时的手工对齐）。
+#
+# 白牌 App（如 Copilot 361）同步成功后，知识库侧栏仍显示
 # 「本机还没有设置团队共享目录。」
 #
-# 原因（未发版前）：前端硬编码读官方路径
+# 历史原因：旧前端硬编码读官方路径
 #   ~/.amuxd/daemon.toml
 #   ~/.amuxd/teams/<team_id>/shared/teamclu-team
 # 而白牌 daemon 的真实数据在
 #   ~/.amuxd-<brand>/teams/<team_id>/shared/teamclu-team
 #
 # 本脚本在 ~/.amuxd 下写入/补齐 UI 要读的路径（软链到白牌真实目录），
-# 不改云端数据、不发版。App 修好 brand-aware 路径后即可停用。
+# 不改云端数据。优先升级到含 brand-aware Knowledge 路径的版本。
 #
 # 适用：macOS / Linux，已完成本机团队同步、知识库列仍为空的成员。
 #
