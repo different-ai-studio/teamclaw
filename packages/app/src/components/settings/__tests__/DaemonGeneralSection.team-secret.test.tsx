@@ -57,6 +57,20 @@ vi.mock('@/stores/daemon-mqtt-status', () => ({
   useDaemonMqttConnected: () => true,
 }))
 
+// Feeds the runtime picker's install-status badges. The real store reaches for
+// `@/lib/utils`, which this file mocks down to two functions, so it cannot
+// initialize here.
+vi.mock('@/stores/setup', () => ({
+  useSetupStore: (sel: (s: Record<string, unknown>) => unknown) =>
+    sel({
+      agentRuntimes: [
+        { id: 'opencode', title: 'OpenCode', optional: false, present: true, version: '1.0.0' },
+        { id: 'pi', title: 'Pi', optional: false, present: true, version: '0.81.1' },
+      ],
+      listAgentRuntimes: vi.fn(async () => {}),
+    }),
+}))
+
 vi.mock('@/lib/daemon-agent-admin', () => ({
   getLocalDaemonAgent: vi.fn(async () => null),
   getDaemonVersion: vi.fn(async () => '1.0.0'),
