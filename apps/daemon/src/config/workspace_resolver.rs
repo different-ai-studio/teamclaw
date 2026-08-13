@@ -43,16 +43,21 @@ impl std::error::Error for ResolveError {}
 
 pub struct WorkspaceResolver {
     backend: Arc<dyn Backend>,
-    cache: RwLock<HashMap<String, ResolvedWorkspace>>,
-    loaded_teams: RwLock<HashSet<String>>,
+    cache: RwLock<WorkspaceCache>,
+}
+
+#[derive(Default)]
+struct WorkspaceCache {
+    entries: HashMap<String, ResolvedWorkspace>,
+    loaded_teams: HashSet<String>,
+    generation: u64,
 }
 
 impl WorkspaceResolver {
     pub fn new(backend: Arc<dyn Backend>) -> Self {
         Self {
             backend,
-            cache: RwLock::new(HashMap::new()),
-            loaded_teams: RwLock::new(HashSet::new()),
+            cache: RwLock::new(WorkspaceCache::default()),
         }
     }
 
@@ -60,7 +65,7 @@ impl WorkspaceResolver {
     /// fetches via the backend and populates the cache. A cloud row with a
     /// null/empty path returns `PathMissing` (not cached).
     pub async fn resolve(&self, workspace_id: &str) -> Result<ResolvedWorkspace, ResolveError> {
-        if let Some(hit) = self.cache.read().await.get(workspace_id).cloned() {
+        if let Some(hit) = self.cache.read().await.entries.get(workspace_id).cloned() {
             return Ok(hit);
         }
 
@@ -92,6 +97,7 @@ impl WorkspaceResolver {
         self.cache
             .write()
             .await
+            .entries
             .insert(workspace_id.to_string(), resolved.clone());
 
         Ok(resolved)
@@ -103,6 +109,7 @@ impl WorkspaceResolver {
         self.cache
             .read()
             .await
+            .entries
             .iter()
             .find(|(_, v)| v.path == path)
             .map(|(id, _)| id.clone())
@@ -120,37 +127,18 @@ impl WorkspaceResolver {
         let candidate = path.canonicalize().ok()?;
 
         if let Some(team_id) = team_id.filter(|id| !id.trim().is_empty()) {
-            let needs_load = !self.loaded_teams.read().await.contains(team_id);
-            if needs_load {
-                let rows = self.backend.get_workspaces_by_team(team_id).await.ok()?;
-                let conflicting_paths: HashSet<_> = conflicting_workspace_paths(&rows)
-                    .into_iter()
-                    .map(|(path, _)| path)
-                    .collect();
-
-                let mut cache = self.cache.write().await;
-                for row in rows {
-                    cache.remove(&row.id);
-                    let Some(path) = row.path.filter(|path| {
-                        let trimmed = path.trim();
-                        !trimmed.is_empty() && !conflicting_paths.contains(trimmed)
-                    }) else {
-                        continue;
-                    };
-                    cache.insert(
-                        row.id,
-                        ResolvedWorkspace {
-                            path: path.trim().to_string(),
-                            team_id: if row.team_id.is_empty() {
-                                None
-                            } else {
-                                Some(row.team_id)
-                            },
-                        },
-                    );
+            loop {
+                let (generation, needs_load) = {
+                    let cache = self.cache.read().await;
+                    (cache.generation, !cache.loaded_teams.contains(team_id))
+                };
+                if !needs_load {
+                    break;
                 }
-                drop(cache);
-                self.loaded_teams.write().await.insert(team_id.to_string());
+                let rows = self.backend.get_workspaces_by_team(team_id).await.ok()?;
+                if self.publish_team_rows(team_id, generation, rows).await {
+                    break;
+                }
             }
         }
 
@@ -185,15 +173,12 @@ impl WorkspaceResolver {
 
         let team_id = team_id.filter(|id| !id.trim().is_empty())?;
         let rows = self.backend.get_workspaces_by_team(team_id).await.ok()?;
-        let conflicting_paths: HashSet<_> = conflicting_workspace_paths(&rows)
-            .into_iter()
-            .map(|(path, _)| path)
-            .collect();
+        let conflicting_ids = conflicting_workspace_ids(&rows);
 
         rows.into_iter().find_map(|row| {
             let path = row.path.as_deref()?.trim();
             if path.is_empty()
-                || conflicting_paths.contains(path)
+                || conflicting_ids.contains(&row.id)
                 || !super::workspace_path::is_linkable_workspace_path(path)
             {
                 return None;
@@ -212,6 +197,47 @@ impl WorkspaceResolver {
         })
     }
 
+    #[cfg(test)]
+    async fn cache_generation(&self) -> u64 {
+        self.cache.read().await.generation
+    }
+
+    async fn publish_team_rows(
+        &self,
+        team_id: &str,
+        generation: u64,
+        rows: Vec<crate::backend::WorkspaceRow>,
+    ) -> bool {
+        let conflicting_ids = conflicting_workspace_ids(&rows);
+        let mut cache = self.cache.write().await;
+        if cache.generation != generation {
+            return false;
+        }
+
+        for row in rows {
+            cache.entries.remove(&row.id);
+            if conflicting_ids.contains(&row.id) {
+                continue;
+            }
+            let Some(path) = row.path.filter(|path| !path.trim().is_empty()) else {
+                continue;
+            };
+            cache.entries.insert(
+                row.id,
+                ResolvedWorkspace {
+                    path: path.trim().to_string(),
+                    team_id: if row.team_id.is_empty() {
+                        None
+                    } else {
+                        Some(row.team_id)
+                    },
+                },
+            );
+        }
+        cache.loaded_teams.insert(team_id.to_string());
+        true
+    }
+
     async fn identity_from_cache(
         &self,
         candidate: &Path,
@@ -220,6 +246,7 @@ impl WorkspaceResolver {
         self.cache
             .read()
             .await
+            .entries
             .iter()
             .filter(|(_, resolved)| team_id.is_none() || resolved.team_id.as_deref() == team_id)
             .filter_map(|(workspace_id, resolved)| {
@@ -234,8 +261,10 @@ impl WorkspaceResolver {
     /// Clear the entire cache (call after receiving `workspaces.changed` or
     /// applying a local PATCH).
     pub async fn invalidate_all(&self) {
-        self.cache.write().await.clear();
-        self.loaded_teams.write().await.clear();
+        let mut cache = self.cache.write().await;
+        cache.entries.clear();
+        cache.loaded_teams.clear();
+        cache.generation = cache.generation.wrapping_add(1);
     }
 
     /// Warm the cache with a batch of ids in one backend round trip
@@ -275,12 +304,54 @@ impl WorkspaceResolver {
                 } else {
                     Some(row.team_id)
                 };
-                cache.insert(row.id, ResolvedWorkspace { path, team_id });
+                cache
+                    .entries
+                    .insert(row.id, ResolvedWorkspace { path, team_id });
             }
         }
 
         Ok(())
     }
+}
+
+fn conflicting_workspace_ids(rows: &[crate::backend::WorkspaceRow]) -> HashSet<String> {
+    let exact_conflicts: HashSet<_> = conflicting_workspace_paths(rows)
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect();
+    let mut conflicting_ids: HashSet<String> = rows
+        .iter()
+        .filter(|row| {
+            row.path
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|path| exact_conflicts.contains(path))
+        })
+        .map(|row| row.id.clone())
+        .collect();
+
+    let mut ids_by_canonical_root: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    for row in rows {
+        let Some(root) = row
+            .path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .and_then(|path| Path::new(path).canonicalize().ok())
+        else {
+            continue;
+        };
+        let ids = ids_by_canonical_root.entry(root).or_default();
+        if !ids.contains(&row.id) {
+            ids.push(row.id.clone());
+        }
+    }
+    for ids in ids_by_canonical_root.into_values() {
+        if ids.len() > 1 {
+            conflicting_ids.extend(ids);
+        }
+    }
+    conflicting_ids
 }
 
 fn workspace_identity(
@@ -512,6 +583,97 @@ mod tests {
             .resolve_identity_for_path(root.path(), Some("team-x"))
             .await
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_identity_for_path_rejects_canonical_root_collisions() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical_spelling = root.path().to_string_lossy();
+        let alias_spelling = root.path().join(".").to_string_lossy().into_owned();
+        assert_ne!(canonical_spelling, alias_spelling);
+
+        let mock = MockBackend::new();
+        seed(
+            &mock,
+            "ws-canonical",
+            "team-x",
+            Some(canonical_spelling.as_ref()),
+        );
+        seed(&mock, "ws-alias", "team-x", Some(&alias_spelling));
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let resolver = WorkspaceResolver::new(backend);
+
+        assert!(resolver
+            .resolve_identity_for_path(root.path(), Some("team-x"))
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn stale_team_load_cannot_publish_after_invalidation() {
+        let old_root = tempfile::tempdir().unwrap();
+        let new_root = tempfile::tempdir().unwrap();
+        let mock = MockBackend::new();
+        seed(
+            &mock,
+            "ws-old",
+            "team-x",
+            Some(old_root.path().to_string_lossy().as_ref()),
+        );
+        let state = mock.state.clone();
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let resolver = Arc::new(WorkspaceResolver::new(backend));
+
+        let generation = resolver.cache_generation().await;
+        let stale_rows = vec![state
+            .lock()
+            .unwrap()
+            .workspaces_by_id
+            .get("ws-old")
+            .unwrap()
+            .clone()];
+        let started = Arc::new(tokio::sync::Barrier::new(2));
+        let release = Arc::new(tokio::sync::Notify::new());
+        let loader = {
+            let resolver = resolver.clone();
+            let started = started.clone();
+            let release = release.clone();
+            tokio::spawn(async move {
+                started.wait().await;
+                release.notified().await;
+                resolver
+                    .publish_team_rows("team-x", generation, stale_rows)
+                    .await;
+            })
+        };
+
+        started.wait().await;
+        resolver.invalidate_all().await;
+        {
+            let mut state = state.lock().unwrap();
+            state.workspaces_by_id.clear();
+            state.workspaces_by_id.insert(
+                "ws-new".into(),
+                WorkspaceRow {
+                    id: "ws-new".into(),
+                    team_id: "team-x".into(),
+                    path: Some(new_root.path().to_string_lossy().into_owned()),
+                    archived: false,
+                    agent_id: None,
+                },
+            );
+        }
+        release.notify_one();
+        loader.await.unwrap();
+
+        assert_eq!(
+            resolver
+                .resolve_identity_for_path(new_root.path(), Some("team-x"))
+                .await
+                .unwrap()
+                .workspace_id,
+            "ws-new"
+        );
     }
 
     #[tokio::test]
