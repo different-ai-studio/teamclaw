@@ -142,10 +142,23 @@ interface TeamShareBrowserState {
   /** Absolute path of the team shared root, for the knowledge file tree. */
   knowledgeRoot: string | null
   selectedId: Record<TeamShareSection, string | null>
+  /**
+   * Which file inside the selected skill's package is open, as a `/`-separated
+   * path relative to the package root (`SKILL.md`, `scripts/check.sh`, …).
+   *
+   * A skill is a directory, so "which skill" and "which file of it" are two
+   * different selections. Keeping the file here rather than folding it into
+   * `selectedId` means the detail pane can fall back to the skill itself the
+   * moment the file goes away, and the list column does not have to parse a
+   * composite id back apart.
+   */
+  selectedSkillFile: string | null
   subjectActorId: string | null
 
   counts: () => Record<TeamShareSection, number>
   select: (section: TeamShareSection, id: string | null) => void
+  /** Open a file of the selected skill in the detail pane; null returns to the skill. */
+  selectSkillFile: (rel: string | null) => void
   /**
    * Which section is currently composing a new item, if any.
    *
@@ -666,6 +679,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   envCount: 0,
   knowledgeRoot: null,
   selectedId: { skills: null, mcp: null, env: null, knowledge: null },
+  selectedSkillFile: null,
   subjectActorId: null,
   creating: null,
   skillLocalState: {},
@@ -688,7 +702,14 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     set((s) => ({
       selectedId: { ...s.selectedId, [section]: id },
       creating: id ? null : s.creating,
+      // Moving to another skill drops the open file. `scripts/check.sh` names a
+      // file inside one package; carried across a selection it would either
+      // point at a different skill's file of the same name or at nothing.
+      selectedSkillFile:
+        section === 'skills' && id !== s.selectedId.skills ? null : s.selectedSkillFile,
     })),
+
+  selectSkillFile: (rel) => set({ selectedSkillFile: rel }),
 
   setCreating: (section) =>
     set((s) => ({

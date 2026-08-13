@@ -16,6 +16,7 @@ import {
   FilePlus,
   FolderPlus,
   RefreshCw,
+  ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -24,11 +25,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { useWorkspaceStore } from '@/stores/workspace'
 import {
   createNewFile,
   createNewFolder,
+  revealInFinder,
 } from '@/components/workspace/file-tree-operations'
+import { SkillFileTree, SkillRootMenuItems } from '@/components/teamshare/SkillFileTree'
 import { cn } from '@/lib/utils'
 import { SidebarCollapseToggle } from '@/components/app-sidebar'
 import { TrafficLights } from '@/components/ui/traffic-lights'
@@ -66,6 +74,14 @@ interface RowProps {
   statusDot?: 'ready' | 'failed' | 'idle'
   trailing?: React.ReactNode
   dimmed?: boolean
+  /**
+   * `undefined` keeps the plain row. `true` draws a disclosure chevron; `false`
+   * reserves its width so rows without a package still line up with the ones
+   * that have one.
+   */
+  expandable?: boolean
+  expanded?: boolean
+  onToggleExpand?: () => void
   onClick: () => void
 }
 
@@ -81,6 +97,9 @@ function ItemRow({
   statusDot,
   trailing,
   dimmed,
+  expandable,
+  expanded,
+  onToggleExpand,
   onClick,
 }: RowProps) {
   return (
@@ -88,10 +107,28 @@ function ItemRow({
       type="button"
       onClick={onClick}
       className={cn(
-        'group flex w-full items-center gap-3 border-l-2 px-4 py-2.5 text-left transition-colors',
+        'group flex w-full items-center gap-3 border-l-2 py-2.5 pr-4 text-left transition-colors',
+        expandable === undefined ? 'pl-4' : 'pl-1',
         active ? 'border-coral bg-selected/50' : 'border-transparent hover:bg-selected/40',
       )}
     >
+      {expandable === true ? (
+        // A span, not a button: nesting one interactive element inside another
+        // is invalid, and the row itself already expands on click. This is the
+        // precision target for collapsing without changing the selection.
+        <span
+          aria-hidden="true"
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleExpand?.()
+          }}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint hover:bg-muted hover:text-muted-foreground"
+        >
+          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-90')} />
+        </span>
+      ) : expandable === false ? (
+        <span className="h-5 w-5 shrink-0" />
+      ) : null}
       <span
         className={cn(
           'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
@@ -155,6 +192,12 @@ type SkillRow = {
   badge?: React.ReactNode
   dimmed?: boolean
   trailing?: React.ReactNode
+  /**
+   * Absolute path of the package directory, when there is one on disk. A team
+   * skill nobody installed has no files here to show — the registry row stands
+   * for something that only exists in the cloud until it is installed.
+   */
+  packDir?: string
 }
 
 export function TeamShareListColumn({ section }: { section: TeamShareSection }) {
@@ -165,8 +208,29 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
 
   const selected = useTeamShareBrowserStore((s) => s.selectedId[section])
   const select = useTeamShareBrowserStore((s) => s.select)
+  const selectedSkillFile = useTeamShareBrowserStore((s) => s.selectedSkillFile)
+  const selectSkillFile = useTeamShareBrowserStore((s) => s.selectSkillFile)
+  const reconcileSkills = useTeamShareBrowserStore((s) => s.reconcileSkills)
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
   const setCreating = useTeamShareBrowserStore((s) => s.setCreating)
+
+  // Which skill packages are showing their files, and which one is being added
+  // to. View state, not persisted: it says nothing about the skill itself.
+  const [expandedSkills, setExpandedSkills] = React.useState<Set<string>>(new Set())
+  const [rootCreate, setRootCreate] = React.useState<{
+    rowId: string
+    kind: 'file' | 'folder'
+  } | null>(null)
+  const [treeRefreshKey, setTreeRefreshKey] = React.useState(0)
+
+  const toggleSkillExpanded = React.useCallback((id: string) => {
+    setExpandedSkills((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   const skills = useTeamShareBrowserStore((s) => s.skills)
   const localState = useTeamShareBrowserStore((s) => s.skillLocalState)
@@ -187,6 +251,8 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   React.useEffect(() => {
     setQuery('')
     setSearchOpen(false)
+    setExpandedSkills(new Set())
+    setRootCreate(null)
     void loadSection(section, { force: true, withTools: section === 'mcp' })
   }, [section, loadSection])
 
@@ -200,6 +266,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
     setRefreshing(true)
     try {
       await loadSection(section, { force: true, withTools: section === 'mcp' })
+      setTreeRefreshKey((k) => k + 1)
     } finally {
       setRefreshing(false)
     }
@@ -210,6 +277,9 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   React.useEffect(() => {
     const onSynced = () => {
       void loadSection(section, { force: true, withTools: section === 'mcp' })
+      // A sync can replace files inside an open package, so the trees have to
+      // re-read rather than keep showing what was there before it ran.
+      setTreeRefreshKey((k) => k + 1)
     }
     window.addEventListener(TEAM_SYNCED_EVENT, onSynced)
     return () => window.removeEventListener(TEAM_SYNCED_EVENT, onSynced)
@@ -261,6 +331,12 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
           kind: s.kind,
           icon: Sparkles,
           iconTint: 'bg-coral/10 text-coral',
+          // The loader stores the parent directory in `dirPath` and the folder
+          // name in `filename`; together they are the package root.
+          packDir:
+            s.kind !== 'team-available' && s.dirPath && s.filename
+              ? `${s.dirPath}/${s.filename}`
+              : undefined,
           title: s.name,
           subtitle: s.summary || undefined,
           meta: metaParts.filter(Boolean).join(' · ') || undefined,
@@ -610,21 +686,91 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
                     {t('teamShare.skillGroupEmpty', 'None')}
                   </div>
                 ) : (
-                  group.rows.map((row) => (
-                    <ItemRow
-                      key={`${row.kind}-${row.id}`}
-                      active={selected === row.id}
-                      icon={row.icon}
-                      iconTint={row.iconTint}
-                      title={row.title}
-                      subtitle={row.subtitle}
-                      meta={row.meta}
-                      badge={row.badge}
-                      trailing={row.trailing}
-                      dimmed={row.dimmed}
-                      onClick={() => select(section, row.id)}
-                    />
-                  ))
+                  group.rows.map((row) => {
+                    const isExpanded = expandedSkills.has(row.id)
+                    const rowNode = (
+                      <ItemRow
+                        active={selected === row.id && !selectedSkillFile}
+                        icon={row.icon}
+                        iconTint={row.iconTint}
+                        title={row.title}
+                        subtitle={row.subtitle}
+                        meta={row.meta}
+                        badge={row.badge}
+                        trailing={row.trailing}
+                        dimmed={row.dimmed}
+                        expandable={Boolean(row.packDir)}
+                        expanded={isExpanded}
+                        onToggleExpand={() => toggleSkillExpanded(row.id)}
+                        onClick={() => {
+                          const wasSelected = selected === row.id && !selectedSkillFile
+                          select(section, row.id)
+                          // Clicking the skill itself closes whichever of its
+                          // files was open — the store keeps the file across a
+                          // re-select so that clicking a *file* row can select
+                          // both, which leaves this the only place that says
+                          // "the user asked for the skill, not a file".
+                          selectSkillFile(null)
+                          if (!row.packDir) return
+                          // Opening a skill opens its folder. Clicking the row
+                          // it is already on collapses it again, so the folder
+                          // can be closed without reaching for the chevron.
+                          setExpandedSkills((prev) => {
+                            const next = new Set(prev)
+                            if (wasSelected && next.has(row.id)) next.delete(row.id)
+                            else next.add(row.id)
+                            return next
+                          })
+                        }}
+                      />
+                    )
+                    return (
+                      <div key={`${row.kind}-${row.id}`}>
+                        {row.packDir ? (
+                          <ContextMenu>
+                            {/* The trigger needs an element that takes a ref
+                                and an onContextMenu handler; ItemRow is a
+                                plain component that would swallow both. */}
+                            <ContextMenuTrigger asChild>
+                              <div>{rowNode}</div>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent className="w-48">
+                              <SkillRootMenuItems
+                                onNewFile={() => {
+                                  setExpandedSkills((prev) => new Set(prev).add(row.id))
+                                  setRootCreate({ rowId: row.id, kind: 'file' })
+                                }}
+                                onNewFolder={() => {
+                                  setExpandedSkills((prev) => new Set(prev).add(row.id))
+                                  setRootCreate({ rowId: row.id, kind: 'folder' })
+                                }}
+                                onReveal={() => void revealInFinder(row.packDir!)}
+                              />
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        ) : (
+                          rowNode
+                        )}
+                        {row.packDir && isExpanded && (
+                          <SkillFileTree
+                            packDir={row.packDir}
+                            selectedRel={selected === row.id ? selectedSkillFile : null}
+                            onSelectFile={(rel) => {
+                              select(section, row.id)
+                              selectSkillFile(rel)
+                            }}
+                            onMutated={() => {
+                              void loadSection('skills', { force: true })
+                              void reconcileSkills().catch(() => {})
+                            }}
+                            refreshKey={treeRefreshKey}
+                            rootCreate={rootCreate?.rowId === row.id ? rootCreate.kind : null}
+                            onRootCreateDone={() => setRootCreate(null)}
+                          />
+                        )}
+                      </div>
+                    )
+                  })
                 )}
               </div>
             ))

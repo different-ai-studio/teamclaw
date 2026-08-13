@@ -6,6 +6,7 @@ import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTeamShareBrowserStore, type TeamShareSection } from '@/stores/team-share-browser'
 import { SkillDetail } from './SkillDetail'
+import { SkillFileEditor } from './SkillFileEditor'
 import { KnowledgeDetail } from './KnowledgeDetail'
 import { McpDetail, McpEditForm } from './McpDetail'
 import { EnvDetail, EnvCreateForm } from './EnvDetail'
@@ -92,6 +93,7 @@ export function TeamShareDetailPane() {
   const section = filter.kind === 'teamShare' ? filter.section : null
   const selectedId = useTeamShareBrowserStore((s) => (section ? s.selectedId[section] : null))
   const creating = useTeamShareBrowserStore((s) => s.creating)
+  const selectedSkillFile = useTeamShareBrowserStore((s) => s.selectedSkillFile)
   // Knowledge is a file tree now: clicking a node goes through the workspace's
   // own selectFile, so the pane follows selectedFile rather than a curated id.
   const selectedFile = useWorkspaceStore((s) => s.selectedFile)
@@ -115,7 +117,14 @@ export function TeamShareDetailPane() {
 
   switch (section) {
     case 'skills':
-      return <SkillDetail key={selectedId} slug={selectedId} />
+      // A skill is a directory, so this pane shows one of two things: the skill
+      // itself, or one file of its package. The file wins while it is open —
+      // the list column put it there.
+      return selectedSkillFile ? (
+        <SkillFileEditor key={`${selectedId}:${selectedSkillFile}`} slug={selectedId} rel={selectedSkillFile} />
+      ) : (
+        <SkillDetail key={selectedId} slug={selectedId} />
+      )
     case 'mcp':
       return <McpDetail key={selectedId} name={selectedId} />
     case 'env':
