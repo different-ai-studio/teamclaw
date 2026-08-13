@@ -3,6 +3,7 @@ pub mod backend;
 pub mod claude_agent;
 mod claude_skills;
 pub mod cursor_sdk;
+pub mod execution_context;
 pub mod opencode_http;
 pub mod pi_rpc;
 // Compatibility alias: external modules still reach the runtime backend as

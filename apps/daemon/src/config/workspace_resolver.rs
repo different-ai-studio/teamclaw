@@ -7,12 +7,14 @@
 //! callers must call `invalidate_all` when they know the cloud row changed
 //! (e.g. `workspaces.changed` MQTT event or a local PATCH).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
 use crate::backend::Backend;
+use crate::runtime::execution_context::WorkspaceIdentity;
 
 #[derive(Debug, Clone)]
 pub struct ResolvedWorkspace {
@@ -42,6 +44,7 @@ impl std::error::Error for ResolveError {}
 pub struct WorkspaceResolver {
     backend: Arc<dyn Backend>,
     cache: RwLock<HashMap<String, ResolvedWorkspace>>,
+    loaded_teams: RwLock<HashSet<String>>,
 }
 
 impl WorkspaceResolver {
@@ -49,6 +52,7 @@ impl WorkspaceResolver {
         Self {
             backend,
             cache: RwLock::new(HashMap::new()),
+            loaded_teams: RwLock::new(HashSet::new()),
         }
     }
 
@@ -104,10 +108,134 @@ impl WorkspaceResolver {
             .map(|(id, _)| id.clone())
     }
 
+    /// Resolve an existing local directory to its registered cloud workspace
+    /// identity. A workspace owns its root and descendants beneath its
+    /// `.worktrees` directory, but not arbitrary sibling paths with the same
+    /// textual prefix.
+    pub async fn resolve_identity_for_path(
+        &self,
+        path: &Path,
+        team_id: Option<&str>,
+    ) -> Option<WorkspaceIdentity> {
+        let candidate = path.canonicalize().ok()?;
+
+        if let Some(team_id) = team_id.filter(|id| !id.trim().is_empty()) {
+            let needs_load = !self.loaded_teams.read().await.contains(team_id);
+            if needs_load {
+                let rows = self.backend.get_workspaces_by_team(team_id).await.ok()?;
+                let conflicting_paths: HashSet<_> = conflicting_workspace_paths(&rows)
+                    .into_iter()
+                    .map(|(path, _)| path)
+                    .collect();
+
+                let mut cache = self.cache.write().await;
+                for row in rows {
+                    cache.remove(&row.id);
+                    let Some(path) = row.path.filter(|path| {
+                        let trimmed = path.trim();
+                        !trimmed.is_empty() && !conflicting_paths.contains(trimmed)
+                    }) else {
+                        continue;
+                    };
+                    cache.insert(
+                        row.id,
+                        ResolvedWorkspace {
+                            path: path.trim().to_string(),
+                            team_id: if row.team_id.is_empty() {
+                                None
+                            } else {
+                                Some(row.team_id)
+                            },
+                        },
+                    );
+                }
+                drop(cache);
+                self.loaded_teams.write().await.insert(team_id.to_string());
+            }
+        }
+
+        self.identity_from_cache(&candidate, team_id).await
+    }
+
+    /// Resolve an agent's configured default workspace, falling back to the
+    /// first usable workspace registered for the supplied team.
+    pub async fn resolve_default_workspace(
+        &self,
+        team_id: Option<&str>,
+        actor_id: &str,
+    ) -> Option<WorkspaceIdentity> {
+        if let Ok(defaults) = self.backend.get_agent_defaults(actor_id).await {
+            if let Some(id) = defaults.default_workspace_id.as_deref() {
+                match self.resolve(id).await {
+                    Ok(resolved) => {
+                        if let Some(identity) = workspace_identity(id, &resolved) {
+                            return Some(identity);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            workspace_id = %id,
+                            "agent default workspace could not be resolved; \
+                             falling back to team's first on-disk workspace: {e}"
+                        );
+                    }
+                }
+            }
+        }
+
+        let team_id = team_id.filter(|id| !id.trim().is_empty())?;
+        let rows = self.backend.get_workspaces_by_team(team_id).await.ok()?;
+        let conflicting_paths: HashSet<_> = conflicting_workspace_paths(&rows)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+
+        rows.into_iter().find_map(|row| {
+            let path = row.path.as_deref()?.trim();
+            if path.is_empty()
+                || conflicting_paths.contains(path)
+                || !super::workspace_path::is_linkable_workspace_path(path)
+            {
+                return None;
+            }
+            workspace_identity(
+                &row.id,
+                &ResolvedWorkspace {
+                    path: path.to_string(),
+                    team_id: if row.team_id.is_empty() {
+                        None
+                    } else {
+                        Some(row.team_id)
+                    },
+                },
+            )
+        })
+    }
+
+    async fn identity_from_cache(
+        &self,
+        candidate: &Path,
+        team_id: Option<&str>,
+    ) -> Option<WorkspaceIdentity> {
+        self.cache
+            .read()
+            .await
+            .iter()
+            .filter(|(_, resolved)| team_id.is_none() || resolved.team_id.as_deref() == team_id)
+            .filter_map(|(workspace_id, resolved)| {
+                let canonical_root = Path::new(resolved.path.trim()).canonicalize().ok()?;
+                let identity = workspace_identity(workspace_id, resolved)?;
+                owns_worktree(&canonical_root, candidate).then_some((canonical_root, identity))
+            })
+            .max_by_key(|(canonical_root, _)| canonical_root.components().count())
+            .map(|(_, identity)| identity)
+    }
+
     /// Clear the entire cache (call after receiving `workspaces.changed` or
     /// applying a local PATCH).
     pub async fn invalidate_all(&self) {
         self.cache.write().await.clear();
+        self.loaded_teams.write().await.clear();
     }
 
     /// Warm the cache with a batch of ids in one backend round trip
@@ -155,6 +283,26 @@ impl WorkspaceResolver {
     }
 }
 
+fn workspace_identity(
+    workspace_id: &str,
+    resolved: &ResolvedWorkspace,
+) -> Option<WorkspaceIdentity> {
+    let workspace_root = PathBuf::from(resolved.path.trim());
+    workspace_root
+        .canonicalize()
+        .ok()?
+        .is_dir()
+        .then(|| WorkspaceIdentity {
+            workspace_id: workspace_id.to_string(),
+            workspace_root,
+            team_id: resolved.team_id.clone(),
+        })
+}
+
+fn owns_worktree(root: &Path, candidate: &Path) -> bool {
+    candidate == root || candidate.starts_with(root.join(".worktrees"))
+}
+
 /// Group workspace rows by their (trimmed, non-empty) on-disk path and return
 /// the paths that more than one *distinct* workspace id claims, each with its
 /// sorted id list. Such collisions make id→path resolution ambiguous and are a
@@ -196,42 +344,15 @@ pub fn conflicting_workspace_paths(
 /// principal's own actor id), so both callers apply the exact same
 /// resolution + fallback algorithm.
 pub async fn resolve_default_workspace_path(
-    backend: &Arc<dyn Backend>,
+    _backend: &Arc<dyn Backend>,
     resolver: &WorkspaceResolver,
     team_id: Option<&str>,
     actor_id: &str,
 ) -> Option<String> {
-    if let Ok(defaults) = backend.get_agent_defaults(actor_id).await {
-        if let Some(id) = defaults.default_workspace_id.as_deref() {
-            match resolver.resolve(id).await {
-                Ok(resolved) => return Some(resolved.path),
-                Err(e) => {
-                    tracing::warn!(
-                        workspace_id = %id,
-                        "agent default workspace could not be resolved; \
-                         falling back to team's first on-disk workspace: {e}"
-                    );
-                }
-            }
-        }
-    }
-
-    let team_id = team_id?;
-    if team_id.trim().is_empty() {
-        return None;
-    }
-    let rows = backend.get_workspaces_by_team(team_id).await.ok()?;
-    rows.into_iter().find_map(|row| {
-        let path = row.path?;
-        let trimmed = path.trim();
-        if trimmed.is_empty()
-            || !super::workspace_path::is_linkable_workspace_path(trimmed)
-            || !std::path::Path::new(trimmed).is_dir()
-        {
-            return None;
-        }
-        Some(trimmed.to_string())
-    })
+    resolver
+        .resolve_default_workspace(team_id, actor_id)
+        .await
+        .map(|identity| identity.workspace_root.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
@@ -301,6 +422,96 @@ mod tests {
             r.resolve("ws-missing").await,
             Err(ResolveError::NotFound(id)) if id == "ws-missing"
         ));
+    }
+
+    #[tokio::test]
+    async fn resolve_identity_for_path_owns_root_and_worktrees_only() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("repo");
+        let worktree = root.join(".worktrees/cron-job-run");
+        let sibling = parent.path().join("repo-other");
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::create_dir_all(&sibling).unwrap();
+
+        let mock = MockBackend::new();
+        seed(
+            &mock,
+            "ws-a",
+            "team-x",
+            Some(root.to_string_lossy().as_ref()),
+        );
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let resolver = WorkspaceResolver::new(backend);
+
+        assert_eq!(
+            resolver
+                .resolve_identity_for_path(&root, Some("team-x"))
+                .await
+                .unwrap()
+                .workspace_id,
+            "ws-a"
+        );
+        assert_eq!(
+            resolver
+                .resolve_identity_for_path(&worktree, Some("team-x"))
+                .await
+                .unwrap()
+                .workspace_id,
+            "ws-a"
+        );
+        assert!(resolver
+            .resolve_identity_for_path(&sibling, Some("team-x"))
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_identity_for_path_returns_longest_matching_root() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("repo");
+        let nested_root = root.join(".worktrees/nested");
+        std::fs::create_dir_all(&nested_root).unwrap();
+
+        let mock = MockBackend::new();
+        seed(
+            &mock,
+            "ws-a",
+            "team-x",
+            Some(root.to_string_lossy().as_ref()),
+        );
+        seed(
+            &mock,
+            "ws-nested",
+            "team-x",
+            Some(nested_root.to_string_lossy().as_ref()),
+        );
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let resolver = WorkspaceResolver::new(backend);
+
+        assert_eq!(
+            resolver
+                .resolve_identity_for_path(&nested_root, Some("team-x"))
+                .await
+                .unwrap()
+                .workspace_id,
+            "ws-nested"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_identity_for_path_rejects_duplicate_exact_roots() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().to_string_lossy();
+        let mock = MockBackend::new();
+        seed(&mock, "ws-a", "team-x", Some(path.as_ref()));
+        seed(&mock, "ws-b", "team-x", Some(path.as_ref()));
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let resolver = WorkspaceResolver::new(backend);
+
+        assert!(resolver
+            .resolve_identity_for_path(root.path(), Some("team-x"))
+            .await
+            .is_none());
     }
 
     #[tokio::test]
