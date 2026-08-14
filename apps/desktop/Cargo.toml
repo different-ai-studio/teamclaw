@@ -36,6 +36,9 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-window-state = "2"
+# System pasteboard file lists (Finder copy/paste). The official
+# clipboard-manager plugin is text/image only, so it cannot carry file paths.
+tauri-plugin-clipboard = "2.1"
 tauri-plugin-aptabase = "1.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
