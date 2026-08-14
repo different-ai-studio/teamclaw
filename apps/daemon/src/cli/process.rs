@@ -599,7 +599,7 @@ mod tests {
         permissions.set_mode(0o755);
         std::fs::set_permissions(&binary, permissions).unwrap();
 
-        let child = std::process::Command::new(&binary)
+        let mut child = std::process::Command::new(&binary)
             .arg("serve")
             .process_group(0)
             .spawn()
@@ -608,9 +608,12 @@ mod tests {
         crate::runtime::opencode_http::process_registry::ServeProcessRegistry::default()
             .register("previous-daemon", pgid)
             .unwrap();
-        drop(child);
-
         prepare_daemon_start();
+
+        // Reap the test-owned leader before checking the process group. On
+        // Linux, dropping Child without wait leaves a zombie for the duration
+        // of the test process, and kill(-pgid, 0) reports zombies as alive.
+        let _ = child.wait();
 
         assert!(
             !process_group_alive(i32::try_from(pgid).unwrap()),

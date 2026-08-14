@@ -188,7 +188,10 @@ fn reap_verified_group(pgid: u32) -> bool {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
-    !process_group_alive(pgid)
+    // A killed child can remain as a zombie until its parent waits for it.
+    // kill(-pgid, 0) still reports that group as present, but it no longer
+    // contains a managed process and must not keep a stale registry entry.
+    !process_group_alive(pgid) || !group_has_managed_member(pgid)
 }
 
 #[cfg(unix)]
