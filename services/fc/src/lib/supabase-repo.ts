@@ -2522,6 +2522,23 @@ export function createSupabaseBusinessRepository(options) {
       if (error) throw error;
     },
 
+    /**
+     * Which model this agent runs on in this session.
+     *
+     * The column landed with the ADR-0005 migration alongside `workspace_id`
+     * and the cursor, but only those two got writers: `model` was backfilled
+     * from `agent_runtimes.current_model` and then never touched again, so
+     * every reader trusting the ADR got a frozen value. This is that writer.
+     */
+    async updateParticipantModel(sessionId, actorId, { model }) {
+      const { error } = await supabase
+        .from("session_participants")
+        .update({ model, updated_at: new Date().toISOString() })
+        .eq("session_id", sessionId)
+        .eq("actor_id", actorId);
+      if (error) throw error;
+    },
+
     async removeSessionParticipant(sessionId, actorId) {
       const { error } = await supabase
         .from("session_participants")
