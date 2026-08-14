@@ -512,6 +512,8 @@ impl OpencodeHost {
                     "opencode serve prewarm tolerating same-workspace env fingerprint drift"
                 );
                 self.shared.serve.mark_snapshot_conflict(&workspace);
+                crate::runtime::refresh::record_env_vars_change_for_worktree(Path::new(&workspace))
+                    .await;
             }
             EnvSnapshotDecision::ConflictOtherWorkspace => {
                 self.shared.serve.mark_snapshot_conflict(&workspace);
@@ -537,6 +539,8 @@ impl OpencodeHost {
             EnvSnapshotDecision::Continue => {}
             EnvSnapshotDecision::TolerateSameWorkspace => {
                 self.shared.serve.mark_snapshot_conflict(&workspace);
+                crate::runtime::refresh::record_env_vars_change_for_worktree(Path::new(&workspace))
+                    .await;
             }
             EnvSnapshotDecision::RestartAllowed => {
                 self.shared.serve.shutdown();
@@ -626,6 +630,8 @@ impl OpencodeHost {
                     "tolerating same-workspace env fingerprint drift; keeping active serve env"
                 );
                 self.shared.serve.mark_snapshot_conflict(&workspace);
+                crate::runtime::refresh::record_env_vars_change_for_worktree(Path::new(&workspace))
+                    .await;
             }
             EnvSnapshotDecision::ConflictOtherWorkspace => {
                 self.shared.serve.mark_snapshot_conflict(&workspace);
@@ -643,6 +649,8 @@ impl OpencodeHost {
             EnvSnapshotDecision::Continue => {}
             EnvSnapshotDecision::TolerateSameWorkspace => {
                 self.shared.serve.mark_snapshot_conflict(&workspace);
+                crate::runtime::refresh::record_env_vars_change_for_worktree(Path::new(&workspace))
+                    .await;
             }
             EnvSnapshotDecision::RestartAllowed => {
                 self.shared.serve.shutdown();

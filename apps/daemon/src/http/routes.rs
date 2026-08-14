@@ -186,6 +186,10 @@ pub fn build(state: HttpState) -> Router {
             "/v1/workspaces/:id/runtime/reload",
             post(workspaces::reload_runtime),
         )
+        .route(
+            "/v1/workspaces/:id/runtime/pending-changes",
+            post(workspaces::record_pending_runtime_changes),
+        )
         // Team-share: materialize the global dir + workspace symlink on demand
         // (called by the app right after enabling/joining team-share).
         .route("/v1/team/link", post(team::link_team_workspace))
