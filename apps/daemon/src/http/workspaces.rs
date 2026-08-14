@@ -177,11 +177,13 @@ async fn record_skills_refresh_change(
     }
 
     // OpenCode discovers skills when `opencode serve` starts, not when an
-    // individual session is attached. Keep existing sessions on their current
-    // generation, but drain it so the next session starts a fresh host and sees
-    // the skill mutation without requiring an explicit Apply first.
+    // individual session is attached. Preserve active turns, detach resumable
+    // idle sessions, then drain the generation so the next session starts a
+    // fresh host and sees the mutation without requiring an explicit Apply.
     if let Some(supervisor) = state.runtime_supervisor.as_ref() {
-        supervisor.request_workspace_host_refresh(&runtime_workspace_id);
+        supervisor
+            .request_workspace_host_refresh(&runtime_workspace_id, workspace_path)
+            .await;
     }
 }
 
@@ -335,7 +337,9 @@ async fn reconcile_team_provider(state: &HttpState, workspace_id: &str) {
     let after = std::fs::read(config_path).ok();
     if before != after {
         if let Some(supervisor) = state.runtime_supervisor.as_ref() {
-            supervisor.request_workspace_host_refresh(workspace_id);
+            supervisor
+                .request_workspace_host_refresh(workspace_id, &wpath)
+                .await;
         }
     }
 }

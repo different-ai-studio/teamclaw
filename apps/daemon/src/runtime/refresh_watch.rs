@@ -356,7 +356,9 @@ async fn record_classified_changes(
         // on-disk skill content.
         if change.kind == RefreshChangeKind::Skills {
             if let Some(supervisor) = supervisor {
-                supervisor.request_workspace_host_refresh(&change.workspace_id);
+                supervisor
+                    .request_workspace_host_refresh(&change.workspace_id, &change.workspace_path)
+                    .await;
             }
         }
     }
