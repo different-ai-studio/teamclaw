@@ -1315,6 +1315,13 @@ impl DaemonServer {
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tick.tick().await;
+                    let host_pool = {
+                        let guard = mgr.lock().await;
+                        guard.opencode_host_pool().await
+                    };
+                    if let Some(pool) = host_pool {
+                        pool.evict_idle(std::time::Instant::now()).await;
+                    }
                     let mut guard = mgr.lock().await;
                     let _idle = guard.evict_idle(threshold).await;
                     let _over = guard.evict_over_capacity(max_attachments).await;

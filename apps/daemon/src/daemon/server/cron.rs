@@ -904,7 +904,7 @@ mod tests {
         std::fs::create_dir_all(&worktree).unwrap();
 
         let team_secret = "6a".repeat(32);
-        let config_dir = workspace.path().join(".teamclu");
+        let config_dir = teamclu_runtime_env::workspace_meta_dir_from_env(workspace.path());
         std::fs::create_dir_all(&config_dir).unwrap();
         std::fs::write(
             config_dir.join("teamclu.json"),

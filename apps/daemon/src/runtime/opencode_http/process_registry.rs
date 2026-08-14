@@ -85,11 +85,7 @@ impl ServeProcessRegistry {
 
 impl Default for ServeProcessRegistry {
     fn default() -> Self {
-        let home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        Self::new(home.join(".amuxd").join("opencode-pgids.json"))
+        Self::new(teamclu_runtime_env::amuxd_home_from_env().join("opencode-pgids.json"))
     }
 }
 
@@ -298,6 +294,15 @@ fn registered_group_alive(_pgid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::ServeProcessRegistry;
+
+    #[test]
+    fn default_registry_uses_branded_amuxd_home() {
+        let registry = ServeProcessRegistry::default();
+        assert_eq!(
+            registry.path,
+            teamclu_runtime_env::amuxd_home_from_env().join("opencode-pgids.json")
+        );
+    }
 
     #[test]
     fn registering_multiple_generations_persists_each_group() {
