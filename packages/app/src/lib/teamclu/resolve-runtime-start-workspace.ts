@@ -1,5 +1,9 @@
 import { getBackend } from '@/lib/backend'
 import { workspacePathsMatch } from '@/stores/session-utils'
+import {
+  cachedDefaultWorkspaceId,
+  rememberDefaultWorkspaceId,
+} from '@/stores/agent-default-workspace-store'
 
 /** Inputs for picking the cloud workspace id sent in runtimeStart. */
 export type AgentWorkspaceLookup = {
@@ -220,6 +224,31 @@ export async function resolveSessionWorkspaceHintForRuntimeStart(args: {
   localDaemonActorId?: string | null
 }): Promise<string> {
   const agentActorIds = [...new Set((args.agentActorIds ?? []).map((id) => id.trim()).filter(Boolean))]
+  const live = await resolveLiveWorkspaceHint(args, agentActorIds)
+  if (live) {
+    // Live value wins and refreshes the cache. This is server-owned config, so
+    // the cache must never get ahead of it (see the store's ordering note).
+    rememberDefaultWorkspaceId(agentActorIds, live)
+    return live
+  }
+  // Nothing live. An empty hint makes the daemon skip its workspace resolver
+  // and start in whatever worktree the client passed — measured cost is a full
+  // backend cold start in the wrong directory, superseded seconds later when
+  // the real id lands. A remembered default from a previous run is a far better
+  // guess than none.
+  return cachedDefaultWorkspaceId(agentActorIds)
+}
+
+/** The original chain: session binding → local path → per-agent lookups. */
+async function resolveLiveWorkspaceHint(
+  args: {
+    teamId: string
+    localWorkspacePath?: string | null
+    sessionId?: string
+    localDaemonActorId?: string | null
+  },
+  agentActorIds: string[],
+): Promise<string> {
 
   const localPath = args.localWorkspacePath?.trim()
   const localDaemonActorId = args.localDaemonActorId?.trim()
