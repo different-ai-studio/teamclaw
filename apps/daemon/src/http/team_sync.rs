@@ -6,7 +6,7 @@
 //! status. The daemon is single-team, so the team_id is resolved from
 //! `daemon.toml` (teamclu.json carries no team_id) — same lookup as
 //! `/v1/team/link`.
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
@@ -150,6 +150,87 @@ pub async fn reconcile_cloud_config(
         team_id,
         mcp_changed: outcome.mcp_changed,
         env_changed: outcome.env_changed,
+    }))
+}
+
+/// Re-fetch the team MCP/env cache immediately and fan out refresh signals.
+/// Shared by the reconcile route and the team MCP install/uninstall routes so a
+/// write surfaces without waiting out the 300s background tick.
+async fn reconcile_team_cloud_after_write(
+    state: &HttpState,
+    team_id: &str,
+) -> Result<crate::runtime::team_cloud_config::TeamCloudReconcileOutcome, HttpError> {
+    let Some(resolver) = state.team_cloud.as_ref() else {
+        return Err(HttpError::runtime_unavailable(
+            "team cloud config resolver is not available",
+        ));
+    };
+    let outcome = resolver.reconcile_now(team_id).await;
+    crate::runtime::team_cloud_config::apply_team_cloud_outcome(
+        team_id,
+        outcome,
+        state.backend.as_ref(),
+        state.runtime_refresh.as_ref(),
+    )
+    .await;
+    Ok(outcome)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMcpInstallResponse {
+    pub team_id: String,
+    pub mcp_changed: bool,
+}
+
+/// `PUT /v1/team/mcp-servers/:name/install`
+///
+/// Installs a team MCP server for the daemon's own agent actor — never the
+/// desktop user. The daemon is what spawns and probes the server, so the install
+/// must land on the daemon's actor for the merged MCP view (and therefore the
+/// tool probe) to pick it up. Then the team MCP cache is re-fetched immediately.
+pub async fn install_team_mcp(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Path(name): Path<String>,
+) -> Result<Json<TeamMcpInstallResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let team_id = team_id_for_workspace("")?;
+    let backend = state
+        .backend
+        .as_ref()
+        .ok_or_else(|| HttpError::runtime_unavailable("cloud backend unavailable"))?;
+    backend
+        .install_team_mcp(&team_id, &name)
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    let outcome = reconcile_team_cloud_after_write(&state, &team_id).await?;
+    Ok(Json(TeamMcpInstallResponse {
+        team_id,
+        mcp_changed: outcome.mcp_changed,
+    }))
+}
+
+/// `DELETE /v1/team/mcp-servers/:name/install`
+pub async fn uninstall_team_mcp(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Path(name): Path<String>,
+) -> Result<Json<TeamMcpInstallResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let team_id = team_id_for_workspace("")?;
+    let backend = state
+        .backend
+        .as_ref()
+        .ok_or_else(|| HttpError::runtime_unavailable("cloud backend unavailable"))?;
+    backend
+        .uninstall_team_mcp(&team_id, &name)
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    let outcome = reconcile_team_cloud_after_write(&state, &team_id).await?;
+    Ok(Json(TeamMcpInstallResponse {
+        team_id,
+        mcp_changed: outcome.mcp_changed,
     }))
 }
 

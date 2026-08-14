@@ -1115,11 +1115,51 @@ export async function getDaemonMcpTools(
   workspaceId: string,
   options?: { refresh?: boolean },
 ): Promise<Record<string, DaemonMcpServerProbeResult>> {
-  const query = options?.refresh ? '?refresh=1' : ''
+  const query = options?.refresh ? '?refresh=true' : ''
   const data = await daemonFetchData<{ servers: Record<string, DaemonMcpServerProbeResult> }>(
     `/v1/workspaces/${workspaceId}/mcp/tools${query}`,
   )
   return data.servers
+}
+
+export interface DaemonTeamMcpInstallOutcome {
+  teamId: string
+  mcpChanged: boolean
+}
+
+export interface DaemonTeamCloudReconcileOutcome {
+  teamId: string
+  mcpChanged: boolean
+  envChanged: boolean
+}
+
+/** Re-fetch the daemon actor's team MCP/env cache immediately. */
+export async function reconcileDaemonTeamCloudConfig(): Promise<DaemonTeamCloudReconcileOutcome> {
+  return daemonFetchData<DaemonTeamCloudReconcileOutcome>(
+    '/v1/team/cloud-config/reconcile',
+    { method: 'POST', body: JSON.stringify({}) },
+  )
+}
+
+/**
+ * Install a team MCP server for the daemon's own agent actor (not the desktop
+ * user). The daemon is what spawns and probes the server, so the install must
+ * land on the daemon's actor for the merged MCP view to contain it. The daemon
+ * then re-fetches its team MCP cache before returning.
+ */
+export async function installDaemonTeamMcp(name: string): Promise<DaemonTeamMcpInstallOutcome> {
+  return daemonFetchData<DaemonTeamMcpInstallOutcome>(
+    `/v1/team/mcp-servers/${encodeURIComponent(name)}/install`,
+    { method: 'PUT', body: JSON.stringify({}) },
+  )
+}
+
+/** Uninstall a team MCP server for the daemon's own agent actor. */
+export async function uninstallDaemonTeamMcp(name: string): Promise<DaemonTeamMcpInstallOutcome> {
+  return daemonFetchData<DaemonTeamMcpInstallOutcome>(
+    `/v1/team/mcp-servers/${encodeURIComponent(name)}/install`,
+    { method: 'DELETE' },
+  )
 }
 
 // ─── Runtime ──────────────────────────────────────────────────────────────────

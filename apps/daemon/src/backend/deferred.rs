@@ -27,7 +27,7 @@ use super::records::{
 };
 use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BootstrapMqttOverride, CloudAuthSnapshot,
-    ManagedLlmConfig, ShareModeConfig, TeamSkillDownload, TeamSkillRow,
+    ManagedLlmConfig, ShareModeConfig, TeamEnvSecretRow, TeamSkillDownload, TeamSkillRow,
 };
 
 /// Error returned by every business call before onboarding completes.
@@ -158,6 +158,22 @@ impl Backend for DeferredBackend {
 
     async fn managed_llm_config(&self, team_id: &str) -> BackendResult<ManagedLlmConfig> {
         self.inner()?.managed_llm_config(team_id).await
+    }
+
+    async fn team_mcp_config(&self, team_id: &str) -> BackendResult<serde_json::Value> {
+        self.inner()?.team_mcp_config(team_id).await
+    }
+
+    async fn install_team_mcp(&self, team_id: &str, name: &str) -> BackendResult<()> {
+        self.inner()?.install_team_mcp(team_id, name).await
+    }
+
+    async fn uninstall_team_mcp(&self, team_id: &str, name: &str) -> BackendResult<()> {
+        self.inner()?.uninstall_team_mcp(team_id, name).await
+    }
+
+    async fn team_env_secrets(&self, team_id: &str) -> BackendResult<Vec<TeamEnvSecretRow>> {
+        self.inner()?.team_env_secrets(team_id).await
     }
 
     // Every method a caller needs has to be forwarded explicitly — a trait

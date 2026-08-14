@@ -257,6 +257,29 @@ pub trait Backend: Send + Sync {
         Ok(serde_json::json!({ "mcpServers": {} }))
     }
 
+    /// Install a team MCP server for the calling actor
+    /// (`PUT /v1/teams/:id/mcp-servers/:name/install`).
+    ///
+    /// Installing means "run this command on this machine", and the daemon *is*
+    /// the actor that spawns/probes it — so the daemon installs for its own
+    /// agent actor, never on a human's behalf. Default errors: a backend that
+    /// has not wired this up must not let an install silently no-op, because
+    /// the merged MCP view would then never contain the server and the UI would
+    /// keep reporting zero tools.
+    async fn install_team_mcp(&self, _team_id: &str, _name: &str) -> BackendResult<()> {
+        Err(BackendError::NotFound(
+            "team MCP install unavailable on this backend".to_string(),
+        ))
+    }
+
+    /// Uninstall a team MCP server for the calling actor
+    /// (`DELETE /v1/teams/:id/mcp-servers/:name/install`).
+    async fn uninstall_team_mcp(&self, _team_id: &str, _name: &str) -> BackendResult<()> {
+        Err(BackendError::NotFound(
+            "team MCP uninstall unavailable on this backend".to_string(),
+        ))
+    }
+
     /// Fetch the team's env secrets (`GET /v1/teams/:id/env-secrets`).
     ///
     /// Ciphertext only — the envelope is opaque here and stays that way until

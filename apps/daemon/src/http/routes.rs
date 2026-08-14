@@ -203,6 +203,12 @@ pub fn build(state: HttpState) -> Router {
             "/v1/team/cloud-config/reconcile",
             post(team_sync::reconcile_cloud_config),
         )
+        // Install/uninstall a team MCP server for the daemon's own agent actor
+        // (not the desktop user), then re-fetch the team MCP cache immediately.
+        .route(
+            "/v1/team/mcp-servers/:name/install",
+            put(team_sync::install_team_mcp).delete(team_sync::uninstall_team_mcp),
+        )
         .route(
             "/v1/team/secrets",
             post(team_sync::set_secrets).get(team_sync::get_secrets),
