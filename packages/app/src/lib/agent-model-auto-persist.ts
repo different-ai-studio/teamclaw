@@ -84,6 +84,10 @@ export function resolveAutoPersistModelId(input: {
   // (no entry yet) is as unsettled as `'pending'`.
   if (isLocalAgent && !isSettledLocalCatalog(input.localCatalogStatus)) return null
 
-  // Device history first; first-advertised only when there is none to honour.
-  return input.localRecentModel.trim() || input.availableModelIds[0]?.trim() || null
+  // This client's history, or nothing. `availableModelIds[0]` used to close
+  // this out; it no longer does, because a pick is durable and outranks every
+  // later signal, so writing a guess here pinned it for good. With no history
+  // the answer is "ask the user" — `selectAgentModel` reports that case as
+  // `source: "unpicked"` (ADR-0007).
+  return input.localRecentModel.trim() || null
 }

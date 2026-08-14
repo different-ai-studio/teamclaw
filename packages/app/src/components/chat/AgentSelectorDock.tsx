@@ -33,6 +33,7 @@ import { useSessionSelectionStore } from '@/stores/session-selection-store'
 import { useSessionMessageStore } from '@/stores/session-message-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { clientMruModels } from '@/stores/client-model-mru'
+import { useModelPickPromptStore } from '@/stores/model-pick-prompt-store'
 import { useSessionListStore } from '@/stores/session-list-store'
 import { useLocalDaemonActorId } from '@/lib/daemon-agent-admin'
 import { getKnownLocalDaemonActorId } from '@/lib/local-daemon-identity'
@@ -149,6 +150,15 @@ function AgentPill({
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
+
+  // A send was refused because nothing had chosen this agent's model. Open the
+  // picker so the refusal is actionable instead of silent (ADR-0007).
+  const pendingPickAgentId = useModelPickPromptStore((s) => s.pendingAgentId)
+  React.useEffect(() => {
+    if (pendingPickAgentId !== agent.id) return
+    setOpen(true)
+    useModelPickPromptStore.getState().clear()
+  }, [pendingPickAgentId, agent.id])
   const localActorId = useLocalDaemonActorId()
   const isSelf = !!localActorId && agent.id === localActorId
   const byRuntimeId = useRuntimeStateStore((s) => s.byRuntimeId)
