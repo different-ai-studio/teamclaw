@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyRound, Plus, Eye, EyeOff, Pencil, Trash2, ShieldCheck, ShieldAlert, ShieldX, AlertCircle, Users, User, Lock, Copy, Check, TriangleAlert } from 'lucide-react'
+import { KeyRound, Plus, Eye, EyeOff, Pencil, Trash2, ShieldCheck, AlertCircle, Users, User, Lock, Copy, Check, TriangleAlert } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,9 +17,8 @@ import { SettingCard, SectionHeader } from './shared'
 import { useEnvVarsStore } from '@/stores/env-vars'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { useTeamPermissions } from '@/lib/team-permissions'
-import { encodeWorkspaceId, getDaemonEnvActivationDiagnostics, reloadDaemonRuntime, type DaemonApplyOutcome, type DaemonEnvActivationDiagnostics } from '@/lib/daemon-local-client'
-import { describeEnvReloadOutcome } from '@/lib/env-runtime-reload'
-import { normalizePersonalEnvDiagnostics, formatEnvActivationBlocker, formatEnvKeyActivationStatus, buildEnvKeyStatusMap, computeEnvActivationOverallStatus, type PersonalEnvDiagnostics } from '@/lib/env-diagnostics'
+import { encodeWorkspaceId, notifyDaemonRuntimePendingChanges } from '@/lib/daemon-local-client'
+import { formatEnvKeyActivationStatus } from '@/lib/env-diagnostics'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { toast } from 'sonner'
@@ -676,414 +675,6 @@ function TeamEnvDiagnosticsCard({
   )
 }
 
-interface PersonalEnvDiagnosticsCardProps {
-  workspacePath: string | null
-  teamId: string | null
-  refreshKey: number
-  dirtyKeyCount: number
-  onReloadRuntime: () => Promise<void>
-  isReloading: boolean
-  onActivationChange?: (activation: DaemonEnvActivationDiagnostics | null) => void
-}
-
-function PersonalEnvActivationDiagnosticsCard({
-  workspacePath,
-  teamId,
-  refreshKey,
-  dirtyKeyCount,
-  onReloadRuntime,
-  isReloading,
-  onActivationChange,
-}: PersonalEnvDiagnosticsCardProps) {
-  const { t } = useTranslation()
-  const [personal, setPersonal] = React.useState<PersonalEnvDiagnostics | null>(null)
-  const [activation, setActivation] = React.useState<DaemonEnvActivationDiagnostics | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    if (!workspacePath) return
-    let cancelled = false
-
-    void (async () => {
-      try {
-        const [personalDiag, activationDiag] = await Promise.all([
-          invoke<Partial<PersonalEnvDiagnostics>>('personal_env_diagnostics', { workspacePath }),
-          getDaemonEnvActivationDiagnostics(encodeWorkspaceId(workspacePath), teamId),
-        ])
-        if (cancelled) return
-        setPersonal(normalizePersonalEnvDiagnostics(personalDiag))
-        setActivation(activationDiag)
-        onActivationChange?.(activationDiag)
-        setError(null)
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e))
-        }
-      }
-    })()
-
-    return () => { cancelled = true }
-  }, [workspacePath, teamId, refreshKey, onActivationChange])
-
-  const installedFingerprint = activation?.installed_env_fingerprint?.slice(0, 12) ?? '—'
-  const handleFingerprint = activation?.active_handle_env_fingerprint?.slice(0, 12) ?? '—'
-  const activeKeyCount = activation?.key_statuses.filter((entry) => entry.status === 'active').length ?? 0
-  const pendingKeyCount = (activation?.key_statuses.length ?? 0) - activeKeyCount
-  const serveProbeOk = (activation?.missing_served_env_keys?.length ?? 0) === 0
-  const storeOk = !!personal?.blobReadable
-  const indexAligned = !!personal
-    && personal.indexKeysMissingFromBlob.length === 0
-    && personal.blobKeysMissingFromIndex.length === 0
-  const userStoredCount = personal?.userStoredVarCount ?? personal?.storedVarCount ?? 0
-  const daemonUserCount = activation?.personal_env_var_count
-    ?? activation?.personal_blob_user_var_count
-    ?? 0
-  const daemonOk = activation !== null
-  const reloadPending = (activation?.refresh.status === 'pending' || activation?.refresh.status === 'applying')
-    && (activation?.refresh.change_kinds ?? []).includes('env_vars')
-  const hostEnvShadowedKeys = activation?.host_env_shadowed_keys ?? []
-  const resolvedFingerprint = activation?.resolved_env_fingerprint?.slice(0, 12) ?? '—'
-  const activeFingerprint = activation?.active_env_fingerprint?.slice(0, 12) ?? '—'
-  const overallStatus = computeEnvActivationOverallStatus(personal, activation, dirtyKeyCount)
-  const hasBlockers = (activation?.blockers.length ?? 0) > 0 || dirtyKeyCount > 0
-  const personalLoadOk = !activation?.personal_blob_readable
-    || daemonUserCount === userStoredCount
-  const StatusIcon = overallStatus === 'blocked'
-    ? ShieldX
-    : overallStatus === 'degraded'
-      ? ShieldAlert
-      : ShieldCheck
-  const statusIconClass = overallStatus === 'blocked'
-    ? 'text-destructive'
-    : overallStatus === 'degraded'
-      ? 'text-amber-500'
-      : 'text-emerald-500'
-  const overallStatusLabel = overallStatus === 'blocked'
-    ? t('settings.envVars.diag.overallBlocked', '阻塞')
-    : overallStatus === 'degraded'
-      ? t('settings.envVars.diag.overallDegraded', '待处理')
-      : t('settings.envVars.diag.overallHealthy', '存储检查通过')
-
-  return (
-    <SettingCard>
-      <div className="flex items-start gap-3">
-        <StatusIcon className={`h-5 w-5 mt-0.5 shrink-0 ${statusIconClass}`} />
-        <div className="min-w-0 flex-1 text-[13px]">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="font-medium text-foreground">
-                {t('settings.envVars.diag.personalTitle', '个人变量生效诊断')}
-              </p>
-              <span className={`rounded px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-wide ${
-                overallStatus === 'blocked'
-                  ? 'bg-destructive/10 text-destructive'
-                  : overallStatus === 'degraded'
-                    ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                    : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-              }`}
-              >
-                {overallStatusLabel}
-              </span>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!workspacePath || isReloading}
-              onClick={() => { void onReloadRuntime() }}
-            >
-              {isReloading
-                ? t('settings.envVars.diag.reloading', '重载中…')
-                : t('settings.envVars.diag.reloadRuntime', '重载 Agent 运行时')}
-            </Button>
-          </div>
-
-          {error ? (
-            <p className="text-destructive">{error}</p>
-          ) : !personal ? (
-            <p className="text-muted-foreground">{t('common.loading', 'Loading...')}</p>
-          ) : (
-            <div className="divide-y divide-border/60">
-              <DiagRow
-                ok={storeOk}
-                label={t('settings.envVars.diag.personalStore', '本地加密存储')}
-                value={personal.secretsDir}
-                hint={
-                  !storeOk
-                    ? personal.blobError
-                      ?? t('settings.envVars.diag.personalStoreMissing', '个人变量未能从 ~/.teamclu/secrets 读取；Agent 将看不到这些值。')
-                    : undefined
-                }
-              />
-              <DiagRow
-                ok={userStoredCount > 0 || (personal?.workspaceIndexCount ?? 0) === 0}
-                label={t('settings.envVars.diag.personalCounts', '用户变量 / 索引条目')}
-                value={`${userStoredCount} / ${personal.workspaceIndexCount}`}
-              />
-              <DiagRow
-                ok={indexAligned}
-                label={t('settings.envVars.diag.personalIndex', '工作区索引缓存')}
-                value={
-                  indexAligned
-                    ? t('settings.envVars.diag.personalIndexOk', '一致')
-                    : [
-                        personal.indexKeysMissingFromBlob.length
-                          ? t('settings.envVars.diag.personalIndexMissingBlob', {
-                              keys: personal.indexKeysMissingFromBlob.join(', '),
-                              defaultValue: `缓存有、存储无: ${personal.indexKeysMissingFromBlob.join(', ')}`,
-                            })
-                          : null,
-                        personal.blobKeysMissingFromIndex.length
-                          ? t('settings.envVars.diag.personalIndexMissingIndex', {
-                              keys: personal.blobKeysMissingFromIndex.join(', '),
-                              defaultValue: `存储有、缓存未登记: ${personal.blobKeysMissingFromIndex.join(', ')}`,
-                            })
-                          : null,
-                      ].filter(Boolean).join(' · ')
-                }
-                hint={
-                  !indexAligned
-                    ? t('settings.envVars.diag.personalIndexHint', '个人变量的值存在本机加密存储中；工作区 envVars 只是标签缓存，不一致不会阻止注入。重新打开工作区或 Reload runtime 可刷新缓存。')
-                    : undefined
-                }
-              />
-              <DiagRow
-                ok={personal.hostShadowedKeys.length === 0}
-                label={t('settings.envVars.diag.hostShadow', '宿主机环境覆盖')}
-                value={
-                  personal.hostShadowedKeys.length === 0
-                    ? t('settings.envVars.diag.hostShadowOk', '无冲突')
-                    : personal.hostShadowedKeys.join(', ')
-                }
-                hint={
-                  personal.hostShadowedKeys.length > 0
-                    ? t(
-                        'settings.envVars.diag.hostShadowHint',
-                        'amuxd 启动 opencode serve 时，若 shell 已设置同名变量，会优先使用 shell 的值。请 unset 后重启 amuxd，或在 TeamClu 中改用不同 key。',
-                      )
-                    : undefined
-                }
-              />
-              <DiagRow
-                ok={daemonOk}
-                label={t('settings.envVars.diag.daemon', '本地 amuxd')}
-                value={daemonOk
-                  ? t('settings.envVars.diag.daemonOk', 'HTTP 可达')
-                  : t('settings.envVars.diag.daemonMissing', '不可用')}
-                hint={
-                  !daemonOk
-                    ? t('settings.envVars.diag.daemonHint', 'daemon 未运行时变量只会写入磁盘；启动 amuxd 后点击「重载 Agent 运行时」。')
-                    : undefined
-                }
-              />
-              {activation && (
-                <>
-                  <DiagRow
-                    ok={personalLoadOk}
-                    label={t('settings.envVars.diag.daemonPersonalLoad', 'daemon 读取个人变量')}
-                    value={t('settings.envVars.diag.daemonPersonalLoadKeys', {
-                      count: daemonUserCount,
-                      defaultValue: `${daemonUserCount} key(s)`,
-                    })}
-                    hint={
-                      activation.personal_blob_readable
-                      && daemonUserCount === 0
-                      && userStoredCount > 0
-                        ? t(
-                            'settings.envVars.diag.daemonPersonalLoadMismatch',
-                            '桌面端能读到用户变量，但 amuxd 报告 0 — 请确认 amuxd 与桌面 app 使用同一用户运行，并已重启 amuxd 到最新版本。',
-                          )
-                        : activation.personal_load_error ?? undefined
-                    }
-                  />
-                  <DiagRow
-                    ok={activation.unresolved_env_keys.length === 0 && activation.override_keys.length === 0}
-                    label={t('settings.envVars.diag.scopeCounts', '解析作用域（个人 / 团队 / 系统）')}
-                    value={`${activation.personal_env_var_count} / ${activation.team_env_var_count} / ${activation.system_env_var_count}`}
-                    hint={
-                      activation.unresolved_env_keys.length > 0
-                        ? t('settings.envVars.diag.unresolvedHint', '未解析的 key 不会注入 Agent。')
-                        : activation.override_keys.length > 0
-                          ? t('settings.envVars.diag.overrideHint', '被更高优先级层覆盖的 key 以团队/系统值为准。')
-                          : undefined
-                    }
-                  />
-                  <DiagRow
-                    ok={activation.active_runtime_count === 0}
-                    label={t('settings.envVars.diag.activeRuntimes', '活跃 runtime')}
-                    value={String(activation.active_runtime_count)}
-                    hint={
-                      activation.active_runtime_count > 0
-                        ? t('settings.envVars.diag.activeRuntimesHint', '环境变量在 spawn 时注入；有活跃 session 时需要重载后新开 session。')
-                        : undefined
-                    }
-                  />
-                  <DiagRow
-                    ok={activation.refresh.status === 'clean' && !reloadPending}
-                    label={t('settings.envVars.diag.refreshStatus', '运行时 refresh 状态')}
-                    value={activation.refresh.status}
-                    hint={
-                      reloadPending
-                        ? t('settings.envVars.diag.refreshPending', 'env_vars 变更待应用 — 点击「重载 Agent 运行时」。')
-                        : activation.refresh.status === 'failed'
-                          ? activation.refresh.last_error ?? undefined
-                          : undefined
-                    }
-                  />
-                  {(activation.resolved_env_fingerprint || activation.active_env_fingerprint) && (
-                    <DiagRow
-                      ok={activation.activation_status === 'active'}
-                      label={t('settings.envVars.diag.snapshotStatus', '环境快照')}
-                      value={`${activation.activation_status} · ${resolvedFingerprint} / ${activeFingerprint}`}
-                      hint={
-                        activation.activation_status !== 'active'
-                          ? t(
-                              'settings.envVars.diag.snapshotStatusHint',
-                              '前者为当前 workspace 解析结果，后者为全局 OpenCode host 已加载快照；不同表示正在等待重载或被其他活跃 workspace 阻塞。',
-                            )
-                          : undefined
-                      }
-                    />
-                  )}
-                  {activation.key_statuses.length > 0 && (
-                    <DiagRow
-                      ok={pendingKeyCount === 0 && serveProbeOk}
-                      label={t('settings.envVars.diag.keyInjectionSummary', '逐 key 注入状态')}
-                      value={t('settings.envVars.diag.keyInjectionCounts', {
-                        active: activeKeyCount,
-                        pending: pendingKeyCount,
-                        defaultValue: `${activeKeyCount} active · ${pendingKeyCount} pending`,
-                      })}
-                      hint={
-                        pendingKeyCount > 0 || !serveProbeOk
-                          ? t('settings.envVars.diag.keyInjectionHint', '变量列表中的注入徽章与此一致；pending 通常表示需要重载 runtime 或新开 session。')
-                          : undefined
-                      }
-                    />
-                  )}
-                  {((activation.opencode_serve_cached_env_keys?.length ?? 0) > 0
-                    || (activation.missing_served_env_keys?.length ?? 0) > 0
-                    || (activation.active_handle_env_keys?.length ?? 0) > 0) && (
-                    <DiagRow
-                      ok={serveProbeOk}
-                      label={t('settings.envVars.diag.serveProbe', 'OpenCode serve 进程 probe')}
-                      value={t('settings.envVars.diag.serveProbeCounts', {
-                        served: activation.opencode_serve_cached_env_keys?.length ?? 0,
-                        handle: activation.active_handle_env_keys?.length ?? 0,
-                        missing: activation.missing_served_env_keys?.length ?? 0,
-                        defaultValue: `serve ${activation.opencode_serve_cached_env_keys?.length ?? 0} · handle ${activation.active_handle_env_keys?.length ?? 0} · missing ${activation.missing_served_env_keys?.length ?? 0}`,
-                      })}
-                      hint={
-                        (activation.missing_served_env_keys?.length ?? 0) > 0
-                          ? t('settings.envVars.diag.serveProbeMissing', {
-                              keys: (activation.missing_served_env_keys ?? []).join(', '),
-                              defaultValue: `未进入 serve host 队列: ${(activation.missing_served_env_keys ?? []).join(', ')}`,
-                            })
-                          : t(
-                              'settings.envVars.diag.serveProbeHint',
-                              '对比解析结果与全局 OpenCode serve 已排队 key（不含 secret 值）；handle 列为最近活跃 runtime 快照。',
-                            )
-                      }
-                    />
-                  )}
-                  {(activation.resolved_env_fingerprint || activation.installed_env_fingerprint || activation.active_handle_env_fingerprint) && (
-                    <DiagRow
-                      ok={
-                        activation.resolved_env_fingerprint != null
-                        && activation.resolved_env_fingerprint === activation.active_env_fingerprint
-                      }
-                      label={t('settings.envVars.diag.fingerprintCompare', '指纹对比')}
-                      value={`${resolvedFingerprint} / ${installedFingerprint} / ${activeFingerprint} / ${handleFingerprint}`}
-                      hint={t(
-                        'settings.envVars.diag.fingerprintCompareHint',
-                        '顺序：解析 / host 已排队 / host 已生效 / 活跃 handle',
-                      )}
-                    />
-                  )}
-                  <DiagRow
-                    ok={activation.team_secret_configured || activation.team_env_var_count === 0}
-                    label={t('settings.envVars.diag.teamSecretConfigured', '团队密钥（daemon）')}
-                    value={activation.team_secret_configured
-                      ? t('settings.envVars.diag.secretOk', '已配置')
-                      : t('settings.envVars.diag.secretMissingShort', '未配置')}
-                  />
-                  {activation.mcp_unresolved_placeholders.length > 0 && (
-                    <DiagRow
-                      ok={false}
-                      label={t('settings.envVars.diag.mcpPlaceholders', 'opencode.json 未解析占位符')}
-                      value={activation.mcp_unresolved_placeholders
-                        .map((entry) => `${entry.path}:${entry.placeholder}`)
-                        .join(' · ')}
-                      hint={t(
-                        'settings.envVars.diag.mcpPlaceholdersHint',
-                        '配置文件中仍引用缺失 env key 的 ${KEY}，MCP/provider 可能无法正常工作。',
-                      )}
-                    />
-                  )}
-                  {(activation.override_keys.length > 0
-                    || activation.alias_collision_keys.length > 0
-                    || activation.unresolved_env_keys.length > 0) && (
-                    <DiagRow
-                      ok={activation.alias_collision_keys.length === 0 && activation.unresolved_env_keys.length === 0}
-                      label={t('settings.envVars.diag.resolutionDetails', '解析覆盖 / 别名冲突 / 未解析')}
-                      value={[
-                        activation.override_keys.length
-                          ? `${t('settings.envVars.diag.overrides', '覆盖')}: ${activation.override_keys.join(', ')}`
-                          : null,
-                        activation.alias_collision_keys.length
-                          ? `${t('settings.envVars.diag.aliasCollisions', '别名冲突')}: ${activation.alias_collision_keys.join(', ')}`
-                          : null,
-                        activation.unresolved_env_keys.length
-                          ? `${t('settings.envVars.diag.unresolved', '未解析')}: ${activation.unresolved_env_keys.join(', ')}`
-                          : null,
-                      ].filter(Boolean).join(' · ')}
-                    />
-                  )}
-                  {hostEnvShadowedKeys.length > 0 && (
-                    <DiagRow
-                      ok={false}
-                      label={t('settings.envVars.diag.daemonHostShadow', 'daemon 侧宿主机覆盖')}
-                      value={hostEnvShadowedKeys.join(', ')}
-                      hint={t(
-                        'settings.envVars.diag.daemonHostShadowHint',
-                        '以上 key 在 amuxd 进程环境中已存在，opencode serve 不会注入 TeamClu 个人变量。',
-                      )}
-                    />
-                  )}
-                </>
-              )}
-              {(hasBlockers || overallStatus !== 'healthy') && (
-                <div className="pt-2 mt-1">
-                  <p className="text-xs font-medium text-foreground mb-1">
-                    {t('settings.envVars.diag.blockersTitle', '可能阻止生效的原因')}
-                  </p>
-                  <ul className="list-disc pl-4 text-xs text-amber-800 dark:text-amber-200 space-y-0.5">
-                    {dirtyKeyCount > 0 && (
-                      <li>{t('settings.envVars.diag.blockerDirty', '有变量已保存但尚未确认注入 runtime（Need restart）。')}</li>
-                    )}
-                    {activation?.blockers.map((blocker) => (
-                      <li key={`${blocker.code}-${blocker.detail ?? ''}`}>
-                        {formatEnvActivationBlocker(t, blocker)}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {overallStatus === 'healthy' && (
-                <p className="pt-2 mt-1 text-xs text-muted-foreground">
-                  {t(
-                    'settings.envVars.diag.healthyDisclaimer',
-                    '存储、refresh 与 serve host probe 已通过；若刚修改变量，请重载 runtime 并新开 session 后再发消息。',
-                  )}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </SettingCard>
-  )
-}
-
 // ─── Main Section ───────────────────────────────────────────────────────
 
 export const EnvVarsSection = React.memo(function EnvVarsSection() {
@@ -1103,19 +694,11 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   const [dirtyKeys, setDirtyKeys] = React.useState<Set<string>>(new Set())
   const [teamEnvAvailable, setTeamEnvAvailable] = React.useState<boolean | null>(null)
   const [diagRefreshKey, setDiagRefreshKey] = React.useState(0)
-  const [isReloadingRuntime, setIsReloadingRuntime] = React.useState(false)
-  const [activationDiagnostics, setActivationDiagnostics] = React.useState<DaemonEnvActivationDiagnostics | null>(null)
-
-  const keyStatusMap = React.useMemo(
-    () => buildEnvKeyStatusMap(activationDiagnostics),
-    [activationDiagnostics],
-  )
 
   const resolveInjectionStatus = React.useCallback((entry: UnifiedEntry): string | null => {
     if (entry.scope === 'team-placeholder') return 'missing'
-    if (entry.scope === 'personal' && entry.category === 'system') return null
-    return keyStatusMap.get(entry.key.toLowerCase()) ?? null
-  }, [keyStatusMap])
+    return null
+  }, [])
 
   const isLoading = envLoading
 
@@ -1248,21 +831,27 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     return all
   }, [envVars, teamSecrets, dirtyKeys, hasSyncDirty])
 
-  async function reloadRuntimeAfterEnvChange(key: string): Promise<boolean> {
-    const workspacePath = useWorkspaceStore.getState().workspacePath
-    if (!workspacePath) {
-      toast.warning('环境变量已保存，但无法重载运行时', {
-        description: '未选择工作区。',
-      })
+  async function queueEnvRuntimeRefresh(key: string): Promise<boolean> {
+    const path = useWorkspaceStore.getState().workspacePath
+    if (!path) {
+      toast.warning(
+        t('settings.envVars.savedNoWorkspace', '环境变量已保存，但无法通知运行时'),
+        { description: t('settings.envVars.noWorkspace', '未选择工作区。') },
+      )
       return false
     }
-    setIsReloadingRuntime(true)
     try {
-      const outcome = await reloadDaemonRuntime(encodeWorkspaceId(workspacePath))
-      if (!outcome) {
-        toast.warning('环境变量已保存，但 Agent 运行时重载失败', {
-          description: '本地 amuxd 不可用。请启动 daemon 后点击「重载 Agent 运行时」。',
-        })
+      const ok = await notifyDaemonRuntimePendingChanges(encodeWorkspaceId(path), ['env_vars'])
+      if (!ok) {
+        toast.warning(
+          t('settings.envVars.savedNotifyFailed', '环境变量已保存，但未能排队自动重载'),
+          {
+            description: t(
+              'settings.envVars.notifyDaemonUnavailable',
+              '本地 amuxd 不可用。运行时下次检测到环境漂移时会补录该变更，或可在设置 → Daemon → 通用中强制重载。',
+            ),
+          },
+        )
         return false
       }
       setDirtyKeys((prev) => {
@@ -1272,46 +861,19 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
         return next
       })
       setDiagRefreshKey((k) => k + 1)
-      toast.success('环境变量已保存', {
-        description: describeEnvReloadOutcome(outcome),
+      toast.success(t('settings.envVars.savedQueued', '环境变量已保存'), {
+        description: t(
+          'settings.envVars.savedQueuedHint',
+          '空闲后将自动生效；急需时可在设置 → Daemon → 通用中强制重载。',
+        ),
       })
       return true
     } catch (err) {
-      toast.warning('环境变量已保存，但 Agent 运行时重载失败', {
-        description: err instanceof Error ? err.message : String(err),
-      })
+      toast.warning(
+        t('settings.envVars.savedNotifyFailed', '环境变量已保存，但未能排队自动重载'),
+        { description: err instanceof Error ? err.message : String(err) },
+      )
       return false
-    } finally {
-      setIsReloadingRuntime(false)
-    }
-  }
-
-  async function handleManualRuntimeReload() {
-    const workspacePath = useWorkspaceStore.getState().workspacePath
-    if (!workspacePath) {
-      toast.error('未选择工作区')
-      return
-    }
-    setIsReloadingRuntime(true)
-    try {
-      const outcome = await reloadDaemonRuntime(encodeWorkspaceId(workspacePath))
-      if (!outcome) {
-        toast.error('重载失败', {
-          description: '本地 amuxd 不可用。',
-        })
-        return
-      }
-      setDirtyKeys(new Set())
-      setDiagRefreshKey((k) => k + 1)
-      toast.success('运行时已重载', {
-        description: describeEnvReloadOutcome(outcome as DaemonApplyOutcome),
-      })
-    } catch (err) {
-      toast.error('重载失败', {
-        description: err instanceof Error ? err.message : String(err),
-      })
-    } finally {
-      setIsReloadingRuntime(false)
     }
   }
 
@@ -1325,7 +887,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     } else {
       await setCatalogEntry('personal', key, value, { description: description || undefined })
     }
-    await reloadRuntimeAfterEnvChange(key)
+    await queueEnvRuntimeRefresh(key)
   }
 
   async function handleDelete() {
@@ -1341,7 +903,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
         await deleteCatalogEntry('personal', deleteTarget.key)
       }
       setDeleteTarget(null)
-      await reloadRuntimeAfterEnvChange(deletedKey)
+      await queueEnvRuntimeRefresh(deletedKey)
       toast.success(t('settings.envVars.deleteSuccess', 'Environment variable deleted'))
     } catch (err) {
       toast.error(t('settings.envVars.deleteFailed', 'Failed to delete environment variable'), {
@@ -1439,17 +1001,6 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
           </div>
         </SettingCard>
       )}
-
-      {/* Team sync diagnostics */}
-      <PersonalEnvActivationDiagnosticsCard
-        workspacePath={workspacePath ?? null}
-        teamId={teamId}
-        refreshKey={diagRefreshKey + dirtyKeys.size}
-        dirtyKeyCount={dirtyKeys.size}
-        onReloadRuntime={handleManualRuntimeReload}
-        isReloading={isReloadingRuntime}
-        onActivationChange={setActivationDiagnostics}
-      />
 
       <TeamEnvDiagnosticsCard
         teamId={teamId}

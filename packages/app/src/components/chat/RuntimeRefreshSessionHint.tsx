@@ -31,12 +31,14 @@ export function RuntimeRefreshSessionHint() {
     >
       <p className="min-w-0 flex-1">
         {kindsLabel
-          ? t('chat.runtimeRefresh.sessionHintKinds', 'Reload the agent to pick up {{kinds}}.', {
-              kinds: kindsLabel,
-            })
+          ? t(
+              'chat.runtimeRefresh.sessionHintKinds',
+              'Apply to load {{kinds}} in this session (next message). New sessions pick them up automatically.',
+              { kinds: kindsLabel },
+            )
           : t(
               'chat.runtimeRefresh.sessionHint',
-              'Reload the agent runtime to pick up workspace changes.',
+              'Apply to refresh the current session (next message). New sessions pick up changes automatically.',
             )}
       </p>
       <Button

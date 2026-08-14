@@ -1479,12 +1479,14 @@ impl RuntimeSupervisor {
 }
 
 fn auto_applicable_refresh(state: &WorkspaceRefreshState) -> bool {
+    // Skills are intentionally excluded: disk changes stay pending until an
+    // explicit Apply / runtime reload. New session attach always re-discovers
+    // skills from disk, so remote/headless daemons are not stuck without a UI.
     !state.change_kinds.is_empty()
         && state.change_kinds.iter().all(|kind| {
             matches!(
                 kind,
-                RefreshChangeKind::Skills
-                    | RefreshChangeKind::EnvVars
+                RefreshChangeKind::EnvVars
                     | RefreshChangeKind::ProviderAuth
                     | RefreshChangeKind::ProviderCatalog
                     | RefreshChangeKind::Permissions
@@ -1531,7 +1533,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auto_apply_idle_skills_refresh_clears_pending_state() {
+    async fn skills_refresh_stays_pending_without_auto_apply() {
         let dir = tempfile::tempdir().unwrap();
         let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
         let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
@@ -1552,12 +1554,14 @@ mod tests {
 
         let applied = supervisor.auto_apply_pending_refreshes().await;
 
-        assert_eq!(applied, 1);
+        assert_eq!(applied, 0);
         let dto = supervisor
             .refresh_coordinator()
             .runtime_refresh_dto(&workspace_id)
             .await;
-        assert_eq!(dto.status, "clean");
+        assert_eq!(dto.status, "pending");
+        assert!(!dto.auto_apply_blocked_by_active_runtime);
+        assert_eq!(dto.recommended_action, "apply_changes");
     }
 
     #[tokio::test]
@@ -1616,7 +1620,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auto_apply_busy_skills_refresh_stays_pending_and_marks_blocked() {
+    async fn skills_refresh_stays_pending_even_when_workspace_is_busy() {
         let dir = tempfile::tempdir().unwrap();
         let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
         let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
@@ -1652,11 +1656,12 @@ mod tests {
             .runtime_refresh_dto(&workspace_id)
             .await;
         assert_eq!(dto.status, "pending");
-        assert!(dto.auto_apply_blocked_by_active_runtime);
+        // Not auto-applicable at all — busy gating must not mark it blocked.
+        assert!(!dto.auto_apply_blocked_by_active_runtime);
     }
 
     #[tokio::test]
-    async fn auto_apply_busy_skills_refresh_applies_after_workspace_becomes_idle() {
+    async fn skills_refresh_stays_pending_after_workspace_becomes_idle() {
         let dir = tempfile::tempdir().unwrap();
         let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
         let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
@@ -1692,16 +1697,93 @@ mod tests {
 
         let applied = supervisor.auto_apply_pending_refreshes().await;
 
-        assert_eq!(applied, 1);
+        assert_eq!(applied, 0);
         let dto = supervisor
             .refresh_coordinator()
             .runtime_refresh_dto(&workspace_id)
             .await;
-        assert_eq!(dto.status, "clean");
+        assert_eq!(dto.status, "pending");
+        assert_eq!(dto.recommended_action, "apply_changes");
     }
 
     #[tokio::test]
-    async fn auto_applier_loop_applies_idle_pending_skills_refresh() {
+    async fn skills_plus_env_refresh_is_not_auto_applicable() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
+        let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
+            RuntimeManager::default_launch_configs(),
+            None,
+        ))));
+
+        for kind in [
+            refresh::RefreshChangeKind::Skills,
+            refresh::RefreshChangeKind::EnvVars,
+        ] {
+            supervisor
+                .refresh_coordinator()
+                .record_change(
+                    &workspace_id,
+                    dir.path(),
+                    kind,
+                    refresh::RefreshSource::FilesystemWatch,
+                )
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(supervisor.auto_apply_pending_refreshes().await, 0);
+        let dto = supervisor
+            .refresh_coordinator()
+            .runtime_refresh_dto(&workspace_id)
+            .await;
+        assert_eq!(dto.status, "pending");
+        assert!(dto.change_kinds.contains(&"skills".to_string()));
+        assert!(dto.change_kinds.contains(&"env_vars".to_string()));
+    }
+
+    #[tokio::test]
+    async fn auto_applier_loop_applies_idle_pending_permissions_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
+        let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
+            RuntimeManager::default_launch_configs(),
+            None,
+        ))));
+        let handle = supervisor
+            .clone()
+            .start_refresh_auto_applier_with_interval(std::time::Duration::from_millis(20));
+
+        supervisor
+            .refresh_coordinator()
+            .record_change(
+                &workspace_id,
+                dir.path(),
+                refresh::RefreshChangeKind::Permissions,
+                refresh::RefreshSource::FilesystemWatch,
+            )
+            .await
+            .unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let dto = supervisor
+                    .refresh_coordinator()
+                    .runtime_refresh_dto(&workspace_id)
+                    .await;
+                if dto.status == "clean" {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("auto applier should clean pending permissions refresh");
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn auto_applier_loop_leaves_idle_pending_skills_refresh() {
         let dir = tempfile::tempdir().unwrap();
         let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
         let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
@@ -1723,20 +1805,13 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                let dto = supervisor
-                    .refresh_coordinator()
-                    .runtime_refresh_dto(&workspace_id)
-                    .await;
-                if dto.status == "clean" {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("auto applier should clean pending refresh");
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        let dto = supervisor
+            .refresh_coordinator()
+            .runtime_refresh_dto(&workspace_id)
+            .await;
+        assert_eq!(dto.status, "pending");
+        assert_eq!(dto.recommended_action, "apply_changes");
 
         handle.abort();
     }

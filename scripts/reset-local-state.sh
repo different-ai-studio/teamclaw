@@ -9,21 +9,23 @@
 #   scripts/reset-local-state.sh -y              # skip confirm
 #   scripts/reset-local-state.sh -n              # dry-run (list only)
 #   scripts/reset-local-state.sh -y --short-name copilot361 --app-id com.copilot361.app
-#   scripts/reset-local-state.sh -y --keep-workspace      # skip <workspace>/.teamclu
+#   scripts/reset-local-state.sh -y --keep-workspace      # skip <workspace>/.<brand>
 #   scripts/reset-local-state.sh -y --keep-opencode      # skip global OpenCode dirs
 #   scripts/reset-local-state.sh -y --purge-workspaces   # delete workspace dirs whole
 #
 # Does NOT delete:
 #   - Cloud account / team data (Supabase / Cloud API)
-#   - Workspace content outside `.teamclu/` and the `<short>-team` symlink
+#   - Workspace content outside `.<brand>/` and the team-drive symlink
 #   - The workspace directory itself — unless --purge-workspaces, which removes
 #     the whole directory when it carries a workspace marker (opencode.json /
-#     teamclaw.json, a `.<brand>` dir, a `<brand>-team` link, or `knowledge/`)
+#     teamclu.json / teamclaw.json, a `.<brand>` dir, a team-drive link, or
+#     `knowledge/`)
 #
 # Covers the amuxd home-layout v2 (`docs/architecture/amuxd-home-layout-v2.md`):
 #   - white-label daemon homes `~/.amuxd-<brand>` next to the official `~/.amuxd`
-#   - `<workspace>/teamclu-team` symlinks into `~/.amuxd/teams/<id>/shared/` —
-#     removed only when they are symlinks (a real directory is left in place)
+#   - `<workspace>/teamclu-team` symlink name is fixed across brands (into
+#     `~/.amuxd*/teams/<id>/shared/`) — removed only when they are symlinks
+#     (a real directory is left in place)
 # plus the older product generations that may still be on disk
 # (teamclaw / betly / amux / seamux).
 
@@ -32,13 +34,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-AMUXD_DIR="${HOME}/.amuxd"
+OFFICIAL_BRAND_SHORT_NAME="teamclu"
+OFFICIAL_AMUXD_DIR="${HOME}/.amuxd"
 LAUNCHD_LABEL="cc.ucar.amuxd"
 LAUNCHD_PLIST="${HOME}/Library/LaunchAgents/${LAUNCHD_LABEL}.plist"
 SYSTEMD_UNIT="${HOME}/.config/systemd/user/amuxd.service"
 
 # Legacy hardcoded keys in the frontend (session-store, etc.) survive white-label builds.
 LEGACY_STORAGE_PREFIX="teamclu"
+
+# Workspace team-drive symlink names (canonical + pre-rebrand leftovers).
+# The link name is brand-independent — see TEAM_SHARED_DIR_NAME in
+# crates/teamclu-runtime-env/src/storage_namespace.rs.
+TEAM_SHARED_LINK_NAMES=(
+  "teamclu-team"
+  "teamclaw-team"
+  "teamclaw"
+)
 
 yes_mode=0
 dry_run=0
@@ -73,12 +85,12 @@ Usage: $(basename "$0") [options]
 Options:
   -y, --yes                 Skip confirmation prompt
   -n, --dry-run             Print paths that would be removed; do not delete
-  --include-workspace       Also remove workspace .teamclu dirs (default: on)
-  --keep-workspace          Do not remove <workspace>/.teamclu
+  --include-workspace       Also remove workspace .<brand> dirs (default: on)
+  --keep-workspace          Do not remove <workspace>/.<brand>
   --purge-workspaces        Remove the whole workspace directory (content included),
                             only when it carries a workspace marker; unmarked
                             directories fall back to dot-dir cleanup
-  --workspace PATH          Extra workspace whose .teamclu/ dir to remove (repeatable)
+  --workspace PATH          Extra workspace whose .<brand>/ dir to remove (repeatable)
   --app-id ID               Limit reset to one brand (e.g. com.copilot361.app)
   --short-name NAME         Limit reset to one brand (e.g. copilot361)
   --include-opencode        Remove global OpenCode data (default: on)
@@ -88,12 +100,19 @@ Options:
 Removes (user-level):
   - ~/.amuxd, ~/.amuxd-<brand>   amuxd daemon home (v2 layout: daemon.toml,
                                  device-id, run/, logs/, cache/, teams/)
+                                 scoped --short-name/--app-id only touches that
+                                 brand's amuxd home
   - ~/.teamclu, ~/.copilot361   per-brand desktop cache, secrets, local-cache.db
   - Tauri app data/cache/logs    per bundle id (e.g. com.copilot361.app)
   - WebKit / WebView2 profile     localStorage (auth session), IndexedDB, cookies
+                                 plus an explicit purge of onboarding keys
+                                 (<prefix>-setup-ok, <prefix>-onboarding-*,
+                                 session) so AuthGate cannot skip first-run
+                                 when a profile dir is locked by a running app
   - ~/.config/<shortName>        global skills, cron-global (Linux/macOS XDG path)
   - <workspace>/.<shortName>     per-workspace config (auto-discovered from webview)
-  - <workspace>/<shortName>-team symlink into ~/.amuxd/teams/ (symlinks only)
+  - <workspace>/teamclu-team     fixed team-drive symlink into ~/.amuxd*/teams/
+                                 (plus legacy teamclaw-team / teamclaw; symlinks only)
   - Legacy ~/.config/amux, ~/Library/Application Support/{amux,teamclu,copilot361}
   - Legacy product generations   teamclaw / betly / amux / seamux profiles,
                                  ~/.teamclaw-seed (old P2P sync state)
@@ -178,6 +197,70 @@ add_storage_key_prefix() {
     [[ "$p" == "$prefix" ]] && return 0
   done
   STORAGE_KEY_PREFIXES+=("$prefix")
+}
+
+is_official_brand() {
+  [[ "$1" == "$OFFICIAL_BRAND_SHORT_NAME" ]]
+}
+
+# Official → ~/.amuxd; white-label → ~/.amuxd-<brand>.
+amuxd_home_for_brand() {
+  local short_name="$1"
+  if is_official_brand "$short_name"; then
+    printf '%s\n' "$OFFICIAL_AMUXD_DIR"
+  else
+    printf '%s/.amuxd-%s\n' "$HOME" "$short_name"
+  fi
+}
+
+collect_amuxd_homes() {
+  AMUXD_HOMES=()
+  TARGETED_AMUXD_PIDS=()
+  local i home seen u
+
+  for i in "${!BRAND_SHORT_NAMES[@]}"; do
+    home="$(amuxd_home_for_brand "${BRAND_SHORT_NAMES[$i]}")"
+    seen=0
+    if ((${#AMUXD_HOMES[@]} > 0)); then
+      for u in "${AMUXD_HOMES[@]}"; do
+        if [[ "$u" == "$home" ]]; then
+          seen=1
+          break
+        fi
+      done
+    fi
+    if [[ "$seen" -eq 0 ]]; then
+      AMUXD_HOMES+=("$home")
+    fi
+  done
+
+  if [[ "$brand_only" -eq 0 ]]; then
+    # Sweep every white-label daemon home ONLY on a full reset.
+    while IFS= read -r home; do
+      [[ -n "$home" ]] || continue
+      seen=0
+      if ((${#AMUXD_HOMES[@]} > 0)); then
+        for u in "${AMUXD_HOMES[@]}"; do
+          if [[ "$u" == "$home" ]]; then
+            seen=1
+            break
+          fi
+        done
+      fi
+      if [[ "$seen" -eq 0 ]]; then
+        AMUXD_HOMES+=("$home")
+      fi
+    done < <(compgen -G "${HOME}/.amuxd-*" 2>/dev/null || true)
+  fi
+}
+
+maybe_remove_team_shared_link() {
+  local link="$1"
+  if [[ -L "$link" ]]; then
+    TARGETS+=("$link")
+  elif [[ -d "$link" ]]; then
+    echo "  note: ${link} is a real directory, not a symlink — leaving it" >&2
+  fi
 }
 
 load_brand_profiles_from_build_config() {
@@ -295,8 +378,132 @@ remove_path() {
     echo "  [dry-run] would remove: $target"
     return 0
   fi
-  rm -rf "$target"
-  echo "  removed: $target"
+  if rm -rf "$target" 2>/dev/null; then
+    if [[ -e "$target" || -L "$target" ]]; then
+      echo "  warning: still present after remove: $target (quit the app and re-run)" >&2
+      return 1
+    fi
+    echo "  removed: $target"
+    return 0
+  fi
+  echo "  warning: failed to remove: $target (quit the app and re-run)" >&2
+  return 1
+}
+
+# Keys that make AuthGate skip first-run onboarding (see AuthGate.tsx +
+# stores/setup.ts + stores/onboarding.ts). Deleting the WebKit profile is the
+# primary wipe; this surgical DELETE is the fallback when the profile dir is
+# locked by a still-running desktop process.
+purge_onboarding_keys_from_db() {
+  local db="$1"
+  local prefix="$2"
+  [[ -f "$db" && -n "$prefix" ]] || return 0
+  if [[ "$dry_run" -eq 1 ]]; then
+    echo "  [dry-run] would purge onboarding keys (${prefix}-*) from: $db"
+    return 0
+  fi
+  # Exact keys + prefix patterns. Keep the SQL boring: WebKit's ItemTable is
+  # just (key, value); no schema drift across macOS versions we care about.
+  sqlite3 "$db" <<SQL 2>/dev/null || true
+DELETE FROM ItemTable WHERE
+  key IN (
+    '${prefix}-setup-ok',
+    '${prefix}-onboarding-done',
+    '${prefix}-onboarding-role',
+    '${prefix}-onboarding-language-ack',
+    '${prefix}-onboarding-setup-ack',
+    '${prefix}-welcome-seen',
+    '${prefix}-deps-setup-status',
+    '${prefix}-daemon-onboarding-identity',
+    '${prefix}-debug-force-setup',
+    '${prefix}-local-daemon-actor-id'
+  )
+  OR key LIKE '${prefix}-onboarding-%'
+  OR key LIKE '${prefix}.session%'
+  OR key LIKE '${prefix}.sessionList%'
+  OR key IN (
+    'teamclaw-setup-ok',
+    'teamclaw-onboarding-done',
+    'teamclaw-onboarding-role',
+    'teamclaw-onboarding-language-ack',
+    'teamclaw-onboarding-setup-ack',
+    'teamclaw-welcome-seen'
+  )
+  OR key LIKE 'teamclaw-onboarding-%'
+  OR key LIKE 'teamclaw.session%';
+SQL
+}
+
+# WebKit profiles sometimes land as mode 555 (or inherit no-write bits). SQLite
+# needs a writable parent to drop its journal, and rm -rf needs write to unlink.
+ensure_webkit_roots_writable() {
+  local i root
+  for i in "${!BRAND_APP_IDS[@]}"; do
+    while IFS= read -r root; do
+      [[ -n "$root" && -d "$root" ]] || continue
+      if [[ "$dry_run" -eq 1 ]]; then
+        echo "  [dry-run] would chmod -R u+w: $root"
+        continue
+      fi
+      chmod -R u+w "$root" 2>/dev/null || true
+    done < <(webkit_localstorage_roots_for_brand "${BRAND_APP_IDS[$i]}" "${BRAND_SHORT_NAMES[$i]}")
+  done
+}
+
+purge_onboarding_localstorage() {
+  local i root db prefix
+  local purged=0
+
+  echo "Purging onboarding keys from webview localStorage..."
+  ensure_webkit_roots_writable
+  for i in "${!BRAND_APP_IDS[@]}"; do
+    prefix="${BRAND_SHORT_NAMES[$i]}"
+    # Official builds unify storage under "teamclu"; also always sweep the
+    # legacy prefix so upgrade leftovers cannot skip the wizard.
+    while IFS= read -r root; do
+      [[ -n "$root" && -d "$root" ]] || continue
+      while IFS= read -r db; do
+        [[ -f "$db" ]] || continue
+        purge_onboarding_keys_from_db "$db" "$prefix"
+        purge_onboarding_keys_from_db "$db" "$LEGACY_STORAGE_PREFIX"
+        purged=1
+        echo "  purged keys in: $db"
+      done < <(find "$root" -name 'localstorage.sqlite3' 2>/dev/null)
+    done < <(webkit_localstorage_roots_for_brand "${BRAND_APP_IDS[$i]}" "${BRAND_SHORT_NAMES[$i]}")
+  done
+
+  if [[ "$purged" -eq 0 ]]; then
+    echo "  (no localstorage.sqlite3 found)"
+  fi
+}
+
+count_remaining_onboarding_keys() {
+  local i root db prefix count total=0
+  for i in "${!BRAND_APP_IDS[@]}"; do
+    prefix="${BRAND_SHORT_NAMES[$i]}"
+    while IFS= read -r root; do
+      [[ -n "$root" && -d "$root" ]] || continue
+      while IFS= read -r db; do
+        [[ -f "$db" ]] || continue
+        count="$(sqlite3 "$db" "SELECT COUNT(*) FROM ItemTable WHERE key='${prefix}-setup-ok' OR key='${LEGACY_STORAGE_PREFIX}-setup-ok' OR key LIKE '${prefix}-onboarding-%' OR key LIKE '${LEGACY_STORAGE_PREFIX}-onboarding-%';" 2>/dev/null || echo 0)"
+        total=$((total + count))
+      done < <(find "$root" -name 'localstorage.sqlite3' 2>/dev/null)
+    done < <(webkit_localstorage_roots_for_brand "${BRAND_APP_IDS[$i]}" "${BRAND_SHORT_NAMES[$i]}")
+  done
+  printf '%s\n' "$total"
+}
+
+verify_onboarding_state_cleared() {
+  local remaining
+  remaining="$(count_remaining_onboarding_keys)"
+  if [[ "$remaining" -gt 0 ]]; then
+    echo "  warning: ${remaining} onboarding/setup-ok key(s) still in webview localStorage" >&2
+    echo "  AuthGate will skip first-run until those are gone. Quit TeamClu and re-run:" >&2
+    echo "    pnpm reset:local -y" >&2
+    return 1
+  fi
+  echo "  onboarding localStorage keys cleared"
+  return 0
 }
 
 unload_amuxd_background_service() {
@@ -351,51 +558,119 @@ amuxd_service_loaded() {
 
 verify_amuxd_fully_stopped() {
   local issues=0
+  local home pid
 
-  if pgrep -x amuxd >/dev/null 2>&1; then
-    echo "  warning: amuxd process still running after stop/uninstall" >&2
-    issues=1
+  if [[ "$brand_only" -eq 0 ]]; then
+    if pgrep -x amuxd >/dev/null 2>&1; then
+      echo "  warning: amuxd process still running after stop/uninstall" >&2
+      issues=1
+    fi
+  else
+    for pid in "${TARGETED_AMUXD_PIDS[@]:-}"; do
+      [[ -n "$pid" ]] || continue
+      if amuxd_pid_is_alive "$pid"; then
+        echo "  warning: targeted amuxd pid ${pid} is still running" >&2
+        issues=1
+      fi
+    done
   fi
 
-  if [[ -f "$LAUNCHD_PLIST" || -f "$SYSTEMD_UNIT" ]]; then
-    echo "  warning: amuxd service registration file still present" >&2
-    issues=1
+  # Service registration is shared across brands; only assert it is gone on a
+  # full reset so a scoped white-label wipe does not fail when TeamClu's
+  # LaunchAgent is still present.
+  if [[ "$brand_only" -eq 0 ]]; then
+    if [[ -f "$LAUNCHD_PLIST" || -f "$SYSTEMD_UNIT" ]]; then
+      echo "  warning: amuxd service registration file still present" >&2
+      issues=1
+    fi
+
+    if amuxd_service_loaded; then
+      echo "  warning: amuxd background service still loaded in the session manager" >&2
+      issues=1
+    fi
   fi
 
-  if amuxd_service_loaded; then
-    echo "  warning: amuxd background service still loaded in the session manager" >&2
-    issues=1
-  fi
-
-  if [[ -e "$AMUXD_DIR" ]]; then
-    echo "  warning: ${AMUXD_DIR} still exists (service may have respawned the daemon)" >&2
-    issues=1
-  fi
+  for home in "${AMUXD_HOMES[@]:-}"; do
+    if [[ -e "$home" ]]; then
+      echo "  warning: ${home} still exists (service may have respawned the daemon)" >&2
+      issues=1
+    fi
+  done
 
   return "$issues"
 }
 
+amuxd_pid_is_alive() {
+  local pid="$1" comm name
+  [[ "$pid" =~ ^[0-9]+$ && "$pid" -gt 1 ]] || return 1
+  kill -0 "$pid" >/dev/null 2>&1 || return 1
+  comm="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+  name="${comm##*/}"
+  [[ "$name" == "amuxd" || "$name" == amuxd-* || "$name" == "amuxd.exe" ]]
+}
+
+stop_amuxd_pid() {
+  local pid="$1" i
+  amuxd_pid_is_alive "$pid" || return 0
+  kill "$pid" >/dev/null 2>&1 || true
+  for i in $(seq 1 25); do
+    amuxd_pid_is_alive "$pid" || return 0
+    sleep 0.2
+  done
+  kill -9 "$pid" >/dev/null 2>&1 || true
+  sleep 0.2
+}
+
+stop_amuxd_in_home() {
+  local home="$1"
+  local pid_file="${home}/run/amuxd.pid"
+  local pid=""
+  if [[ -f "$pid_file" ]]; then
+    pid="$(tr -d '[:space:]' < "$pid_file")"
+    if amuxd_pid_is_alive "$pid"; then
+      TARGETED_AMUXD_PIDS+=("$pid")
+    else
+      pid=""
+    fi
+  fi
+  if [[ -x "${home}/bin/amuxd" ]]; then
+    AMUXD_HOME="$home" "${home}/bin/amuxd" stop >/dev/null 2>&1 || true
+    AMUXD_HOME="$home" "${home}/bin/amuxd" uninstall-service >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$pid" ]]; then
+    stop_amuxd_pid "$pid"
+  fi
+}
+
 stop_amuxd_service() {
+  local home
+
   if [[ "$dry_run" -eq 1 ]]; then
     echo "  [dry-run] would stop and fully uninstall amuxd background service"
     return 0
   fi
 
   # 1. Drop launchd/systemd/schtasks registration first so KeepAlive cannot respawn.
-  unload_amuxd_background_service
-
-  # 2. Graceful stop + redundant uninstall hook when the installed binary exists.
-  if [[ -x "${AMUXD_DIR}/bin/amuxd" ]]; then
-    "${AMUXD_DIR}/bin/amuxd" stop >/dev/null 2>&1 || true
-    "${AMUXD_DIR}/bin/amuxd" uninstall-service >/dev/null 2>&1 || true
+  #    Scoped white-label resets skip this: the unit is shared and may belong to
+  #    another brand still in use on the machine.
+  if [[ "$brand_only" -eq 0 ]]; then
+    unload_amuxd_background_service
   fi
 
-  # 3. Kill any leftover dev/foreground instances, then wait for exit.
-  pkill -x amuxd >/dev/null 2>&1 || true
-  wait_for_amuxd_exit
+  # 2. Graceful stop + redundant uninstall hook for each targeted daemon home.
+  #    Desktop-managed installs often have no ~/.amuxd*/bin copy; that is fine.
+  for home in "${AMUXD_HOMES[@]:-}"; do
+    stop_amuxd_in_home "$home"
+  done
 
-  # 4. Belt-and-suspenders: ensure registration files and loaded jobs are gone.
-  unload_amuxd_background_service
+  # 3. Kill leftover instances. Full reset always does; brand-scoped runs only
+  #    when the targeted home still has a live binary/home (desktop-managed
+  #    white-label may share the process name with official).
+  if [[ "$brand_only" -eq 0 ]]; then
+    pkill -x amuxd >/dev/null 2>&1 || true
+    wait_for_amuxd_exit
+    unload_amuxd_background_service
+  fi
 }
 
 warn_running_app() {
@@ -407,7 +682,7 @@ warn_running_app() {
       if pgrep -f "Copilot 361" >/dev/null 2>&1; then found=1; fi
       ;;
     Linux)
-      if pgrep -xf ".*[Tt]eam[Cc]law.*" >/dev/null 2>&1; then found=1; fi
+      if pgrep -xf ".*[Tt]eam[Cc]lu.*" >/dev/null 2>&1; then found=1; fi
       if pgrep -xf ".*[Cc]opilot.*361.*" >/dev/null 2>&1; then found=1; fi
       ;;
     MINGW*|MSYS*|CYGWIN*)
@@ -540,12 +815,15 @@ is_valid_workspace_path() {
 # marker is presumed to be the user's own and only gets dot-dir cleanup.
 looks_like_workspace() {
   local ws="$1"
-  local short_name
+  local short_name link_name
   [[ -d "$ws" ]] || return 1
   [[ -f "$ws/opencode.json" || -f "$ws/teamclaw.json" || -f "$ws/teamclu.json" ]] && return 0
   [[ -d "$ws/knowledge" ]] && return 0
+  for link_name in "${TEAM_SHARED_LINK_NAMES[@]}"; do
+    [[ -e "$ws/$link_name" || -L "$ws/$link_name" ]] && return 0
+  done
   for short_name in "${BRAND_SHORT_NAMES[@]}"; do
-    [[ -d "$ws/.$short_name" || -L "$ws/$short_name-team" ]] && return 0
+    [[ -d "$ws/.$short_name" || -f "$ws/${short_name}.json" ]] && return 0
   done
   return 1
 }
@@ -652,7 +930,7 @@ collect_workspace_dot_dir_targets() {
     fi
   done
 
-  local link
+  local link_name
   for ws in "${unique_ws[@]}"; do
     if [[ "$purge_workspaces" -eq 1 ]]; then
       if looks_like_workspace "$ws"; then
@@ -666,15 +944,17 @@ collect_workspace_dot_dir_targets() {
     for short_name in "${BRAND_SHORT_NAMES[@]}"; do
       dot="$(resolve_workspace_dot_dir "$ws" "$short_name")"
       TARGETS+=("$dot")
-      # v2 team-share entry point: <workspace>/<shortName>-team is a symlink
-      # into ~/.amuxd/teams/<id>/shared/. Removing ~/.amuxd leaves it dangling,
-      # so take the link too — but never a real directory of synced files.
-      link="${ws}/${short_name}-team"
-      if [[ -L "$link" ]]; then
-        TARGETS+=("$link")
-      elif [[ -d "$link" ]]; then
-        echo "  note: ${link} is a real directory, not a symlink — leaving it" >&2
+      # Older reset script versions incorrectly looked for <shortName>-team.
+      # Clean those misnamed symlinks when present.
+      if ! is_official_brand "$short_name"; then
+        maybe_remove_team_shared_link "${ws}/${short_name}-team"
       fi
+    done
+    # Team-drive entry point is a fixed name across brands (teamclu-team), plus
+    # pre-rebrand leftovers. Removing the daemon home leaves these dangling, so
+    # take the link too — but never a real directory of synced files.
+    for link_name in "${TEAM_SHARED_LINK_NAMES[@]}"; do
+      maybe_remove_team_shared_link "${ws}/${link_name}"
     done
     # Older white-label builds still wrote workspace metadata under teamclu keys
     # but may have kept the legacy .teamclu workspace dir name.
@@ -685,23 +965,14 @@ collect_workspace_dot_dir_targets() {
 
 collect_targets() {
   TARGETS=()
-  local i p
+  local i p home
 
-  TARGETS+=("$AMUXD_DIR")
-
-  # v2 white-label daemon homes: official teamclu shares ~/.amuxd, every other
-  # brand gets ~/.amuxd-<shortName>. Also glob the disk so brands we did not
-  # resolve (deleted build configs) still get cleaned up.
-  for i in "${!BRAND_SHORT_NAMES[@]}"; do
-    [[ "${BRAND_SHORT_NAMES[$i]}" == "teamclu" ]] && continue
-    TARGETS+=("${HOME}/.amuxd-${BRAND_SHORT_NAMES[$i]}")
+  collect_amuxd_homes
+  for home in "${AMUXD_HOMES[@]:-}"; do
+    TARGETS+=("$home")
   done
+
   if [[ "$brand_only" -eq 0 ]]; then
-    # Sweep every white-label daemon home ONLY on a full reset: a run scoped
-    # to one brand must not take other brands' teams and credentials with it.
-    while IFS= read -r p; do
-      [[ -n "$p" ]] && TARGETS+=("$p")
-    done < <(compgen -G "${HOME}/.amuxd-*" 2>/dev/null || true)
     TARGETS+=("${HOME}/.teamclaw-seed")
   fi
 
@@ -816,19 +1087,28 @@ main() {
   echo "Stopping amuxd service..."
   stop_amuxd_service
 
+  # Surgical key delete BEFORE rm -rf: if the desktop app still holds the
+  # WebKit profile open, directory removal can fail while sqlite UPDATE still
+  # works — and leaving teamclu-setup-ok=1 makes AuthGate skip onboarding.
+  echo
+  purge_onboarding_localstorage
+
   echo
   echo "Removing local state..."
   for target in "${TARGETS[@]}"; do
-    remove_path "$target"
+    remove_path "$target" || true
   done
 
   if [[ "$dry_run" -eq 0 ]]; then
     echo
     echo "Verifying amuxd is fully uninstalled..."
     if ! verify_amuxd_fully_stopped; then
+      local home
       echo "  retrying amuxd cleanup..."
       stop_amuxd_service
-      remove_path "$AMUXD_DIR"
+      for home in "${AMUXD_HOMES[@]:-}"; do
+        remove_path "$home" || true
+      done
       if ! verify_amuxd_fully_stopped; then
         echo
         echo "amuxd could not be fully removed. Quit TeamClu, run:" >&2
@@ -838,13 +1118,21 @@ main() {
         exit 1
       fi
     fi
+
+    echo
+    echo "Verifying first-run onboarding state is clear..."
+    # One more key purge after rm, then assert setup-ok is gone.
+    purge_onboarding_localstorage >/dev/null
+    if ! verify_onboarding_state_cleared; then
+      exit 1
+    fi
   fi
 
   echo
   if [[ "$dry_run" -eq 1 ]]; then
     echo "Dry-run complete. Re-run with -y to apply."
   else
-    echo "Done. Launch the desktop app to start from a clean local state."
+    echo "Done. Launch the desktop app (without --skip-setup) to start from a clean local state."
   fi
 }
 

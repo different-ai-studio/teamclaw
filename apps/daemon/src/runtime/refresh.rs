@@ -53,6 +53,55 @@ pub fn suppress_internal_opencode_write(worktree: &std::path::Path) {
         );
     }
 }
+
+/// Record an `EnvVars` pending refresh for `worktree` via the global coordinator.
+/// Used when attach tolerates fingerprint drift so idle auto-apply can still run.
+pub async fn record_env_vars_change_for_worktree(worktree: &std::path::Path) {
+    let Some(coordinator) = GLOBAL_COORDINATOR.get() else {
+        return;
+    };
+    let workspace_id = refresh_watch::workspace_runtime_id(worktree);
+    if let Err(error) = coordinator
+        .record_change(
+            &workspace_id,
+            worktree,
+            RefreshChangeKind::EnvVars,
+            RefreshSource::UiMutation,
+        )
+        .await
+    {
+        tracing::warn!(
+            workspace_id = %workspace_id,
+            workspace_path = %worktree.display(),
+            error = %error,
+            "failed to record env_vars refresh after fingerprint tolerate"
+        );
+    }
+}
+
+/// Parse API `change_kinds` strings into [`RefreshChangeKind`] values.
+pub fn parse_refresh_change_kinds(kinds: &[String]) -> Vec<RefreshChangeKind> {
+    let mut out = Vec::new();
+    for kind in kinds {
+        let parsed = match kind.as_str() {
+            "env_vars" => Some(RefreshChangeKind::EnvVars),
+            "skills" => Some(RefreshChangeKind::Skills),
+            "mcp" => Some(RefreshChangeKind::Mcp),
+            "provider_auth" => Some(RefreshChangeKind::ProviderAuth),
+            "provider_catalog" => Some(RefreshChangeKind::ProviderCatalog),
+            "permissions" => Some(RefreshChangeKind::Permissions),
+            "opencode_json" => Some(RefreshChangeKind::OpencodeJson),
+            "teamclu_config" => Some(RefreshChangeKind::TeamcluConfig),
+            _ => None,
+        };
+        if let Some(parsed) = parsed {
+            if !out.contains(&parsed) {
+                out.push(parsed);
+            }
+        }
+    }
+    out
+}
 pub const INTERNAL_PREPARE_KINDS: [RefreshChangeKind; 3] = [
     RefreshChangeKind::OpencodeJson,
     RefreshChangeKind::Skills,
@@ -705,5 +754,19 @@ mod tests {
         assert_eq!(dto.recommended_action, "apply_changes");
         assert!(dto.change_kinds.is_empty());
         assert_eq!(dto.last_error.as_deref(), Some("reload failed"));
+    }
+
+    #[test]
+    fn parse_refresh_change_kinds_maps_known_and_dedupes() {
+        let kinds = parse_refresh_change_kinds(&[
+            "env_vars".to_string(),
+            "skills".to_string(),
+            "env_vars".to_string(),
+            "nope".to_string(),
+        ]);
+        assert_eq!(
+            kinds,
+            vec![RefreshChangeKind::EnvVars, RefreshChangeKind::Skills]
+        );
     }
 }
