@@ -2973,9 +2973,6 @@
     "initializeOrg": "初始化 {{org}}",
     "initializing": "初始化中…"
   },
-  "team": {
-    "viewerReadOnly": "只读模式 - 你没有编辑权限"
-  },
   "actors": {
     "allTitle": "所有成员",
     "loading": "正在加载成员...",

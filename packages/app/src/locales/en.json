@@ -2973,9 +2973,6 @@
     "initializeOrg": "Initialize {{org}}",
     "initializing": "Initializing…"
   },
-  "team": {
-    "viewerReadOnly": "Read-only mode — you don't have edit permissions"
-  },
   "actors": {
     "allTitle": "All actors",
     "loading": "Loading actors...",
