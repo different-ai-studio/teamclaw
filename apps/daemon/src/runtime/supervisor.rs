@@ -962,7 +962,10 @@ impl RuntimeSupervisor {
             ready: backend_ready,
             backend,
             current_model,
-            refresh: self.refresh.runtime_refresh_dto(workspace_id).await,
+            refresh: self
+                .refresh
+                .runtime_refresh_dto_for_path(workspace_id, workspace_path)
+                .await,
         })
     }
 
@@ -1129,7 +1132,10 @@ impl RuntimeSupervisor {
             })
             .unwrap_or(0);
 
-        let refresh = self.refresh.runtime_refresh_dto(workspace_id).await;
+        let refresh = self
+            .refresh
+            .runtime_refresh_dto_for_path(workspace_id, workspace_path)
+            .await;
         let mut blockers: Vec<EnvActivationBlocker> = Vec::new();
 
         if !store.blob_readable {

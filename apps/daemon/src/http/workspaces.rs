@@ -90,6 +90,64 @@ async fn workspace_path_or_404(workspace_id: &str) -> Result<std::path::PathBuf,
     Ok(wpath)
 }
 
+fn paths_refer_to_same_workspace(left: &StdPath, right: &StdPath) -> bool {
+    if left == right {
+        return true;
+    }
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+/// Convert the path-encoded id used by workspace-control HTTP routes into the
+/// cloud UUID used by runtime isolation and the OpenCode host pool.
+async fn resolve_runtime_workspace_id(
+    state: &HttpState,
+    route_workspace_id: &str,
+    workspace_path: &StdPath,
+) -> String {
+    // A watcher may already have recorded a pending change under the canonical
+    // UUID. Prefer that local mapping and avoid a cloud round trip on Apply.
+    if let Some(refresh) = state.runtime_refresh.as_ref() {
+        if let Some(workspace_id) = refresh.workspace_id_for_path(workspace_path).await {
+            return workspace_id;
+        }
+    }
+
+    let Some(backend) = state.backend.as_ref() else {
+        return route_workspace_id.to_owned();
+    };
+    let team_id = backend.team_id();
+    if team_id.trim().is_empty() {
+        return route_workspace_id.to_owned();
+    }
+    match backend
+        .get_workspaces_by_agent(team_id, backend.actor_id())
+        .await
+    {
+        Ok(rows) => rows
+            .into_iter()
+            .find(|row| {
+                !row.archived
+                    && row.path.as_deref().is_some_and(|path| {
+                        paths_refer_to_same_workspace(StdPath::new(path), workspace_path)
+                    })
+            })
+            .map(|row| row.id)
+            .unwrap_or_else(|| route_workspace_id.to_owned()),
+        Err(error) => {
+            tracing::warn!(
+                route_workspace_id,
+                workspace_path = %workspace_path.display(),
+                error = %error,
+                "failed to resolve runtime workspace UUID; using route identity"
+            );
+            route_workspace_id.to_owned()
+        }
+    }
+}
+
 async fn record_skills_refresh_change(
     state: &HttpState,
     workspace_id: &str,
@@ -98,9 +156,11 @@ async fn record_skills_refresh_change(
     let Some(refresh) = state.runtime_refresh.as_ref() else {
         return;
     };
+    let runtime_workspace_id =
+        resolve_runtime_workspace_id(state, workspace_id, workspace_path).await;
     if let Err(error) = refresh
         .record_change(
-            workspace_id,
+            &runtime_workspace_id,
             workspace_path,
             RefreshChangeKind::Skills,
             RefreshSource::UiMutation,
@@ -108,7 +168,7 @@ async fn record_skills_refresh_change(
         .await
     {
         tracing::warn!(
-            workspace_id = %workspace_id,
+            workspace_id = %runtime_workspace_id,
             workspace_path = %workspace_path.display(),
             error = %error,
             "failed to record skills refresh change after workspace mutation"
@@ -121,7 +181,7 @@ async fn record_skills_refresh_change(
     // generation, but drain it so the next session starts a fresh host and sees
     // the skill mutation without requiring an explicit Apply first.
     if let Some(supervisor) = state.runtime_supervisor.as_ref() {
-        supervisor.request_workspace_host_refresh(workspace_id);
+        supervisor.request_workspace_host_refresh(&runtime_workspace_id);
     }
 }
 
@@ -131,16 +191,18 @@ async fn reload_runtime_after_provider_auth(
     workspace_id: &str,
     workspace_path: &std::path::Path,
 ) -> ApplyOutcome {
+    let runtime_workspace_id =
+        resolve_runtime_workspace_id(state, workspace_id, workspace_path).await;
     if let Some(supervisor) = state.runtime_supervisor.as_ref() {
         match supervisor
             // Explicit provider-auth reload path: always refresh the hosts.
-            .reload_workspace(workspace_id, workspace_path, true)
+            .reload_workspace(&runtime_workspace_id, workspace_path, true)
             .await
         {
             Ok(outcome) => return outcome,
             Err(e) => {
                 tracing::warn!(
-                    workspace_id = %workspace_id,
+                    workspace_id = %runtime_workspace_id,
                     error = %e,
                     "runtime reload after provider auth failed"
                 );
@@ -1157,6 +1219,8 @@ pub async fn record_pending_runtime_changes(
 ) -> Result<Json<PendingRuntimeChangesResponse>, HttpError> {
     require_scope(&principal, "workspace:write")?;
     let workspace_path = decode_workspace_path(&workspace_id).map_err(map_control_err)?;
+    let runtime_workspace_id =
+        resolve_runtime_workspace_id(&state, &workspace_id, &workspace_path).await;
     let kinds = crate::runtime::refresh::parse_refresh_change_kinds(&body.change_kinds);
     if kinds.is_empty() {
         return Err(HttpError::validation(
@@ -1174,7 +1238,7 @@ pub async fn record_pending_runtime_changes(
     for kind in kinds {
         refresh
             .record_change(
-                &workspace_id,
+                &runtime_workspace_id,
                 &workspace_path,
                 kind,
                 RefreshSource::UiMutation,
@@ -1195,11 +1259,13 @@ pub async fn reload_runtime(
 ) -> Result<Json<ApplyResponse>, HttpError> {
     require_scope(&principal, "workspace:write")?;
     let workspace_path = decode_workspace_path(&workspace_id).map_err(map_control_err)?;
+    let runtime_workspace_id =
+        resolve_runtime_workspace_id(&state, &workspace_id, &workspace_path).await;
 
     if let Some(supervisor) = state.runtime_supervisor.as_ref() {
         let outcome = supervisor
             // Explicit user-triggered apply: refresh provider hosts too.
-            .apply_refresh(&workspace_id, &workspace_path, true)
+            .apply_refresh(&runtime_workspace_id, &workspace_path, true)
             .await
             .map_err(map_control_err)?;
         return Ok(apply_ok(outcome));
@@ -1207,7 +1273,11 @@ pub async fn reload_runtime(
 
     let store = resolve_store(&state)?;
     let attempt = if let Some(refresh) = state.runtime_refresh.as_ref() {
-        Some(refresh.mark_applying(&workspace_id, &workspace_path).await)
+        Some(
+            refresh
+                .mark_applying(&runtime_workspace_id, &workspace_path)
+                .await,
+        )
     } else {
         None
     };
@@ -1216,14 +1286,19 @@ pub async fn reload_runtime(
         Err(err) => {
             if let (Some(refresh), Some(attempt)) = (state.runtime_refresh.as_ref(), attempt) {
                 refresh
-                    .mark_apply_failed(&workspace_id, &workspace_path, attempt, err.to_string())
+                    .mark_apply_failed(
+                        &runtime_workspace_id,
+                        &workspace_path,
+                        attempt,
+                        err.to_string(),
+                    )
                     .await;
             }
             return Err(map_control_err(err));
         }
     };
     if let (Some(refresh), Some(attempt)) = (state.runtime_refresh.as_ref(), attempt) {
-        refresh.clear_applied(&workspace_id, attempt).await;
+        refresh.clear_applied(&runtime_workspace_id, attempt).await;
     }
     Ok(apply_ok(outcome))
 }

@@ -330,8 +330,7 @@ pub async fn apply_team_skill_outcome(
             continue;
         };
         let workspace_path = PathBuf::from(&path);
-        let workspace_id =
-            crate::runtime::refresh::refresh_watch::workspace_runtime_id(&workspace_path);
+        let workspace_id = row.id;
         if let Err(error) = refresh
             .record_change(
                 &workspace_id,

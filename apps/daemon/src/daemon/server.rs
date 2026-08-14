@@ -1139,10 +1139,7 @@ impl DaemonServer {
                     registry
                         .upsert_workspace(
                             crate::runtime::refresh::refresh_watch::WatchedWorkspace {
-                                workspace_id:
-                                    crate::runtime::refresh::refresh_watch::workspace_runtime_id(
-                                        Path::new(&workspace.path),
-                                    ),
+                                workspace_id: workspace.workspace_id,
                                 workspace_path: PathBuf::from(&workspace.path),
                             },
                         )
