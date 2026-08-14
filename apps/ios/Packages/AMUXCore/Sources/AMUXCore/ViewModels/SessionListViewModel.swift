@@ -29,9 +29,6 @@ public final class SessionListViewModel {
     // Retained so markAsRead() can mutate the same context the ingest uses.
     private var ctx: ModelContext?
 
-    /// This install's model MRU (ADR-0007). Replaces `presence.default_model`,
-    /// which was the daemon's — see `syncActorPresence`.
-    private let clientModelMRU = ClientModelMRU()
 
     public init() {}
 
@@ -129,7 +126,7 @@ public final class SessionListViewModel {
                               let presence = try? ProtoMQTTCoder.decode(
                                   Amux_ActorPresence.self, from: msg.payload
                               ) else { continue }
-                        self.syncActorPresence(presence, actorID: actorID, teamID: teamID, modelContext: ctx)
+                        self.syncActorPresence(presence, actorID: actorID, modelContext: ctx)
                         self.refreshSessions(modelContext: ctx)
                     }
                 }
@@ -414,26 +411,9 @@ public final class SessionListViewModel {
     ///
     /// A session absent from `live_sessions` is pruned rather than left behind:
     /// absence is the signal for "cold", i.e. the next message will spawn.
-    /// Backend id the MRU is keyed by — the same vocabulary the daemon and the
-    /// desktop use, since the list has to survive a round trip through ids that
-    /// only mean anything within one backend.
-    private func backendKey(for presence: Amux_ActorPresence) -> String {
-        switch presence.activeAgentType {
-        case .opencode: return "opencode"
-        case .pi: return "pi"
-        case .cursor: return "cursor"
-        case .claudeCode: return "claude"
-        // `codex` has no backend module (a codex-configured daemon runs
-        // opencode), and `unknown` names nothing. Both yield an empty key,
-        // which `ClientModelMRU` treats as "no history" rather than guessing.
-        case .codex, .unknown, .UNRECOGNIZED: return ""
-        }
-    }
-
     private func syncActorPresence(
         _ presence: Amux_ActorPresence,
         actorID: String,
-        teamID: String,
         modelContext: ModelContext
     ) {
         // Device-level, not per-worktree (#742). Looking catalogs up by
@@ -448,23 +428,18 @@ public final class SessionListViewModel {
         // Older daemons send only the per-worktree copies; fall back to the
         // first so this build keeps working against one until it is upgraded.
         let legacyCatalog = presence.worktrees.first
-        // This install's own MRU first (ADR-0007). `presence.default_model` is
-        // the *daemon's* MRU head, which that ADR removes — it stays in the
-        // chain only until the field stops being sent, so a daemon that still
-        // fills it keeps working meanwhile.
+        // NOTE: no client MRU here on purpose. An attachment records *facts*
+        // about a live runtime; folding this install's preference in made it
+        // outrank `session_participants.model` at every read site, which is
+        // backwards (ADR-0005/0007). The MRU is applied at resolve time
+        // instead — see `AgentModelResolution`.
         //
-        // Checked against `deviceModels` for the same reason the list exists:
-        // a remembered model the catalog no longer offers must fall through
-        // rather than be shown as this session's model.
-        let clientDefaultModel = clientModelMRU.firstAvailable(
-            backend: backendKey(for: presence),
-            teamID: teamID,
-            available: deviceModels.map(\.id)
-        )
-        let deviceDefaultModel = clientDefaultModel
-            ?? (presence.defaultModel.isEmpty
-                ? (legacyCatalog?.defaultModel ?? "")
-                : presence.defaultModel)
+        // `presence.default_model` is the daemon's own MRU head, which ADR-0007
+        // removes; it stays only until the field stops being sent, so a daemon
+        // that still fills it keeps working meanwhile.
+        let deviceDefaultModel = presence.defaultModel.isEmpty
+            ? (legacyCatalog?.defaultModel ?? "")
+            : presence.defaultModel
         let deviceCommands = presence.availableCommands.isEmpty
             ? (legacyCatalog?.availableCommands ?? [])
             : presence.availableCommands
