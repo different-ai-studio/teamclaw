@@ -28,7 +28,7 @@ impl DaemonServer {
         runtime_id: &str,
         session_id: &str,
         member_actor_id: &str,
-        team_id: &str,
+        _team_id: &str,
     ) {
         if session_id.is_empty() || member_actor_id.is_empty() {
             return;
@@ -44,16 +44,7 @@ impl DaemonServer {
             targets.prune_expired();
             targets.set(session_id, member_actor_id);
         }
-        if let Err(e) =
-            crate::remote_tools::write_remote_tools_mcp_config(session_id, team_id, member_actor_id)
-        {
-            warn!(
-                session_id,
-                runtime_id,
-                err = %e,
-                "bind_remote_tool_member: write_remote_tools_mcp_config failed (non-fatal)"
-            );
-        }
+        // Host-level `amuxd-remote-tools` injection is paused.
     }
 
     /// Legacy no-op. Remote-tools MCP is now a host baseline; reattaching a
@@ -569,33 +560,10 @@ impl DaemonServer {
                 failed_stage: "env_setup".to_string(),
             })?;
 
-        let wants_remote_mcp = !session_id.is_empty() && !requester_actor_id.is_empty();
-
-        let mut remote_mcp_ready = false;
-        let mcp_config_path = if wants_remote_mcp {
-            match crate::remote_tools::write_remote_tools_mcp_config(
-                session_id,
-                &team_id,
-                requester_actor_id,
-            ) {
-                Ok(_) => {
-                    remote_mcp_ready = true;
-                    Some(crate::remote_tools::remote_tools_mcp_config_path(
-                        session_id,
-                    ))
-                }
-                Err(e) => {
-                    warn!(
-                        session_id,
-                        err = %e,
-                        "apply_start_runtime: write_remote_tools_mcp_config before spawn failed; skipping remote MCP"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        // Do not write / pass `remote-tools-host.json` — auto-inject of
+        // `amuxd-remote-tools` is paused. Re-enable via write_remote_tools_mcp_config.
+        let mcp_config_path = None;
+        let remote_mcp_ready = !session_id.is_empty() && !requester_actor_id.is_empty();
 
         // Spawn.
         let spawn_res = self
