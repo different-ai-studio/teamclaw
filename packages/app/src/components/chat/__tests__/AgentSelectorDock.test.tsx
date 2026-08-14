@@ -222,7 +222,7 @@ describe('AgentSelectorDock', () => {
     expect(screen.queryByText('Big Pickle')).not.toBeInTheDocument()
   })
 
-  it('auto-selects the first advertised model when none is selected', async () => {
+  it('does NOT pin the first advertised model when nothing has chosen one', async () => {
     mocks.runtimeStates = {
       'a-1::session-1': {
         daemonActorId: 'a-1',
@@ -248,15 +248,20 @@ describe('AgentSelectorDock', () => {
       />,
     )
 
+    // A pick is durable and outranks everything after it, so writing one from
+    // a guess pinned that guess for good — and the order of `availableModels`
+    // is provider probe order, not a preference (ADR-0007).
     await waitFor(() => {
-      expect(useAgentModelPickStore.getState().getPick('session-1', 'a-1')).toBe(
-        'shopee/gpt-5.5',
-      )
+      expect(screen.getByRole('button', { name: /SPRBOT/i })).toBeTruthy()
     })
+    expect(
+      useAgentModelPickStore.getState().getPick('session-1', 'a-1'),
+    ).toBeUndefined()
 
+    // It is still *shown*, so the pill is not blank — it is a suggestion the
+    // user is expected to confirm, and the send path refuses to run on it.
     await userEvent.click(await screen.findByRole('button', { name: /SPRBOT/i }))
     const selected = document.querySelector('[data-model-selected="true"]')
-    expect(selected).toBeTruthy()
     expect(selected?.textContent).toContain('GPT-5.5')
   })
 

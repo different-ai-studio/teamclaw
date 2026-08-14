@@ -30,8 +30,12 @@ describe('resolveAutoPersistModelId', () => {
     expect(base()).toBe(MRU_HEAD)
   })
 
-  it('falls back to first-advertised only when there is no MRU to honour', () => {
-    expect(base({ localRecentModel: '' })).toBe(LIST_HEAD)
+  it('writes nothing when this client has no history to honour', () => {
+    // Used to return `availableModelIds[0]` here. A pick is durable and
+    // outranks every later signal, so that guess got pinned for good — and
+    // `available` is ordered by provider probe order, which is not stable.
+    // The answer with no history is now "ask the user" (ADR-0007).
+    expect(base({ localRecentModel: '' })).toBeNull()
   })
 
   describe('refuses to write while an input is merely not-yet-known', () => {
@@ -55,16 +59,25 @@ describe('resolveAutoPersistModelId', () => {
     expect(base({ localDaemonActorId: null, localCatalogStatus: undefined })).toBe(MRU_HEAD)
   })
 
-  it('still writes for a remote agent without waiting on this device catalog', () => {
+  it('does not gate a remote agent on this device\'s catalog probe', () => {
     // The loopback catalog says nothing about another machine, so it must not
-    // gate a remote agent — that would leave remote pills permanently unpinned.
+    // make a remote agent *wait*. With history it writes immediately...
+    expect(
+      base({
+        agentId: 'some-remote-agent',
+        localCatalogStatus: undefined,
+        localRecentModel: 'remembered/model',
+      }),
+    ).toBe('remembered/model')
+    // ...and without history it declines outright rather than guessing, same
+    // as the local agent.
     expect(
       base({
         agentId: 'some-remote-agent',
         localCatalogStatus: undefined,
         localRecentModel: '',
       }),
-    ).toBe(LIST_HEAD)
+    ).toBeNull()
   })
 
   it('never overrides an answer that already has more authority', () => {
@@ -85,10 +98,15 @@ describe('resolveAutoPersistModelId', () => {
     expect(base({ runtimeInfoLoading: true })).toBeNull()
   })
 
-  it('proceeds once the probe has settled on a definite answer', () => {
-    // 'unknown' means we asked and learned nothing — stop waiting and fall
-    // back, rather than leave the pill unpinned forever.
-    expect(base({ localCatalogStatus: 'unknown', localRecentModel: '' })).toBe(LIST_HEAD)
-    expect(base({ localCatalogStatus: 'empty', localRecentModel: '' })).toBe(LIST_HEAD)
+  it('stops waiting once the probe has settled, but still refuses to guess', () => {
+    // 'unknown' / 'empty' mean we asked and learned nothing. That ends the
+    // wait — but a settled probe is not a model, so with no history there is
+    // still nothing to write.
+    expect(base({ localCatalogStatus: 'unknown', localRecentModel: '' })).toBeNull()
+    expect(base({ localCatalogStatus: 'empty', localRecentModel: '' })).toBeNull()
+    // Settled + history = write, which is what "stops waiting" buys.
+    expect(base({ localCatalogStatus: 'unknown', localRecentModel: 'mru/model' })).toBe(
+      'mru/model',
+    )
   })
 })

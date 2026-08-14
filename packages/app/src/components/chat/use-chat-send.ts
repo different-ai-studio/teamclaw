@@ -71,10 +71,12 @@ import {
   localRecentModelFallback,
 } from '@/lib/agent-model-fallback'
 import { clientMruModels } from '@/stores/client-model-mru'
+import { useModelPickPromptStore } from '@/stores/model-pick-prompt-store'
 import { getKnownLocalDaemonActorId } from "@/lib/local-daemon-identity";
 import { useLocalDaemonCatalogStore } from "@/stores/local-daemon-catalog-store";
 import {
   selectAgentModel,
+  requiresExplicitModelPick,
   resolveRuntimeStateEntryForAgent,
   backendTypeFromRuntimeEntry,
 } from "@/lib/runtime-state-resolve";
@@ -425,7 +427,7 @@ export function useChatSend({
           // a model that was never used. `selectAgentModel` owns every other
           // case — including the fallback, which must be the same device MRU
           // the pill shows.
-          const outgoingModel = sendAgentId
+          const selectedForSend = sendAgentId
             ? selectAgentModel({
                 sessionId: sid,
                 agentId: sendAgentId,
@@ -439,8 +441,25 @@ export function useChatSend({
                     available: availableForSend,
                   }) || undefined,
                 sessionEstablishedModel: establishedForSend,
-              }).modelId || ""
-            : "";
+              })
+            : null;
+
+          // Nothing chose this model — it is just whatever the catalog listed
+          // first, and that order is provider probe order, not a preference.
+          // Sending would make the guess the session's established model and
+          // hide that it ever was one, so ask instead (ADR-0007).
+          if (selectedForSend && requiresExplicitModelPick(selectedForSend)) {
+            sessionFlowLog("chat_send.blocked_awaiting_model_pick", {
+              sessionId: sid,
+              agentActorId: sendAgentId,
+              suggestedModelId: selectedForSend.modelId,
+              availableModelCount: availableForSend.length,
+            });
+            useModelPickPromptStore.getState().request(sendAgentId);
+            return;
+          }
+
+          const outgoingModel = selectedForSend?.modelId || "";
           const mentionDeliverySnapshot: Record<string, "offline" | "stale"> = {};
           for (const entry of engagedUiEntries) {
             if (!agentForSend || entry.agent.id !== agentForSend.id) continue;

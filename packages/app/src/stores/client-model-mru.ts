@@ -108,9 +108,20 @@ export function clientMruModels(
   backendType: string | null | undefined,
 ): string[] {
   const backend = backendType?.trim() ?? "";
-  const teamId = useCurrentTeamStore.getState().team?.id?.trim() ?? "";
-  if (!backend || !teamId) return EMPTY;
-  return useClientModelMruStore.getState().byBackendTeam[key(backend, teamId)] ?? EMPTY;
+  if (!backend) return EMPTY;
+  // Never throw: this feeds the agent pill, and a remembered preference is not
+  // worth taking the pill's render down for. Anything unexpected (a store not
+  // yet initialised, a test double without `getState`) reads as "no history".
+  try {
+    const teamId = useCurrentTeamStore.getState?.()?.team?.id?.trim() ?? "";
+    if (!teamId) return EMPTY;
+    return (
+      useClientModelMruStore.getState().byBackendTeam[key(backend, teamId)] ??
+      EMPTY
+    );
+  } catch {
+    return EMPTY;
+  }
 }
 
 /**
