@@ -292,6 +292,7 @@ fn watch_roots(workspaces: &[WatchedWorkspace], home: Option<&Path>) -> Vec<Watc
 
 async fn record_classified_changes(
     refresh: &RuntimeRefreshCoordinator,
+    supervisor: Option<&RuntimeSupervisor>,
     debounce: &mut RefreshDebounce,
     workspaces: &[WatchedWorkspace],
     home: Option<&Path>,
@@ -321,6 +322,17 @@ async fn record_classified_changes(
                 error = %error,
                 "failed to record filesystem refresh change"
             );
+            continue;
+        }
+
+        // OpenCode caches its discovered skill catalog for the lifetime of the
+        // serve process. Draining the workspace generation preserves existing
+        // sessions while guaranteeing that the next session discovers the new
+        // on-disk skill content.
+        if change.kind == RefreshChangeKind::Skills {
+            if let Some(supervisor) = supervisor {
+                supervisor.request_workspace_host_refresh(&change.workspace_id);
+            }
         }
     }
 }
@@ -405,10 +417,11 @@ fn is_relevant_event(kind: &EventKind) -> bool {
 }
 
 pub fn start_refresh_watchers(
-    refresh: Arc<RuntimeRefreshCoordinator>,
+    supervisor: Arc<RuntimeSupervisor>,
     workspaces: Vec<WatchedWorkspace>,
     home: Option<PathBuf>,
 ) -> Arc<RefreshWatchRegistry> {
+    let refresh = supervisor.refresh_coordinator();
     let registry = RefreshWatchRegistry::new(workspaces);
     let watch_registry = Arc::clone(&registry);
     tokio::spawn(async move {
@@ -466,6 +479,7 @@ pub fn start_refresh_watchers(
                     let workspaces = watch_registry.snapshot().await;
                     record_classified_changes(
                         &refresh,
+                        Some(&supervisor),
                         &mut debounce,
                         &workspaces,
                         home.as_deref(),
@@ -498,6 +512,8 @@ pub fn suppress_for_workspace_path(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
+    use crate::runtime::opencode_http::host_pool::HostLifecycle;
     use crate::runtime::RuntimeManager;
     use tokio::sync::Mutex as AsyncMutex;
 
@@ -588,9 +604,19 @@ mod tests {
         let now = Instant::now();
         let path = Path::new("/tmp/ws-1/.teamclu/skills/demo-skill/SKILL.md");
 
-        record_classified_changes(&coordinator, &mut debounce, &workspaces, None, path, now).await;
         record_classified_changes(
             &coordinator,
+            None,
+            &mut debounce,
+            &workspaces,
+            None,
+            path,
+            now,
+        )
+        .await;
+        record_classified_changes(
+            &coordinator,
+            None,
             &mut debounce,
             &workspaces,
             None,
@@ -600,6 +626,7 @@ mod tests {
         .await;
         record_classified_changes(
             &coordinator,
+            None,
             &mut debounce,
             &workspaces,
             None,
@@ -630,6 +657,7 @@ mod tests {
 
         record_classified_changes(
             &supervisor.refresh_coordinator(),
+            None,
             &mut debounce,
             &workspaces,
             None,
@@ -644,6 +672,64 @@ mod tests {
             .unwrap();
         assert_eq!(status.refresh.status, "pending");
         assert_eq!(status.refresh.change_kinds, vec!["skills".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn skill_change_drains_current_host_and_next_session_gets_fresh_generation() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_id = workspace_runtime_id(dir.path());
+        let domain = IsolationDomainKey::Workspace(workspace_id.clone());
+        let revision = ProcessEnvRevision::from_bindings(&HashMap::new());
+        let pool = crate::runtime::test_support::test_host_pool();
+        let old = pool
+            .acquire(
+                domain.clone(),
+                revision.clone(),
+                HashMap::new(),
+                Instant::now() + Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+        let old_generation_id = old.generation.generation_id.clone();
+        let supervisor = RuntimeSupervisor::new_with_host_pool(
+            Arc::new(AsyncMutex::new(RuntimeManager::new(
+                RuntimeManager::default_launch_configs(),
+                None,
+            ))),
+            pool.clone(),
+        );
+        let workspaces = vec![WatchedWorkspace {
+            workspace_id: workspace_id.clone(),
+            workspace_path: dir.path().to_path_buf(),
+        }];
+        let mut debounce = RefreshDebounce::new(Duration::from_millis(250));
+
+        record_classified_changes(
+            &supervisor.refresh_coordinator(),
+            Some(&supervisor),
+            &mut debounce,
+            &workspaces,
+            None,
+            &dir.path().join(".teamclu/skills/demo-skill/SKILL.md"),
+            Instant::now(),
+        )
+        .await;
+
+        // Invalidation requests a rolling replacement; the old host stays
+        // ready until the next acquire actually publishes that replacement.
+        assert_eq!(old.generation.lifecycle(), HostLifecycle::Ready);
+        let fresh = pool
+            .acquire(
+                domain,
+                revision,
+                HashMap::new(),
+                Instant::now() + Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+        assert_ne!(fresh.generation.generation_id, old_generation_id);
+        assert_eq!(fresh.generation.lifecycle(), HostLifecycle::Ready);
+        assert_eq!(old.generation.lifecycle(), HostLifecycle::Draining);
     }
 
     #[tokio::test]
@@ -671,6 +757,7 @@ mod tests {
 
         record_classified_changes(
             &coordinator,
+            None,
             &mut debounce,
             &workspaces,
             None,
@@ -710,6 +797,7 @@ mod tests {
         std::fs::write(&opencode, content).unwrap();
         record_classified_changes(
             &leaky,
+            None,
             &mut debounce,
             &workspaces,
             None,
@@ -734,6 +822,7 @@ mod tests {
         std::fs::write(&opencode, content).unwrap();
         record_classified_changes(
             &covered,
+            None,
             &mut debounce,
             &workspaces,
             None,

@@ -999,7 +999,7 @@ impl DaemonServer {
             // bind (see below), and the watcher poll loop reads the registry live.
             let refresh_watch_registry =
                 crate::runtime::refresh::refresh_watch::start_refresh_watchers(
-                    runtime_supervisor.refresh_coordinator(),
+                    runtime_supervisor.clone(),
                     Vec::new(),
                     dirs::home_dir(),
                 );

@@ -113,6 +113,15 @@ async fn record_skills_refresh_change(
             error = %error,
             "failed to record skills refresh change after workspace mutation"
         );
+        return;
+    }
+
+    // OpenCode discovers skills when `opencode serve` starts, not when an
+    // individual session is attached. Keep existing sessions on their current
+    // generation, but drain it so the next session starts a fresh host and sees
+    // the skill mutation without requiring an explicit Apply first.
+    if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+        supervisor.request_workspace_host_refresh(workspace_id);
     }
 }
 
