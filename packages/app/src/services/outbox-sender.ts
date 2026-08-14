@@ -125,16 +125,36 @@ async function ensureLocalRuntimeForFastPath(
     // Keep OPENCODE — matches daemon default when config is unavailable.
   }
   const worktree = useWorkspaceStore.getState().workspacePath?.trim() ?? "";
+
+  // Carry a workspace id. This used to send `""`, and the daemon skips its
+  // workspace resolver entirely for an empty one — it starts in whatever
+  // `worktree` says instead. The slow path that follows ~0.8s later DOES
+  // resolve, and when it lands on a different directory the runtime this call
+  // just started is superseded and the backend respawns. Measured on a first
+  // message: `~/TeamClu` here, `~/TeamClu Dev` there, and a 5.5s cold start
+  // paid twice. A path that exists to be fast was costing an extra one.
+  //
+  // Both sources are synchronous, so the fast path stays fast: the enqueue-time
+  // hint is what the slow path already resolved for this very message, and the
+  // cache is this client's last known default for the agent. Still empty means
+  // a cold cache on a first-ever run — same behaviour as before, no regression.
+  const { cachedDefaultWorkspaceId } = await import(
+    "@/stores/agent-default-workspace-store"
+  );
+  const workspaceId =
+    entry.workspaceIdHint?.trim() || cachedDefaultWorkspaceId([localDaemonActorId]);
+
   sessionFlowLog("outbox_sender.local_runtime_start.begin", {
     messageId: entry.messageId,
     sessionId: entry.sessionId,
     teamId: entry.teamId,
     localDaemonActorId,
     worktree: worktree || null,
+    workspaceId: workspaceId || null,
   });
   await runtimeStart({
     targetActorId: localDaemonActorId,
-    workspaceId: "",
+    workspaceId,
     worktree,
     sessionId: entry.sessionId,
     agentType,

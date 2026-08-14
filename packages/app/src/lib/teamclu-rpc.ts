@@ -475,6 +475,7 @@ export interface RuntimeStartArgs {
 }
 
 export async function runtimeStart(args: RuntimeStartArgs): Promise<RuntimeStartResult> {
+
   const response = await sendRequest((req) => {
     const start = create(RuntimeStartRequestSchema, {
       workspaceId: args.workspaceId,
