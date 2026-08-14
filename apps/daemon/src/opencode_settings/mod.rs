@@ -1,15 +1,14 @@
 //! In-daemon OpenCode **settings** HTTP surface.
 //!
-//! Provider OAuth and auth-method discovery call the **same** global
-//! `opencode serve` used for chat sessions (`?directory=<workspace>`), not a
-//! second per-workspace process. OpenCode data (OAuth, DB, cache) lives under
-//! the user's default paths.
+//! Provider OAuth and auth-method discovery acquire the workspace domain's
+//! current pooled `opencode serve` generation (`?directory=<workspace>`).
+//! OpenCode data (OAuth, DB, cache) still lives under the user's default paths.
 
 mod client;
 mod pool;
 
 pub use client::{LiveProviderCatalog, LiveProviderSummary, OpenCodeSettingsClient};
-pub use pool::OpenCodeSettingsService;
+pub use pool::{OpenCodeSettingsService, WorkspaceSettingsContextResolver};
 
 use std::path::Path;
 

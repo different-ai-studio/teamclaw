@@ -377,6 +377,8 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         available_models,
         initial_model,
         acp_session_id,
+        host_generation_id: String::new(),
+        route_lease: None,
     })
 }
 
@@ -772,6 +774,8 @@ impl AgentBackend for PiRpcBackend {
         &mut self,
         _agent_type: amux::AgentType,
         launch: &AgentLaunchConfig,
+        _isolation_domain: crate::runtime::execution_context::IsolationDomainKey,
+        _process_env_revision: crate::runtime::execution_context::ProcessEnvRevision,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
         worktree: String,

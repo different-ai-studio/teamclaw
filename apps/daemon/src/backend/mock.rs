@@ -144,6 +144,7 @@ pub struct MockState {
     /// Per-agent `get_agent_defaults` overrides. Missing entries fall back to
     /// `AgentDefaults::default()` (all `None`).
     pub agent_defaults: HashMap<String, AgentDefaults>,
+    pub get_workspaces_by_team_error: Option<String>,
     /// Per-team `managed_llm_config` overrides. Missing entries fall back to
     /// `ManagedLlmConfig::default()` (i.e. managed LLM disabled).
     pub managed_llm_configs: HashMap<String, ManagedLlmConfig>,
@@ -357,6 +358,13 @@ impl Backend for MockBackend {
 
     async fn get_workspaces_by_team(&self, team_id: &str) -> BackendResult<Vec<WorkspaceRow>> {
         let st = self.state.lock().unwrap();
+        if let Some(message) = &st.get_workspaces_by_team_error {
+            return Err(BackendError::Provider {
+                provider: "mock",
+                code: None,
+                message: message.clone(),
+            });
+        }
         Ok(st
             .workspaces_by_id
             .values()

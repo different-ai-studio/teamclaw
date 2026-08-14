@@ -256,9 +256,17 @@ async fn reconcile_team_provider(state: &HttpState, workspace_id: &str) {
     let Ok(wpath) = workspace_path_or_404(workspace_id).await else {
         return;
     };
+    let config_path = wpath.join("opencode.json");
+    let before = std::fs::read(&config_path).ok();
     managed_llm
         .reconcile_workspace(&wpath, team_id.trim())
         .await;
+    let after = std::fs::read(config_path).ok();
+    if before != after {
+        if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+            supervisor.request_workspace_host_refresh(workspace_id);
+        }
+    }
 }
 
 fn merge_live_provider_catalog(providers: &mut Vec<ProviderInfo>, catalog: &LiveProviderCatalog) {
@@ -317,25 +325,31 @@ pub async fn get_device_providers(
 /// started later reads the config at spawn time anyway.
 pub async fn put_device_provider_auth(
     principal: Principal,
-    State(_state): State<HttpState>,
+    State(state): State<HttpState>,
     Path(provider_id): Path<String>,
     Json(body): Json<ProviderAuthRequest>,
 ) -> Result<(StatusCode, Json<ApplyResponse>), HttpError> {
     require_scope(&principal, "workspace:write")?;
     let outcome = crate::config::workspace_control::put_device_provider_auth(&provider_id, body)
         .map_err(map_control_err)?;
+    if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+        supervisor.request_all_workspace_host_refreshes();
+    }
     Ok((StatusCode::OK, apply_ok(outcome)))
 }
 
 /// `DELETE /v1/providers/:provider_id/auth`
 pub async fn delete_device_provider_auth(
     principal: Principal,
-    State(_state): State<HttpState>,
+    State(state): State<HttpState>,
     Path(provider_id): Path<String>,
 ) -> Result<(StatusCode, Json<ApplyResponse>), HttpError> {
     require_scope(&principal, "workspace:write")?;
     let outcome = crate::config::workspace_control::delete_device_provider_auth(&provider_id)
         .map_err(map_control_err)?;
+    if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+        supervisor.request_all_workspace_host_refreshes();
+    }
     Ok((StatusCode::OK, apply_ok(outcome)))
 }
 

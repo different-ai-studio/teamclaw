@@ -201,4 +201,5 @@ describe('EnvVarsSection save notifies pending reload', () => {
     })
     expect(mockReloadDaemonRuntime).not.toHaveBeenCalled()
   })
+
 })

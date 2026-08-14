@@ -39,6 +39,7 @@ const GATEWAY_TURN_TIMEOUT_SECS: u64 = 120;
 
 use crate::backend::Backend;
 use crate::proto::amux;
+use crate::runtime::execution_context::{ExecutionContext, IsolationDomainKey, WorkspaceIdentity};
 use crate::runtime::RuntimeManager;
 use crate::runtime::SpawnRuntimeEnv;
 
@@ -61,6 +62,9 @@ pub struct ResolvedSession {
 /// `/workspace` (which also writes the new default back to that file).
 #[derive(Clone, Default)]
 pub struct BotRuntimeConfig {
+    /// Configured workspace ID, retained even when its path lookup fails so a
+    /// scoped bot cannot silently degrade to an unscoped spawn.
+    pub workspace_id: Option<String>,
     /// Already-resolved local workspace directory (workspace_id -> path).
     pub workspace_dir: Option<String>,
     pub agent_type: Option<amux::AgentType>,
@@ -119,11 +123,14 @@ pub struct AmuxdAgentHandle {
     /// runtimes spawn on this backend type instead of the daemon-wide default.
     /// `None` → fall back to the daemon default agent type.
     pub default_agent_type: Option<amux::AgentType>,
+    /// Configured daemon default workspace ID, retained even when its startup
+    /// path lookup fails so a scoped gateway cannot silently degrade to an
+    /// unscoped spawn.
+    pub default_workspace_id: Option<String>,
     /// Local filesystem path of the daemon agent's `default_workspace_id`,
     /// resolved via the `WorkspaceResolver` cache (backed by the cloud
     /// `amux.workspaces` table). Used as the gateway runtime's working
-    /// directory instead of a throwaway `/tmp` scratch dir. `None` → fall
-    /// back to a scratch dir (the workspace is unset or unresolvable).
+    /// directory instead of a throwaway `/tmp` scratch dir.
     pub default_workspace_dir: Option<String>,
     /// Resolves a cloud workspace_id → local path (`amux.workspaces` is the
     /// sole source of truth). Used by `workspace_dir_for_id` for per-session
@@ -160,7 +167,7 @@ impl AmuxdAgentHandle {
         &self,
         session: &str,
         binding: &str,
-    ) -> (Option<String>, Option<amux::AgentType>) {
+    ) -> Result<(Option<String>, Option<amux::AgentType>), AgentError> {
         let bot = {
             let configs = self.bot_configs.lock().await;
             bot_id_from_binding(binding)
@@ -175,16 +182,25 @@ impl AmuxdAgentHandle {
             let ov = self.workspace_override.lock().await;
             ov.get(session).cloned()
         };
-        let session_ws_dir = match session_ws_id {
-            Some(wid) => self.workspace_dir_for_id(&wid).await,
-            None => None,
+        let workspace_dir = if let Some(workspace_id) = session_ws_id {
+            Some(self.workspace_dir_for_id(&workspace_id).await?)
+        } else if let Some(workspace_id) = bot.workspace_id.as_deref() {
+            match bot.workspace_dir {
+                Some(path) => Some(path),
+                None => Some(self.workspace_dir_for_id(workspace_id).await?),
+            }
+        } else if bot.workspace_dir.is_some() {
+            bot.workspace_dir
+        } else if let Some(workspace_id) = self.default_workspace_id.as_deref() {
+            match self.default_workspace_dir.clone() {
+                Some(path) => Some(path),
+                None => Some(self.workspace_dir_for_id(workspace_id).await?),
+            }
+        } else {
+            self.default_workspace_dir.clone()
         };
 
-        let workspace_dir = session_ws_dir
-            .or(bot.workspace_dir.clone())
-            .or(self.default_workspace_dir.clone());
-
-        (workspace_dir, agent_type)
+        Ok((workspace_dir, agent_type))
     }
 
     /// Build the runtime environment for a gateway spawn: team secrets,
@@ -192,10 +208,13 @@ impl AmuxdAgentHandle {
     /// workspace's `opencode.json` — the same assembly a desktop session runs
     /// (`Daemon::assemble_spawn_runtime_env_for_worktree`).
     ///
-    /// Degrades to the bare gateway env rather than failing the spawn: a
-    /// prompt that reaches an unauthenticated runtime and reports so is worth
-    /// more than a WeCom message that silently never gets answered.
-    async fn assemble_spawn_env(&self, workspace_dir: Option<&str>) -> SpawnRuntimeEnv {
+    /// A genuinely unscoped gateway may use a bare environment. Once a
+    /// workspace resolves, env/config assembly is mandatory and failures are
+    /// surfaced to the caller rather than silently dropping credentials.
+    async fn assemble_execution_context(
+        &self,
+        workspace_dir: Option<&str>,
+    ) -> Result<ExecutionContext, AgentError> {
         let bare = SpawnRuntimeEnv {
             is_gateway: true,
             ..SpawnRuntimeEnv::default()
@@ -203,13 +222,42 @@ impl AmuxdAgentHandle {
         // No resolvable workspace means the spawn lands in a throwaway scratch
         // dir, which has no team config to assemble from.
         let Some(worktree) = workspace_dir else {
-            return bare;
+            return Ok(ExecutionContext {
+                isolation_domain: IsolationDomainKey::UnscopedAgent {
+                    team_id: self.team_id.clone(),
+                    actor_id: self.spawn_env.actor_id.clone(),
+                },
+                workspace: None,
+                working_directory: std::path::PathBuf::new(),
+                spawn_env: bare,
+            });
         };
+        let workspace = self
+            .workspace_resolver
+            .resolve_identity_for_path(
+                std::path::Path::new(worktree),
+                (!self.team_id.trim().is_empty()).then_some(self.team_id.as_str()),
+            )
+            .await
+            .map_err(|e| {
+                AgentError::Create(format!(
+                    "gateway workspace identity resolution failed for {worktree}: {e}"
+                ))
+            })?
+            .ok_or_else(|| {
+                AgentError::Create(format!(
+                    "gateway workspace identity resolution failed for {worktree}"
+                ))
+            })?;
 
-        let managed_llm = if self.team_id.trim().is_empty() {
-            teamclu_runtime_env::ManagedLlmState::Unknown
+        let env_team_id = workspace
+            .team_id
+            .as_deref()
+            .or((!self.team_id.trim().is_empty()).then_some(self.team_id.as_str()));
+        let managed_llm = if let Some(team_id) = env_team_id {
+            self.spawn_env.managed_llm.resolve(team_id).await
         } else {
-            self.spawn_env.managed_llm.resolve(&self.team_id).await
+            teamclu_runtime_env::ManagedLlmState::Unknown
         };
         let cloud_token_file = self
             .backend
@@ -228,28 +276,36 @@ impl AmuxdAgentHandle {
                 crate::runtime::refresh::INTERNAL_WRITE_SUPPRESS,
             );
         }
+        crate::runtime::supervisor::materialize_inherent_mcp_for_spawn(std::path::Path::new(
+            worktree,
+        ))
+        .map_err(|e| AgentError::Create(format!("materialize inherent gateway MCP config: {e}")))?;
 
-        match crate::runtime::env_assembly::assemble_spawn_runtime_env(
+        let spawn_env = crate::runtime::env_assembly::assemble_spawn_runtime_env_for_execution(
+            &workspace.workspace_root,
             std::path::Path::new(worktree),
-            (!self.team_id.trim().is_empty()).then_some(self.team_id.as_str()),
+            env_team_id,
             &self.spawn_env.actor_id,
             &self.spawn_env.actor_name,
             cloud_token_file.as_deref(),
             &managed_llm,
-        ) {
-            Ok(env) => SpawnRuntimeEnv {
-                is_gateway: true,
-                ..env
-            },
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    workspace = %worktree,
-                    "gateway spawn env assembly failed; runtime starts without team providers"
-                );
-                bare
-            }
-        }
+        )
+        .map(|env| SpawnRuntimeEnv {
+            is_gateway: true,
+            ..env
+        })
+        .map_err(|e| AgentError::Create(format!("gateway runtime env assembly failed: {e}")))?;
+
+        Ok(ExecutionContext {
+            isolation_domain: IsolationDomainKey::Workspace(workspace.workspace_id.clone()),
+            workspace: Some(WorkspaceIdentity {
+                workspace_id: workspace.workspace_id,
+                workspace_root: workspace.workspace_root,
+                team_id: workspace.team_id,
+            }),
+            working_directory: std::path::PathBuf::from(worktree),
+            spawn_env,
+        })
     }
 
     /// Live model catalog for the workspace this session runs in, as gateway
@@ -266,15 +322,18 @@ impl AmuxdAgentHandle {
             map.get(session).map(|s| s.binding.clone())
         }
         .unwrap_or_default();
-        let (workspace_dir, _) = self.resolve_spawn_target(session, &binding).await;
+        let (workspace_dir, _) = self.resolve_spawn_target(session, &binding).await?;
         let Some(dir) = workspace_dir else {
             // No resolvable workspace — a spawn would run in a throwaway
             // scratch dir, which tells us nothing useful about the catalog.
             return Ok(Vec::new());
         };
+        let context = self
+            .assemble_execution_context(Some(&dir))
+            .await?;
         let catalog = {
             let mut mgr = self.manager.lock().await;
-            mgr.probe_catalog_models(std::path::Path::new(&dir)).await
+            mgr.probe_catalog_models_with_context(context).await
         };
         let catalog = match catalog {
             Ok(models) => models,
@@ -344,9 +403,11 @@ impl AmuxdAgentHandle {
         )
         .map_err(|e| AgentError::Internal(format!("persist bot workspace: {e}")))?;
 
-        let path = self.workspace_dir_for_id(workspace_id).await;
+        let path = self.workspace_dir_for_id(workspace_id).await?;
         let mut configs = self.bot_configs.lock().await;
-        configs.entry(bot_id.to_string()).or_default().workspace_dir = path;
+        let config = configs.entry(bot_id.to_string()).or_default();
+        config.workspace_id = Some(workspace_id.to_string());
+        config.workspace_dir = Some(path);
         Ok(())
     }
 
@@ -374,13 +435,17 @@ impl AmuxdAgentHandle {
     }
 
     /// Resolve a workspace_id to its local path via the `WorkspaceResolver`
-    /// cache (`amux.workspaces` is the sole source of truth). `None` if the
-    /// id is unknown, has no path, or the backend lookup fails.
-    async fn workspace_dir_for_id(&self, workspace_id: &str) -> Option<String> {
+    /// cache (`amux.workspaces` is the sole source of truth). Resolution
+    /// failures remain errors so configured workspace scope cannot be erased.
+    async fn workspace_dir_for_id(&self, workspace_id: &str) -> Result<String, AgentError> {
         self.workspace_resolver
             .resolve(workspace_id)
             .await
-            .ok()
+            .map_err(|error| {
+                AgentError::Create(format!(
+                    "gateway workspace '{workspace_id}' resolution failed: {error}"
+                ))
+            })
             .map(|w| w.path)
     }
 
@@ -470,8 +535,10 @@ impl AmuxdAgentHandle {
             let overrides = self.model_override.lock().await;
             overrides.get(session).cloned()
         };
-        let (workspace_dir, agent_type) = self.resolve_spawn_target(session, &binding).await;
-        let spawn_env = self.assemble_spawn_env(workspace_dir.as_deref()).await;
+        let (workspace_dir, agent_type) = self.resolve_spawn_target(session, &binding).await?;
+        let context = self
+            .assemble_execution_context(workspace_dir.as_deref())
+            .await?;
         let real = {
             let mut mgr = self.manager.lock().await;
             mgr.create_gateway_session_with_model(
@@ -481,9 +548,8 @@ impl AmuxdAgentHandle {
                 "Gateway session",
                 model_arg,
                 remote_session_id.as_deref(),
-                workspace_dir.as_deref(),
+                context,
                 agent_type,
-                spawn_env,
             )
             .await
             .map_err(|e| AgentError::Create(e.to_string()))?
@@ -987,7 +1053,7 @@ impl AgentHandle for AmuxdAgentHandle {
         // this list, so the useful entries have to be at the front.
         let current = self.current_model(session).await?;
         let recent = {
-            let (_, agent_type) = self.resolve_spawn_target(session, "").await;
+            let (_, agent_type) = self.resolve_spawn_target(session, "").await?;
             let mgr = self.manager.lock().await;
             mgr.recent_models(agent_type)
         };
@@ -1353,7 +1419,7 @@ impl AgentHandle for AmuxdAgentHandle {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::backend::mock::MockBackend;
     use crate::runtime::RuntimeManager;
@@ -1386,12 +1452,278 @@ mod tests {
             model_override: Arc::new(Mutex::new(HashMap::new())),
             backend: backend.clone(),
             default_agent_type: None,
+            default_workspace_id: None,
             default_workspace_dir: None,
             workspace_resolver: Arc::new(crate::config::WorkspaceResolver::new(backend)),
             workspace_override: Arc::new(Mutex::new(HashMap::new())),
             bot_configs: Arc::new(Mutex::new(HashMap::new())),
             daemon_config_path: std::path::PathBuf::from("/nonexistent/daemon.toml"),
         }
+    }
+
+    pub(crate) async fn capture_workspace_and_unscoped_gateway_attaches(
+        backend: Arc<MockBackend>,
+        workspace: &std::path::Path,
+    ) -> (
+        crate::runtime::test_support::CapturedAttach,
+        crate::runtime::test_support::CapturedAttach,
+    ) {
+        backend.state().gateway_session_index.insert(
+            "cross-entry-scoped".into(),
+            ("cloud-scoped".into(), Some("wecom://bot/chat".into())),
+        );
+        backend.state().gateway_session_index.insert(
+            "cross-entry-bare".into(),
+            ("cloud-bare".into(), Some("wecom://bot/chat".into())),
+        );
+
+        let mut scoped = make_handle_with_backend(backend.clone());
+        scoped.team_id = "team-test".into();
+        scoped.spawn_env.actor_id = "actor-config-test".into();
+        scoped.spawn_env.actor_name = "test-host".into();
+        scoped.default_agent_type = Some(amux::AgentType::Opencode);
+        scoped.default_workspace_dir = Some(workspace.to_string_lossy().into_owned());
+        let scoped_captures = {
+            let mut manager = scoped.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        scoped
+            .resolve_or_spawn(&AmuxSessionId::from("cross-entry-scoped"))
+            .await
+            .unwrap();
+
+        let mut bare = make_handle_with_backend(backend);
+        bare.team_id = "team-test".into();
+        bare.spawn_env.actor_id = "actor-config-test".into();
+        bare.spawn_env.actor_name = "test-host".into();
+        bare.default_agent_type = Some(amux::AgentType::Opencode);
+        let bare_captures = {
+            let mut manager = bare.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        bare.resolve_or_spawn(&AmuxSessionId::from("cross-entry-bare"))
+            .await
+            .unwrap();
+
+        let scoped = scoped_captures.lock().unwrap()[0].clone();
+        let bare = bare_captures.lock().unwrap()[0].clone();
+        (scoped, bare)
+    }
+
+    #[tokio::test]
+    async fn gateway_without_workspace_is_the_only_bare_unscoped_context() {
+        let handle = make_handle();
+
+        let context = handle.assemble_execution_context(None).await.unwrap();
+
+        assert_eq!(
+            context.isolation_domain,
+            IsolationDomainKey::UnscopedAgent {
+                team_id: "team-test".into(),
+                actor_id: "actor-test".into(),
+            }
+        );
+        assert!(context.workspace.is_none());
+        assert!(context.spawn_env.extra_env.is_empty());
+        assert!(context.spawn_env.is_gateway);
+    }
+
+    #[tokio::test]
+    async fn gateway_with_workspace_uses_workspace_domain_and_full_env() {
+        use crate::backend::WorkspaceRow;
+
+        let workspace = tempfile::tempdir().unwrap();
+        let backend = Arc::new(MockBackend::default());
+        backend.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-test".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        let handle = make_handle_with_backend(backend);
+
+        let context = handle
+            .assemble_execution_context(Some(workspace.path().to_string_lossy().as_ref()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            context.isolation_domain,
+            IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(context.working_directory, workspace.path());
+        assert_eq!(
+            context
+                .spawn_env
+                .resolved_env
+                .as_ref()
+                .and_then(|snapshot| snapshot.bindings.get("actor_id")),
+            Some(&"actor-test".to_string())
+        );
+        assert!(context.spawn_env.is_gateway);
+    }
+
+    #[tokio::test]
+    async fn agent_handle_spawn_propagates_scoped_and_bare_attach_contexts() {
+        use crate::backend::WorkspaceRow;
+
+        let workspace = tempfile::tempdir().unwrap();
+        let backend = Arc::new(MockBackend::with_identity("team-a", "actor-a"));
+        backend.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-a".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        backend.state().gateway_session_index.insert(
+            "scoped".into(),
+            ("cloud-scoped".into(), Some("wecom://bot/chat".into())),
+        );
+        backend.state().gateway_session_index.insert(
+            "bare".into(),
+            ("cloud-bare".into(), Some("wecom://bot/chat".into())),
+        );
+
+        let mut scoped = make_handle_with_backend(backend.clone());
+        scoped.team_id = "team-a".into();
+        scoped.spawn_env.actor_id = "actor-a".into();
+        scoped.default_agent_type = Some(amux::AgentType::Opencode);
+        scoped.default_workspace_dir = Some(workspace.path().to_string_lossy().into_owned());
+        scoped.workspace_resolver.resolve("ws-a").await.unwrap();
+        let scoped_captures = {
+            let mut manager = scoped.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        scoped
+            .resolve_or_spawn(&AmuxSessionId::from("scoped"))
+            .await
+            .unwrap();
+
+        let mut bare = make_handle_with_backend(backend);
+        bare.team_id = "team-a".into();
+        bare.spawn_env.actor_id = "actor-a".into();
+        bare.default_agent_type = Some(amux::AgentType::Opencode);
+        let bare_captures = {
+            let mut manager = bare.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        bare.resolve_or_spawn(&AmuxSessionId::from("bare"))
+            .await
+            .unwrap();
+
+        let scoped_captures = scoped_captures.lock().unwrap();
+        assert_eq!(scoped_captures.len(), 1);
+        assert_eq!(
+            scoped_captures[0].domain,
+            IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(scoped_captures[0].working_directory, workspace.path());
+        assert_eq!(
+            scoped_captures[0].process_env_revision,
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(
+                &scoped_captures[0].extra_env
+            )
+        );
+
+        let bare_captures = bare_captures.lock().unwrap();
+        assert_eq!(bare_captures.len(), 1);
+        assert_eq!(
+            bare_captures[0].domain,
+            IsolationDomainKey::UnscopedAgent {
+                team_id: "team-a".into(),
+                actor_id: "actor-a".into(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_gateway_workspace_lookup_failure_does_not_attach_unscoped() {
+        let backend = Arc::new(MockBackend::with_identity("team-a", "actor-a"));
+        backend.state().gateway_session_index.insert(
+            "scoped-missing".into(),
+            (
+                "cloud-scoped-missing".into(),
+                Some("seatalk://app/dm/E001".into()),
+            ),
+        );
+
+        let mut handle = make_handle_with_backend(backend);
+        handle.team_id = "team-a".into();
+        handle.spawn_env.actor_id = "actor-a".into();
+        handle.default_agent_type = Some(amux::AgentType::Opencode);
+        handle
+            .workspace_override
+            .lock()
+            .await
+            .insert("scoped-missing".into(), "ws-missing".into());
+        let captures = {
+            let mut manager = handle.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+
+        let err = match handle
+            .resolve_or_spawn(&AmuxSessionId::from("scoped-missing"))
+            .await
+        {
+            Ok(_) => panic!("configured workspace lookup failure must reject the spawn"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains("ws-missing"),
+            "resolution error must identify the configured workspace: {err}"
+        );
+        assert!(
+            captures.lock().unwrap().is_empty(),
+            "failed scoped resolution must not attach as UnscopedAgent"
+        );
+    }
+
+    #[tokio::test]
+    async fn daemon_default_workspace_lookup_failure_does_not_attach_unscoped() {
+        let backend = Arc::new(MockBackend::with_identity("team-a", "actor-a"));
+        backend.state().gateway_session_index.insert(
+            "daemon-default-missing".into(),
+            (
+                "cloud-daemon-default-missing".into(),
+                Some("seatalk://app/dm/E001".into()),
+            ),
+        );
+
+        let mut handle = make_handle_with_backend(backend);
+        handle.team_id = "team-a".into();
+        handle.spawn_env.actor_id = "actor-a".into();
+        handle.default_agent_type = Some(amux::AgentType::Opencode);
+        handle.default_workspace_id = Some("ws-daemon-default-missing".into());
+        let captures = {
+            let mut manager = handle.manager.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+
+        let err = match handle
+            .resolve_or_spawn(&AmuxSessionId::from("daemon-default-missing"))
+            .await
+        {
+            Ok(_) => panic!("configured daemon workspace lookup failure must reject the spawn"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains("ws-daemon-default-missing"),
+            "resolution error must identify the daemon default workspace: {err}"
+        );
+        assert!(
+            captures.lock().unwrap().is_empty(),
+            "failed daemon default resolution must not attach as UnscopedAgent"
+        );
     }
 
     /// Drive a `TurnAggregator` and `absorb_emitted` — the same pair
@@ -1543,6 +1875,7 @@ mod tests {
         bots.insert(
             "botA".to_string(),
             BotRuntimeConfig {
+                workspace_id: None,
                 workspace_dir: Some("/ws/bot-a".into()),
                 agent_type: Some(AgentType::Opencode),
                 system_prompt: Some("A".into()),
@@ -1555,13 +1888,15 @@ mod tests {
 
         let (ws, at) = handle
             .resolve_spawn_target("sess-A", "wecom://botA/botA/single/u")
-            .await;
+            .await
+            .unwrap();
         assert_eq!(ws.as_deref(), Some("/ws/bot-a"));
         assert_eq!(at, Some(AgentType::Opencode));
 
         let (ws2, at2) = handle
             .resolve_spawn_target("sess-Z", "wecom://botZ/botZ/single/u")
-            .await;
+            .await
+            .unwrap();
         assert_eq!(ws2.as_deref(), Some("/ws/global"));
         assert_eq!(at2, Some(AgentType::ClaudeCode));
     }
@@ -1681,6 +2016,7 @@ mod tests {
         bots.insert(
             "botA".to_string(),
             BotRuntimeConfig {
+                workspace_id: None,
                 workspace_dir: Some("/ws/bot-a".into()),
                 agent_type: Some(AgentType::Opencode),
                 system_prompt: None,
@@ -1697,7 +2033,8 @@ mod tests {
 
         let (ws, _at) = handle
             .resolve_spawn_target("sess-resolved", "wecom://botA/botA/single/u")
-            .await;
+            .await
+            .unwrap();
         assert_eq!(
             ws.as_deref(),
             Some("/tmp/ws-session"),
@@ -1705,21 +2042,20 @@ mod tests {
              and win over bot-level / global defaults"
         );
 
-        // Sanity: pointing the override at an unseeded id must NOT trivially
-        // pass through as a literal path — the resolver returns None on a
-        // lookup miss, so priority falls back to the bot-level default.
+        // Pointing the override at an unseeded id must fail closed rather than
+        // erasing the session scope and falling back to the bot-level default.
         handle
             .workspace_override
             .lock()
             .await
             .insert("sess-unseeded".to_string(), "ws-does-not-exist".to_string());
-        let (ws2, _at2) = handle
+        let err = handle
             .resolve_spawn_target("sess-unseeded", "wecom://botA/botA/single/u")
-            .await;
-        assert_eq!(
-            ws2.as_deref(),
-            Some("/ws/bot-a"),
-            "unseeded workspace_id must fail to resolve and fall back to bot-level default"
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("ws-does-not-exist"),
+            "unseeded workspace_id must return its resolution error: {err}"
         );
     }
 

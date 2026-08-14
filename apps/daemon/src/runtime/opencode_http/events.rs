@@ -15,13 +15,49 @@ use tracing::{debug, info, warn};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 
-use super::{translate, Shared};
+use super::host_pool::{HostGeneration, HostLifecycle};
+use super::translate;
+#[cfg(test)]
+use super::ServeSupervisor;
 
 const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
 
+async fn ensure_live(
+    shared: &Arc<HostGeneration>,
+) -> crate::error::Result<super::client::ServeClient> {
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        return Err(crate::error::AmuxError::Agent(
+            "opencode host generation is stopped".to_string(),
+        ));
+    }
+    let client = shared.serve.ensure().await?;
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        shared.serve.shutdown();
+        return Err(crate::error::AmuxError::Agent(
+            "opencode host generation retired while starting".to_string(),
+        ));
+    }
+    Ok(client)
+}
+
+#[cfg(test)]
+pub(super) fn supervisor_for_route(
+    generation: &Arc<HostGeneration>,
+    session_id: &str,
+) -> Option<Arc<ServeSupervisor>> {
+    generation
+        .routes
+        .lock()
+        .contains_key(session_id)
+        .then(|| Arc::clone(&generation.serve))
+}
+
 /// Ensure a running SSE task for `directory` (canonicalized by the caller).
-pub(super) fn ensure_sse_task(shared: &Arc<Shared>, directory: &str) {
+pub(super) fn ensure_sse_task(shared: &Arc<HostGeneration>, directory: &str) {
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        return;
+    }
     let mut tasks = shared.sse_tasks.lock();
     if let Some(handle) = tasks.get(directory) {
         if !handle.is_finished() {
@@ -36,11 +72,15 @@ pub(super) fn ensure_sse_task(shared: &Arc<Shared>, directory: &str) {
     );
 }
 
-async fn sse_loop(shared: Arc<Shared>, directory: String) {
+async fn sse_loop(shared: Arc<HostGeneration>, directory: String) {
     let mut backoff = BACKOFF_MIN;
     loop {
+        if shared.lifecycle() == HostLifecycle::Stopped {
+            shared.mark_sse_disconnected(&directory);
+            return;
+        }
         shared.mark_sse_disconnected(&directory);
-        let client = match shared.serve.ensure().await {
+        let client = match ensure_live(&shared).await {
             Ok(c) => c,
             Err(e) => {
                 warn!(directory = %directory, error = %e, "SSE: serve unavailable; retrying");
@@ -56,10 +96,7 @@ async fn sse_loop(shared: Arc<Shared>, directory: String) {
                 shared.mark_sse_connected(&directory);
                 // Events emitted while the stream was down are gone (no
                 // replay) — read back anything an active turn missed.
-                tokio::spawn(reconcile_turns_after_reconnect(
-                    Arc::clone(&shared),
-                    directory.clone(),
-                ));
+                spawn_reconcile_task(&shared, directory.clone());
                 let mut stream = resp.bytes_stream();
                 let mut buf = Vec::new();
                 while let Some(chunk) = stream.next().await {
@@ -102,6 +139,18 @@ async fn sse_loop(shared: Arc<Shared>, directory: String) {
     }
 }
 
+fn spawn_reconcile_task(shared: &Arc<HostGeneration>, directory: String) {
+    let mut tasks = shared.reconcile_tasks.lock();
+    tasks.retain(|task| !task.is_finished());
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        return;
+    }
+    let generation = Arc::clone(shared);
+    tasks.push(tokio::spawn(reconcile_turns_after_reconnect(
+        generation, directory,
+    )));
+}
+
 /// After an SSE (re)subscribe, events emitted during the gap are lost — the
 /// stream has no cursor/replay. For every turn still marked active in this
 /// directory, read the persisted messages back and replay the tail through
@@ -110,7 +159,10 @@ async fn sse_loop(shared: Arc<Shared>, directory: String) {
 /// When opencode finished the turn during the gap (last assistant message
 /// carries `time.completed`), the missed `session.idle` is synthesized so the
 /// turn closes instead of hanging until the watchdog aborts it as stalled.
-async fn reconcile_turns_after_reconnect(shared: Arc<Shared>, directory: String) {
+async fn reconcile_turns_after_reconnect(shared: Arc<HostGeneration>, directory: String) {
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        return;
+    }
     let session_ids: Vec<String> = {
         let routes = shared.routes.lock();
         routes
@@ -124,7 +176,10 @@ async fn reconcile_turns_after_reconnect(shared: Arc<Shared>, directory: String)
     if session_ids.is_empty() {
         return;
     }
-    let client = match shared.serve.ensure().await {
+    if shared.lifecycle() == HostLifecycle::Stopped {
+        return;
+    }
+    let client = match ensure_live(&shared).await {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -192,7 +247,7 @@ fn event_session_id(event_type: &str, props: &serde_json::Value) -> Option<Strin
         .map(str::to_string)
 }
 
-async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
+async fn handle_event(shared: &Arc<HostGeneration>, event: &serde_json::Value) {
     let Some(event_type) = event.get("type").and_then(|v| v.as_str()) else {
         return;
     };
@@ -277,7 +332,7 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
 }
 
 async fn handle_permission_asked(
-    shared: &Arc<Shared>,
+    shared: &Arc<HostGeneration>,
     session_id: &str,
     props: &serde_json::Value,
 ) {
@@ -334,7 +389,7 @@ async fn handle_permission_asked(
         // itself fails, abort the turn so channel clients are not stuck for
         // the full gateway timeout with nobody able to approve.
         info!(session_id, permission_id = %permission_id, "auto-allow full-access permission");
-        let respond_ok = match shared.serve.ensure().await {
+        let respond_ok = match ensure_live(shared).await {
             Ok(client) => client
                 .permission_respond(&directory, session_id, &permission_id, "once")
                 .await
@@ -385,7 +440,11 @@ async fn handle_permission_asked(
 /// opencode `session.created` / updated Session objects carry `parentID` for
 /// task subagents. Register a child→parent route alias early so later
 /// permission / tool events are not dropped as "unrouted".
-async fn handle_session_created(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
+async fn handle_session_created(
+    shared: &Arc<HostGeneration>,
+    session_id: &str,
+    props: &serde_json::Value,
+) {
     maybe_register_subagent_route(shared, session_id, props);
 }
 
@@ -400,7 +459,7 @@ fn session_info_parent_id(props: &serde_json::Value) -> Option<String> {
 }
 
 fn maybe_register_subagent_route(
-    shared: &Arc<Shared>,
+    shared: &Arc<HostGeneration>,
     session_id: &str,
     props: &serde_json::Value,
 ) {
@@ -423,7 +482,7 @@ fn maybe_register_subagent_route(
 const MAX_SUBAGENT_PARENT_DEPTH: usize = 8;
 
 async fn resolve_routed_ancestor_session_id(
-    shared: &Arc<Shared>,
+    shared: &Arc<HostGeneration>,
     child_id: &str,
 ) -> Option<String> {
     let mut current = child_id.to_string();
@@ -440,7 +499,7 @@ async fn resolve_routed_ancestor_session_id(
     None
 }
 
-async fn resolve_parent_session_id(shared: &Arc<Shared>, child_id: &str) -> Option<String> {
+async fn resolve_parent_session_id(shared: &Arc<HostGeneration>, child_id: &str) -> Option<String> {
     {
         let routes = shared.routes.lock();
         if let Some(parent) = routes
@@ -460,7 +519,7 @@ async fn resolve_parent_session_id(shared: &Arc<Shared>, child_id: &str) -> Opti
     if directories.is_empty() {
         return None;
     }
-    let client = shared.serve.ensure().await.ok()?;
+    let client = ensure_live(shared).await.ok()?;
     for directory in directories {
         match client.get_session(&directory, child_id).await {
             Ok(Some(session)) => {
@@ -495,7 +554,11 @@ async fn resolve_parent_session_id(shared: &Arc<Shared>, child_id: &str) -> Opti
 /// watchdog (see `turn_activity` in `mod.rs`), so leaving it open hangs the
 /// run until the cron timeout. Reject it instead — the agent is told the
 /// question went unanswered and carries on.
-async fn handle_question_asked(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
+async fn handle_question_asked(
+    shared: &Arc<HostGeneration>,
+    session_id: &str,
+    props: &serde_json::Value,
+) {
     let Some(request_id) = props.get("id").and_then(|v| v.as_str()) else {
         return;
     };
@@ -531,7 +594,7 @@ async fn handle_question_asked(shared: &Arc<Shared>, session_id: &str, props: &s
         // Same fail-closed path as permissions: unanswered questions park the
         // stuck-turn watchdog, so a failed reject must end the turn.
         info!(session_id, request_id, "auto-reject full-access question");
-        let reject_ok = match shared.serve.ensure().await {
+        let reject_ok = match ensure_live(shared).await {
             Ok(client) => client
                 .question_reject(&directory, request_id)
                 .await
@@ -569,7 +632,7 @@ async fn handle_question_asked(shared: &Arc<Shared>, session_id: &str, props: &s
 /// question.replied / question.rejected — drop the pending registration and
 /// tell clients to clear the interactive card.
 async fn handle_question_resolved(
-    shared: &Arc<Shared>,
+    shared: &Arc<HostGeneration>,
     session_id: &str,
     event_type: &str,
     props: &serde_json::Value,
@@ -589,7 +652,7 @@ async fn handle_question_resolved(
 /// `question.asked` fires once and is lost across daemon restarts or
 /// subscription gaps, leaving the client with a spinner and no card. Called
 /// on session attach.
-pub(super) async fn resync_pending_questions(shared: &Arc<Shared>, session_id: &str) {
+pub(super) async fn resync_pending_questions(shared: &Arc<HostGeneration>, session_id: &str) {
     let directory = {
         let routes = shared.routes.lock();
         let Some(route) = routes.get(session_id) else {
@@ -597,7 +660,7 @@ pub(super) async fn resync_pending_questions(shared: &Arc<Shared>, session_id: &
         };
         route.directory.clone()
     };
-    let client = match shared.serve.ensure().await {
+    let client = match ensure_live(shared).await {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -624,7 +687,7 @@ pub(super) async fn resync_pending_questions(shared: &Arc<Shared>, session_id: &
 }
 
 async fn forward_question_raw(
-    shared: &Arc<Shared>,
+    shared: &Arc<HostGeneration>,
     session_id: &str,
     method: &str,
     props: &serde_json::Value,
@@ -657,7 +720,11 @@ async fn forward_question_raw(
 /// the provider's own message (e.g. "monthly usage limit reached…"). The
 /// watchdog's `/session/status` polling covers the case where this event is
 /// missed across an SSE reconnect.
-async fn handle_session_status(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
+async fn handle_session_status(
+    shared: &Arc<HostGeneration>,
+    session_id: &str,
+    props: &serde_json::Value,
+) {
     shared.touch_turn_transport_activity(session_id);
     let status = props.get("status").unwrap_or(&serde_json::Value::Null);
     if status.get("type").and_then(|v| v.as_str()) != Some("retry") {
@@ -729,7 +796,11 @@ async fn handle_session_status(shared: &Arc<Shared>, session_id: &str, props: &s
 /// announces it via `session.updated`. Forward it as the existing
 /// `session_title` raw control event; the daemon server decides whether the
 /// TeamClu session still carries a default title worth replacing.
-async fn handle_session_updated(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
+async fn handle_session_updated(
+    shared: &Arc<HostGeneration>,
+    session_id: &str,
+    props: &serde_json::Value,
+) {
     // Task subagents may only surface parentID on updated (or we missed created).
     maybe_register_subagent_route(shared, session_id, props);
 
@@ -765,7 +836,7 @@ async fn handle_session_updated(shared: &Arc<Shared>, session_id: &str, props: &
         .await;
 }
 
-async fn handle_session_idle(shared: &Arc<Shared>, session_id: &str) {
+async fn handle_session_idle(shared: &Arc<HostGeneration>, session_id: &str) {
     let closed = {
         let mut routes = shared.routes.lock();
         let Some(route) = routes.get_mut(session_id) else {
@@ -797,5 +868,52 @@ async fn handle_session_idle(shared: &Arc<Shared>, session_id: &str) {
         let _ = event_tx
             .send(AcpEventFrame::new(session_id, ev).with_reply_to(reply_to))
             .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
+
+    #[tokio::test]
+    async fn stopped_generation_sse_loop_exits_before_ensuring_serve() {
+        let generation = HostGeneration::test_for_routing(
+            "stopped-sse",
+            IsolationDomainKey::Workspace("stopped-sse".to_string()),
+            ProcessEnvRevision::from_bindings(&HashMap::new()),
+        );
+        generation
+            .serve
+            .set_binary_hint("/definitely/missing/opencode");
+        generation.test_mark_stopped();
+
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            sse_loop(generation, "/ws".to_string()),
+        )
+        .await
+        .expect("stopped generation must exit without attempting serve.ensure()");
+    }
+
+    #[tokio::test]
+    async fn stopped_generation_cannot_ensure_a_serve_for_reconciliation() {
+        let generation = HostGeneration::test_for_routing(
+            "stopped-reconcile",
+            IsolationDomainKey::Workspace("stopped-reconcile".to_string()),
+            ProcessEnvRevision::from_bindings(&HashMap::new()),
+        );
+        generation
+            .serve
+            .set_binary_hint("/definitely/missing/opencode");
+        generation.test_mark_stopped();
+
+        let result = tokio::time::timeout(Duration::from_millis(100), ensure_live(&generation))
+            .await
+            .expect("lifecycle guard must return without attempting to spawn");
+
+        assert!(result.is_err());
     }
 }

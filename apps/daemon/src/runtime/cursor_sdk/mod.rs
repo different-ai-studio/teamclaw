@@ -292,6 +292,8 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         available_models,
         initial_model: Some(initial_flat),
         acp_session_id: session_id,
+        host_generation_id: String::new(),
+        route_lease: None,
     })
 }
 
@@ -556,6 +558,8 @@ impl AgentBackend for CursorSdkBackend {
         &mut self,
         _agent_type: amux::AgentType,
         _launch: &AgentLaunchConfig,
+        _isolation_domain: crate::runtime::execution_context::IsolationDomainKey,
+        _process_env_revision: crate::runtime::execution_context::ProcessEnvRevision,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
         worktree: String,
@@ -640,7 +644,12 @@ impl AgentBackend for CursorSdkBackend {
     /// reports `requestedModel` (what we last asked for); feeding that back
     /// would just echo our own guess into the MRU, which is what this method's
     /// contract exists to prevent.
-    async fn session_model(&mut self, worktree: &str, backend_session_id: &str) -> Option<String> {
+    async fn session_model(
+        &mut self,
+        worktree: &str,
+        backend_session_id: &str,
+        _host_generation_id: &str,
+    ) -> Option<String> {
         let session_id = backend_session_id.strip_prefix(SESSION_ID_PREFIX)?;
         let worktree = canonical_dir(worktree);
         let proc = self.shared.pool.get(&worktree)?;

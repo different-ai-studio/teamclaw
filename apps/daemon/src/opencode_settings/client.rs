@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use reqwest::StatusCode;
 use serde_json::Value;
+
+use crate::runtime::opencode_http::host_pool::HostLease;
 
 use super::{OAuthAuthorizeResult, OpenCodeSettingsError};
 
@@ -27,6 +30,8 @@ pub struct OpenCodeSettingsClient {
     /// When set, send HTTP Basic (`opencode` / password) — required for the
     /// global chat serve. Wiremock fixtures leave this `None`.
     password: Option<String>,
+    /// Keeps the pooled host generation reserved for this client's lifetime.
+    _host_lease: Option<Arc<HostLease>>,
 }
 
 impl OpenCodeSettingsClient {
@@ -37,17 +42,29 @@ impl OpenCodeSettingsClient {
             base_url: base_url.trim_end_matches('/').to_string(),
             directory: workspace_path.to_string_lossy().to_string(),
             password: None,
+            _host_lease: None,
         }
     }
 
     /// Authenticated client against the global `opencode serve`.
-    pub fn with_auth(base_url: String, password: String, workspace_path: &Path) -> Self {
+    pub fn with_auth(
+        base_url: String,
+        password: String,
+        workspace_path: &Path,
+        host_lease: HostLease,
+    ) -> Self {
         Self {
             http: reqwest::Client::new(),
             base_url: base_url.trim_end_matches('/').to_string(),
             directory: workspace_path.to_string_lossy().to_string(),
             password: Some(password),
+            _host_lease: Some(Arc::new(host_lease)),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     pub async fn fetch_provider_auth_methods(

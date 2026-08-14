@@ -71,11 +71,33 @@ impl DaemonServer {
         let default_workspace_models = if default_worktree.is_empty() {
             Vec::new()
         } else {
-            RuntimeManager::probe_default_workspace_catalog(
-                Arc::clone(&self.agents),
-                std::path::PathBuf::from(&default_worktree),
-            )
-            .await
+            match self
+                .assemble_execution_context(
+                    &default_worktree,
+                    Some(&default_worktree),
+                    Some(&default_workspace_id),
+                    false,
+                    None,
+                )
+                .await
+            {
+                Ok(context) => {
+                    RuntimeManager::probe_default_workspace_catalog(
+                        Arc::clone(&self.agents),
+                        context,
+                    )
+                    .await
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        workspace_id = %default_workspace_id,
+                        workspace = %default_worktree,
+                        %error,
+                        "default workspace catalog context resolution failed"
+                    );
+                    Vec::new()
+                }
+            }
         };
 
         let (
