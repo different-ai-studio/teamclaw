@@ -158,7 +158,7 @@ async fn wait_for_queue(pool: &OpenCodeHostPool, waiting_domain: &IsolationDomai
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn desktop_turn_and_cross_workspace_cron_use_isolated_hosts_concurrently() {
+async fn cross_workspace_prompts_use_isolated_hosts_concurrently() {
     let factory = FixtureFactory::with_prompt_barrier(2);
     let pool = OpenCodeHostPool::new(factory.clone());
 
@@ -229,7 +229,7 @@ async fn revision_roll_keeps_old_session_draining_until_its_detach() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn fourth_generation_waits_until_detach_without_evicting_active_hosts() {
+async fn hard_limit_waiters_are_fifo_without_evicting_active_hosts() {
     let factory = Arc::new(FixtureFactory::default());
     let pool = OpenCodeHostPool::new(factory.clone());
     let a = pool
@@ -249,12 +249,19 @@ async fn fourth_generation_waits_until_detach_without_evicting_active_hosts() {
     let c_id = c.generation.generation_id.clone();
 
     let waiting_pool = Arc::clone(&pool);
-    let fourth = tokio::spawn(async move {
+    let waiter_d = tokio::spawn(async move {
         waiting_pool
             .acquire(domain("d"), revision("D"), env("D"), deadline())
             .await
     });
     wait_for_queue(&pool, &domain("d")).await;
+    let waiting_pool = Arc::clone(&pool);
+    let waiter_e = tokio::spawn(async move {
+        waiting_pool
+            .acquire(domain("e"), revision("E"), env("E"), deadline())
+            .await
+    });
+    wait_for_queue(&pool, &domain("e")).await;
 
     assert_eq!(factory.starts().len(), 3);
     assert!(factory.stopped().is_empty());
@@ -263,16 +270,34 @@ async fn fourth_generation_waits_until_detach_without_evicting_active_hosts() {
     assert_eq!(c.generation.lifecycle(), HostLifecycle::Ready);
 
     drop(a);
-    let d = tokio::time::timeout(Duration::from_secs(10), fourth)
+    let d = tokio::time::timeout(Duration::from_secs(10), waiter_d)
         .await
-        .expect("detach should wake the fourth acquisition")
+        .expect("first detach should wake waiter D")
         .unwrap()
         .unwrap();
 
-    assert_eq!(factory.stopped(), [a_id]);
+    assert_eq!(factory.stopped(), [a_id.clone()]);
+    assert!(
+        !waiter_e.is_finished(),
+        "waiter E must remain queued behind D"
+    );
+    assert_eq!(pool.stats_for(&domain("e")).queued_acquisitions, 1);
     assert_eq!(b.generation.generation_id, b_id);
     assert_eq!(c.generation.generation_id, c_id);
     assert_eq!(b.generation.lifecycle(), HostLifecycle::Ready);
     assert_eq!(c.generation.lifecycle(), HostLifecycle::Ready);
     assert_eq!(d.generation.lifecycle(), HostLifecycle::Ready);
+
+    drop(b);
+    let e = tokio::time::timeout(Duration::from_secs(10), waiter_e)
+        .await
+        .expect("second detach should wake waiter E")
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(factory.stopped(), [a_id, b_id]);
+    assert_eq!(c.generation.generation_id, c_id);
+    assert_eq!(c.generation.lifecycle(), HostLifecycle::Ready);
+    assert_eq!(d.generation.lifecycle(), HostLifecycle::Ready);
+    assert_eq!(e.generation.lifecycle(), HostLifecycle::Ready);
 }
