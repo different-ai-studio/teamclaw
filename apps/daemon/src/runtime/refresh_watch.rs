@@ -46,6 +46,30 @@ fn is_meta_skills_path(path: &Path, workspace: &Path) -> bool {
     path.starts_with(&brand) || (legacy != brand && path.starts_with(&legacy))
 }
 
+/// Return both the workspace-visible team path and its physical target.
+///
+/// On macOS, FSEvents reports mutations made through a symlink using the
+/// canonical target path, and watching the symlink itself does not reliably
+/// follow writes below that target. Keep both spellings so edits performed by
+/// an agent inside `teamclu-team/skills` are attributed to the workspace that
+/// owns the link.
+fn team_link_child_paths(workspace: &Path, child: &str) -> Vec<PathBuf> {
+    let visible = workspace.join(TEAM_LINK_NAME).join(child);
+    let mut paths = vec![visible.clone()];
+    if let Ok(canonical) = std::fs::canonicalize(&visible) {
+        if canonical != visible {
+            paths.push(canonical);
+        }
+    }
+    paths
+}
+
+fn is_team_skills_path(path: &Path, workspace: &Path) -> bool {
+    team_link_child_paths(workspace, "skills")
+        .iter()
+        .any(|root| path.starts_with(root))
+}
+
 /// How often the watch loop reconciles OS watches against the registry absent an
 /// explicit change signal. This performs only cheap `is_dir()` checks on the
 /// handful of `watch_roots` — never a recursive tree walk — so it stays
@@ -179,7 +203,7 @@ pub fn classify_change_path(
             || path.starts_with(workspace.workspace_path.join(".opencode/skills"))
             || path.starts_with(workspace.workspace_path.join(".claude/skills"))
             || path.starts_with(workspace.workspace_path.join(".agents/skills"))
-            || path.starts_with(workspace.workspace_path.join(TEAM_LINK_NAME).join("skills"))
+            || is_team_skills_path(path, &workspace.workspace_path)
             || is_global_skill_path
         {
             Some(RefreshChangeKind::Skills)
@@ -252,11 +276,12 @@ fn watch_roots(workspaces: &[WatchedWorkspace], home: Option<&Path>) -> Vec<Watc
             path: workspace.workspace_path.join(".agents/skills"),
             recursive: true,
         });
-        let team_skills = workspace.workspace_path.join(TEAM_LINK_NAME).join("skills");
-        roots.push(WatchRoot {
-            path: team_skills,
-            recursive: true,
-        });
+        for team_skills in team_link_child_paths(&workspace.workspace_path, "skills") {
+            roots.push(WatchRoot {
+                path: team_skills,
+                recursive: true,
+            });
+        }
         roots.push(WatchRoot {
             path: workspace
                 .workspace_path
@@ -594,6 +619,36 @@ mod tests {
                 kind
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn canonical_team_skill_target_is_watched_and_classified() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        let shared_team = root.path().join("shared/teamclu-team");
+        let shared_skills = shared_team.join("skills");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(shared_skills.join("multiply-add")).unwrap();
+        std::os::unix::fs::symlink(&shared_team, workspace.join(TEAM_LINK_NAME)).unwrap();
+
+        let workspaces = vec![WatchedWorkspace {
+            workspace_id: "ws-symlink".to_string(),
+            workspace_path: workspace.clone(),
+        }];
+        let canonical_skills = std::fs::canonicalize(&shared_skills).unwrap();
+        let roots = watch_roots(&workspaces, None);
+        assert!(roots.iter().any(|root| root.path == canonical_skills));
+
+        let changed_file = canonical_skills.join("multiply-add/SKILL.md");
+        assert_eq!(
+            classify_change_path(&changed_file, &workspaces, None),
+            vec![ClassifiedChange {
+                workspace_id: "ws-symlink".to_string(),
+                workspace_path: workspace,
+                kind: RefreshChangeKind::Skills,
+            }]
+        );
     }
 
     #[tokio::test]
