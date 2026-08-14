@@ -11,13 +11,16 @@
 | 只保留 opencode 一个 agent | ACP 兼容层 ≈4–5k 行（`adapter.rs` 2418 行 + `translate.rs` 642 行 + `acp_host.rs` 等）维护成本过高；三后端的 per-agent 分支散落各处 |
 | 用官方版，废弃 fork | fork（different-ai-studio/opencode）存在的唯一原因是 ACP；走 HTTP 后无需任何定制 |
 | HTTP 直连，不用官方 SDK | SDK 是 TS 的，Rust daemon 用它要引入 Node 中间层；SDK 只是 OpenAPI 的机械封装，无增量价值 |
-| 全局单 `opencode serve` 实例 | 已实测（opencode 1.17.7）：所有 session 端点带 `?directory=` 参数，会话按目录绑定 cwd，单实例可服务多 worktree |
+| 有界 workspace host pool | amuxd 为每个 workspace 隔离域维护一个 current generation；同一 workspace 的 root/worktree 仍以 `?directory=` 区分，环境修订通过 rolling generation 生效 |
 | 不选 pi agent | 无内建权限系统（审批流需全部自建）、单维护者、破坏性变更频繁（两月 31 版、npm 命名空间整体迁移）、自定义 JSONL 协议无 OpenAPI 契约 |
 
 已验证项：
 
 - ✅ 权限审批可由外部 HTTP 客户端接管（团队此前已验证）。
 - ✅ 单实例多目录（2026-07-22 实测，见 §8 注意事项）。
+- ✅ 多进程共享 OpenCode user data/config roots（OpenCode 1.18.18、Darwin
+  arm64、OpenAI OAuth）：并行模型/工具调用、重启续接、持久化均通过，未发现
+  DB lock/corruption 或跨 session 事件泄漏。
 
 待验证项（非阻断）：
 
@@ -34,20 +37,25 @@
                                  amuxd daemon
                           (RuntimeManager / 会话路由)
                                         ↓  HTTP + SSE
-                        opencode serve（全局单实例, loopback）
+                 opencode serve host pool（loopback, bounded）
+                 workspace domain → current generation
+                              ↘ draining generation(s)
 ```
 
 **上行（用户消息 → agent）**：三个入口（MQTT RPC、amuxd 本地 HTTP、WeCom
 gateway 的 `RuntimeHandle`）在 `RuntimeManager` 汇合后，统一变为一次
 `POST /session/{id}/prompt_async?directory=<worktree>`。
 
-**下行（agent 事件 → 用户）**：amuxd 持有一条全局 SSE 订阅（`/event`，事件带
-sessionID），新翻译层把 SSE 事件映射为 `amux.proto` 的 `AcpEvent`（替代现
+**下行（agent 事件 → 用户）**：每个 generation 按其已绑定 directory 持有 SSE
+订阅（`/event`，事件带 sessionID），新翻译层把 SSE 事件映射为 `amux.proto`
+的 `AcpEvent`（替代现
 `translate.rs`），`turn_aggregator` 照旧聚合 Turn，再按会话归属分发：桌面/iOS
 走 MQTT + 本地 SSE 快路径；WeCom 等 Turn 完成后由 gateway 回发。
 
-**权限审批回路**：SSE 中的 permission 事件 → `AcpEvent` → 客户端审批 →
-原路回 daemon → 调 opencode 权限应答端点。
+**权限审批回路**：SSE 中的 permission 事件 → generation 内的 session route →
+`AcpEvent` → 客户端审批 → 原路回 daemon → 以 generation + session 定位
+opencode 权限应答端点。Question、command 与 permission 状态同样绑定 generation，
+不会跨 workspace 或跨环境修订查找。
 
 协议边界不变：客户端与 gateway 只认 `amux.proto`，完全感知不到底层从 ACP
 stdio 换成了 HTTP。
@@ -56,9 +64,9 @@ stdio 换成了 HTTP。
 
 | 组件 | 职责 | 替代 |
 |---|---|---|
-| `serve_supervisor` | spawn/守护全局 `opencode serve`（loopback + `OPENCODE_SERVER_PASSWORD`），健康检查、崩溃重启、版本校验 | `acp_host.rs` host pool、指纹键、evict 机制（整体删除） |
+| `host_pool` + `serve_supervisor` | 有界管理 workspace generations；每个 supervisor 守护一个 immutable-env `opencode serve`（loopback + `OPENCODE_SERVER_PASSWORD`） | 旧全局 host、device-wide 环境指纹 admission lock |
 | `client` | OpenAPI 生成 types + 手写调用层（实际用到 ~10 个端点：session 创建/恢复、prompt_async、abort、权限应答、模型/配置） | `adapter.rs` 的 JSON-RPC 命令面 |
-| `events` | 全局 SSE 订阅 + 断线重连 + 按 sessionID 路由 | `adapter.rs` 通知管线（`NotifInflightGuard` 等） |
+| `events` | generation-bound SSE 订阅 + 断线重连 + 按 sessionID 路由 | `adapter.rs` 通知管线（`NotifInflightGuard` 等） |
 | `translate` | SSE 事件 → `AcpEvent`（文本/思考/工具增量/权限/plan） | `adapter/translate.rs` |
 
 要点：
@@ -72,6 +80,14 @@ stdio 换成了 HTTP。
   （OpenAI 兼容端点；LiteLLM 侧需 `additional_drop_params` 兼容 reasoning 参数）。
 - **MCP/skills**：经 opencode 配置注入（`opencode.json` 或 config API），
   替代现在的 strip/inject/snapshot 三套特判。
+- **环境隔离**：一个 workspace isolation domain 有一个 current generation。
+  process env 在 spawn 时冻结；修订变化启动新 generation，旧 session 继续留在
+  draining generation，最后一条 route detach 后才停止旧进程。
+- **容量**：idle TTL 为 **5 分钟（300 秒）**，soft limit 为 **2**，hard limit
+  为 **3**。达到 hard limit 且无 idle candidate 时按 FIFO 等待；active/draining
+  generation 不因容量压力被驱逐。
+- **进程清理**：每个 generation 注册自己的 PGID；registry 可同时追踪多个
+  process group，daemon shutdown 与 stale cleanup 均逐组终止。
 
 ## 4. 可删除代码清单
 
@@ -141,7 +157,7 @@ MQTT，同一 `event_id`），前端在 `App.tsx` 按 `sessionId::eventId` 去�
 |---|---|
 | opencode 发版快（1–2 天一版），API 变动 | 仓库内固化 OpenAPI spec 做 diff。**注意：2026-07-26 起 amuxd 不再锁 opencode 版本**（`opencode.lock.json` 已删除），版本由用户在设置里自行更新，因此 API 变动只能靠 spec diff 与运行时容错兜底 |
 | 仓库治理变动（sst → anomalyco 迁移迹象） | 关注 license 与发布渠道 |
-| serve 单点崩溃影响所有会话 | supervisor 自动重启 + SSE 重连 + 会话恢复（serve 会话持久化在磁盘，重启后可续） |
+| generation 崩溃影响其绑定会话 | 每 generation supervisor 自动重启 + SSE 重连 + 会话恢复；其它 workspace generations 不受影响 |
 | Windows 原生支持未证实 | 阶段 0 实测；最坏情况 Windows 端延后 |
 | 旧 ACP 会话数据 | Turn 已持久化在 amuxd 侧，与 agent 协议无关；历史会话只读展示不受影响 |
 
@@ -160,7 +176,7 @@ MQTT，同一 `event_id`），前端在 `App.tsx` 按 `sessionId::eventId` 去�
 - **已知无关问题**：`opencode-go` provider（托管网关）上游停滞导致该 provider
   的回合挂起——切换其他 provider 正常；属 provider 侧问题，与本迁移无关。
 
-## 9. 单实例多目录实测（2026-07-22, opencode 1.17.7）
+## 9. 单 generation 多目录实测（2026-07-22, opencode 1.17.7）
 
 - `GET /doc` 返回 OpenAPI 3.1；所有 session 端点带 `directory`/`workspace`
   查询参数。

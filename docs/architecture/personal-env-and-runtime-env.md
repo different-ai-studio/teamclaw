@@ -93,10 +93,21 @@ Daemon 组装 spawn env 时：
 2. 加载 team env
 3. `resolve_runtime_env` 合并 + 生成 uppercase / 去点 alias
 4. 物化 `opencode.json` 的 `provider.team` 等
-5. 交给 `opencode serve` / 其它 runtime；env 在 **spawn 时冻结**
+5. 交给 workspace 对应的 `opencode serve` generation / 其它 runtime；env 在
+   **spawn 时冻结**
 
 **Workspace `envVars` 不参与注入过滤。** 索引缺失不会阻止 blob 里的值进入
 agent（只要 daemon 读对了 brand 路径，且完成 reload / 新 session）。
+
+amuxd 不再用一个 device-wide serve snapshot 服务所有 workspace。它持有有界
+OpenCode host pool：每个 workspace isolation domain 有一个 current generation，
+workspace root 与 worktree 仍由 `directory` query 在该 domain 内区分。环境修订
+变化时启动新 generation；已有 session 固定在旧 generation 上直至 detach，不会
+在 live session 中原地修改环境。
+
+容量策略是 idle TTL **300 秒（5 分钟）**、soft limit **2**、hard limit **3**。
+达到 hard limit 时新 acquire 按 FIFO 等待可用容量；active/draining generation
+不会被容量回收。
 
 ---
 
@@ -152,7 +163,7 @@ Agent 工具侧的 `load_agent_env_listings` 使用同一套 personal 合并逻�
 | Index vs blob alignment | 两边 key 差集 | **不再作为 BLOCKED**；为 degraded / 信息 |
 | Daemon user personal var load | amuxd 读到的个人变量数 | 应与 brand blob 一致 |
 | Resolved scopes | personal / team / system 计数 | 合并后层数 |
-| Environment snapshot / fingerprint | resolved vs serve active | pending → 需 Reload |
+| Environment revision / generation | requested vs workspace current generation | pending/starting → 需 Reload 或等待 rolling replacement |
 | Per-key injection | active / pending / host_shadowed … | pending 通常要 reload + 新 session |
 | Unresolved opencode placeholders | `opencode.json` 里 `${KEY}` | 缺 key 时 MCP/provider 可能失败 |
 | Host environment override | 进程环境与 personal 同名 | amuxd 进程 env 会挡住注入 |
@@ -173,8 +184,8 @@ Agent 工具侧的 `load_agent_env_listings` 使用同一套 personal 合并逻�
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 改了变量但 agent 仍用旧值 | env 在 spawn 时注入；旧 session / serve snapshot 未更新 | **Reload agent runtime**，再开**新 session** |
-| 诊断显示 pending · fingerprint 不一致 | 全局 `opencode serve` 尚未装上新 snapshot | 同上 |
+| 改了变量但 agent 仍用旧值 | env 在 generation spawn 时注入；旧 session 固定在旧 generation | **Reload agent runtime**，再开**新 session** |
+| 诊断显示 pending/starting · revision 不一致 | 当前 workspace 正在请求或启动新 generation | 等待 rolling replacement；active 旧 session 可继续完成 |
 | 白标读不到个人变量 | amuxd 未带 `TEAMCLU_BRAND_SHORT_NAME` | 确认桌面 managed spawn 路径；重启桌面 |
 | Host shadowed | 启动 amuxd 的 shell 里已有同名 env | 从启动环境 unset，或换 TeamClu key 名 |
 | `opencode.json` 仍显示 `${QWEN_API_KEY}` | blob/team 都没有该 key | 在设置里配置，或去掉 MCP 引用 |
@@ -195,6 +206,7 @@ Agent 工具侧的 `load_agent_env_listings` 使用同一套 personal 合并逻�
 | Workspace bind | `apps/desktop/src/commands/window.rs` |
 | amuxd brand env | `apps/desktop/src/commands/amuxd_supervisor.rs` |
 | Daemon spawn 组装 | `apps/daemon/src/runtime/env_assembly.rs` |
+| Host pool / generation | `apps/daemon/src/runtime/opencode_http/host_pool.rs` |
 | 激活诊断 | `apps/daemon/src/runtime/supervisor.rs`（`env_activation_diagnostics`） |
 | 前端状态 rollup | `packages/app/src/lib/env-diagnostics.ts` |
 | 设置页 UI | `packages/app/src/components/settings/EnvVarsSection.tsx` |
@@ -215,4 +227,5 @@ Agent 工具侧的 `load_agent_env_listings` 使用同一套 personal 合并逻�
 
 **个人变量的值在 `~/.{brand}/secrets`，整机共享；workspace 的 `envVars` 只是
 标签缓存；amuxd 用 `TEAMCLU_BRAND_SHORT_NAME` 读对目录；注入用整份 blob，
-改完后 Reload runtime + 新 session 才进 agent。**
+改完后 Reload runtime 会滚动当前 workspace 的 generation，新 session 才使用新
+环境；其它 workspace 不受影响。**
