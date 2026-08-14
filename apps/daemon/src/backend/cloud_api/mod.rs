@@ -826,14 +826,17 @@ impl Backend for CloudApiBackend {
     async fn ensure_agent_types(
         &self,
         supported_types: &[String],
-        default_agent_type: &str,
+        default_agent_type: Option<&str>,
     ) -> BackendResult<()> {
         #[derive(serde::Serialize)]
         struct Body<'a> {
             #[serde(rename = "supportedTypes")]
             supported_types: &'a [String],
+            // Null, not omitted: the server reads it as "clear the default"
+            // rather than "unchanged". Omitting it would be indistinguishable
+            // from an old client that never had the field.
             #[serde(rename = "defaultAgentType")]
-            default_agent_type: &'a str,
+            default_agent_type: Option<&'a str>,
         }
         let token = self.access_token().await?;
         let resp = self
@@ -2079,10 +2082,29 @@ mod tests {
         backend
             .ensure_agent_types(
                 &["claude_code".to_string(), "shell".to_string()],
-                "claude_code",
+                Some("claude_code"),
             )
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn ensure_agent_types_can_clear_the_row() {
+        // "This device runs nothing" has to reach the cloud, or the row keeps
+        // the last runtime that worked and every client badges it.
+        let server = MockServer::start().await;
+        mount_refresh(&server).await;
+        Mock::given(method("POST"))
+            .and(path("/v1/agents/types/ensure"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "supportedTypes": [],
+                "defaultAgentType": null,
+            })))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+        let backend = CloudApiBackend::new(config(&server));
+        backend.ensure_agent_types(&[], None).await.unwrap();
     }
 
     #[tokio::test]

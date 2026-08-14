@@ -273,10 +273,14 @@ export function useActorDirectory(): UseActorDirectoryResult {
     }
     let cancelled = false
     void (async () => {
-      const session = await getBackend().auth.getSession()
-      if (!session?.user || cancelled) return
-      const actorRow = await getBackend().directory.resolveFirstMemberActorForUser(session.user.id)
-      if (!cancelled) setFallbackTeamId(actorRow?.team_id ?? null)
+      try {
+        const session = await getBackend().auth.getSession()
+        if (!session?.user || cancelled) return
+        const actorRow = await getBackend().directory.resolveFirstMemberActorForUser(session.user.id)
+        if (!cancelled) setFallbackTeamId(actorRow?.team_id ?? null)
+      } catch {
+        // Cold start / tests without cloud config — leave fallback unset.
+      }
     })()
     return () => { cancelled = true }
   }, [currentTeamId])

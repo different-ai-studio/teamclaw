@@ -358,10 +358,15 @@ pub trait Backend: Send + Sync {
     ) -> BackendResult<Option<String>>;
 
     /// Advertise daemon-supported agent backend types on its `agents` row.
+    ///
+    /// An empty `supported_types` with `None` default is a real, meaningful
+    /// advertise: "this device runs nothing right now". Skipping the call in
+    /// that case leaves the last successful answer standing on the row, and
+    /// clients keep badging a runtime this machine can no longer start.
     async fn ensure_agent_types(
         &self,
         supported_types: &[String],
-        default_agent_type: &str,
+        default_agent_type: Option<&str>,
     ) -> BackendResult<()>;
 
     /// Look up `agent_member_access.permission_level` for a caller.

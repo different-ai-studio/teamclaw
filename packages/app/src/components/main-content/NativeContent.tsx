@@ -1,21 +1,33 @@
 import { useTranslation } from "react-i18next"
 import { FileQuestion } from "lucide-react"
 import { VersionHistoryTab } from "@/components/version/VersionHistoryTab"
+import { KnowledgeVersionHistory } from "@/components/teamshare/KnowledgeVersionHistory"
+import { TeamShareTabContent } from "@/components/teamshare/TeamShareTabContent"
+import {
+  decodeTeamShareTarget,
+  decodeVersionHistoryTarget,
+} from "@/lib/tabs/teamshare-target"
 
 interface NativeContentProps {
   target: string
 }
 
-const nativeComponents: Record<string, React.ComponentType> = {
-  "version-history": VersionHistoryTab,
-}
-
+/**
+ * Native tabs are addressed by a target string, and the string is parsed rather
+ * than looked up in a table: team-share views and version history carry an id or
+ * a path inside the target, so a flat `Record<string, Component>` cannot express
+ * them.
+ */
 export function NativeContent({ target }: NativeContentProps) {
   const { t } = useTranslation()
-  const Component = nativeComponents[target]
 
-  if (Component) {
-    return <Component />
+  const teamShare = decodeTeamShareTarget(target)
+  if (teamShare) return <TeamShareTabContent target={teamShare} />
+
+  const versionPath = decodeVersionHistoryTarget(target)
+  if (versionPath !== undefined) {
+    // A path means "this file's history"; the bare target is the browse-all view.
+    return versionPath ? <KnowledgeVersionHistory path={versionPath} /> : <VersionHistoryTab />
   }
 
   return (

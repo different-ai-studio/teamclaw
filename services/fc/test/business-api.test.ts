@@ -1704,6 +1704,35 @@ test("POST /v1/agents/types/ensure dispatches to repo.ensureAgentTypes", async (
   assert.deepEqual(repo.calls[0], { method: "ensureAgentTypes", input: { supportedTypes: ["openai", "claude"], defaultAgentType: "claude" } });
 });
 
+test("POST /v1/agents/types/ensure records an empty advertise as a clear", async () => {
+  // A daemon whose team points at an uninstalled runtime supports nothing. That
+  // has to land: refusing it left the previous answer on the row, and every
+  // client went on badging a runtime the machine could no longer start.
+  const repo = fakeRepo();
+  const response = await handleBusinessApiRequest({
+    httpMethod: "POST",
+    path: "/v1/agents/types/ensure",
+    headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+    body: JSON.stringify({ supportedTypes: [], defaultAgentType: null }),
+  }, { createRepository: () => repo });
+  assert.equal(response.statusCode, 204);
+  assert.deepEqual(repo.calls[0], {
+    method: "ensureAgentTypes",
+    input: { supportedTypes: [], defaultAgentType: null },
+  });
+});
+
+test("POST /v1/agents/types/ensure still requires a default when types are given", async () => {
+  const repo = fakeRepo();
+  const response = await handleBusinessApiRequest({
+    httpMethod: "POST",
+    path: "/v1/agents/types/ensure",
+    headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+    body: JSON.stringify({ supportedTypes: ["pi"] }),
+  }, { createRepository: () => repo });
+  assert.equal(response.statusCode, 400);
+});
+
 test("PATCH /v1/agents/:agentActorId forwards display name and visibility", async () => {
   const repo = fakeRepo();
   const response = await handleBusinessApiRequest({

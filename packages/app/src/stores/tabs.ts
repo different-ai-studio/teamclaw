@@ -29,6 +29,13 @@ interface TabsState {
   setDirty: (id: string, dirty: boolean) => void;
   closeOthers: (id: string) => void;
   closeAll: () => void;
+  /**
+   * Close every tab whose target the predicate accepts.
+   *
+   * Takes a predicate rather than a prefix so this store stays ignorant of what
+   * any particular target means — the caller owns that vocabulary.
+   */
+  closeWhere: (match: (tab: Tab) => boolean) => void;
   /** Deactivate all tabs without closing them — returns to agent view */
   hideAll: () => void;
   /** Re-activate the last tab after hideAll */
@@ -108,6 +115,19 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
   closeAll: () => {
     set({ tabs: [], activeTabId: null });
+  },
+
+  closeWhere: (match) => {
+    const { tabs, activeTabId } = get();
+    const kept = tabs.filter((t) => !match(t));
+    if (kept.length === tabs.length) return;
+    const activeSurvives = kept.some((t) => t.id === activeTabId);
+    set({
+      tabs: kept,
+      // Falling back to the last remaining tab rather than to nothing: closing
+      // the active one should leave you somewhere, the way closeTab does.
+      activeTabId: activeSurvives ? activeTabId : (kept[kept.length - 1]?.id ?? null),
+    });
   },
 
   hideAll: () => {

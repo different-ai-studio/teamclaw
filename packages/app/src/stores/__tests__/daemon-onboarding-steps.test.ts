@@ -38,7 +38,30 @@ vi.mock('@/lib/backend', () => ({
   }),
 }))
 vi.mock('@/stores/current-team', () => ({
-  useCurrentTeamStore: { getState: () => ({ team: h.currentTeam }) },
+  useCurrentTeamStore: { getState: () => ({ team: h.currentTeam, currentMember: { id: 'member-1' } }) },
+}))
+vi.mock('@/lib/daemon-workspaces', () => ({
+  createDaemonWorkspace: vi.fn(async (input: { path: string; name: string }) => ({
+    id: 'ws-1',
+    teamId: 'team-1',
+    agentId: 'actor-1',
+    createdByMemberId: 'member-1',
+    name: input.name,
+    path: input.path,
+    archived: false,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  })),
+  getCurrentDaemonWorkspaceAgent: vi.fn(async () => ({
+    id: 'actor-1',
+    displayName: 'Local',
+    agentTypes: [],
+    defaultAgentType: null,
+    defaultWorkspaceId: 'ws-already',
+    status: 'online',
+    lastActiveAt: null,
+  })),
+  setAgentDefaultWorkspace: vi.fn(async () => {}),
 }))
 vi.mock('@/stores/auth-store', () => ({
   useAuthStore: { getState: () => ({ session: { user: { id: 'user-1' } } }) },
@@ -108,6 +131,7 @@ beforeEach(() => {
     runStartedAt: null,
     completedAgent: null,
     pendingName: null,
+    workspaceSyncEpoch: 0,
   })
 })
 

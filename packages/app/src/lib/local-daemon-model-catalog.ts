@@ -135,7 +135,26 @@ export async function fetchLocalDaemonCatalog(
   if (!catalog) return { status: 'unknown' }
 
   const group = resolveCatalogGroup(catalog, backendType)
-  if (!group) return { status: 'unknown' }
+  if (!group) {
+    // No group *and* a probe error is the shape a missing runtime binary takes:
+    // the daemon could not start the backend this team asked for, so it has no
+    // group to report — only the reason. Reading `probe_error` solely inside
+    // the group branch below discarded exactly the case where it is the entire
+    // answer, and the caller saw `unknown`, which the pill renders as a
+    // permanent "connecting…" rather than the terminal error it is.
+    const probeError = catalog.probe_error?.trim()
+    if (probeError) {
+      return {
+        status: 'error',
+        // The daemon named no backend group, so the best available id is the
+        // automation default it wanted to use. Empty is honest when even that
+        // is unset — the message carries the detail.
+        backend: catalog.automation_default_backend?.trim() ?? '',
+        message: probeError,
+      }
+    }
+    return { status: 'unknown' }
+  }
   if (group.models.length === 0) {
     const probeError = catalog.probe_error?.trim()
     return probeError
