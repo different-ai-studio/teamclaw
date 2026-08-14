@@ -44,6 +44,7 @@ const baseActivation: DaemonEnvActivationDiagnostics = {
   host_pool: {
     current_generation: 'gen-1',
     current_lifecycle: 'ready',
+    pending_lifecycle: null,
     current_revision: 'rev-1',
     requested_revision: 'rev-1',
     current_routes: 0,
@@ -234,9 +235,10 @@ describe('normalizeDaemonEnvActivationDiagnostics', () => {
     const normalized = normalizeDaemonEnvActivationDiagnostics({
       hostPool: {
         currentGeneration: 'gen-7',
-        currentLifecycle: 'starting',
+        currentLifecycle: 'ready',
         currentRevision: 'rev-1',
         requestedRevision: 'rev-2',
+        pendingLifecycle: 'starting',
         currentRoutes: 6,
         drainingGenerations: 1,
         drainingRoutes: 2,
@@ -248,8 +250,13 @@ describe('normalizeDaemonEnvActivationDiagnostics', () => {
 
     expect(normalized?.host_pool).toMatchObject({
       current_generation: 'gen-7',
-      current_lifecycle: 'starting',
+      current_lifecycle: 'ready',
+      pending_lifecycle: 'starting',
       queued_acquisitions: 2,
+    })
+    expect(normalized?.blockers).toContainEqual({
+      code: 'host_generation_starting',
+      detail: 'revision rev-2',
     })
     const messages = normalized?.blockers.map((blocker) =>
       formatEnvActivationBlocker(t, blocker),
@@ -261,6 +268,46 @@ describe('normalizeDaemonEnvActivationDiagnostics', () => {
       expect.stringContaining('Timed out waiting for local runtime capacity'),
       expect.stringContaining('6 active'),
     ]))
+  })
+
+  it('accepts snake_case pending lifecycle without claiming current generation is starting', () => {
+    const normalized = normalizeDaemonEnvActivationDiagnostics({
+      host_pool: {
+        ...baseActivation.host_pool,
+        current_generation: 'gen-current',
+        current_lifecycle: 'ready',
+        requested_revision: null,
+        pending_lifecycle: 'starting',
+      },
+    } as unknown as Partial<DaemonEnvActivationDiagnostics>)
+
+    expect(normalized?.host_pool.pending_lifecycle).toBe('starting')
+    expect(normalized?.blockers).toContainEqual({
+      code: 'host_generation_starting',
+      detail: null,
+    })
+    expect(normalized?.blockers).not.toContainEqual(expect.objectContaining({
+      detail: expect.stringContaining('gen-current'),
+    }))
+  })
+
+  it('preserves explicit host blockers and derives only missing codes', () => {
+    const normalized = normalizeDaemonEnvActivationDiagnostics({
+      blockers: [
+        { code: 'host_generation_starting', detail: 'daemon start detail' },
+        { code: 'host_capacity_waiting', detail: 'daemon queue detail' },
+      ],
+      hostPool: {
+        pendingLifecycle: 'starting',
+        requestedRevision: 'rev-2',
+        queuedAcquisitions: 2,
+      },
+    } as unknown as Partial<DaemonEnvActivationDiagnostics>)
+
+    expect(normalized?.blockers).toEqual([
+      { code: 'host_generation_starting', detail: 'daemon start detail' },
+      { code: 'host_capacity_waiting', detail: 'daemon queue detail' },
+    ])
   })
 
   it('returns null for null input', () => {

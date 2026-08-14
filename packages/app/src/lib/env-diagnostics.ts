@@ -132,6 +132,7 @@ const EMPTY_REFRESH: DaemonRuntimeRefresh = {
 const EMPTY_HOST_POOL: DaemonDomainHostStats = {
   current_generation: null,
   current_lifecycle: null,
+  pending_lifecycle: null,
   current_revision: null,
   requested_revision: null,
   current_routes: 0,
@@ -254,6 +255,7 @@ function normalizeHostPool(raw: unknown): DaemonDomainHostStats {
   const wire = raw as Partial<DaemonDomainHostStats> & {
     currentGeneration?: string | null
     currentLifecycle?: string | null
+    pendingLifecycle?: string | null
     currentRevision?: string | null
     requestedRevision?: string | null
     currentRoutes?: number
@@ -266,6 +268,7 @@ function normalizeHostPool(raw: unknown): DaemonDomainHostStats {
   return {
     current_generation: wire.current_generation ?? wire.currentGeneration ?? null,
     current_lifecycle: wire.current_lifecycle ?? wire.currentLifecycle ?? null,
+    pending_lifecycle: wire.pending_lifecycle ?? wire.pendingLifecycle ?? null,
     current_revision: wire.current_revision ?? wire.currentRevision ?? null,
     requested_revision: wire.requested_revision ?? wire.requestedRevision ?? null,
     current_routes: wire.current_routes ?? wire.currentRoutes ?? 0,
@@ -324,12 +327,12 @@ export function normalizeDaemonEnvActivationDiagnostics(
   const hostPool = normalizeHostPool(wire.host_pool ?? wire.hostPool)
   const hasBlocker = (code: string) => blockers.some((blocker) => blocker.code === code)
   if (
-    hostPool.current_lifecycle?.toLowerCase() === 'starting'
+    hostPool.pending_lifecycle?.toLowerCase() === 'starting'
     && !hasBlocker('host_generation_starting')
   ) {
     blockers.push({
       code: 'host_generation_starting',
-      detail: hostPool.current_generation ? `generation ${hostPool.current_generation}` : null,
+      detail: hostPool.requested_revision ? `revision ${hostPool.requested_revision}` : null,
     })
   }
   if (hostPool.queued_acquisitions > 0 && !hasBlocker('host_capacity_waiting')) {

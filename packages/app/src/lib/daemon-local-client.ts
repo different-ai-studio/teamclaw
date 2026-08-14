@@ -1182,6 +1182,7 @@ export interface DaemonUnresolvedConfigPlaceholder {
 export interface DaemonDomainHostStats {
   current_generation: string | null
   current_lifecycle: string | null
+  pending_lifecycle: string | null
   current_revision: string | null
   requested_revision: string | null
   current_routes: number

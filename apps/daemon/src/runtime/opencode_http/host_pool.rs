@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
@@ -233,6 +233,7 @@ pub enum HostPoolError {
 pub struct DomainHostStats {
     pub current_generation: Option<String>,
     pub current_lifecycle: Option<HostLifecycle>,
+    pub pending_lifecycle: Option<String>,
     pub current_revision: Option<String>,
     pub requested_revision: Option<String>,
     pub current_routes: usize,
@@ -340,7 +341,7 @@ impl Drop for DomainStartGuard {
 struct CapacityState {
     active: usize,
     next_ticket: u64,
-    queue: BTreeSet<u64>,
+    queue: BTreeMap<u64, IsolationDomainKey>,
 }
 
 struct CapacityPermit<'a> {
@@ -437,6 +438,7 @@ impl OpenCodeHostPool {
         let capacity_reservation = match self
             .reserve_capacity(
                 &slot,
+                &domain,
                 &revision,
                 deadline,
                 protected_idle_generation.as_deref(),
@@ -525,6 +527,7 @@ impl OpenCodeHostPool {
     async fn reserve_capacity(
         &self,
         slot: &DomainSlot,
+        domain: &IsolationDomainKey,
         revision: &ProcessEnvRevision,
         deadline: Instant,
         protected_idle_generation: Option<&str>,
@@ -555,11 +558,13 @@ impl OpenCodeHostPool {
                 if ticket.value.is_none() && must_queue {
                     let assigned = capacity.next_ticket;
                     capacity.next_ticket = capacity.next_ticket.wrapping_add(1);
-                    capacity.queue.insert(assigned);
+                    capacity.queue.insert(assigned, domain.clone());
                     ticket.value = Some(assigned);
                 }
                 let is_head = match ticket.value {
-                    Some(assigned) => capacity.queue.first().copied() == Some(assigned),
+                    Some(assigned) => {
+                        capacity.queue.first_key_value().map(|(key, _)| *key) == Some(assigned)
+                    }
                     None => capacity.queue.is_empty(),
                 };
                 if capacity.active < HOST_HARD_LIMIT && is_head {
@@ -714,7 +719,13 @@ impl OpenCodeHostPool {
     }
 
     pub fn stats_for(&self, domain: &IsolationDomainKey) -> DomainHostStats {
-        let queued_acquisitions = self.capacity.lock().queue.len();
+        let queued_acquisitions = self
+            .capacity
+            .lock()
+            .queue
+            .values()
+            .filter(|queued_domain| *queued_domain == domain)
+            .count();
         let Some(slot) = self.domains.lock().get(domain).cloned() else {
             return DomainHostStats {
                 queued_acquisitions,
@@ -725,11 +736,8 @@ impl OpenCodeHostPool {
         let current = state.current.as_ref();
         DomainHostStats {
             current_generation: current.map(|generation| generation.generation_id.clone()),
-            current_lifecycle: if state.starting {
-                Some(HostLifecycle::Starting)
-            } else {
-                current.map(|generation| generation.lifecycle())
-            },
+            current_lifecycle: current.map(|generation| generation.lifecycle()),
+            pending_lifecycle: state.starting.then(|| "starting".to_string()),
             current_revision: current.map(|generation| {
                 generation
                     .process_env_revision
@@ -1161,13 +1169,20 @@ mod tests {
         .await
         .expect("generation start should block in the fake factory");
 
+        let starting_stats = pool.stats_for(&domain("a"));
         assert_eq!(
-            pool.stats_for(&domain("a")).current_lifecycle,
-            Some(HostLifecycle::Starting)
+            starting_stats.pending_lifecycle.as_deref(),
+            Some("starting")
+        );
+        assert_eq!(starting_stats.current_lifecycle, None);
+        assert_eq!(
+            serde_json::to_value(&starting_stats).unwrap()["pendingLifecycle"],
+            "starting"
         );
 
         gate.add_permits(1);
         let lease = acquiring.await.unwrap().unwrap();
+        assert_eq!(pool.stats_for(&domain("a")).pending_lifecycle, None);
         assert_eq!(
             pool.stats_for(&domain("a")).current_lifecycle,
             Some(HostLifecycle::Ready)
@@ -1197,8 +1212,8 @@ mod tests {
         .expect("generation start should block in the fake factory");
 
         assert_eq!(
-            pool.stats_for(&domain("a")).current_lifecycle,
-            Some(HostLifecycle::Starting)
+            pool.stats_for(&domain("a")).pending_lifecycle.as_deref(),
+            Some("starting")
         );
 
         gate.add_permits(1);
@@ -1206,7 +1221,81 @@ mod tests {
             acquiring.await.unwrap(),
             Err(HostPoolError::Spawn(_))
         ));
+        assert_eq!(pool.stats_for(&domain("a")).pending_lifecycle, None);
         assert_eq!(pool.stats_for(&domain("a")).current_lifecycle, None);
+    }
+
+    #[tokio::test]
+    async fn rolling_replacement_reports_current_ready_and_pending_starting() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let old = pool
+            .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let gate = factory.block_next_start();
+
+        let replacement_pool = Arc::clone(&pool);
+        let replacement = tokio::spawn(async move {
+            replacement_pool
+                .acquire(domain("a"), revision("2"), HashMap::new(), deadline())
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while factory.start_count() < 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("replacement start should block in the fake factory");
+
+        let stats = pool.stats_for(&domain("a"));
+        assert_eq!(
+            stats.current_generation.as_deref(),
+            Some(old.generation.generation_id.as_str())
+        );
+        assert_eq!(stats.current_lifecycle, Some(HostLifecycle::Ready));
+        assert_eq!(stats.current_routes, 1);
+        assert_eq!(stats.pending_lifecycle.as_deref(), Some("starting"));
+
+        gate.add_permits(1);
+        let new = replacement.await.unwrap().unwrap();
+        assert_eq!(pool.stats_for(&domain("a")).pending_lifecycle, None);
+        drop(new);
+        drop(old);
+    }
+
+    #[tokio::test]
+    async fn cancelled_start_clears_pending_lifecycle() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory.clone());
+        let _gate = factory.block_next_start();
+
+        let acquiring_pool = Arc::clone(&pool);
+        let acquiring = tokio::spawn(async move {
+            acquiring_pool
+                .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while factory.start_count() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("generation start should block in the fake factory");
+        assert_eq!(
+            pool.stats_for(&domain("a")).pending_lifecycle.as_deref(),
+            Some("starting")
+        );
+
+        acquiring.abort();
+        acquiring
+            .await
+            .expect_err("acquire task should be cancelled");
+
+        assert_eq!(pool.stats_for(&domain("a")).pending_lifecycle, None);
+        assert_eq!(pool.stats_for(&domain("a")).current_generation, None);
     }
 
     #[tokio::test]
@@ -1265,7 +1354,7 @@ mod tests {
                 .acquire(domain("e"), revision("1"), HashMap::new(), deadline())
                 .await
         });
-        wait_for_queue(&pool, &domain("e"), 2).await;
+        wait_for_queue(&pool, &domain("e"), 1).await;
         assert!(factory.stopped().is_empty());
 
         drop(a);
@@ -1284,6 +1373,48 @@ mod tests {
 
         let order = factory.start_order.lock().clone();
         assert_eq!(&order[3..], &[domain("d"), domain("e")]);
+    }
+
+    #[tokio::test]
+    async fn queued_acquisitions_are_scoped_to_the_waiting_domain() {
+        let factory = FakeGenerationFactory::new();
+        let pool = OpenCodeHostPool::new(factory);
+        let _a = pool
+            .acquire(domain("a"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let _b = pool
+            .acquire(domain("b"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+        let _c = pool
+            .acquire(domain("c"), revision("1"), HashMap::new(), deadline())
+            .await
+            .unwrap();
+
+        let waiting_pool = Arc::clone(&pool);
+        let waiting = tokio::spawn(async move {
+            waiting_pool
+                .acquire(
+                    domain("workspace-a"),
+                    revision("1"),
+                    HashMap::new(),
+                    deadline(),
+                )
+                .await
+        });
+        wait_for_queue(&pool, &domain("workspace-a"), 1).await;
+
+        assert_eq!(
+            pool.stats_for(&domain("workspace-a")).queued_acquisitions,
+            1
+        );
+        assert_eq!(pool.stats_for(&domain("b")).queued_acquisitions, 0);
+
+        waiting.abort();
+        waiting
+            .await
+            .expect_err("capacity waiter should be cancelled");
     }
 
     #[tokio::test]
