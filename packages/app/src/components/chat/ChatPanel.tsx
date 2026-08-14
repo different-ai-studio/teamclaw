@@ -77,6 +77,7 @@ import {
 } from '@/lib/agent-model-fallback'
 import { useLocalDaemonActorId } from "@/lib/daemon-agent-admin";
 import { clientMruModels } from "@/stores/client-model-mru";
+import { ensureParticipantModels } from "@/stores/participant-model-store";
 import { useLocalDaemonCatalogStore } from "@/stores/local-daemon-catalog-store";
 import {
   selectAgentModel,
@@ -485,6 +486,15 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     if (sessionParticipants !== undefined || participantsLoading) return;
     void ensureParticipants([activeSessionId]);
   }, [activeSessionId, sessionParticipants, participantsLoading, ensureParticipants]);
+
+  // `session_participants.model` — the authoritative per-session model
+  // (ADR-0005/0007). Separate from the roster fetch above, which reads the
+  // actor directory and carries no working state. Fire-and-forget: the
+  // resolver falls through to the transcript scan and the retain until it
+  // lands, so nothing here blocks the pill.
+  React.useEffect(() => {
+    ensureParticipantModels(activeSessionId);
+  }, [activeSessionId]);
 
   const prevActiveSessionRef = React.useRef<string | null>(null);
   React.useEffect(() => {
