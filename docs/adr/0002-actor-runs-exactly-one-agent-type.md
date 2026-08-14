@@ -43,6 +43,10 @@ daemon 从不读回 —— 方向是 daemon → 云。
 [ModelCatalog](../../proto/CONTEXT.md#modelcatalog) 校验，命不中则回退到
 [DefaultModel](../../proto/CONTEXT.md#defaultmodel)。
 
+> **后记（ADR-0007）**：上一段最后那级回退已作废 —— DefaultModel 连同设备 MRU
+> 一起从 daemon 移除。惰性失效的机制不变（不清空、在 attach 时校验），但命不中
+> 之后不再有 daemon 侧的兜底值可回退，改由客户端 MRU 或用户显式选择补位。
+
 理由：切换是「改配置 + 重启」，daemon 启动时无从区分"刚切过来"与"一直如此"，
 主动清空需要额外持久化上次的 backend；而 attach 本来就要把 model 交给后端，
 校验点已经存在。且两后端目录实测仅 3 项重叠（`team/default` / `team/max` /
@@ -66,6 +70,17 @@ worktree，daemon 手上也没有其目录 —— 那份目录是 attach 时探�
 已知 worktree 的目录，实测偏差 1~3 个 / 72 个，且首次 attach 后即自动补正。
 
 用一次昂贵探测换 2% 准确度，不划算。
+
+> **后记（现状）**：这个接口后来还是建了 ——
+> `GET /v1/workspaces/:id/model-catalog`（`http/routes.rs:144` →
+> `workspaces::get_model_catalog`），且正如上文预判，它的实现就是「触发一次探测」
+> （handler 会按需把后端拉起来，`http/workspaces.rs:704-708`）。
+>
+> 上文的顾虑没有被推翻，是被绕开了：调用方**不站在选择器前等待** ——
+> `seedLocalDaemonModelsInBackground` 是 fire-and-forget，探测结果回来后合并进
+> runtime state（`lib/local-daemon-model-catalog.ts:228-269`）。而且它是
+> **loopback-only**，只够到本机 daemon，远端 actor 依旧只有 retain 一条路。
+> 所以本节的结论对**远端**仍然成立，对**本机**已不成立。
 
 ## 后续影响
 

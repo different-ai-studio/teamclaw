@@ -1,4 +1,4 @@
-import type { SkillSource } from "@/lib/git/types"
+import type { SkillSource } from "@/lib/skills/types"
 
 export type RoleAttachMode = "copy" | "migrate"
 

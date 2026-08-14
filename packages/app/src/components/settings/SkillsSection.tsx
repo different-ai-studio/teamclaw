@@ -62,8 +62,8 @@ import {
 import { SettingCard, SectionHeader } from './shared'
 import type { SkillPermission, SkillPermissionMap } from '@/lib/opencode/config'
 import { resolveSkillPermission } from '@/lib/opencode/config'
-import type { SkillSource } from '@/lib/git/types'
-import { INHERENT_SKILL_NAMES } from '@/lib/git/types'
+import type { SkillSource } from '@/lib/skills/types'
+import { INHERENT_SKILL_NAMES } from '@/lib/skills/types'
 import { SkillsMarketplace } from './SkillsMarketplace'
 import { SkillsDiagnosticsDialog } from './SkillsDiagnosticsDialog'
 
@@ -902,7 +902,10 @@ ${skillContent.trim()}`
                 {t('settings.skills.runtimeChanged', 'Detected Skill Changes')}
               </p>
               <p className="text-[13px] text-sky-700 dark:text-sky-300 mt-1">
-                {t('settings.skills.restartToLoadNewSkills', 'New or updated skills were detected. Restart OpenCode to load them in the current runtime.')}
+                {t(
+                  'settings.skills.restartToLoadNewSkills',
+                  'New or updated skills were detected. Apply changes to refresh the current session (takes effect on the next message). New sessions pick them up automatically.',
+                )}
               </p>
               {restartError && (
                 <p className="text-[13px] text-red-600 dark:text-red-400 mt-2">
@@ -919,12 +922,12 @@ ${skillContent.trim()}`
               {isRestarting ? (
                 <>
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  {t('settings.mcp.restarting', 'Restarting...')}
+                  {t('workspace.runtimeRefresh.applyingTitle', 'Applying workspace changes…')}
                 </>
               ) : (
                 <>
                   <RefreshCw className="h-3 w-3" />
-                  {t('settings.mcp.restart', 'Restart')}
+                  {t('workspace.runtimeRefresh.apply', 'Apply changes')}
                 </>
               )}
             </Button>

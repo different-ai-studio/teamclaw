@@ -44,13 +44,13 @@ vi.mock('@/lib/opencode/config', () => ({
   removeSkillPermission: vi.fn(),
   resolveSkillPermission: vi.fn(() => ({ permission: 'allow', isExact: false })),
 }))
-vi.mock('@/lib/git/skill-loader', () => ({
+vi.mock('@/lib/skills/loader', () => ({
   loadAllSkills: mockLoadAllSkills,
 }))
 vi.mock('@/lib/roles/loader', () => ({
   loadRolesSkillsWorkspaceState: mockLoadRolesSkillsWorkspaceState,
 }))
-vi.mock('@/lib/git/types', () => ({
+vi.mock('@/lib/skills/types', () => ({
   INHERENT_SKILL_NAMES: new Set(),
 }))
 vi.mock('../shared', () => ({

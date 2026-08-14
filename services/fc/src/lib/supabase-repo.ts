@@ -31,7 +31,6 @@ import {
 import { isLegalFcTransition } from "./provisioning/app-fc-status.js";
 import { appOssObjectName } from "./provisioning/app-deploy.js";
 import { normalizeAgentTypes } from "./agent-types.js";
-import { managedGitCredential } from "./admin-handlers.js";
 import { computeRange, getLiteLlmSql, queryTeamUsage } from "./litellm-usage.js";
 import { rollUpUsageByOwner, type UsageOwner } from "./usage-attribution.js";
 import { litellmFetch as sharedLitellmFetch } from "./litellm.js";
@@ -850,14 +849,14 @@ export function createSupabaseBusinessRepository(options) {
 
     // --- Team share mode (Task 3 of share-onboarding refactor) ---
 
-    async enableShareMode(teamId, mode, gitConfig) {
+    async enableShareMode(teamId, mode) {
       await requireCallerTeamOwner(teamId);
       const args = {
         p_team_id: teamId,
         p_mode: mode,
-        p_git_remote_url: mode === "oss" ? null : (gitConfig?.remoteUrl ?? null),
-        p_git_auth_kind: mode === "oss" ? null : (gitConfig?.authKind ?? null),
-        p_git_credential_ref: mode === "oss" ? null : (gitConfig?.credentialRef ?? null),
+        p_git_remote_url: null,
+        p_git_auth_kind: null,
+        p_git_credential_ref: null,
       };
       const data = await shareModeServiceRpc("enable_team_share", args);
       const row = requiredRow(data, "teams.enableShareMode");
@@ -867,23 +866,16 @@ export function createSupabaseBusinessRepository(options) {
     async getShareMode(teamId) {
       const { data, error } = await supabase
         .from("teams")
-        .select("share_mode, share_enabled_at, git_remote_url, git_auth_kind")
+        .select("share_mode, share_enabled_at")
         .eq("id", teamId)
         .maybeSingle();
       if (error) throw error;
       if (!data) {
-        return {
-          mode: null,
-          enabledAt: null,
-          gitRemoteUrl: null,
-          gitAuthKind: null,
-        };
+        return { mode: null, enabledAt: null };
       }
       return {
         mode: data.share_mode ?? null,
         enabledAt: data.share_enabled_at ?? null,
-        gitRemoteUrl: data.git_remote_url ?? null,
-        gitAuthKind: data.git_auth_kind ?? null,
       };
     },
 
@@ -893,12 +885,7 @@ export function createSupabaseBusinessRepository(options) {
         p_team_id: teamId,
       });
       if (data) requiredRow(data, "teams.disableShareMode");
-      return {
-        mode: null,
-        enabledAt: null,
-        gitRemoteUrl: null,
-        gitAuthKind: null,
-      };
+      return { mode: null, enabledAt: null };
     },
 
     async setupLiteLlm(teamId) {
@@ -1075,7 +1062,7 @@ export function createSupabaseBusinessRepository(options) {
       const [teamRes, configRes] = await Promise.all([
         supabase
           .from("teams")
-          .select("share_mode, git_remote_url, git_auth_kind")
+          .select("share_mode")
           .eq("id", teamId)
           .maybeSingle(),
         supabase
@@ -1111,8 +1098,6 @@ export function createSupabaseBusinessRepository(options) {
       const storedModels = Array.isArray(configRes.data?.llm_models) ? configRes.data.llm_models : [];
       return {
         shareMode: teamRes.data?.share_mode ?? null,
-        gitRemoteUrl: teamRes.data?.git_remote_url ?? null,
-        gitAuthKind: teamRes.data?.git_auth_kind ?? null,
         syncMode: configRes.data?.sync_mode ?? null,
         litellmTeamId: configRes.data?.litellm_team_id ?? null,
         // `models` is the STORED, authoritative per-team list; `availableModels`
@@ -2537,6 +2522,23 @@ export function createSupabaseBusinessRepository(options) {
       if (error) throw error;
     },
 
+    /**
+     * Which model this agent runs on in this session.
+     *
+     * The column landed with the ADR-0005 migration alongside `workspace_id`
+     * and the cursor, but only those two got writers: `model` was backfilled
+     * from `agent_runtimes.current_model` and then never touched again, so
+     * every reader trusting the ADR got a frozen value. This is that writer.
+     */
+    async updateParticipantModel(sessionId, actorId, { model }) {
+      const { error } = await supabase
+        .from("session_participants")
+        .update({ model, updated_at: new Date().toISOString() })
+        .eq("session_id", sessionId)
+        .eq("actor_id", actorId);
+      if (error) throw error;
+    },
+
     async removeSessionParticipant(sessionId, actorId) {
       const { error } = await supabase
         .from("session_participants")
@@ -2859,27 +2861,6 @@ export function createSupabaseBusinessRepository(options) {
         .maybeSingle();
       if (error) throw error;
       return data ? mapApp(data) : null;
-    },
-
-    async getManagedGitCredential(teamId: string) {
-      const { data: userData, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr;
-      const userId = userData?.user?.id;
-      if (!userId) return null;
-      // Accept any actor type (member or agent) — daemon actors are type 'agent'
-      // and would be rejected by resolveCurrentMemberActor which filters member-only.
-      const { data: actorRow, error: actorErr } = await supabase
-        .from("actors")
-        .select("id")
-        .eq("team_id", teamId)
-        .eq("user_id", userId)
-        .limit(1)
-        .maybeSingle();
-      if (actorErr) throw actorErr;
-      if (!actorRow?.id) return null;
-      const cred = managedGitCredential();
-      if (!cred) throw new ApiError(503, "managed_git_unavailable", "managed git is not configured");
-      return cred;
     },
 
     async createApp(input: { teamId: string; name: string; type: string; visibility?: string }) {

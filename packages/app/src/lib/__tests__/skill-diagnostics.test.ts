@@ -27,7 +27,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   readDir: (...args: unknown[]) => mockReadDir(...args),
 }))
 
-vi.mock('@/lib/git/skill-loader', () => ({
+vi.mock('@/lib/skills/loader', () => ({
   loadAllSkills: (...args: unknown[]) => mockLoadAllSkills(...args),
   getSkillDirectories: (...args: unknown[]) => mockGetSkillDirectories(...args),
   getSourceDirHint: (source: string) => source,

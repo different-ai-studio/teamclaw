@@ -637,7 +637,7 @@ test("bootstrapTeam rejects a token the trust secret does not verify", async () 
   assert.deepEqual(rpcCalls, [], "no RPC may run for an unverified caller");
 });
 
-test("enableShareMode oss calls enable_team_share rpc with null git fields", async () => {
+test("enableShareMode calls the enable_team_share rpc", async () => {
   const rpcCalls = [];
   const repo = createRepo(fakeSupabaseForShareMode({
       enable_team_share: [{
@@ -652,7 +652,7 @@ test("enableShareMode oss calls enable_team_share rpc with null git fields", asy
       }],
   }, rpcCalls));
 
-  const result = await repo.enableShareMode("team-1", "oss", null);
+  const result = await repo.enableShareMode("team-1", "oss");
 
   assert.deepEqual(rpcCalls[0], {
     name: "enable_team_share",
@@ -667,40 +667,6 @@ test("enableShareMode oss calls enable_team_share rpc with null git fields", asy
   assert.equal(result.id, "team-1");
   assert.equal(result.shareMode, "oss");
   assert.equal(result.shareEnabledAt, "2026-05-28T01:00:00Z");
-  assert.equal(result.gitRemoteUrl, null);
-});
-
-test("enableShareMode custom_git passes through git config", async () => {
-  const rpcCalls = [];
-  const repo = createRepo(fakeSupabaseForShareMode({
-      enable_team_share: [{
-        id: "team-2",
-        name: "Beta",
-        slug: "beta",
-        created_at: "2026-05-28T00:00:00Z",
-        share_mode: "custom_git",
-        share_enabled_at: "2026-05-28T01:00:00Z",
-        git_remote_url: "git@example.com:beta/repo.git",
-        git_auth_kind: "ssh_key",
-      }],
-  }, rpcCalls));
-
-  const result = await repo.enableShareMode("team-2", "custom_git", {
-    remoteUrl: "git@example.com:beta/repo.git",
-    authKind: "ssh_key",
-    credentialRef: "keychain://team-2/ssh",
-  });
-
-  assert.deepEqual(rpcCalls[0].args, {
-    p_team_id: "team-2",
-    p_mode: "custom_git",
-    p_git_remote_url: "git@example.com:beta/repo.git",
-    p_git_auth_kind: "ssh_key",
-    p_git_credential_ref: "keychain://team-2/ssh",
-  });
-  assert.equal(result.shareMode, "custom_git");
-  assert.equal(result.gitRemoteUrl, "git@example.com:beta/repo.git");
-  assert.equal(result.gitAuthKind, "ssh_key");
 });
 
 test("getShareMode returns nulls when team row absent", async () => {
@@ -709,8 +675,6 @@ test("getShareMode returns nulls when team row absent", async () => {
   assert.deepEqual(result, {
     mode: null,
     enabledAt: null,
-    gitRemoteUrl: null,
-    gitAuthKind: null,
   });
 });
 
@@ -718,7 +682,7 @@ test("getShareMode maps team columns to camelCase", async () => {
   const repo = createRepo(fakeSupabase({
     tableData: {
       teams: [{
-        share_mode: "managed_git",
+        share_mode: "oss",
         share_enabled_at: "2026-05-28T03:00:00Z",
         git_remote_url: "https://git.example.com/repo.git",
         git_auth_kind: "https_token",
@@ -727,10 +691,8 @@ test("getShareMode maps team columns to camelCase", async () => {
   }));
   const result = await repo.getShareMode("team-3");
   assert.deepEqual(result, {
-    mode: "managed_git",
+    mode: "oss",
     enabledAt: "2026-05-28T03:00:00Z",
-    gitRemoteUrl: "https://git.example.com/repo.git",
-    gitAuthKind: "https_token",
   });
 });
 
@@ -1113,7 +1075,7 @@ test("getWorkspaceConfig merges teams + team_workspace_config rows", async () =>
   const repo = createRepo(fakeSupabase({
     tableData: {
       teams: [{
-        share_mode: "custom_git",
+        share_mode: "oss",
         git_remote_url: "https://example.com/repo.git",
         git_auth_kind: "https_token",
       }],
@@ -1133,9 +1095,7 @@ test("getWorkspaceConfig merges teams + team_workspace_config rows", async () =>
   // the stored, authoritative per-team list; `availableModels` is the optional
   // gateway picker source and stays empty when no gateway answers.
   assert.deepEqual(result, {
-    shareMode: "custom_git",
-    gitRemoteUrl: "https://example.com/repo.git",
-    gitAuthKind: "https_token",
+    shareMode: "oss",
     syncMode: "git",
     litellmTeamId: "litellm-team-zzz",
     llm: {
@@ -1155,8 +1115,6 @@ test("getWorkspaceConfig returns nulls when both rows absent", async () => {
   const result = await repo.getWorkspaceConfig("team-7");
   assert.deepEqual(result, {
     shareMode: null,
-    gitRemoteUrl: null,
-    gitAuthKind: null,
     syncMode: null,
     litellmTeamId: null,
     // Absent config means LLM disabled, not "unknown": the client renders the
@@ -1917,13 +1875,13 @@ const APP_ROW = {
   updated_at: "2026-06-13T00:00:00Z",
 };
 
-test("apps: mapApp exposes exactly the 12 canonical keys", async () => {
+test("apps: mapApp exposes exactly the 13 canonical keys", async () => {
   const repo = appsRepo(appsSupabase({ seed: { apps: [APP_ROW] } }));
   const items = await repo.listApps({ teamId: "team-1", limit: 100 });
   assert.equal(items.length, 1);
   assert.deepEqual(Object.keys(items[0]).sort(), [
     "createdAt", "fcStatus", "fcEndpoint", "fcFunctionName", "fcRegion",
-    "gitRemoteUrl", "id", "name", "provisionStatus",
+    "id", "name", "provisionStatus",
     "slug", "teamId", "type", "updatedAt", "visibility", "workspaceId",
   ].sort());
   assert.equal(items[0].teamId, "team-1");
@@ -1974,7 +1932,6 @@ test("apps: createApp inserts a pending app with no repo", async () => {
   const repo = appsRepo(appsSupabase({}));
   const app = await repo.createApp({ teamId: "team-1", name: "My App", type: "slides", visibility: "personal" });
   assert.equal(app.provisionStatus, "pending");
-  assert.equal(app.gitRemoteUrl, null);
 });
 
 test("apps: updateApp returns null when no row updated (RLS non-creator)", async () => {
@@ -2373,37 +2330,4 @@ test("createSession returns 403 when the caller is not a member of the team", as
     () => repo.createSession({ id: "sess-x", teamId: "team-1", title: "Nope" }),
     (err: any) => err?.statusCode === 403,
   );
-});
-
-test("apps: getManagedGitCredential returns creds for a member, null for non-member", async () => {
-  const prevPat = process.env.CODEUP_PAT;
-  const prevBot = process.env.CODEUP_BOT_USERNAME;
-  process.env.CODEUP_PAT = "pt-secret";
-  process.env.CODEUP_BOT_USERNAME = "teamclu";
-  try {
-    const memberRepo = appsRepo(appsSupabase({ actorRow: { id: "actor-app-1" } }));
-    const cred = await memberRepo.getManagedGitCredential("team-1");
-    assert.deepEqual(cred, { username: "teamclu", token: "pt-secret" });
-
-    const nonMemberRepo = appsRepo(appsSupabase({ actorRow: null }));
-    const denied = await nonMemberRepo.getManagedGitCredential("team-1");
-    assert.equal(denied, null);
-  } finally {
-    if (prevPat === undefined) delete process.env.CODEUP_PAT; else process.env.CODEUP_PAT = prevPat;
-    if (prevBot === undefined) delete process.env.CODEUP_BOT_USERNAME; else process.env.CODEUP_BOT_USERNAME = prevBot;
-  }
-});
-
-test("apps: getManagedGitCredential throws 503 when managed-git unconfigured", async () => {
-  const prevPat = process.env.CODEUP_PAT;
-  delete process.env.CODEUP_PAT;
-  try {
-    const repo = appsRepo(appsSupabase({ actorRow: { id: "actor-app-1" } }));
-    await assert.rejects(
-      () => repo.getManagedGitCredential("team-1"),
-      (err: any) => err?.code === "managed_git_unavailable" && err?.statusCode === 503,
-    );
-  } finally {
-    if (prevPat === undefined) delete process.env.CODEUP_PAT; else process.env.CODEUP_PAT = prevPat;
-  }
 });

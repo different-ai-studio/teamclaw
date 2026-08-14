@@ -73,6 +73,5 @@ describe('KnowledgeBrowser', () => {
     expect(props).not.toHaveProperty('rootPath')
     expect(props).not.toHaveProperty('rootPaths')
     expect(props).not.toHaveProperty('rootLabels')
-    expect(props.hideGitStatus).toBe(false)
   })
 })

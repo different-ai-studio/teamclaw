@@ -147,14 +147,6 @@ fn show_status() -> anyhow::Result<()> {
                     "Team secret:    {}",
                     mask_secret(s.oss_team_secret.as_deref())
                 );
-                println!(
-                    "Git credential: {}",
-                    mask_secret(s.git_credential.as_deref())
-                );
-                println!(
-                    "Git branch:     {}",
-                    s.git_branch.as_deref().unwrap_or("(unset)")
-                );
             }
         }
     }
@@ -540,14 +532,6 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
         "  team_secret:    {}",
         mask_secret(current.oss_team_secret.as_deref())
     );
-    println!(
-        "  git_credential: {}",
-        mask_secret(current.git_credential.as_deref())
-    );
-    println!(
-        "  git_branch:     {}",
-        current.git_branch.as_deref().unwrap_or("(unset)")
-    );
     println!();
     println!("Leave a field blank to keep the stored value.");
 
@@ -556,16 +540,7 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
         validate_team_secret(s).map_err(|e| anyhow::anyhow!("team secret: {e}"))?;
     }
 
-    let git_credential =
-        prompt_optional_secret(theme, "Git credential (user:token or SSH key PEM)")?;
-    let git_branch: String = Input::with_theme(theme)
-        .with_prompt("Git branch")
-        .allow_empty(true)
-        .default(current.git_branch.clone().unwrap_or_default())
-        .interact_text()?;
-    let git_branch = git_branch.trim().to_string();
-
-    if team_secret.is_none() && git_credential.is_none() && git_branch.is_empty() {
+    if team_secret.is_none() {
         println!("Nothing to save.");
         return Ok(());
     }
@@ -573,12 +548,6 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
     let incoming = TeamSecrets {
         oss_team_secret: team_secret,
         user_jwt: None,
-        git_credential,
-        git_branch: if git_branch.is_empty() {
-            None
-        } else {
-            Some(git_branch)
-        },
         channel_secrets: Default::default(),
     };
     store

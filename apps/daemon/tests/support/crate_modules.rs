@@ -37,8 +37,6 @@ mod sync;
 mod team_link;
 #[path = "../../src/team_shared_env.rs"]
 mod team_shared_env;
-#[path = "../../src/team_shared_git.rs"]
-mod team_shared_git;
 // Not used by the tests in this crate directly. The modules above carry their
 // own `#[cfg(test)]` blocks, which an integration-test crate *does* compile,
 // and those name `crate::test_brand_env` — which resolves against THIS root,

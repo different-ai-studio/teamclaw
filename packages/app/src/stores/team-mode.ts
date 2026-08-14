@@ -4,7 +4,6 @@ import { TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
 import { getBackend } from '@/lib/backend'
 import { useProviderStore } from './provider'
 import { useWorkspaceStore } from './workspace'
-import { useTeamShareStore } from './team-share'
 import { useCurrentTeamStore } from './current-team'
 import { isTauri } from '@/lib/utils'
 import { workspaceScopedKey } from '@/lib/storage'
@@ -129,17 +128,9 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
         set({ teamGitLastSyncAt: teamConfig?.lastSyncAt ?? null })
       } catch { /* ignore */ }
     }
-    // The team share mode is owned by the cloud (`team-share` store). Git-backed
-    // file-sync status only applies to managed_git / custom_git share modes.
-    const shareMode = useTeamShareStore.getState().status.mode
-    const isGitShareMode = shareMode === 'managed_git' || shareMode === 'custom_git'
-    // We still load the LLM provider config below; it is gated on whether the
+    // We load the LLM provider config below; it is gated on whether the
     // workspace has any team LLM config, independent of share mode.
     {
-      if (isGitShareMode && _workspacePath) {
-        // Fire-and-forget; errors swallowed inside action
-        get().loadTeamGitFileSyncStatus(_workspacePath)
-      }
       // The cloud (`GET /v1/teams/:id/workspace-config` → `llm`) is the sole
       // source of truth for the team's shared model list. The daemon materializes
       // `opencode.json`'s `provider.team` directly from the cloud too, so there is

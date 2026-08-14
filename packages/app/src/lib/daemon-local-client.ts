@@ -1162,6 +1162,21 @@ export async function reloadDaemonRuntime(
   return result.ok ? result.data.outcome : null
 }
 
+/** Queue runtime refresh kinds for idle auto-apply (does not reload immediately). */
+export async function notifyDaemonRuntimePendingChanges(
+  workspaceId: string,
+  changeKinds: string[],
+): Promise<boolean> {
+  const result = await daemonFetch<{ ok: boolean }>(
+    `/v1/workspaces/${workspaceId}/runtime/pending-changes`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ change_kinds: changeKinds }),
+    },
+  )
+  return result.ok
+}
+
 export interface DaemonEnvActivationBlocker {
   code: string
   detail?: string | null

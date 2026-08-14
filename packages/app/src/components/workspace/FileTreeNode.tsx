@@ -4,7 +4,6 @@ import {
   ChevronRight,
   File,
   Loader2,
-  Circle,
   Pencil,
   Terminal,
   FilePlus,
@@ -25,10 +24,11 @@ import { TEAM_REPO_DIR } from '@/lib/build-config';
 import { ObsidianIcon } from '@/components/knowledge/ObsidianIcon';
 import { useTeamPermissions } from '@/lib/team-permissions';
 import { useTabsStore } from '@/stores/tabs';
+import { useCurrentTeamStore } from '@/stores/current-team';
+import { useVersionHistoryStore } from '@/stores/version-history';
+import { encodeVersionHistoryTarget } from '@/lib/tabs/teamshare-target';
 import { getFileIcon } from '@/lib/file-icons';
-import { getGitStatusIndicator, getGitStatusTextColor } from '@/lib/git-status-utils';
 import { formatDateTime, formatRelativeTime } from '@/lib/date-format';
-import { GitStatus } from "@/lib/git/service";
 import type { FileNode } from "@/stores/workspace";
 import {
   ContextMenu,
@@ -38,6 +38,25 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
+
+/**
+ * Open version history for one file.
+ *
+ * The path goes into the target rather than into shared store state: a tab is
+ * addressed by its target string, so two files' histories can be open at once
+ * and neither depends on what happens to be selected. The store preselect is
+ * only so the view has data before its own effect runs.
+ */
+export function openVersionHistory(path: string, label: string) {
+  const teamId = useCurrentTeamStore.getState().team?.id;
+  useVersionHistoryStore.getState().selectFile(path);
+  if (teamId) void useVersionHistoryStore.getState().loadFileVersions(teamId, path);
+  useTabsStore.getState().openTab({
+    type: "native",
+    target: encodeVersionHistoryTarget(path),
+    label,
+  });
+}
 
 function getSyncStatusTextColor(status: 'synced' | 'modified' | 'new' | 'conflict'): string {
   switch (status) {
@@ -155,15 +174,11 @@ export interface FileTreeItemProps {
   isFocused: boolean;
   isExpanded: boolean;
   isLoading: boolean;
-  hasGitChanges: boolean;
-  gitStatus: GitStatus | null;
-  showStatusIcons: boolean;
-  statusColors: Record<GitStatus, string>;
   isRenaming: boolean;
   isDragOver: boolean;
   /** Whether this is the root teamclu-team directory (for visual styling) */
   isTeamCluTeam?: boolean;
-  /** Whether the team directory is currently syncing (Git mode) */
+  /** Whether the team directory is currently syncing */
   teamSyncing?: boolean;
   /** ISO timestamp of last successful team repo sync (for relative-time label) */
   teamLastSyncAt?: string | null;
@@ -210,10 +225,6 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   isFocused,
   isExpanded,
   isLoading,
-  hasGitChanges,
-  gitStatus,
-  showStatusIcons,
-  statusColors,
   isRenaming,
   isDragOver,
   isTeamCluTeam,
@@ -346,7 +357,6 @@ export const FileTreeItem = React.memo(function FileTreeItem({
           "ring-1 ring-inset ring-primary/40 bg-primary/5",
         isDragOver && isDirectory &&
           "bg-primary/20 ring-2 ring-inset ring-primary/40",
-        hasGitChanges && !isSelected && !isFocused && "git-status-changed",
         isCutTarget && "opacity-50",
       )}
       style={{ paddingLeft: `${level * 12 + 8}px` }}
@@ -368,11 +378,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
         <FileIcon
           className={cn(
             "h-4 w-4 shrink-0",
-            gitStatus
-              ? getGitStatusTextColor(gitStatus, statusColors)
-              : syncStatus
-                ? getSyncStatusTextColor(syncStatus)
-                : fileIconColor,
+            syncStatus ? getSyncStatusTextColor(syncStatus) : fileIconColor,
           )}
         />
       )}
@@ -390,37 +396,12 @@ export const FileTreeItem = React.memo(function FileTreeItem({
       <span
         className={cn(
           "pr-2 flex-1",
-          gitStatus && getGitStatusTextColor(gitStatus, statusColors),
-          !gitStatus && syncStatus && getSyncStatusTextColor(syncStatus),
-          gitStatus === GitStatus.DELETED && "line-through opacity-70",
-          hasGitChanges && isDirectory && "text-amber-500",
-          !hasGitChanges && isDirectory && syncStatus && getSyncStatusTextColor(syncStatus),
+          syncStatus && getSyncStatusTextColor(syncStatus),
         )}
       >
         {displayName}
       </span>
 
-      {hasGitChanges &&
-        !isDirectory &&
-        (() => {
-          if (showStatusIcons && gitStatus) {
-            const {
-              Icon: StatusIcon,
-              color,
-              label,
-            } = getGitStatusIndicator(gitStatus, statusColors, t);
-            return (
-              <StatusIcon
-                className={cn("h-3 w-3 shrink-0", color)}
-                aria-label={label}
-              />
-            );
-          }
-          return null;
-        })()}
-      {hasGitChanges && isDirectory && (
-        <Circle className="h-1.5 w-1.5 fill-amber-500 text-amber-500 shrink-0" />
-      )}
       {isTeamCluTeam && !teamSyncing && teamLastSyncAt && (
         <span
           className="ml-auto pl-2 text-[10px] text-muted-foreground/70 font-normal shrink-0"
@@ -510,13 +491,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
         )}
         {!isDirectory && (
           <ContextMenuItem
-            onSelect={guardedMenuAction(() => {
-              useTabsStore.getState().openTab({
-                type: "native",
-                target: "version-history",
-                label: t("versionHistory.title", "Version history"),
-              })
-            })}
+            onSelect={guardedMenuAction(() => openVersionHistory(node.path, t("versionHistory.title", "Version history")))}
           >
             <History className="h-4 w-4" />
             {t("versionHistory.title", "Version history")}

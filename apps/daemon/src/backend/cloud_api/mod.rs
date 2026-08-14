@@ -4,9 +4,9 @@ mod messages;
 
 use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BackendSessionAndParticipants,
-    BootstrapMqttOverride, ClaimResult, CloudAuthSnapshot, GatewaySessionRow, ManagedGitCredential,
-    ManagedLlmConfig, ManagedLlmModelInfo, ShareModeConfig, StoredMessage, TeamEnvSecretRow,
-    TeamSkillDownload, TeamSkillRow, WorkspaceRow, WorkspaceUpsert,
+    BootstrapMqttOverride, ClaimResult, CloudAuthSnapshot, GatewaySessionRow, ManagedLlmConfig,
+    ManagedLlmModelInfo, ShareModeConfig, StoredMessage, TeamEnvSecretRow, TeamSkillDownload,
+    TeamSkillRow, WorkspaceRow, WorkspaceUpsert,
 };
 use crate::provider_config::CloudApiConfig;
 use async_trait::async_trait;
@@ -86,35 +86,18 @@ impl BootstrapMqttPayload {
 }
 
 /// Wire shape of `GET /v1/teams/:id/share-mode`. The FC handler returns
-/// `{ mode, enabledAt, gitRemoteUrl, gitAuthKind }` (see
-/// `services/fc/src/lib/pg-repo/teams.ts::getShareMode` and the Supabase repo
-/// equivalent). `enabledAt` is ignored — the daemon only needs the sync config.
-/// The endpoint does not return a git branch.
+/// `{ mode, enabledAt }` (see `services/fc/src/lib/pg-repo/teams.ts::getShareMode`
+/// and the Supabase repo equivalent). `enabledAt` is ignored — the daemon only
+/// needs the sync config.
 #[derive(Debug, Deserialize)]
 struct ShareModeResponse {
     #[serde(default)]
     mode: Option<String>,
-    #[serde(default, rename = "gitRemoteUrl")]
-    git_remote_url: Option<String>,
-    #[serde(default, rename = "gitAuthKind")]
-    git_auth_kind: Option<String>,
 }
 
 impl From<ShareModeResponse> for ShareModeConfig {
     fn from(r: ShareModeResponse) -> Self {
-        // `mode: null` ⇒ team-share not enabled ⇒ no usable git config; collapse
-        // to the all-`None` default regardless of any stray git fields.
-        if r.mode.is_none() {
-            return ShareModeConfig::default();
-        }
-        ShareModeConfig {
-            mode: r.mode,
-            git_remote_url: r.git_remote_url,
-            // The share-mode endpoint does not surface a branch (see
-            // `ShareModeConfig`); always `None` here.
-            git_branch: None,
-            git_auth_kind: r.git_auth_kind,
-        }
+        ShareModeConfig { mode: r.mode }
     }
 }
 
@@ -625,11 +608,6 @@ impl Backend for CloudApiBackend {
         }
     }
 
-    async fn managed_git_credential(&self, team_id: &str) -> BackendResult<ManagedGitCredential> {
-        self.get(&format!("/v1/teams/{team_id}/managed-git-credential"))
-            .await
-    }
-
     async fn managed_llm_config(&self, team_id: &str) -> BackendResult<ManagedLlmConfig> {
         #[derive(serde::Deserialize)]
         struct ModelEntry {
@@ -848,14 +826,17 @@ impl Backend for CloudApiBackend {
     async fn ensure_agent_types(
         &self,
         supported_types: &[String],
-        default_agent_type: &str,
+        default_agent_type: Option<&str>,
     ) -> BackendResult<()> {
         #[derive(serde::Serialize)]
         struct Body<'a> {
             #[serde(rename = "supportedTypes")]
             supported_types: &'a [String],
+            // Null, not omitted: the server reads it as "clear the default"
+            // rather than "unchanged". Omitting it would be indistinguishable
+            // from an old client that never had the field.
             #[serde(rename = "defaultAgentType")]
-            default_agent_type: &'a str,
+            default_agent_type: Option<&'a str>,
         }
         let token = self.access_token().await?;
         let resp = self
@@ -2101,10 +2082,29 @@ mod tests {
         backend
             .ensure_agent_types(
                 &["claude_code".to_string(), "shell".to_string()],
-                "claude_code",
+                Some("claude_code"),
             )
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn ensure_agent_types_can_clear_the_row() {
+        // "This device runs nothing" has to reach the cloud, or the row keeps
+        // the last runtime that worked and every client badges it.
+        let server = MockServer::start().await;
+        mount_refresh(&server).await;
+        Mock::given(method("POST"))
+            .and(path("/v1/agents/types/ensure"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "supportedTypes": [],
+                "defaultAgentType": null,
+            })))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+        let backend = CloudApiBackend::new(config(&server));
+        backend.ensure_agent_types(&[], None).await.unwrap();
     }
 
     #[tokio::test]
@@ -2525,29 +2525,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn team_share_config_parses_custom_git_response() {
+    async fn team_share_config_parses_oss_response() {
         let server = MockServer::start().await;
         mount_refresh(&server).await;
         Mock::given(method("GET"))
             .and(path("/v1/teams/team-1/share-mode"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "mode": "custom_git",
-                "enabledAt": "2026-06-01T00:00:00Z",
-                "gitRemoteUrl": "git@example.com:team/repo.git",
-                "gitAuthKind": "ssh_key"
+                "mode": "oss",
+                "enabledAt": "2026-06-01T00:00:00Z"
             })))
             .mount(&server)
             .await;
         let backend = CloudApiBackend::new(config(&server));
         let cfg = backend.team_share_config("team-1").await.unwrap();
-        assert_eq!(cfg.mode.as_deref(), Some("custom_git"));
-        assert_eq!(
-            cfg.git_remote_url.as_deref(),
-            Some("git@example.com:team/repo.git")
-        );
-        assert_eq!(cfg.git_auth_kind.as_deref(), Some("ssh_key"));
-        // FC's share-mode endpoint does not return a branch.
-        assert_eq!(cfg.git_branch, None);
+        assert_eq!(cfg.mode.as_deref(), Some("oss"));
     }
 
     #[tokio::test]
@@ -2558,18 +2549,13 @@ mod tests {
             .and(path("/v1/teams/team-1/share-mode"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "mode": null,
-                "enabledAt": null,
-                "gitRemoteUrl": null,
-                "gitAuthKind": null
+                "enabledAt": null
             })))
             .mount(&server)
             .await;
         let backend = CloudApiBackend::new(config(&server));
         let cfg = backend.team_share_config("team-1").await.unwrap();
         assert_eq!(cfg.mode, None);
-        assert_eq!(cfg.git_remote_url, None);
-        assert_eq!(cfg.git_auth_kind, None);
-        assert_eq!(cfg.git_branch, None);
     }
 
     #[tokio::test]

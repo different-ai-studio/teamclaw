@@ -27,7 +27,7 @@ use super::records::{
 };
 use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BootstrapMqttOverride, CloudAuthSnapshot,
-    ManagedGitCredential, ManagedLlmConfig, ShareModeConfig, TeamSkillDownload, TeamSkillRow,
+    ManagedLlmConfig, ShareModeConfig, TeamSkillDownload, TeamSkillRow,
 };
 
 /// Error returned by every business call before onboarding completes.
@@ -156,10 +156,6 @@ impl Backend for DeferredBackend {
         self.inner()?.team_share_config(team_id).await
     }
 
-    async fn managed_git_credential(&self, team_id: &str) -> BackendResult<ManagedGitCredential> {
-        self.inner()?.managed_git_credential(team_id).await
-    }
-
     async fn managed_llm_config(&self, team_id: &str) -> BackendResult<ManagedLlmConfig> {
         self.inner()?.managed_llm_config(team_id).await
     }
@@ -180,7 +176,9 @@ impl Backend for DeferredBackend {
         slug: &str,
         version: i64,
     ) -> BackendResult<TeamSkillDownload> {
-        self.inner()?.team_skill_download(team_id, slug, version).await
+        self.inner()?
+            .team_skill_download(team_id, slug, version)
+            .await
     }
 
     async fn record_team_skill_install(
@@ -234,7 +232,7 @@ impl Backend for DeferredBackend {
     async fn ensure_agent_types(
         &self,
         supported_types: &[String],
-        default_agent_type: &str,
+        default_agent_type: Option<&str>,
     ) -> BackendResult<()> {
         self.inner()?
             .ensure_agent_types(supported_types, default_agent_type)

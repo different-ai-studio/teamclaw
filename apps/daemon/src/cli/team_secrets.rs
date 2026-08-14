@@ -6,7 +6,6 @@
 //! secrets up on its next sync tick without a reload signal.
 
 use std::io::Write;
-use std::path::PathBuf;
 
 use crate::config::DaemonConfig;
 use crate::sync::secret_store::{validate_team_secret, SecretStore, TeamSecrets};
@@ -19,16 +18,7 @@ pub fn run(args: TeamArgs) -> anyhow::Result<()> {
         TeamSecretsAction::Set {
             team_id,
             team_secret,
-            git_credential,
-            git_credential_file,
-            git_branch,
-        } => set(
-            team_id,
-            team_secret,
-            git_credential,
-            git_credential_file,
-            git_branch,
-        ),
+        } => set(team_id, team_secret),
         TeamSecretsAction::Show { team_id } => show(team_id),
         TeamSecretsAction::Clear { team_id, force } => clear(team_id, force),
     }
@@ -62,37 +52,16 @@ fn resolve_team_id(explicit: Option<String>) -> anyhow::Result<String> {
         })
 }
 
-fn set(
-    team_id: Option<String>,
-    team_secret: Option<String>,
-    git_credential: Option<String>,
-    git_credential_file: Option<PathBuf>,
-    git_branch: Option<String>,
-) -> anyhow::Result<()> {
+fn set(team_id: Option<String>, team_secret: Option<String>) -> anyhow::Result<()> {
     let team_id = resolve_team_id(team_id)?;
-
-    let git_credential = match (git_credential, git_credential_file) {
-        (Some(c), _) => Some(c),
-        // Trailing newlines are near-universal in key files and would corrupt
-        // an SSH PEM or an https `user:token` pair.
-        (None, Some(path)) => Some(
-            std::fs::read_to_string(&path)
-                .map_err(|e| anyhow::anyhow!("read {}: {e}", path.display()))?
-                .trim_end()
-                .to_string(),
-        ),
-        (None, None) => None,
-    };
 
     let team_secret = team_secret.map(|s| s.trim().to_string());
     if let Some(s) = &team_secret {
         validate_team_secret(s).map_err(|e| anyhow::anyhow!("--team-secret: {e}"))?;
     }
 
-    if team_secret.is_none() && git_credential.is_none() && git_branch.is_none() {
-        anyhow::bail!(
-            "nothing to set: pass --team-secret, --git-credential/--git-credential-file, or --git-branch"
-        );
+    if team_secret.is_none() {
+        anyhow::bail!("nothing to set: pass --team-secret");
     }
 
     let incoming = TeamSecrets {
@@ -100,8 +69,6 @@ fn set(
         // The daemon self-supplies its own cloud bearer for OSS sync, so this
         // field is intentionally not settable here.
         user_jwt: None,
-        git_credential,
-        git_branch,
         channel_secrets: Default::default(),
     };
 
@@ -126,11 +93,6 @@ fn show(team_id: Option<String>) -> anyhow::Result<()> {
 fn print_state(store: &SecretStore, team_id: &str) -> anyhow::Result<()> {
     let s = store.load(team_id).map_err(|e| anyhow::anyhow!("{e}"))?;
     println!("  team_secret    = {}", mask(s.oss_team_secret.as_deref()));
-    println!("  git_credential = {}", mask(s.git_credential.as_deref()));
-    println!(
-        "  git_branch     = {}",
-        s.git_branch.as_deref().unwrap_or("(unset)")
-    );
     Ok(())
 }
 

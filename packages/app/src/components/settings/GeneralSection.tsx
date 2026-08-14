@@ -30,6 +30,7 @@ import { useMqttReconnectStore, recoverMqttConnection } from '@/stores/mqtt-reco
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { getBackend } from '@/lib/backend'
 import { SettingCard, SectionHeader, ToggleSwitch } from './shared'
+import { TeamDefaultAgentCard } from './TeamDefaultAgentCard'
 import { useAcpDebugStore } from '@/stores/acp-debug-store'
 import { appStoragePrefix, buildConfig } from '@/lib/build-config'
 import { NOTIFICATION_LEVEL_KEY } from '@/lib/notification-service'
@@ -279,6 +280,8 @@ export const GeneralSection = React.memo(function GeneralSection() {
           </div>
         </SettingCard>
       ) : null}
+
+      <TeamDefaultAgentCard />
 
       <SettingCard>
         <h4 className="font-medium mb-4 flex items-center gap-2">

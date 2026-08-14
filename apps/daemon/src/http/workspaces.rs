@@ -1126,6 +1126,58 @@ pub struct RuntimeEnvDiagnosticsQuery {
     pub team_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PendingRuntimeChangesBody {
+    pub change_kinds: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PendingRuntimeChangesResponse {
+    pub ok: bool,
+    pub recorded: Vec<String>,
+}
+
+/// `POST /v1/workspaces/:id/runtime/pending-changes`
+///
+/// Queue refresh kinds for idle auto-apply without immediately reloading.
+pub async fn record_pending_runtime_changes(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Path(workspace_id): Path<String>,
+    Json(body): Json<PendingRuntimeChangesBody>,
+) -> Result<Json<PendingRuntimeChangesResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let workspace_path = decode_workspace_path(&workspace_id).map_err(map_control_err)?;
+    let kinds = crate::runtime::refresh::parse_refresh_change_kinds(&body.change_kinds);
+    if kinds.is_empty() {
+        return Err(HttpError::validation(
+            "change_kinds must include at least one known kind",
+        ));
+    }
+
+    let Some(refresh) = state.runtime_refresh.as_ref() else {
+        return Err(HttpError::runtime_unavailable(
+            "runtime refresh coordinator unavailable",
+        ));
+    };
+
+    let mut recorded = Vec::new();
+    for kind in kinds {
+        refresh
+            .record_change(
+                &workspace_id,
+                &workspace_path,
+                kind,
+                RefreshSource::UiMutation,
+            )
+            .await
+            .map_err(|e| HttpError::internal(e.to_string()))?;
+        recorded.push(kind.as_str().to_string());
+    }
+
+    Ok(Json(PendingRuntimeChangesResponse { ok: true, recorded }))
+}
+
 /// `POST /v1/workspaces/:id/runtime/reload`
 pub async fn reload_runtime(
     principal: Principal,

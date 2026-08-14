@@ -71,24 +71,13 @@ pub struct BootstrapMqttOverride {
 #[cfg(test)]
 pub mod mock;
 
-/// A team's share-mode + git configuration, as sourced from the TeamClu Cloud
-/// API (`GET /v1/teams/:id/share-mode`). `mode == None` means team-share has not
+/// A team's share-mode configuration, as sourced from the TeamClu Cloud API
+/// (`GET /v1/teams/:id/share-mode`). `mode == None` means team-share has not
 /// been enabled for this team yet (the daemon should treat this as "no sync").
-///
-/// Note: the FC `share-mode` endpoint does not surface the git branch (the
-/// `git_branch` column lives on `team_workspace_config` and is not selected by
-/// `getShareMode`/`getWorkspaceConfig`), so `git_branch` is presently always
-/// `None`. The field is kept so a future FC endpoint can populate it without a
-/// signature change.
 #[derive(Debug, Clone, Default)]
 pub struct ShareModeConfig {
-    /// `"oss" | "managed_git" | "custom_git"`; `None` when team-share is not
-    /// enabled.
+    /// `"oss"`; `None` when team-share is not enabled.
     pub mode: Option<String>,
-    pub git_remote_url: Option<String>,
-    pub git_branch: Option<String>,
-    /// `"ssh_key" | "https_token"` for `custom_git`; `None` otherwise.
-    pub git_auth_kind: Option<String>,
 }
 
 /// One model exposed by the team's managed LLM gateway.
@@ -178,16 +167,6 @@ pub struct ManagedLlmConfig {
 /// The gateway path uses these to spawn the daemon's agent with its configured
 /// backend type and working directory instead of the daemon-wide fallback type
 /// and a throwaway scratch dir. All-`None` means "no override; use defaults".
-/// The team-scoped managed-git credential, as sourced from the TeamClu Cloud
-/// API (`GET /v1/teams/:id/managed-git-credential`). Used to authenticate the
-/// daemon's per-app git push/clone against the team's managed-git remote.
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ManagedGitCredential {
-    pub username: String,
-    pub token: String,
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct AgentDefaults {
     /// `"claude" | "opencode" | "codex"`; `None` when unset.
@@ -251,16 +230,11 @@ pub trait Backend: Send + Sync {
         Ok(None)
     }
 
-    /// Fetch a team's share-mode + git config from the Cloud API. A team that
-    /// has not yet enabled team-share resolves to `ShareModeConfig::default()`
+    /// Fetch a team's share-mode config from the Cloud API. A team that has not
+    /// yet enabled team-share resolves to `ShareModeConfig::default()`
     /// (all `None`) rather than an error. No default impl: both backends must
     /// implement it since the semantics differ (HTTP fetch vs. in-memory stub).
     async fn team_share_config(&self, team_id: &str) -> BackendResult<ShareModeConfig>;
-
-    /// Fetch the team-scoped managed-git credential from the cloud API
-    /// (`GET /v1/teams/:id/managed-git-credential`). Used by the app-seed path
-    /// to authenticate the daemon's git operations against the managed remote.
-    async fn managed_git_credential(&self, team_id: &str) -> BackendResult<ManagedGitCredential>;
 
     /// Fetch the team's managed (shared) LLM config from the Cloud API
     /// (`GET /v1/teams/:id/workspace-config` → `llm.*`). Used to materialize
@@ -384,10 +358,15 @@ pub trait Backend: Send + Sync {
     ) -> BackendResult<Option<String>>;
 
     /// Advertise daemon-supported agent backend types on its `agents` row.
+    ///
+    /// An empty `supported_types` with `None` default is a real, meaningful
+    /// advertise: "this device runs nothing right now". Skipping the call in
+    /// that case leaves the last successful answer standing on the row, and
+    /// clients keep badging a runtime this machine can no longer start.
     async fn ensure_agent_types(
         &self,
         supported_types: &[String],
-        default_agent_type: &str,
+        default_agent_type: Option<&str>,
     ) -> BackendResult<()>;
 
     /// Look up `agent_member_access.permission_level` for a caller.

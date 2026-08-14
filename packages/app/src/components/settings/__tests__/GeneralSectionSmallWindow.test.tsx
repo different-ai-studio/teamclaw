@@ -93,6 +93,12 @@ vi.mock('../shared', () => ({
   ),
 }))
 
+// GeneralSection mounts TeamDefaultAgentCard → useActorDirectory → getBackend().
+// Without a cloud URL that throws an unhandled rejection and fails the suite.
+vi.mock('../TeamDefaultAgentCard', () => ({
+  TeamDefaultAgentCard: () => null,
+}))
+
 describe('GeneralSection small-window setting', () => {
   beforeEach(() => {
     vi.resetModules()

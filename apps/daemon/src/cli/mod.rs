@@ -155,12 +155,9 @@ pub struct TeamArgs {
 pub enum TeamAction {
     /// Provision the secrets a headless daemon cannot obtain on its own.
     ///
-    /// Two unrelated things live here. `--team-secret` decrypts the team's
-    /// shared env vars (`_secrets/`) and is needed under EVERY share mode; it
-    /// is user-held and has no server-side copy. `--git-credential` logs in to
-    /// a `custom_git` remote; `managed_git` needs no credential here because
-    /// the daemon fetches that one from the cloud — but it still needs
-    /// `--team-secret`.
+    /// `--team-secret` decrypts the team's shared env vars (`_secrets/`) and
+    /// encrypts OSS blobs. It is user-held and has no server-side copy, so a
+    /// headless install can only be handed one here.
     Secrets(TeamSecretsArgs),
 }
 
@@ -179,23 +176,10 @@ pub enum TeamSecretsAction {
         /// Team to write. Defaults to `team_id` from daemon.toml.
         #[arg(long)]
         team_id: Option<String>,
-        /// Team secret, 64 hex chars. Decrypts the team's shared env vars
-        /// under every share mode, and encrypts blobs under `oss`.
+        /// Team secret, 64 hex chars. Decrypts the team's shared env vars and
+        /// encrypts the blobs OSS sync uploads.
         #[arg(long, alias = "oss-secret")]
         team_secret: Option<String>,
-        /// Git credential for a `custom_git` remote: `user:token` when the
-        /// team's auth kind is https_token, or an SSH private key when it is
-        /// ssh_key. Not needed for `managed_git`.
-        #[arg(long)]
-        git_credential: Option<String>,
-        /// Read the git credential from a file, e.g. an SSH private key.
-        /// Avoids putting it in shell history.
-        #[arg(long, conflicts_with = "git_credential")]
-        git_credential_file: Option<PathBuf>,
-        /// Branch for git-backed sync. The cloud API does not carry this, so
-        /// without it git falls back to the remote's default branch.
-        #[arg(long)]
-        git_branch: Option<String>,
     },
     /// Show which secrets are set. Values are masked.
     Show {

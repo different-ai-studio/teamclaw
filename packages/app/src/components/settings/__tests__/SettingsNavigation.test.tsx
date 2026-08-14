@@ -89,9 +89,9 @@ describe('Settings navigation', () => {
     // Desktop group expanded by default (active section is general).
     expect(screen.getByTestId('client-subnav')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Shortcuts' })).toBeInTheDocument()
-    // Team Shared stays: onboarding moved to the Knowledge column, but sync
-    // status / git remote / disconnect are reachable only from here.
-    expect(screen.getByRole('button', { name: 'Team Shared' })).toBeInTheDocument()
+    // Team Shared is gone: sync is always on, so there is nothing to enable and
+    // no mode to pick.
+    expect(screen.queryByRole('button', { name: 'Team Shared' })).toBeNull()
 
     // Daemon / Local Agent present but collapsed until expanded.
     fireEvent.click(daemonButton)

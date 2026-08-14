@@ -22,7 +22,7 @@ pub fn run() -> anyhow::Result<()> {
         let cursor = s.spawn(crate::cursor_install::doctor);
         let claude = s.spawn(crate::claude_install::doctor);
         // A panicking probe must not take the whole report down with it: the
-        // caller still needs opencode/amuxd/git status to render anything.
+        // caller still needs opencode/amuxd status to render anything.
         (pi.join().ok(), cursor.join().ok(), claude.join().ok())
     });
     report.pi = pi;

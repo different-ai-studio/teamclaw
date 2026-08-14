@@ -22,8 +22,6 @@ interface TeamSharedFilesBrowserProps {
   hidePanelToolbar?: boolean
   filterText?: string
   onFilterTextChange?: (value: string) => void
-  gitChangedOnly?: boolean
-  onGitChangedOnlyChange?: (value: boolean) => void
   searchExpanded?: boolean
   onSearchExpandedChange?: (value: boolean) => void
 }
@@ -32,8 +30,6 @@ export function TeamSharedFilesBrowser({
   hidePanelToolbar = false,
   filterText,
   onFilterTextChange,
-  gitChangedOnly,
-  onGitChangedOnlyChange,
   searchExpanded,
   onSearchExpandedChange,
 }: TeamSharedFilesBrowserProps = {}) {
@@ -118,9 +114,6 @@ export function TeamSharedFilesBrowser({
     }
   }, [resolveDirState])
 
-  const isGitShare =
-    shareMode === 'managed_git' || shareMode === 'custom_git'
-
   const isOssShare = shareMode === 'oss'
 
   const handleGitSync = React.useCallback(async () => {
@@ -183,7 +176,7 @@ export function TeamSharedFilesBrowser({
   const syncBusy = syncing || ossSyncing
 
   const syncIcon =
-    isGitShare || isOssShare ? (
+    isOssShare ? (
       <Tooltip>
         <TooltipTrigger asChild>
           <button
@@ -260,12 +253,10 @@ export function TeamSharedFilesBrowser({
       <FileBrowser
         variant="panel"
         rootPath={teamRenderPath}
-        hideGitStatus={false}
+        hideFileActions={false}
         hideToolbar={hidePanelToolbar}
         filterText={filterText}
         onFilterTextChange={onFilterTextChange}
-        gitChangedOnly={gitChangedOnly}
-        onGitChangedOnlyChange={onGitChangedOnlyChange}
         searchExpanded={searchExpanded}
         onSearchExpandedChange={onSearchExpandedChange}
         actionIcons={actionIcons}

@@ -48,6 +48,21 @@ describe("notifyRuntimeStartFailures", () => {
     expect(mocks.toastError).not.toHaveBeenCalled();
   });
 
+  it("does not toast when an agent device is offline", async () => {
+    const { notifyRuntimeStartFailures } = await import("../ensure-agent-runtime");
+
+    notifyRuntimeStartFailures(
+      [{ agentActorId: "remote-agent-1", code: "device_offline", reason: "device offline" }],
+      { trigger: "session_runtime_retry" },
+    );
+    await flush();
+
+    // The persistent agent status already shows offline. Keep the failure in
+    // telemetry for diagnosis without duplicating it as a transient toast.
+    expect(mocks.reportRuntimeStartFailure).toHaveBeenCalledTimes(1);
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
   it("still toasts a genuine runtime failure", async () => {
     const { notifyRuntimeStartFailures } = await import("../ensure-agent-runtime");
 
@@ -65,10 +80,11 @@ describe("notifyRuntimeStartFailures", () => {
     notifyRuntimeStartFailures([
       { agentActorId: "agent-1", code: "runtime_rpc_failed", reason: "rpc disposed" },
       { agentActorId: "agent-2", code: "runtime_rpc_failed", reason: "runtimeStart rejected" },
+      { agentActorId: "agent-3", code: "device_offline", reason: "device offline" },
     ]);
     await flush();
 
-    expect(mocks.reportRuntimeStartFailure).toHaveBeenCalledTimes(2);
+    expect(mocks.reportRuntimeStartFailure).toHaveBeenCalledTimes(3);
     expect(mocks.toastError).toHaveBeenCalledTimes(1);
     const [, options] = mocks.toastError.mock.calls[0] as [string, { id: string }];
     expect(options.id).toBe("runtime-start-failed-agent-2");

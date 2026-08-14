@@ -3,11 +3,29 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useTabsStore, Tab } from "@/stores/tabs";
 import { cn } from "@/lib/utils";
-import { X, Code, Globe, LayoutDashboard, FileText, Image } from "lucide-react";
+import { X, Code, Globe, LayoutDashboard, FileText, Image, Sparkles, Plug, Box, History } from "lucide-react";
+import {
+  decodeTeamShareTarget,
+  decodeVersionHistoryTarget,
+} from "@/lib/tabs/teamshare-target";
 
 function getTabIcon(tab: Tab) {
   if (tab.type === "webview") return Globe;
-  if (tab.type === "native") return LayoutDashboard;
+  if (tab.type === "native") {
+    // Native tabs are no longer one kind of thing. Without this they all wear
+    // the same generic icon, and a strip holding a skill, an MCP server and a
+    // file's history reads as three copies of the same tab.
+    const teamShare = decodeTeamShareTarget(tab.target);
+    if (teamShare) {
+      if (teamShare.kind === "skill") return Sparkles;
+      if (teamShare.kind === "skill-file") return Code;
+      if (teamShare.kind === "mcp") return Plug;
+      if (teamShare.kind === "env") return Box;
+      return LayoutDashboard;
+    }
+    if (decodeVersionHistoryTarget(tab.target) !== undefined) return History;
+    return LayoutDashboard;
+  }
   const ext = tab.target.split(".").pop()?.toLowerCase() || "";
   const codeExts = [
     "ts", "tsx", "js", "jsx", "py", "rs", "go", "java", "c", "cpp", "h",

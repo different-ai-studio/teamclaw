@@ -142,16 +142,17 @@ Single source of truth principle — **never mix content sources**:
 
 ## Team Collaboration
 
-Team sync is owned by the amuxd daemon (git + OSS engine). The legacy
-iroh-based P2P mode has been removed.
+Team sync is owned by the amuxd daemon (OSS engine). The legacy iroh-based P2P
+mode has been removed, and so has git share — `git` is not invoked anywhere in
+the product.
 
-A team picks one **share mode** during onboarding; it is then locked
-server-side (`ShareMode` in `packages/app/src/stores/team-share.ts`, mirroring
-`GET /v1/teams/:id/share-mode`):
-
-- **`oss`**: Alibaba OSS with WebDAV
-- **`managed_git`**: Git repo provisioned via `/managed-git/create-repo`
-- **`custom_git`**: self-hosted Git repo
+**Share mode is a switch, not a choice.** `oss` (Alibaba OSS with WebDAV) is the
+only backend; enabling it is one-shot and permanent (`ShareMode` in
+`packages/app/src/stores/team-share.ts` is `'oss' | null`, mirroring
+`GET /v1/teams/:id/share-mode`). The retired `managed_git` / `custom_git` values
+still exist in the Postgres enum because in-use enum values cannot be dropped —
+legacy rows carrying them read as "enabled" and nothing more. Branch on
+null-ness, never on the value.
 
 Shared: `skills/`, `.mcp/`, `knowledge/`
 
@@ -246,14 +247,13 @@ Credentials (SSH, Postgres, service-role key, dashboard logins) live in the
 box's `.env` and GitHub Actions secrets — never in this repo.
 
 Cloud API endpoints: see `docs/openapi/teamclu-api.v1.yaml` (the contract) —
-`/v1/teams`, `/v1/sessions`, `/v1/messages`, `/v1/invites`, plus
-`/ai/*` and `/managed-git/create-repo`.
+`/v1/teams`, `/v1/sessions`, `/v1/messages`, `/v1/invites`, plus `/ai/*`.
 
 Team share onboarding endpoints (see `docs/openapi/teamclu-api.v1.yaml`):
 
-- `POST /v1/teams/:id/share-mode` — one-shot lock to `oss` | `managed_git` | `custom_git` (409 once locked).
-- `GET  /v1/teams/:id/share-mode` — `{ mode, enabledAt, gitRemoteUrl, gitAuthKind }`; `mode: null` means team-share 未开通.
-- `GET  /v1/teams/:id/workspace-config` — merged shape `{ shareMode, gitRemoteUrl, gitAuthKind, syncMode, litellmTeamId }`. The legacy `{ defaultWorkspaceId, pinnedWorkspaceIds }` shape now lives at `GET /v1/teams/:id/workspace-defaults` (PUT path is unchanged).
+- `POST /v1/teams/:id/share-mode` — one-shot lock to `oss` (409 once locked, 400 for any other mode).
+- `GET  /v1/teams/:id/share-mode` — `{ mode, enabledAt }`; `mode: null` means team-share 未开通.
+- `GET  /v1/teams/:id/workspace-config` — merged shape `{ shareMode, syncMode, litellmTeamId }`. The legacy `{ defaultWorkspaceId, pinnedWorkspaceIds }` shape now lives at `GET /v1/teams/:id/workspace-defaults` (PUT path is unchanged).
 - `POST /v1/teams/:id/litellm/setup` — provisions LiteLLM and returns `{ aiGatewayEndpoint, litellmKey }`; 503 `litellm_unavailable` if FC is not configured.
 
 <!-- seahelm:suggest:start -->

@@ -4,7 +4,7 @@
 //! The team-share global copy (`~/.amuxd/teams/<team_id>/teamclu-team`) and
 //! the per-workspace symlink are otherwise only created by the daemon's startup
 //! sweep or when a workspace is registered for a runtime (AddWorkspace). When
-//! the app enables team-share (OSS / managed_git / custom_git) the user expects
+//! the app enables team-share the user expects
 //! them to exist *immediately*, not after a daemon restart or the first
 //! session — and the AddWorkspace path rides MQTT, which may not be connected
 //! right after onboarding. This local HTTP endpoint lets the app trigger the

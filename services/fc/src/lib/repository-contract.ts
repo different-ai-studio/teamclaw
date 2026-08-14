@@ -223,6 +223,26 @@ export function runBusinessRepositoryContract({ test, assert, createRepository }
     );
   });
 
+  test("repository contract: updateParticipantModel succeeds", async () => {
+    const repo = createRepository();
+    await repo.updateParticipantModel("session-1", "actor-1", {
+      model: "anthropic/claude-sonnet-4-6",
+    });
+  });
+
+  test("repository contract: updateParticipantModel round-trips through the participant row", async () => {
+    // The point of the whole endpoint: `session_participants.model` was
+    // backfilled once by the ADR-0005 migration and then had no writer, so it
+    // read as authoritative while drifting. Asserting the read-back here is
+    // what keeps a future refactor from quietly disconnecting it again.
+    const repo = createRepository();
+    await repo.updateParticipantModel("session-1", "actor-1", { model: "openai/gpt-5" });
+    const out = await repo.listSessionParticipants("session-1");
+    const row = out.items.find((p) => p.actorId === "actor-1");
+    assert.ok(row, "actor-1 should still be a participant");
+    assert.equal(row.model, "openai/gpt-5");
+  });
+
   test("repository contract: removeSessionParticipant succeeds", async () => {
     const repo = createRepository();
     await repo.removeSessionParticipant("session-1", "actor-1");
@@ -907,7 +927,6 @@ test("repository contract: getTeamDirectory returns actors and members", async (
       assert.deepEqual(Object.keys(items[0]).sort(), [
         "createdAt",
         "fcStatus",
-        "gitRemoteUrl",
         "id",
         "name",
         "provisionStatus",
@@ -923,30 +942,17 @@ test("repository contract: getTeamDirectory returns actors and members", async (
 
   test("repository contract: enableShareMode locks team to an oss share mode", async () => {
     const repo = createRepository();
-    const out = await repo.enableShareMode("team-share-1", "oss", null);
+    const out = await repo.enableShareMode("team-share-1", "oss");
     assert.ok(out, "result must be returned");
     assert.equal(out.id, "team-share-1");
     assert.equal(out.shareMode, "oss");
     assert.ok(out.shareEnabledAt, "shareEnabledAt must be set");
   });
 
-  test("repository contract: enableShareMode accepts custom_git gitConfig", async () => {
+  test("repository contract: enableShareMode is idempotent on the same team", async () => {
     const repo = createRepository();
-    const out = await repo.enableShareMode("team-share-2", "custom_git", {
-      remoteUrl: "git@example.com:team/repo.git",
-      authKind: "ssh_key",
-      credentialRef: "keychain://team-share-2/ssh",
-    });
-    assert.ok(out, "result must be returned");
-    assert.equal(out.shareMode, "custom_git");
-    assert.equal(out.gitRemoteUrl, "git@example.com:team/repo.git");
-    assert.equal(out.gitAuthKind, "ssh_key");
-  });
-
-  test("repository contract: enableShareMode switches mode on the same team", async () => {
-    const repo = createRepository();
-    await repo.enableShareMode("team-share-3", "managed_git", null);
-    const out = await repo.enableShareMode("team-share-3", "oss", null);
+    await repo.enableShareMode("team-share-3", "oss");
+    const out = await repo.enableShareMode("team-share-3", "oss");
     assert.equal(out.shareMode, "oss");
     const current = await repo.getShareMode("team-share-3");
     assert.equal(current.mode, "oss");
@@ -958,15 +964,13 @@ test("repository contract: getTeamDirectory returns actors and members", async (
     assert.ok(out, "result must be returned");
     assert.equal(out.mode, null);
     assert.equal(out.enabledAt, null);
-    assert.equal(out.gitRemoteUrl, null);
-    assert.equal(out.gitAuthKind, null);
   });
 
   test("repository contract: getShareMode reflects a previously enabled share mode", async () => {
     const repo = createRepository();
-    await repo.enableShareMode("team-share-4", "managed_git", null);
+    await repo.enableShareMode("team-share-4", "oss");
     const out = await repo.getShareMode("team-share-4");
-    assert.equal(out.mode, "managed_git");
+    assert.equal(out.mode, "oss");
     assert.ok(out.enabledAt, "enabledAt must be set once mode is enabled");
   });
 
@@ -1010,24 +1014,16 @@ test("repository contract: getTeamDirectory returns actors and members", async (
 
   test("repository contract: getWorkspaceConfig merges share + workspace fields", async () => {
     const repo = createRepository();
-    await repo.enableShareMode("team-share-5", "custom_git", {
-      remoteUrl: "https://example.com/team/repo.git",
-      authKind: "https_token",
-      credentialRef: "keychain://team-share-5/token",
-    });
+    await repo.enableShareMode("team-share-5", "oss");
     const out = await repo.getWorkspaceConfig("team-share-5");
     assert.ok(out, "result must be returned");
     assert.deepEqual(Object.keys(out).sort(), [
-      "gitAuthKind",
-      "gitRemoteUrl",
       "litellmTeamId",
       "llm",
       "shareMode",
       "syncMode",
     ].sort());
-    assert.equal(out.shareMode, "custom_git");
-    assert.equal(out.gitRemoteUrl, "https://example.com/team/repo.git");
-    assert.equal(out.gitAuthKind, "https_token");
+    assert.equal(out.shareMode, "oss");
     // llm block: shape is always present. `models` is the stored per-team
     // list (empty here), `availableModels` is the gateway proxy (no endpoint
     // → []). The gateway dep is never required for the request to succeed.
@@ -1046,8 +1042,6 @@ test("repository contract: getTeamDirectory returns actors and members", async (
     const out = await repo.getWorkspaceConfig("team-share-fresh-2");
     assert.ok(out, "result must be returned");
     assert.equal(out.shareMode, null);
-    assert.equal(out.gitRemoteUrl, null);
-    assert.equal(out.gitAuthKind, null);
     assert.ok(out.llm && typeof out.llm === "object", "llm block must be present");
     assert.equal(out.llm.aiGatewayEndpoint, null);
     assert.deepEqual(out.llm.models, []);

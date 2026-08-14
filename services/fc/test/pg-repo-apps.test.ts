@@ -52,7 +52,7 @@ test("createApp inserts a workspace + app and returns canonical fields", async (
 
   assert.deepEqual(Object.keys(app).sort(), [
     "createdAt", "fcStatus", "fcEndpoint", "fcFunctionName", "fcRegion",
-    "gitRemoteUrl", "id", "name", "provisionStatus",
+    "id", "name", "provisionStatus",
     "slug", "teamId", "type", "updatedAt", "visibility", "workspaceId",
   ].sort());
   assert.equal(app.teamId, team.id);
@@ -129,12 +129,10 @@ test("createApp provisions no repo and leaves the app pending", async () => {
 
   const app = await repo.createApp({ teamId: team.id, name: "Z", type: "static_web" });
   assert.equal(app.provisionStatus, "pending");
-  assert.equal(app.gitRemoteUrl, null);
   assert.equal(app.type, "static_web");
 
   const fetched = await repo.getApp(app.id);
   assert.equal(fetched.provisionStatus, "pending");
-  assert.equal(fetched.gitRemoteUrl, null);
 });
 
 // ── authz hardening ───────────────────────────────────────────────────────────
@@ -180,53 +178,6 @@ test("createSession with appId links the session, listAppSessions finds it", asy
   assert.equal(rows.length, 1);
   assert.equal(rows[0].title, "S1");
 });
-
-// ── getManagedGitCredential ──────────────────────────────────────────────────
-
-test("getManagedGitCredential returns creds for a team member, null for non-member", async () => {
-  const prevPat = process.env.CODEUP_PAT;
-  const prevBot = process.env.CODEUP_BOT_USERNAME;
-  process.env.CODEUP_PAT = "pt-secret";
-  process.env.CODEUP_BOT_USERNAME = "teamclu";
-  try {
-    const { db } = await makeTestDb();
-    const team = await seedTeam(db);
-    const member = await seedActor(db, team.id);
-    const otherTeam = await seedTeam(db);
-    const outsider = await seedActor(db, otherTeam.id);
-
-    const memberRepo = createPgBusinessRepository({ db, userId: member.userId });
-    const outsiderRepo = createPgBusinessRepository({ db, userId: outsider.userId });
-
-    const cred = await memberRepo.getManagedGitCredential(team.id);
-    assert.deepEqual(cred, { username: "teamclu", token: "pt-secret" });
-
-    const denied = await outsiderRepo.getManagedGitCredential(team.id);
-    assert.equal(denied, null);
-  } finally {
-    if (prevPat === undefined) delete process.env.CODEUP_PAT; else process.env.CODEUP_PAT = prevPat;
-    if (prevBot === undefined) delete process.env.CODEUP_BOT_USERNAME; else process.env.CODEUP_BOT_USERNAME = prevBot;
-  }
-});
-
-test("getManagedGitCredential throws 503 when managed-git unconfigured", async () => {
-  const prevPat = process.env.CODEUP_PAT;
-  delete process.env.CODEUP_PAT;
-  try {
-    const { db } = await makeTestDb();
-    const team = await seedTeam(db);
-    const member = await seedActor(db, team.id);
-    const repo = createPgBusinessRepository({ db, userId: member.userId });
-    await assert.rejects(
-      () => repo.getManagedGitCredential(team.id),
-      (err: any) => err?.code === "managed_git_unavailable" && err?.statusCode === 503,
-    );
-  } finally {
-    if (prevPat === undefined) delete process.env.CODEUP_PAT; else process.env.CODEUP_PAT = prevPat;
-  }
-});
-
-// ── updateApp provisionStatus transitions ────────────────────────────────────
 
 test("updateApp advances provisionStatus through legal transitions", async () => {
   const { db } = await makeTestDb();

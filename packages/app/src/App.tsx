@@ -57,7 +57,6 @@ import { SidebarSecondColumn } from "@/components/sidebar/SidebarSecondColumn";
 import { SIDEBAR_INTERACTIVE_CURSOR } from "@/components/sidebar/sidebar-interactive-cursor";
 import { NarrowChatHeader } from "@/components/responsive/NarrowChatHeader";
 import { useLayoutBreakpoint } from "@/hooks/use-layout-breakpoint";
-import { TeamShareDetailPane } from "@/components/teamshare/TeamShareDetailPane";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { NewSessionDialog } from "@/components/chat/NewSessionDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -96,6 +95,7 @@ import { startEmbedLinkOpenListener } from "@/lib/embed-link-session";
 import { useUIStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useTabsStore, selectActiveTab, selectHasHiddenTabs } from "@/stores/tabs";
+import { isTeamShareOwnedTarget } from "@/lib/tabs/teamshare-target";
 import { useTerminalStore } from "@/stores/terminal-store";
 import { TabBar } from "@/components/tab-bar/TabBar";
 import { TabContentRenderer } from "@/components/tab-bar/TabContentRenderer";
@@ -613,8 +613,6 @@ function AppContent() {
   // UI store - individual selectors
   const embedMode = useUIStore((s) => s.embedMode);
   const currentView = useUIStore((s) => s.currentView);
-  const sidebarFilter = useUIStore((s) => s.sidebarFilter);
-  const teamShareMode = sidebarFilter?.kind === "teamShare";
   const closeSettings = useUIStore((s) => s.closeSettings);
   const authSession = useAuthStore((s) => s.session);
   const loadCurrentTeam = useCurrentTeamStore((s) => s.load);
@@ -758,6 +756,20 @@ function AppContent() {
     if (currentTeamId && sessionListLoadedTeamId === currentTeamId) return;
     void useSessionListStore.getState().load();
   }, [currentTeamId, sessionListLoadedTeamId]);
+
+  // A team-share tab names a row in *this* team's registry — a skill id, an MCP
+  // server, an env key, a document's history. After a switch those addresses
+  // resolve to nothing, so the tabs go with the team rather than lingering as
+  // windows onto another team's content.
+  const prevTeamIdRef = useRef<string | null>(currentTeamId);
+  useEffect(() => {
+    const prev = prevTeamIdRef.current;
+    prevTeamIdRef.current = currentTeamId;
+    if (prev === null || prev === currentTeamId) return;
+    useTabsStore
+      .getState()
+      .closeWhere((tab) => tab.type === "native" && isTeamShareOwnedTarget(tab.target));
+  }, [currentTeamId]);
 
   // Keep team-share status fresh so the top-right "team shared files" tab shows
   // only when share is actually enabled (shareMode != null). Without this the
@@ -983,9 +995,6 @@ function AppContent() {
         {/* Main column: header + main content */}
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
           {breakpoint === 'narrow' && <NarrowChatHeader />}
-          {teamShareMode ? (
-            <TeamShareDetailPane />
-          ) : (
           <>
           {/* Header with breadcrumb - sticky */}
           {showChatSessionHeader ? (
@@ -1119,7 +1128,6 @@ function AppContent() {
             <MainContent />
           </div>
           </>
-          )}
         </div>
 
         {/* Right Panel - full height */}

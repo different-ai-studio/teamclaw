@@ -33,9 +33,7 @@ import { useSessionStore } from "@/stores/session";
 import { sendAgentPromptInActiveSession } from "@/lib/session-send-agent";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useTeamPermissions } from "@/lib/team-permissions";
-import { useTeamShareStore } from '@/stores/team-share'
 import { useCurrentTeamStore } from '@/stores/current-team'
-import { GitHistoryProvider } from '@/lib/history/git-provider'
 import { OssHistoryProvider } from '@/lib/history/oss-provider'
 import { Button } from "@/components/ui/button";
 import {
@@ -423,15 +421,10 @@ export function FileEditor({
     return norm.slice(teamRepoPath.length + 1)
   }, [teamRepoPath, filePath])
 
-  const shareMode = useTeamShareStore((s) => s.status.mode)
-  const isGitShare = shareMode === 'managed_git' || shareMode === 'custom_git'
-
   const historyProvider = useMemo(() => {
     if (!teamRepoPath || !relativeTeamPath || !workspacePath) return null
-    return isGitShare
-      ? new GitHistoryProvider(teamRepoPath, relativeTeamPath, filePath)
-      : new OssHistoryProvider(workspacePath, relativeTeamPath)
-  }, [isGitShare, teamRepoPath, relativeTeamPath, workspacePath, filePath])
+    return new OssHistoryProvider(workspacePath, relativeTeamPath)
+  }, [teamRepoPath, relativeTeamPath, workspacePath])
 
   // Fetch the file's baseline content from the daemon for gutter decorations
   // (team files only). The daemon's `team_file_content(..., "baseline")` proxy

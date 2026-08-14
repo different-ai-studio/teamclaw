@@ -127,6 +127,12 @@ type DaemonOnboardingState = {
    * Null at every other moment, including every rebind — that path is silent.
    */
   pendingName: { teamId: string; deviceId: string; suggested: string } | null
+  /**
+   * Bumped after the default workspace is registered for this machine's agent.
+   * LocalDaemonRow listens and reloads so the panel does not stay empty until
+   * a later incidental refresh.
+   */
+  workspaceSyncEpoch: number
   /** Create this machine's agent under `name` and finish binding. */
   nameDeviceAgent: (name: string) => Promise<void>
   /** `forceIdentityRebind` re-binds even when the daemon already points at the
@@ -348,32 +354,98 @@ async function ensureHealthy(): Promise<boolean> {
 }
 
 /**
- * Register the user's active workspace in the daemon registry + cloud when it is
- * a real project directory. The old default (`~/.amuxd/teams/<teamId>`) must
- * never be registered — that path is the global sync store, not a workspace.
+ * Register the active UI workspace for this machine's agent — cloud row first
+ * (same writer as the sidebar "+" button), then the local daemon mirror.
+ *
+ * First-login used to only call `register_daemon_workspace` as a best-effort
+ * side effect after status flipped to ready. That raced the agent bind and
+ * never told the sidebar to reload, so WORKSPACE stayed empty until a later
+ * incidental refresh. Fix: after bind, POST /v1/workspaces with this machine's
+ * agentId (user JWT), bump workspaceSyncEpoch so LocalDaemonRow reloads.
+ *
+ * The local daemon mirror is best-effort and needs daemon cloud auth.
  */
-async function ensureDefaultWorkspaceRegistered(teamId: string | null): Promise<void> {
-  if (!isTauri() || !teamId) return
+async function ensureDefaultWorkspaceRegistered(teamId: string): Promise<void> {
   const { useWorkspaceStore } = await import('@/stores/workspace')
   const workspacePath = useWorkspaceStore.getState().workspacePath
   // Official `~/.amuxd/...` and white-label `~/.amuxd-<brand>/...` are daemon
   // state dirs, not user project workspaces.
   if (!workspacePath || /\/\.amuxd(-[^/]+)?\//.test(workspacePath)) return
-  try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    await invoke('register_daemon_workspace', { workspacePath })
-  } catch (e) {
-    console.warn('[daemon-onboarding] workspace registration failed (non-critical)', e)
-  }
-}
 
-/** Cloud upsert via `POST /v1/workspaces` needs a live daemon cloud session. */
-async function maybeRegisterDefaultWorkspace(teamId: string | null): Promise<void> {
-  if (!isTauri() || !teamId) return
+  const { getLocalDaemonActorId } = await import('@/lib/daemon-agent-admin')
+  let agentId: string | null = null
+  for (let i = 0; i < 20; i++) {
+    agentId = await getLocalDaemonActorId()
+    if (agentId) break
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  if (!agentId) {
+    throw new Error('local daemon agent id unavailable')
+  }
+
+  const name =
+    workspacePath.replace(/\/+$/, '').split(/[/\\]/).pop() || workspacePath
+  const memberId = useCurrentTeamStore.getState().currentMember?.id ?? null
+
+  const {
+    createDaemonWorkspace,
+    getCurrentDaemonWorkspaceAgent,
+    setAgentDefaultWorkspace,
+  } = await import('@/lib/daemon-workspaces')
+
+  // Cloud identity first so listDaemonWorkspaces(teamId, agentId) sees the row.
+  const created = await createDaemonWorkspace({
+    teamId,
+    agentId,
+    createdByMemberId: memberId,
+    name,
+    path: workspacePath,
+  })
+
+  const agent = await getCurrentDaemonWorkspaceAgent(teamId).catch(() => null)
+  if (agent && !agent.defaultWorkspaceId) {
+    try {
+      await setAgentDefaultWorkspace(agentId, created.id)
+    } catch (e) {
+      console.warn('[daemon-onboarding] set default workspace failed', e)
+    }
+  }
+
+  // Sidebar can reload as soon as the cloud row exists.
+  useDaemonOnboardingStore.setState((s) => ({
+    workspaceSyncEpoch: s.workspaceSyncEpoch + 1,
+  }))
+
+  // Local daemon registry (cron / model catalog). Needs daemon cloud auth.
+  // checkCloudSession already ran before us — if it left cloudAuthExpired,
+  // skip without spinning; otherwise one probe is enough.
   if (useDaemonOnboardingStore.getState().cloudAuthExpired) return
   const auth = await fetchDaemonCloudAuthStatus()
   if (auth !== 'ok') return
-  await ensureDefaultWorkspaceRegistered(teamId)
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke('register_daemon_workspace', { workspacePath })
+}
+
+/**
+ * After agent bind: register the default workspace. Cloud write does not wait
+ * on daemon cloud auth; local mirror does (best-effort).
+ */
+async function maybeRegisterDefaultWorkspace(teamId: string | null): Promise<void> {
+  if (!isTauri() || !teamId) return
+  // Best-effort: never set failedStep / flip status to error.
+  try {
+    useDaemonOnboardingStore.setState({ step: 'register-workspace' })
+    await ensureDefaultWorkspaceRegistered(teamId)
+    useDaemonOnboardingStore.setState((s) => ({
+      completedSteps: s.completedSteps.includes('register-workspace')
+        ? s.completedSteps
+        : [...s.completedSteps, 'register-workspace'],
+      step: null,
+    }))
+  } catch (e) {
+    useDaemonOnboardingStore.setState({ step: null })
+    console.warn('[daemon-onboarding] workspace registration failed', e)
+  }
 }
 
 export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get) => {
@@ -417,6 +489,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
   runStartedAt: null,
   completedAgent: null,
   pendingName: null,
+  workspaceSyncEpoch: 0,
 
   nameDeviceAgent: async (name) => {
     const pending = get().pendingName
