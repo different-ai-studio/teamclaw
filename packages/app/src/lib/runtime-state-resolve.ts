@@ -6,6 +6,7 @@ import {
   type RuntimeStateEntry,
 } from "@/stores/runtime-state-store";
 import { useAgentModelPickStore } from "@/stores/agent-model-pick-store";
+import { participantModel } from "@/stores/participant-model-store";
 
 /**
  * Canonical agent / runtime identity glossary (read before touching this file):
@@ -535,6 +536,26 @@ export function selectAgentModel(args: {
         args.byRuntimeId,
       ),
       source: "pick",
+    };
+  }
+
+  // `session_participants.model` — the fact itself (ADR-0005), written by the
+  // daemon, which is the only component that sees what the runtime settled on.
+  // Ranked above the transcript scan below because that scan *reconstructs*
+  // this same answer from message metadata and can only be as good as the
+  // heuristic it uses. Empty until the row is fetched, so the scan and the
+  // retain remain the fallbacks for that window (and for a daemon too old to
+  // write the column).
+  const fromParticipant = participantModel(sessionId, agentId);
+  if (fromParticipant) {
+    return {
+      modelId: canonicalizeAgainstAvailable(
+        args.agentId,
+        fromParticipant,
+        args.available,
+        args.byRuntimeId,
+      ),
+      source: "retain",
     };
   }
 
