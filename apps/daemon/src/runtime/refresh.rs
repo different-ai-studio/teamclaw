@@ -302,6 +302,45 @@ impl RuntimeRefreshCoordinator {
             .cloned()
     }
 
+    /// Resolve a refresh identity by its filesystem path. HTTP workspace
+    /// control routes use a base64url path as `:id`, while runtime isolation
+    /// uses the cloud workspace UUID. The watcher records the UUID; status and
+    /// Apply callers therefore need this path bridge to address the same state.
+    pub async fn workspace_id_for_path(&self, workspace_path: &Path) -> Option<String> {
+        let workspace_path = workspace_path.to_string_lossy();
+        let path_identity = refresh_watch::workspace_runtime_id(Path::new(workspace_path.as_ref()));
+        self.inner
+            .read()
+            .await
+            .workspaces
+            .values()
+            .filter(|state| state.workspace_path == workspace_path)
+            .max_by_key(|state| state.workspace_id != path_identity)
+            .map(|state| state.workspace_id.clone())
+    }
+
+    pub async fn runtime_refresh_dto_for_path(
+        &self,
+        workspace_id: &str,
+        workspace_path: &Path,
+    ) -> RuntimeRefreshDto {
+        let workspace_path = workspace_path.to_string_lossy();
+        let path_identity = refresh_watch::workspace_runtime_id(Path::new(workspace_path.as_ref()));
+        let guard = self.inner.read().await;
+        if workspace_id != path_identity {
+            if let Some(state) = guard.workspaces.get(workspace_id) {
+                return state.to_dto();
+            }
+        }
+        guard
+            .workspaces
+            .values()
+            .filter(|state| state.workspace_path == workspace_path)
+            .max_by_key(|state| state.workspace_id != path_identity)
+            .map(WorkspaceRefreshState::to_dto)
+            .unwrap_or_else(RuntimeRefreshDto::clean)
+    }
+
     pub async fn pending_workspace_states(&self) -> Vec<WorkspaceRefreshState> {
         self.inner
             .read()
@@ -557,6 +596,41 @@ mod tests {
         assert_eq!(state.strongest_impact, RefreshImpact::IdleRestart);
         assert!(state.change_kinds.contains(&RefreshChangeKind::Skills));
         assert!(state.change_kinds.contains(&RefreshChangeKind::Mcp));
+    }
+
+    #[tokio::test]
+    async fn path_lookup_bridges_http_route_id_to_runtime_workspace_id() {
+        let coordinator = RuntimeRefreshCoordinator::new();
+        let path = Path::new("/tmp/teamclu-runtime-id-bridge");
+        coordinator
+            .record_change(
+                "cloud-workspace-uuid",
+                path,
+                RefreshChangeKind::Skills,
+                RefreshSource::FilesystemWatch,
+            )
+            .await
+            .unwrap();
+        let path_identity = refresh_watch::workspace_runtime_id(path);
+        coordinator
+            .record_change(
+                &path_identity,
+                path,
+                RefreshChangeKind::OpencodeJson,
+                RefreshSource::UiMutation,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            coordinator.workspace_id_for_path(path).await.as_deref(),
+            Some("cloud-workspace-uuid")
+        );
+        let dto = coordinator
+            .runtime_refresh_dto_for_path(&path_identity, path)
+            .await;
+        assert_eq!(dto.status, "pending");
+        assert_eq!(dto.change_kinds, vec!["skills"]);
     }
 
     #[tokio::test]

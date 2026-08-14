@@ -321,9 +321,7 @@ impl DaemonServer {
         if let Some(registry) = self.refresh_watch_registry.as_ref() {
             registry
                 .upsert_workspace(crate::runtime::refresh::refresh_watch::WatchedWorkspace {
-                    workspace_id: crate::runtime::refresh::refresh_watch::workspace_runtime_id(
-                        &canonical,
-                    ),
+                    workspace_id: remote.id.clone(),
                     workspace_path: canonical.clone(),
                 })
                 .await;

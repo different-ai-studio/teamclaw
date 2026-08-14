@@ -90,4 +90,89 @@ impl RuntimeManager {
         }
         stopped
     }
+
+    /// Detach workspace runtimes that are safe to resume after a pooled host
+    /// refresh.
+    ///
+    /// A pooled OpenCode generation cannot exit while an attached runtime owns
+    /// one of its route leases. Keeping every idle attachment across repeated
+    /// config refreshes therefore accumulates draining generations until the
+    /// global host cap is exhausted. Idle runtimes can be reconstructed from
+    /// their persisted backend session on the next message, so release those
+    /// leases before rolling the host. Active and checked-out turns remain on
+    /// their current generation and are never interrupted.
+    pub async fn stop_idle_runtimes_for_workspace(
+        &mut self,
+        workspace_path: &str,
+        workspace_id: &str,
+    ) -> usize {
+        let ids: Vec<String> = self
+            .agents
+            .iter()
+            .filter(|(_, handle)| {
+                Self::workspace_runtime_matches(handle, workspace_path, workspace_id)
+                    && handle.status == amux::AgentStatus::Idle
+                    && handle.event_rx.is_some()
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut stopped = 0usize;
+        for id in ids {
+            if self.stop_runtime(&id).await.is_some() {
+                stopped += 1;
+            }
+        }
+        stopped
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn refresh_cleanup_stops_only_safe_idle_workspace_runtimes() {
+        let mut manager = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        manager.add_test_workspace_runtime(
+            "idle-target",
+            "/tmp/target",
+            "ws-target",
+            amux::AgentStatus::Idle,
+        );
+        manager.add_test_workspace_runtime(
+            "active-target",
+            "/tmp/target",
+            "ws-target",
+            amux::AgentStatus::Active,
+        );
+        manager.add_test_workspace_runtime(
+            "checked-out-target",
+            "/tmp/target",
+            "ws-target",
+            amux::AgentStatus::Idle,
+        );
+        manager
+            .get_handle_mut("checked-out-target")
+            .unwrap()
+            .event_rx = None;
+        manager.add_test_workspace_runtime(
+            "idle-other",
+            "/tmp/other",
+            "ws-other",
+            amux::AgentStatus::Idle,
+        );
+
+        assert_eq!(
+            manager
+                .stop_idle_runtimes_for_workspace("/tmp/target", "ws-target")
+                .await,
+            1
+        );
+
+        let ids = manager.agent_ids();
+        assert!(!ids.iter().any(|id| id == "idle-target"));
+        assert!(ids.iter().any(|id| id == "active-target"));
+        assert!(ids.iter().any(|id| id == "checked-out-target"));
+        assert!(ids.iter().any(|id| id == "idle-other"));
+    }
 }

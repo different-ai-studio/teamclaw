@@ -809,14 +809,34 @@ impl RuntimeSupervisor {
         })
     }
 
-    pub fn request_workspace_host_refresh(&self, workspace_id: &str) -> bool {
-        self.host_pool.as_ref().is_some_and(|pool| {
-            pool.invalidate_domain(
-                &crate::runtime::execution_context::IsolationDomainKey::Workspace(
-                    workspace_id.to_string(),
-                ),
-            )
-        })
+    pub async fn request_workspace_host_refresh(
+        &self,
+        workspace_id: &str,
+        workspace_path: &Path,
+    ) -> usize {
+        let Some(pool) = self.host_pool.as_ref() else {
+            return 0;
+        };
+        let stopped = self
+            .agents
+            .lock()
+            .await
+            .stop_idle_runtimes_for_workspace(&workspace_path.to_string_lossy(), workspace_id)
+            .await;
+        pool.invalidate_domain(
+            &crate::runtime::execution_context::IsolationDomainKey::Workspace(
+                workspace_id.to_string(),
+            ),
+        );
+        if stopped > 0 {
+            info!(
+                workspace_id,
+                workspace = %workspace_path.display(),
+                stopped,
+                "detached idle workspace runtimes before pooled host refresh"
+            );
+        }
+        stopped
     }
 
     pub fn request_all_workspace_host_refreshes(&self) -> usize {
@@ -962,7 +982,10 @@ impl RuntimeSupervisor {
             ready: backend_ready,
             backend,
             current_model,
-            refresh: self.refresh.runtime_refresh_dto(workspace_id).await,
+            refresh: self
+                .refresh
+                .runtime_refresh_dto_for_path(workspace_id, workspace_path)
+                .await,
         })
     }
 
@@ -1129,7 +1152,10 @@ impl RuntimeSupervisor {
             })
             .unwrap_or(0);
 
-        let refresh = self.refresh.runtime_refresh_dto(workspace_id).await;
+        let refresh = self
+            .refresh
+            .runtime_refresh_dto_for_path(workspace_id, workspace_path)
+            .await;
         let mut blockers: Vec<EnvActivationBlocker> = Vec::new();
 
         if !store.blob_readable {
@@ -1347,9 +1373,11 @@ impl RuntimeSupervisor {
         let workspace_path_str = workspace_path.to_string_lossy();
         let stopped = if self.host_pool.is_some() {
             if evict_provider_hosts {
-                self.request_workspace_host_refresh(workspace_id);
+                self.request_workspace_host_refresh(workspace_id, workspace_path)
+                    .await
+            } else {
+                0
             }
-            0
         } else {
             let mut manager = self.agents.lock().await;
             let stopped = manager
@@ -1649,7 +1677,9 @@ mod tests {
         )));
         let supervisor = RuntimeSupervisor::new_with_host_pool(manager, pool.clone());
 
-        assert!(supervisor.request_workspace_host_refresh("ws-a"));
+        supervisor
+            .request_workspace_host_refresh("ws-a", Path::new("/tmp/ws-a"))
+            .await;
         let replacement_a = pool
             .acquire(
                 IsolationDomainKey::Workspace("ws-a".into()),
@@ -1752,6 +1782,63 @@ mod tests {
         let ids = manager.agent_ids();
         assert!(ids.iter().any(|id| id == "rt-a"));
         assert!(ids.iter().any(|id| id == "rt-b"));
+    }
+
+    #[tokio::test]
+    async fn pooled_refresh_detaches_idle_route_before_starting_replacement() {
+        let (pool, factory) = service_pool();
+        let workspace = tempfile::tempdir().unwrap();
+        let workspace_id = "ws-idle";
+        let workspace_path = workspace.path().to_string_lossy().into_owned();
+        let (revision, lease) = seed_domain(&pool, workspace_id, "before").await;
+        let old_generation = Arc::clone(&lease.generation);
+        let (generation, route_lease) = lease.into_route_parts();
+        let manager = Arc::new(AsyncMutex::new(RuntimeManager::new(
+            RuntimeManager::default_launch_configs(),
+            None,
+        )));
+        {
+            let mut manager = manager.lock().await;
+            manager.add_test_workspace_runtime(
+                "rt-idle",
+                &workspace_path,
+                workspace_id,
+                amux::AgentStatus::Idle,
+            );
+            let handle = manager.get_handle_mut("rt-idle").unwrap();
+            handle.host_generation_id = generation.generation_id.clone();
+            handle.route_lease = Some(route_lease);
+        }
+        let supervisor = RuntimeSupervisor::new_with_host_pool(manager.clone(), pool.clone());
+
+        let outcome = supervisor
+            .reload_workspace(workspace_id, workspace.path(), true)
+            .await
+            .unwrap();
+        assert!(matches!(outcome, ApplyOutcome::RestartRequired));
+        assert!(manager.lock().await.agent_ids().is_empty());
+
+        let replacement = pool
+            .acquire(
+                IsolationDomainKey::Workspace(workspace_id.into()),
+                revision,
+                HashMap::from([("SENTINEL".into(), "before".into())]),
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+
+        assert_ne!(
+            replacement.generation.generation_id,
+            old_generation.generation_id
+        );
+        assert_eq!(factory.starts.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            pool.stats_for(&IsolationDomainKey::Workspace(workspace_id.into()))
+                .draining_generations,
+            0,
+            "the detached idle route must not leave a draining generation"
+        );
     }
 
     #[tokio::test]

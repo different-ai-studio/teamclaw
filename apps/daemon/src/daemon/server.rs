@@ -999,7 +999,7 @@ impl DaemonServer {
             // bind (see below), and the watcher poll loop reads the registry live.
             let refresh_watch_registry =
                 crate::runtime::refresh::refresh_watch::start_refresh_watchers(
-                    runtime_supervisor.refresh_coordinator(),
+                    runtime_supervisor.clone(),
                     Vec::new(),
                     dirs::home_dir(),
                 );
@@ -1139,10 +1139,7 @@ impl DaemonServer {
                     registry
                         .upsert_workspace(
                             crate::runtime::refresh::refresh_watch::WatchedWorkspace {
-                                workspace_id:
-                                    crate::runtime::refresh::refresh_watch::workspace_runtime_id(
-                                        Path::new(&workspace.path),
-                                    ),
+                                workspace_id: workspace.workspace_id,
                                 workspace_path: PathBuf::from(&workspace.path),
                             },
                         )
