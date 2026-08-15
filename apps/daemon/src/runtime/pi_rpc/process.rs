@@ -21,6 +21,11 @@ pub(crate) struct PiProcess {
     /// The acp session id currently active in this process (pi is
     /// one-active-session; prompts for another session switch first).
     pub(crate) active_acp_session: parking_lot::Mutex<Option<String>>,
+    /// Held across "ask pi whether it is busy, then switch it". Those are two
+    /// round trips, and without the lock a second caller can pass the busy
+    /// check with the answer the first one already invalidated — which is the
+    /// exact race the check exists to close.
+    pub(crate) switch_lock: tokio::sync::Mutex<()>,
     child: parking_lot::Mutex<tokio::process::Child>,
     /// Fingerprint of the env this child was spawned with (binary + team
     /// provider + MCP servers + extra env). A prewarmed child is spawned before
@@ -283,6 +288,7 @@ impl PiProcessPool {
         let proc = Arc::new(PiProcess {
             client: client.clone(),
             active_acp_session: parking_lot::Mutex::new(None),
+            switch_lock: tokio::sync::Mutex::new(()),
             child: parking_lot::Mutex::new(child),
             env_fingerprint: self.env_fingerprint(),
         });

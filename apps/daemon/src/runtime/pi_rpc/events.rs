@@ -95,6 +95,13 @@ async fn handle_event(
         "agent_start" => {
             if let Some(route) = shared.routes.lock().get_mut(&session_id) {
                 route.translate.reset_turn();
+                // A prompt sent while pi was busy is queued as `followUp`, so
+                // it starts its own run after the current one ends — and that
+                // first `agent_end` already cleared `turn_active`. Without
+                // re-arming here the queued run would finish with `close_turn`
+                // bailing on `!turn_active`, leaving the caller without the
+                // Active→Idle for a reply it did receive.
+                route.turn_active = true;
             }
         }
         // A pi agent run can contain multiple turns: each tool-use cycle ends

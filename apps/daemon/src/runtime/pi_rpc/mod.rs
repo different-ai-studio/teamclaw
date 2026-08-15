@@ -264,8 +264,14 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         .filter(|p| !p.is_empty())
         .map(str::to_string);
 
+    // Attaching replaces whatever session this child holds, so it is subject to
+    // the same guard as a prompt-driven switch. This is the path a restart's
+    // resume sweep takes, and resuming stored sessions one after another is how
+    // a live turn got aborted out from under its sender.
+    let _switching = proc.switch_lock.lock().await;
     let session_path = match resume_path {
         Some(path) => {
+            guard_switch(&proc, &path).await.map_err(|e| e.to_string())?;
             let switch = proc
                 .client
                 .request(serde_json::json!({"type": "switch_session", "sessionPath": path}))
@@ -291,7 +297,12 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
                 }
             }
         }
-        None => new_session_path(&proc.client).await?,
+        // `new_session` replaces the held session too, so it needs the same
+        // guard — a fresh chat must not abort a turn already running here.
+        None => {
+            guard_switch(&proc, "<new>").await.map_err(|e| e.to_string())?;
+            new_session_path(&proc.client).await?
+        }
     };
 
     // Model catalog + initial model.
@@ -414,6 +425,67 @@ async fn emit_frame(
 /// Ensure `session_id` is the process's active pi session (switch if another
 /// runtime session on the same worktree prompted in between, or after a
 /// respawn).
+/// Is this pi child mid-turn right now?
+///
+/// Asked of pi rather than tracked locally: `Route::turn_active` is this
+/// daemon's own bookkeeping and can disagree with the child (a turn started
+/// through another path, a reply that landed between our reads). `get_state`
+/// is the child's own answer.
+///
+/// A failed or malformed probe reports "busy". Refusing to switch costs a
+/// retry; switching into a live turn destroys it (see `guard_switch`).
+async fn pi_is_busy(proc: &process::PiProcess) -> bool {
+    match proc
+        .client
+        .request(serde_json::json!({"type": "get_state"}))
+        .await
+    {
+        Ok(state) => {
+            let streaming = state
+                .pointer("/data/isStreaming")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let compacting = state
+                .pointer("/data/isCompacting")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            streaming || compacting
+        }
+        Err(e) => {
+            warn!(error = %e, "pi get_state failed; treating the child as busy");
+            true
+        }
+    }
+}
+
+/// Refuse to switch a pi child that is mid-turn.
+///
+/// pi's RPC channel carries one session at a time, and `switch_session` does
+/// not park the outgoing session — `teardownCurrent` calls `session.abort()`
+/// and disposes it, then re-subscribes to the new one. The aborted turn's
+/// `agent_end` is therefore never emitted, so nothing closes the TeamClu turn
+/// and the sender waits on a reply that no longer exists. Observed exactly
+/// that: four sessions sharing one worktree, a resume of the others while one
+/// was mid-turn, and a chat stuck on "replying" for good.
+///
+/// So a switch is only safe when the child is idle. Callers surface the error
+/// rather than waiting, because the turn holding the child may run for minutes
+/// and the caller (a prompt, a resume sweep) has its own retry.
+async fn guard_switch(proc: &process::PiProcess, target: &str) -> crate::error::Result<()> {
+    if pi_is_busy(proc).await {
+        let holder = proc.active_acp_session.lock().clone().unwrap_or_default();
+        warn!(
+            target_session = target,
+            holding_session = holder,
+            "pi switch refused: child is mid-turn"
+        );
+        return Err(crate::error::AmuxError::Agent(format!(
+            "pi is mid-turn on another session ({holder}); retry when it settles"
+        )));
+    }
+    Ok(())
+}
+
 async fn ensure_active(
     shared: &Arc<Shared>,
     session_id: &str,
@@ -421,13 +493,21 @@ async fn ensure_active(
     session_path: &str,
 ) -> crate::error::Result<Arc<process::PiProcess>> {
     let proc = shared.pool.ensure(shared, worktree)?;
+    // The whole check-then-switch runs under the lock: two prompts for
+    // different sessions could otherwise both see an idle child and both
+    // switch, and the second one would abort the turn the first just started.
+    let _switching = proc.switch_lock.lock().await;
     let is_active = proc.active_acp_session.lock().as_deref() == Some(session_id);
     if !is_active {
+        guard_switch(&proc, session_id).await?;
         proc.client
             .request(serde_json::json!({"type": "switch_session", "sessionPath": session_path}))
             .await?;
         *proc.active_acp_session.lock() = Some(session_id.to_string());
     }
+    // Released before handing the process back: the guard borrows `proc`, and
+    // the switch it protects is already done.
+    drop(_switching);
     Ok(proc)
 }
 
@@ -474,7 +554,25 @@ async fn do_prompt(
     let result = match ensure_active(shared, session_id, &worktree, &session_path).await {
         Ok(proc) => {
             proc.client
-                .request(serde_json::json!({"type": "prompt", "message": message}))
+                .request(serde_json::json!({
+                    "type": "prompt",
+                    "message": message,
+                    // pi refuses a bare prompt while a turn is running:
+                    // "Agent is already processing. Specify streamingBehavior
+                    // ('steer' or 'followUp') to queue the message." Sending
+                    // one anyway is how a message typed mid-reply was lost.
+                    //
+                    // `followUp` runs it after the current turn; `steer` folds
+                    // it into the running one. followUp matches what TeamClu
+                    // already promises elsewhere — a message is its own turn
+                    // with its own reply, and the client's own queue holds
+                    // messages until the stream ends rather than redirecting it.
+                    //
+                    // Always sent, not only when busy: pi reads the field only
+                    // on the streaming branch, so an idle prompt is unaffected
+                    // and no extra `get_state` round trip is needed to decide.
+                    "streamingBehavior": "followUp"
+                }))
                 .await
         }
         Err(e) => Err(e),
