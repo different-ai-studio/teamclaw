@@ -18,7 +18,6 @@ import { useTranslation } from "react-i18next";
 import { useSessionStore } from "@/stores/session";
 import { useSessionMessageStore } from "@/stores/session-message-store";
 import { useOutboxStore } from "@/stores/outbox-store";
-import { useWorkspaceStore } from "@/stores/workspace";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { notePendingAgentReplyTo } from "@/lib/pending-agent-reply-to";
@@ -66,20 +65,11 @@ import {
   textHasMemberMentionTokens,
 } from "@/lib/member-mention-token";
 import { buildEnhancedChip, buildStructuredMentionLines } from "@/lib/outgoing-mention-content";
-import {
-  resolveAgentCatalogModels,
-  localRecentModelFallback,
-} from '@/lib/agent-model-fallback'
-import { clientMruModels } from '@/stores/client-model-mru'
+import { resolveAgentSessionModel } from '@/lib/resolve-agent-session-model'
+import { resolveAgentBackendType } from '@/lib/agent-backend-type'
 import { useModelPickPromptStore } from '@/stores/model-pick-prompt-store'
 import { getKnownLocalDaemonActorId } from "@/lib/local-daemon-identity";
-import { useLocalDaemonCatalogStore } from "@/stores/local-daemon-catalog-store";
-import {
-  selectAgentModel,
-  requiresExplicitModelPick,
-  resolveRuntimeStateEntryForAgent,
-  backendTypeFromRuntimeEntry,
-} from "@/lib/runtime-state-resolve";
+import { requiresExplicitModelPick } from "@/lib/runtime-state-resolve";
 import {
   sessionFlowError,
   sessionFlowLog,
@@ -231,12 +221,15 @@ export function useChatSend({
     processedText = processedText.replace(/@\{([^}]+)\}/g, '[File: $1]');
     // Skill/role invocation wording depends on which backend runs the agent
     // (opencode plugin tools vs Claude Code's native Skill tool).
-    const backendTypeForSend = backendTypeFromRuntimeEntry(
-      resolveRuntimeStateEntryForAgent(
-        agentForSend?.id ?? "",
-        useRuntimeStateStore.getState().byRuntimeId,
-      ),
-    );
+    // Runtime-first, then the team directory. On a cold start no runtime has
+    // attached yet, and a bare runtime read returns `undefined` — which the
+    // MRU lookup below cannot key on, so it reported "never picked a model"
+    // and the first send after launch stopped for a model pick.
+    const backendTypeForSend = resolveAgentBackendType({
+      agentId: agentForSend?.id ?? "",
+      teamId: sheetTeamId,
+      byRuntimeId: useRuntimeStateStore.getState().byRuntimeId,
+    });
     processedText = processedText.replace(/\/\{([^}]+)\}/g, (_full, body) => {
       const token = parseSlashToken(body);
       if (token.type === "role") return buildEnhancedChip("role", token.name, backendTypeForSend);
@@ -402,47 +395,30 @@ export function useChatSend({
             agentRuntimeIdsForSend[0] ?? "",
           );
           const sendAgentId = agentRuntimeIdsForSend[0] ?? "";
-          const sendByRuntimeId = useRuntimeStateStore.getState().byRuntimeId;
           const localDaemonActorIdForSend = getKnownLocalDaemonActorId();
-          const localCatalogWorkspace =
-            useWorkspaceStore.getState().workspacePath?.trim() || "";
-          const localCatalogForSend = localCatalogWorkspace
-            ? useLocalDaemonCatalogStore.getState().byWorkspacePath[
-                localCatalogWorkspace
-              ]
-            : undefined;
-          const availableForSend = resolveAgentCatalogModels({
-            agentId: sendAgentId,
-            localDaemonActorId: localDaemonActorIdForSend,
-            sessionId: sid,
-            byRuntimeId: sendByRuntimeId,
-            runtimeInfo: resolveRuntimeStateEntryForAgent(sendAgentId, sendByRuntimeId)
-              ?.info,
-            localWorkspaceCatalogModels: localCatalogForSend?.models,
-            remoteDefaultCatalogModels:
-              useRuntimeStateStore.getState().defaultCatalogByActorId[sendAgentId]?.models,
-          });
           // No agent means no model: there is nothing to run the prompt on, so
           // stamping the message with a workspace-global default only recorded
           // a model that was never used. `selectAgentModel` owns every other
           // case — including the fallback, which must be the same device MRU
           // the pill shows.
-          const selectedForSend = sendAgentId
-            ? selectAgentModel({
+          // Same resolver `startAgentRuntimes` uses to start the runtime this
+          // message runs on, so the model stamped here and the model it runs on
+          // cannot come out different. `teamIdForSend` is the team this send
+          // already resolved (session list first); letting the MRU re-derive it
+          // from `current-team` read empty during cold start and turned a
+          // remembered model into "never picked".
+          const resolvedForSend = sendAgentId
+            ? resolveAgentSessionModel({
                 sessionId: sid,
                 agentId: sendAgentId,
-                available: availableForSend,
-                byRuntimeId: sendByRuntimeId,
-                providerFallback:
-                  localRecentModelFallback({
-                    agentId: sendAgentId,
-                    localDaemonActorId: localDaemonActorIdForSend,
-                    recentModels: clientMruModels(backendTypeForSend),
-                    available: availableForSend,
-                  }) || undefined,
+                teamId: teamIdForSend,
+                backendType: backendTypeForSend,
+                localDaemonActorId: localDaemonActorIdForSend,
                 sessionEstablishedModel: establishedForSend,
               })
             : null;
+          const selectedForSend = resolvedForSend?.selected ?? null;
+          const availableForSend = resolvedForSend?.available ?? [];
 
           // Nothing chose this model — it is just whatever the catalog listed
           // first, and that order is provider probe order, not a preference.
@@ -456,6 +432,11 @@ export function useChatSend({
               availableModelCount: availableForSend.length,
             });
             useModelPickPromptStore.getState().request(sendAgentId);
+            // Deferring, not sending: the composer was already emptied at the
+            // top of this handler, so hand the text back the same way the
+            // other post-clear bail-out does. Without this the prompt is gone
+            // by the time the picker opens and there is nothing to re-send.
+            restoreComposer();
             return;
           }
 

@@ -4,6 +4,7 @@ import {
   type AgentModelOption,
 } from "@/lib/agent-available-models";
 import {
+  clientMruModels,
   firstAvailableMruModel,
   useClientModelMruStore,
 } from "@/stores/client-model-mru";
@@ -111,6 +112,34 @@ export function localRecentModelFallback(args: {
 }): string {
   if (!isLocalDaemonAgent(args.agentId, args.localDaemonActorId)) return "";
   return firstAvailableMruModel(args.recentModels, args.available);
+}
+
+/**
+ * The whole `providerFallback` slot in one call: look the MRU up and match it
+ * against the live catalog.
+ *
+ * Exists because the send path and the runtime-start path each built this by
+ * hand and drifted. `use-chat-send` looked the MRU up; `session-create` never
+ * did, so one message produced two runtime starts that disagreed about the
+ * model — the message was stamped with the remembered one while the runtime
+ * started with none. They happened to agree only because the daemon still keeps
+ * an MRU of its own to fall back on, and ADR-0007 is in the middle of removing
+ * that. Two call sites deriving the same answer separately is what this
+ * removes; there is now one place to key the lookup wrong.
+ */
+export function clientMruProviderFallback(args: {
+  agentId: string;
+  localDaemonActorId: string | null | undefined;
+  backendType: string | null | undefined;
+  teamId: string | null | undefined;
+  available: AgentModelOption[];
+}): string {
+  return localRecentModelFallback({
+    agentId: args.agentId,
+    localDaemonActorId: args.localDaemonActorId,
+    recentModels: clientMruModels(args.backendType, args.teamId),
+    available: args.available,
+  });
 }
 
 /**

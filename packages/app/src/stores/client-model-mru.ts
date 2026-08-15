@@ -103,9 +103,18 @@ const EMPTY: string[] = [];
  * Centralised so the team lookup and the empty-key guards live in one place;
  * three call sites each doing their own would be three chances to key the
  * lookup slightly differently.
+ *
+ * Pass `teamId` whenever the caller already resolved one. The store fallback is
+ * only a convenience for callers that have not: it reads `current-team`, which
+ * is empty for a moment on cold start, and an empty team here is indistinguish-
+ * able from "this device never picked a model" — which is what made the first
+ * send after launch stop for a model pick even on a device with an MRU. The
+ * send path resolves its team from the session list, so it must hand that one
+ * over rather than let this re-derive a different (and briefly empty) answer.
  */
 export function clientMruModels(
   backendType: string | null | undefined,
+  teamId?: string | null,
 ): string[] {
   const backend = backendType?.trim() ?? "";
   if (!backend) return EMPTY;
@@ -113,10 +122,12 @@ export function clientMruModels(
   // worth taking the pill's render down for. Anything unexpected (a store not
   // yet initialised, a test double without `getState`) reads as "no history".
   try {
-    const teamId = useCurrentTeamStore.getState?.()?.team?.id?.trim() ?? "";
-    if (!teamId) return EMPTY;
+    const explicit = teamId?.trim() ?? "";
+    const team =
+      explicit || (useCurrentTeamStore.getState?.()?.team?.id?.trim() ?? "");
+    if (!team) return EMPTY;
     return (
-      useClientModelMruStore.getState().byBackendTeam[key(backend, teamId)] ??
+      useClientModelMruStore.getState().byBackendTeam[key(backend, team)] ??
       EMPTY
     );
   } catch {

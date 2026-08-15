@@ -776,10 +776,14 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             localDaemonActorId,
             // This client's MRU, keyed by the backend this agent runs on
             // (ADR-0007). `localDaemonCatalog` still supplies the catalog.
+            // `sheetTeamId` resolves from the session list first. Leaving the
+            // team to `current-team` alone read empty during cold start, and an
+            // empty team is indistinguishable from "never picked a model".
             recentModels: clientMruModels(
               backendTypeFromRuntimeEntry(
                 resolveRuntimeStateEntryForAgent(modelAgentId, runtimeStates),
               ),
+              sheetTeamId,
             ),
             available,
           }) || undefined,
@@ -795,6 +799,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     activeEstablishedModel,
     activePickEntry,
     remoteDefaultCatalogModels,
+    sheetTeamId,
   ]);
 
   // ── Refs ───────────────────────────────────────────────────────────────

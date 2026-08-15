@@ -243,6 +243,9 @@ function AgentPill({
         localDaemonActorId: localActorId,
         // This client's MRU, not the daemon's (ADR-0007). `localCatalog` still
         // supplies the catalog itself — only the history moved.
+        // No explicit team: the pill only needs one for its own label, and
+        // `current-team` no longer blanks itself while auth restores (see
+        // `current-team.ts`), so the store answer is good here.
         recentModels: clientMruModels(backendType),
         available: availableModels,
       }),

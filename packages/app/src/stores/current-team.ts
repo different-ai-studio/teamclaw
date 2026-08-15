@@ -143,8 +143,20 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
   error: null,
 
   load: async () => {
-    const session = useAuthStore.getState().session;
+    const { session, loading: authLoading } = useAuthStore.getState();
     if (!session) {
+      // No session YET is not the same as no session. On cold start the auth
+      // store begins `{ session: null, loading: true }` and only resolves after
+      // a round trip; clearing here on that first pass threw away the snapshot
+      // `initialCurrentTeamState()` had just hydrated, and left `team: null`
+      // until the network answered. Anything reading the current team in that
+      // window saw a signed-out shell — including the client model MRU, whose
+      // lookup is keyed by team and so reported "never picked a model" and made
+      // the first send after every launch stop for a model pick.
+      if (authLoading) {
+        set({ loading: false, error: null });
+        return;
+      }
       await setLocalCacheTeamGate(null);
       set({ team: null, currentMember: null, teamUserId: null, loading: false, error: null });
       return;
