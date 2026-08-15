@@ -9,6 +9,10 @@ import { copyToClipboard, isTauri } from '@/lib/utils';
 import { useWorkspaceStore, type FileNode } from "@/stores/workspace";
 import { useOssSyncStore } from "@/stores/oss-sync";
 import {
+  hasSystemClipboardFiles,
+  writeSystemClipboardFiles,
+} from "./system-clipboard-files";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -161,6 +165,13 @@ interface FileTreeProps {
   filterText?: string;
   /** Override tree nodes (e.g. for custom root). When provided, bypasses workspace store's fileTree. */
   nodes?: import('@/stores/workspace').FileNode[];
+  /**
+   * Directory this tree is rooted at, when it is not the workspace root.
+   * Used as the target for drops and pastes that do not land on a specific
+   * row — without it those fall back to the workspace root, which silently
+   * writes outside the tree the user is looking at.
+   */
+  rootPath?: string;
   /** When set, shows an InlineInput at the top of the tree for creating a file or folder at root level */
   rootCreating?: 'file' | 'folder' | null;
   onRootCreateConfirm?: (name: string) => void;
@@ -170,6 +181,7 @@ interface FileTreeProps {
 export function FileTree({
   filterText = "",
   nodes: nodesProp,
+  rootPath,
   rootCreating,
   onRootCreateConfirm,
   onRootCreateCancel,
@@ -196,6 +208,28 @@ export function FileTree({
   const clipboardMode = useWorkspaceStore(s => s.clipboardMode);
   const setClipboard = useWorkspaceStore(s => s.setClipboard);
   const pasteFiles = useWorkspaceStore(s => s.pasteFiles);
+
+  /** Where drops and pastes land when they miss a specific row. */
+  const treeRoot = rootPath ?? workspacePath;
+
+  // Whether the OS pasteboard currently holds files. Refreshed when the window
+  // regains focus, which is exactly the Finder-copy-then-switch-back flow, and
+  // set directly whenever we publish our own selection to the pasteboard.
+  const [systemClipboardHasFiles, setSystemClipboardHasFiles] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      hasSystemClipboardFiles().then((has) => {
+        if (!cancelled) setSystemClipboardHasFiles(has);
+      });
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
 
   const parentRef = useRef<HTMLDivElement>(null);
   const treeContainerRef = useRef<HTMLDivElement>(null);
@@ -496,22 +530,32 @@ export function FileTree({
   );
 
   // ── Clipboard handlers for context menu ──
+  // Both modes publish to the OS pasteboard so the selection can be pasted in
+  // Finder. Cut lands there as a plain copy — see system-clipboard-files.ts.
   const handleCut = useCallback((paths: string[]) => {
     setClipboard(paths, 'cut');
+    setSystemClipboardHasFiles(true);
+    void writeSystemClipboardFiles(paths);
   }, [setClipboard]);
 
   const handleCopy = useCallback((paths: string[]) => {
     setClipboard(paths, 'copy');
+    setSystemClipboardHasFiles(true);
+    void writeSystemClipboardFiles(paths);
   }, [setClipboard]);
 
   const handlePaste = useCallback(async (targetDir: string) => {
     const success = await pasteFiles(targetDir);
     if (success) {
       await expandDirectory(targetDir);
-    } else {
+      return;
+    }
+    // An empty pasteboard is not an error — the menu item can be visible when
+    // the OS clipboard turns out to hold text or an image rather than files.
+    if (clipboardPaths.length > 0 || systemClipboardHasFiles) {
       toast.error(t('fileExplorer.pasteFailed', 'Paste failed'));
     }
-  }, [pasteFiles, expandDirectory, t]);
+  }, [pasteFiles, expandDirectory, clipboardPaths, systemClipboardHasFiles, t]);
 
   // ── Duplicate handler ──
   const handleDuplicate = useCallback(async (path: string) => {
@@ -661,7 +705,7 @@ export function FileTree({
           e.preventDefault();
           const paths = selectedFiles.length > 0 ? selectedFiles : (focusedPath ? [focusedPath] : []);
           if (paths.length > 0) {
-            setClipboard(paths, 'copy');
+            handleCopy(paths);
           }
           return;
         }
@@ -669,29 +713,30 @@ export function FileTree({
           e.preventDefault();
           const paths = selectedFiles.length > 0 ? selectedFiles : (focusedPath ? [focusedPath] : []);
           if (paths.length > 0) {
-            setClipboard(paths, 'cut');
+            handleCut(paths);
           }
           return;
         }
         if (e.key === 'v') {
           e.preventDefault();
-          if (clipboardPaths.length > 0 && clipboardMode) {
-            let targetDir = workspacePath;
-            if (focusedPath) {
-              const node = flatNodes.find(n => n.node.path === focusedPath);
-              if (node?.node.type === 'directory') {
-                targetDir = focusedPath;
-              } else {
-                targetDir = focusedPath.substring(0, focusedPath.lastIndexOf('/'));
-              }
+          // No internal-clipboard precondition: the paths may be coming from
+          // Finder, in which case only the OS pasteboard knows about them.
+          // pasteFiles resolves both sources and no-ops when neither has files.
+          let targetDir = treeRoot;
+          if (focusedPath) {
+            const node = flatNodes.find(n => n.node.path === focusedPath);
+            if (node?.node.type === 'directory') {
+              targetDir = focusedPath;
+            } else {
+              targetDir = focusedPath.substring(0, focusedPath.lastIndexOf('/'));
             }
-            if (targetDir) {
-              const success = await pasteFiles(targetDir);
-              if (success) {
-                await expandDirectory(targetDir);
-              } else {
-                toast.error(t('fileExplorer.pasteFailed', 'Paste failed'));
-              }
+          }
+          if (targetDir) {
+            const success = await pasteFiles(targetDir);
+            if (success) {
+              await expandDirectory(targetDir);
+            } else if (clipboardPaths.length > 0 || systemClipboardHasFiles) {
+              toast.error(t('fileExplorer.pasteFailed', 'Paste failed'));
             }
           }
           return;
@@ -750,7 +795,7 @@ export function FileTree({
           } else {
             // Navigate to parent directory
             const parentPath = node.path.substring(0, node.path.lastIndexOf("/"));
-            if (parentPath && parentPath !== workspacePath) {
+            if (parentPath && parentPath !== treeRoot) {
               setFocusedPath(parentPath);
               const el = treeContainerRef.current?.querySelector(
                 `[data-path="${CSS.escape(parentPath)}"]`,
@@ -828,7 +873,7 @@ export function FileTree({
       renamingPath,
       creatingIn,
       effectiveExpandedPaths,
-      workspacePath,
+      treeRoot,
       selectedFiles,
       setFocusedPath,
       expandDirectory,
@@ -837,9 +882,10 @@ export function FileTree({
       selectFile,
       handleDelete,
       handleDuplicate,
+      handleCopy,
+      handleCut,
       clipboardPaths,
-      clipboardMode,
-      setClipboard,
+      systemClipboardHasFiles,
       pasteFiles,
       t,
     ],
@@ -927,7 +973,7 @@ export function FileTree({
                 if (path) {
                   const node = flatNodesRef.current.find(fn => fn.node.path === path);
                   if (node && node.node.type === 'file') {
-                    targetDir = path.substring(0, path.lastIndexOf('/')) || workspacePath;
+                    targetDir = path.substring(0, path.lastIndexOf('/')) || treeRoot;
                   } else {
                     targetDir = path;
                   }
@@ -980,13 +1026,14 @@ export function FileTree({
             return;
           }
 
-          const targetDir = dragOverPathRef.current || workspacePath;
+          const targetDir = dragOverPathRef.current || treeRoot;
+          if (!targetDir) return;
 
           const { copyExternalFiles } = await import('./file-tree-operations');
           const success = await copyExternalFiles(paths, targetDir);
           if (success) {
             await refreshFileTree();
-            if (targetDir !== workspacePath) {
+            if (targetDir !== treeRoot) {
               await expandDirectory(targetDir);
             }
           } else {
@@ -1011,7 +1058,7 @@ export function FileTree({
               const node = flatNodesRef.current.find(fn => fn.node.path === path);
               if (node && node.node.type === 'file') {
                 const parentDir = path.substring(0, path.lastIndexOf('/'));
-                setDragOverPath(parentDir || workspacePath);
+                setDragOverPath(parentDir || treeRoot);
               } else {
                 setDragOverPath(path);
               }
@@ -1031,7 +1078,7 @@ export function FileTree({
     });
 
     return () => { cancelled = true; unlisteners.forEach(fn => fn()); };
-  }, [workspacePath, refreshFileTree, expandDirectory, t]);
+  }, [workspacePath, treeRoot, refreshFileTree, expandDirectory, t]);
 
   // An empty tree still has to render the root create row when one is pending:
   // the per-node create flow hangs off a node's context menu, so an empty tree
@@ -1140,7 +1187,7 @@ export function FileTree({
     onCopy: handleCopy,
     onPaste: handlePaste,
     onDuplicate: handleDuplicate,
-    hasClipboard: clipboardPaths.length > 0,
+    hasClipboard: clipboardPaths.length > 0 || systemClipboardHasFiles,
     isClipboardCut: clipboardMode === 'cut',
     clipboardPaths,
   });
