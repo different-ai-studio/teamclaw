@@ -100,4 +100,15 @@ describe('CronJobDialog', () => {
     expect(queryByText('Timeout (seconds)')).toBeNull()
     expect(queryByText(/Auto-aborts if exceeded/)).toBeNull()
   })
+
+  // Every automation entry point pins a model at creation time (ADR-0007).
+  // "Use default model" resolved at run time against the device MRU, so the
+  // same job ran on whatever model that device last happened to use.
+  it('offers no "use default model" escape hatch', () => {
+    const { queryByText } = render(
+      <CronJobDialog open onOpenChange={vi.fn()} />
+    )
+    expect(queryByText('Use default model')).toBeNull()
+    expect(queryByText('Select a model')).not.toBeNull()
+  })
 })

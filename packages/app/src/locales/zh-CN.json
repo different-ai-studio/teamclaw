@@ -1714,6 +1714,16 @@
       "liveState": "实时状态"
     },
     "channels": {
+      "gatewayModel": "网关模型",
+      "gatewayModelDescription": "所有渠道都用这个模型起会话。单个会话仍可以用 /model 切换。",
+      "gatewayModelUnset": "由后端自行选择",
+      "modelsNoTeam": "先加入团队才能加载模型。",
+      "modelsNoDefault": "先在 Daemon 设置里指定默认工作区。",
+      "modelsNoDefaultPath": "默认工作区在这台 daemon 上没有本地路径。",
+      "modelsDaemonUnavailable": "Daemon 还没就绪，等应用启动完成后重试。",
+      "modelsNoConfigured": "没有已配置的模型，请先在 LLM 设置里添加 provider。",
+      "modelsLoadFailed": "加载模型失败。",
+      "noModels": "没有可用模型。",
       "seatalk": {
         "gateway": "SeaTalk 网关",
         "setupTitle": "配置 SeaTalk 机器人",
@@ -2670,7 +2680,7 @@
       "fullAccessOffDesc": "需要人工审批。任务会一直等待，直到有人处理或超时。",
       "viewConversation": "查看对话",
       "execution": "执行",
-      "modelOverrideHint": "选择一个模型，或使用工作区默认模型。",
+      "modelRequiredHint": "选择这个任务运行时用的模型。",
       "scopeGlobal": "全局任务",
       "scopeGlobalHint": "运行在 Daemon 默认工作区，不依赖当前打开的窗口。",
       "scopeWorkspace": "工作区任务",
@@ -2688,7 +2698,8 @@
       "modelSelected": "使用：{{model}}",
       "noModels": "未配置模型。请先在 LLM 设置中配置提供商。",
       "lastHeartbeat": "最后心跳",
-      "useDefaultModel": "使用默认模型",
+      "selectModel": "选择模型",
+      "requiredModel": "必须选择模型",
       "sessionNotFound": "对话不存在或无访问权限 (sessionId: {{id}}...)",
       "runFailedFallback": "本次运行失败：{{error}}"
     },

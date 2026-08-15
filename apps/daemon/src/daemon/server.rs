@@ -248,6 +248,13 @@ pub(crate) enum SockCommand {
         platform: String,
         config_json: String,
     },
+    /// Replace `daemon_config.channels.model` — the model every gateway session
+    /// starts on when the chat has not set its own with `/model` — persist to
+    /// team.toml, and reload the channel manager. An empty string clears it,
+    /// restoring the unpinned spawn. One-way (no reply).
+    GatewayModelSave {
+        model: String,
+    },
     /// Proactive send request from the `amuxd mcp-server` bridge running
     /// as a child of an ACP agent. `payload` is the raw JSON envelope the
     /// bridge wrote to the sock; the daemon parses out binding + channel
@@ -1796,6 +1803,9 @@ impl DaemonServer {
                             Some(SockCommand::ChannelSave { platform, config_json }) => {
                                 self.save_channel_config(&platform, &config_json).await;
                             }
+                            Some(SockCommand::GatewayModelSave { model }) => {
+                                self.save_gateway_model(&model).await;
+                            }
                             Some(SockCommand::McpSend { payload, reply_tx }) => {
                                 let resp = match self.handle_mcp_send(&payload).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
@@ -2247,6 +2257,9 @@ impl DaemonServer {
                             }
                             Some(SockCommand::ChannelSave { platform, config_json }) => {
                                 self.save_channel_config(&platform, &config_json).await;
+                            }
+                            Some(SockCommand::GatewayModelSave { model }) => {
+                                self.save_gateway_model(&model).await;
                             }
                             Some(SockCommand::McpSend { payload, reply_tx }) => {
                                 let resp = match self.handle_mcp_send(&payload).await {
@@ -2957,6 +2970,20 @@ where
                         .send(SockCommand::ChannelSave {
                             platform: platform.trim().to_string(),
                             config_json: config_json.trim().to_string(),
+                        })
+                        .await;
+                }
+                "gateway-model" => {
+                    // Wire format: line 1 = "gateway-model", line 2 = the
+                    // `provider/model` ref (empty line clears the setting).
+                    let mut model = String::new();
+                    if reader.read_line(&mut model).await.is_err() {
+                        warn!("amuxd.sock: gateway-model missing model");
+                        return;
+                    }
+                    let _ = tx
+                        .send(SockCommand::GatewayModelSave {
+                            model: model.trim().to_string(),
                         })
                         .await;
                 }

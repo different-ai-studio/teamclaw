@@ -335,6 +335,17 @@ impl Backend for DeferredBackend {
             .await
     }
 
+    async fn update_participant_model(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+        model: &str,
+    ) -> BackendResult<()> {
+        self.inner()?
+            .update_participant_model(session_id, actor_id, model)
+            .await
+    }
+
     async fn rpc_upsert_external_actor(
         &self,
         team_id: &str,

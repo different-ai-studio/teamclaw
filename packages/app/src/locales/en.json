@@ -1714,6 +1714,16 @@
       "liveState": "Live state"
     },
     "channels": {
+      "gatewayModel": "Gateway model",
+      "gatewayModelDescription": "Every channel starts its sessions on this model. A chat can still switch with /model.",
+      "gatewayModelUnset": "Let the backend choose",
+      "modelsNoTeam": "Join a team to load models.",
+      "modelsNoDefault": "Set a default workspace in Daemon settings.",
+      "modelsNoDefaultPath": "Default workspace has no local path on this daemon.",
+      "modelsDaemonUnavailable": "Daemon is not ready. Wait for the app to finish starting, then try again.",
+      "modelsNoConfigured": "No configured models. Add a provider in LLM settings.",
+      "modelsLoadFailed": "Failed to load models.",
+      "noModels": "No models advertised.",
       "seatalk": {
         "gateway": "SeaTalk Gateway",
         "setupTitle": "Set up SeaTalk Bot",
@@ -2670,7 +2680,7 @@
       "fullAccessOffDesc": "Ask for approval. The run waits until someone answers, or times out.",
       "viewConversation": "View Conversation",
       "execution": "Execution",
-      "modelOverrideHint": "Select a model or use workspace default.",
+      "modelRequiredHint": "Pick the model this job runs on.",
       "scopeGlobal": "Global tasks",
       "scopeGlobalHint": "Runs in the Daemon default workspace, independent of the active window.",
       "scopeWorkspace": "Workspace tasks",
@@ -2688,7 +2698,8 @@
       "modelSelected": "Using: {{model}}",
       "noModels": "No models configured. Please configure providers in LLM Settings first.",
       "lastHeartbeat": "Last heartbeat",
-      "useDefaultModel": "Use default model",
+      "selectModel": "Select a model",
+      "requiredModel": "Model is required",
       "sessionNotFound": "Session not found or access denied (sessionId: {{id}}...)",
       "runFailedFallback": "This run failed: {{error}}"
     },
