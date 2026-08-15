@@ -32,6 +32,7 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 
 // Loose ExtensionAPI typing: keeps this file dependency-free (the real types
@@ -152,6 +153,18 @@ class McpBridge {
       for (const p of this.pending.values()) p.reject(err);
       this.pending.clear();
     });
+  }
+
+  /** Kill the child and fail anything still in flight. Used when a server's
+   *  command changed or it was removed from the config. */
+  dispose(): void {
+    for (const p of this.pending.values()) p.reject(new Error("MCP bridge disposed"));
+    this.pending.clear();
+    try {
+      this.child.kill();
+    } catch {
+      // Already gone: nothing to do.
+    }
   }
 
   private onData(chunk: string): void {
@@ -276,8 +289,340 @@ function resolveEnv(env: Record<string, unknown> | undefined): Record<string, st
   return out;
 }
 
-/** Spawn one stdio MCP server and register each of its tools as a pi tool that
- *  proxies `tools/call`. Best-effort: a failed server never breaks the others. */
+/**
+ * Process-wide MCP bridge registry.
+ *
+ * # Why this is global rather than per-extension-instance
+ *
+ * pi runs this extension's entry point again for every new session, on the SAME
+ * process. Each run used to spawn a fresh child for every configured server and
+ * leave the previous ones running: a live process tree showed one `pi` with two
+ * complete sets of MCP children, and a third session would have added a third.
+ *
+ * The cost was the whole of the "first message is slow" complaint. Measured on
+ * this machine, `new_session` scaled linearly with the number of npx-based
+ * servers — ~4s each, serially:
+ *
+ *   0 npx servers →   ~50ms
+ *   1 npx server  →  ~4100ms
+ *   3 npx servers → ~11000ms
+ *
+ * Keyed on `globalThis` rather than a module-level `const` because a re-import
+ * would give the module fresh state, and re-import is exactly the case this has
+ * to survive.
+ */
+type McpTool = { name: string; description?: string; inputSchema?: unknown };
+
+type BridgeEntry = {
+  /** Resolves once the child has completed the MCP handshake. Held as a
+   *  promise, not a value, because a cache hit registers tools before the
+   *  child is even spawned. */
+  ready: Promise<McpBridge>;
+  /** The command that produced this bridge; a change means respawn. */
+  signature: string;
+  tools: McpTool[];
+  /** `tools` came from the on-disk cache and no live `tools/list` has
+   *  confirmed it yet. */
+  provisional: boolean;
+};
+
+const BRIDGE_REGISTRY: Map<string, BridgeEntry> = ((globalThis as any).__teamcluMcpBridges ??=
+  new Map());
+
+function bridgeSignature(cmd: string[], env?: Record<string, string>): string {
+  return JSON.stringify([cmd, env ?? {}]);
+}
+
+// ---------------------------------------------------------------------------
+// tools/list cache
+// ---------------------------------------------------------------------------
+
+/**
+ * Why this cache exists.
+ *
+ * pi cannot start a session until the extension's entry point returns, and the
+ * entry point cannot register a server's tools until `tools/list` answers —
+ * which means spawning the child and completing the MCP handshake first. Timed
+ * inside pi on this machine, that is where the cold first message goes:
+ *
+ *   pi boot -> extension loaded    1.05s
+ *   remote-tools bridge            0.03s
+ *   teamclu-introspect bridge      0.03s
+ *   playwright bridge              1.94s
+ *   chrome-control bridge          2.14s
+ *   autoui bridge                  4.25s   <- the whole wait is this one
+ *   entry done                     5.33s
+ *
+ * The tool list is the only part the entry point actually needs, and it barely
+ * changes between runs. Cached on disk it registers instantly and the child is
+ * spawned in the background, taking the slowest server off the critical path.
+ * A tool call that arrives before its child is ready simply awaits `ready`.
+ */
+const TOOL_CACHE_DIR = process.env.TEAMCLU_MCP_TOOL_CACHE_DIR;
+
+/** Stable per-signature filename. FNV-1a: no crypto import, and collisions only
+ *  cost a cache miss because the stored signature is compared on read. */
+function cacheKey(signature: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < signature.length; i++) {
+    h ^= signature.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+function cachePath(label: string, signature: string): string | null {
+  if (!TOOL_CACHE_DIR) return null;
+  const safe = label.replace(/[^A-Za-z0-9._-]/g, "_");
+  return `${TOOL_CACHE_DIR}/${safe}.${cacheKey(signature)}.json`;
+}
+
+function readToolCache(label: string, signature: string): McpTool[] | null {
+  const p = cachePath(label, signature);
+  if (!p) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+    // The signature is stored as well as hashed: a hash collision, or a stale
+    // file from an older command, must miss rather than register wrong tools.
+    if (parsed?.signature !== signature) return null;
+    const tools = parsed?.tools;
+    if (!Array.isArray(tools) || tools.length === 0) return null;
+    return tools.filter((t: any) => t && typeof t.name === "string");
+  } catch {
+    return null;
+  }
+}
+
+function writeToolCache(label: string, signature: string, tools: McpTool[]): void {
+  const p = cachePath(label, signature);
+  if (!p || tools.length === 0) return;
+  try {
+    fs.writeFileSync(p, JSON.stringify({ signature, tools }));
+  } catch (e) {
+    console.error(`[teamclu] MCP tool cache write failed (${label}): ${e}`);
+  }
+}
+
+/** Spawn the child and complete the MCP handshake. */
+async function handshake(
+  cmd: string[],
+  env?: Record<string, string>,
+): Promise<{ bridge: McpBridge; tools: McpTool[] }> {
+  const bridge = new McpBridge(cmd, env);
+  try {
+    await bridge.request("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "teamclu-pi-extension", version: "1.0.0" },
+    });
+    bridge.notify("notifications/initialized");
+    const listed = await bridge.request("tools/list");
+    return { bridge, tools: listed?.tools ?? [] };
+  } catch (e) {
+    bridge.dispose(); // never leak a child whose handshake failed
+    throw e;
+  }
+}
+
+/**
+ * Get a bridge entry for `label`, spawning only when there is not already one
+ * with the same command. A changed command tears the old child down first —
+ * that is what makes an MCP config edit take effect without restarting pi.
+ *
+ * Returns as soon as a tool list is known: from the live registry, from the
+ * on-disk cache (child spawning in the background), or — only on the very
+ * first run for a given command — from a full handshake.
+ */
+async function ensureBridge(
+  label: string,
+  cmd: string[],
+  env?: Record<string, string>,
+): Promise<BridgeEntry> {
+  const signature = bridgeSignature(cmd, env);
+  const existing = BRIDGE_REGISTRY.get(label);
+  if (existing) {
+    if (existing.signature === signature) return existing;
+    disposeEntry(existing);
+    BRIDGE_REGISTRY.delete(label);
+  }
+
+  const cached = readToolCache(label, signature);
+  if (cached) {
+    const pending = handshake(cmd, env);
+    const entry: BridgeEntry = {
+      ready: pending.then((r) => r.bridge),
+      signature,
+      tools: cached,
+      provisional: true,
+    };
+    BRIDGE_REGISTRY.set(label, entry);
+    // Derived chain, so `entry.ready` keeps its own rejection for awaiting
+    // tool calls instead of being swallowed here.
+    void pending.then(
+      ({ tools }) => {
+        entry.tools = tools;
+        entry.provisional = false;
+        writeToolCache(label, signature, tools);
+      },
+      (e) => {
+        // Drop the entry so the next session retries rather than inheriting a
+        // bridge that will never answer.
+        if (BRIDGE_REGISTRY.get(label) === entry) BRIDGE_REGISTRY.delete(label);
+        console.error(`[teamclu] MCP bridge failed after cached start (${label}): ${e}`);
+      },
+    );
+    return entry;
+  }
+
+  const { bridge, tools } = await handshake(cmd, env);
+  writeToolCache(label, signature, tools);
+  const entry: BridgeEntry = {
+    ready: Promise.resolve(bridge),
+    signature,
+    tools,
+    provisional: false,
+  };
+  BRIDGE_REGISTRY.set(label, entry);
+  return entry;
+}
+
+function disposeEntry(entry: BridgeEntry): void {
+  // The child may still be starting; dispose when it lands either way.
+  void entry.ready.then(
+    (b) => b.dispose(),
+    () => {},
+  );
+}
+
+/** Tear down bridges whose server is no longer configured. */
+function disposeRemovedBridges(configured: Set<string>): void {
+  for (const [label, entry] of [...BRIDGE_REGISTRY]) {
+    if (configured.has(label)) continue;
+    disposeEntry(entry);
+    BRIDGE_REGISTRY.delete(label);
+  }
+}
+
+type McpServerSpec = { command: string[]; environment?: Record<string, unknown> };
+
+/**
+ * Read the workspace MCP config the same way amuxd does when it builds
+ * `TEAMCLU_MCP_SERVERS` (`mcp_servers_from_value` in `pi_rpc/mod.rs`): skip the
+ * daemon's own remote-tools entry, skip `type: "remote"` and `enabled: false`,
+ * and require a non-empty string `command` array.
+ *
+ * Kept deliberately in sync with the Rust side — the env payload is a snapshot
+ * of this file at spawn, so a watcher re-reading it must apply the same rules
+ * or a reload would bridge servers the initial pass rejected.
+ *
+ * Returns `null` when the file cannot be read or parsed, which the caller must
+ * treat as "no information" rather than "no servers". Editors save atomically
+ * (write temp, rename), so a read can land mid-write; answering `{}` there
+ * would tear down every working bridge over a transient half-written file, and
+ * nothing would bring them back until the next edit.
+ */
+function readMcpServers(configPath: string): Record<string, McpServerSpec> | null {
+  let root: any;
+  try {
+    root = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch {
+    return null;
+  }
+  // Valid JSON with no `mcp` section genuinely means "no servers".
+  const mcp = root?.mcp;
+  if (!mcp || typeof mcp !== "object") return {};
+  const out: Record<string, McpServerSpec> = {};
+  for (const [name, raw] of Object.entries(mcp)) {
+    if (name === "amuxd-remote-tools") continue;
+    const spec = raw as any;
+    if (!spec || typeof spec !== "object") continue;
+    if (spec.type === "remote") continue;
+    if (spec.enabled === false) continue;
+    const cmd = spec.command;
+    if (!Array.isArray(cmd) || cmd.length === 0 || !cmd.every((c: unknown) => typeof c === "string")) {
+      continue;
+    }
+    out[name] = { command: cmd as string[], environment: spec.environment };
+  }
+  return out;
+}
+
+/** Bring the live bridges in line with `servers`: drop what is gone, spawn what
+ *  is new, leave unchanged ones alone (the registry decides by signature). */
+async function reconcileBridges(
+  pi: ExtensionAPI,
+  ownTools: Set<string>,
+  servers: Record<string, McpServerSpec>,
+): Promise<void> {
+  const names = Object.keys(servers);
+  // "remote-tools" is bridged from its own env contract, not from this file.
+  disposeRemovedBridges(new Set([...names, "remote-tools"]));
+  await Promise.all(
+    names.map((name) =>
+      bridgeMcpServer(pi, ownTools, name, servers[name].command, resolveEnv(servers[name].environment)),
+    ),
+  );
+}
+
+/**
+ * The extension instance a config reload should register new tools on.
+ *
+ * `pi.registerTool` binds to the instance that is passed to the entry point,
+ * and the entry point runs again per session — so the watcher, which outlives
+ * any one session, cannot capture a `pi` and keep it. It reads the newest one
+ * from here instead, which the entry point refreshes on every run.
+ */
+const WATCH_STATE: { target: { pi: ExtensionAPI; ownTools: Set<string> } | null; started: boolean } =
+  ((globalThis as any).__teamcluMcpWatchState ??= { target: null, started: false });
+
+/**
+ * Watch the workspace MCP config and re-bridge on edit.
+ *
+ * Without this an MCP config change only lands when the pi process itself is
+ * replaced, because `TEAMCLU_MCP_SERVERS` is read once at spawn. Watching the
+ * *directory* rather than the file is deliberate: editors write config atomically
+ * (write temp + rename), which detaches an `fs.watch` bound to the old inode and
+ * silently stops delivering events.
+ *
+ * Idempotent and process-wide: the entry point calls it every session, and only
+ * the first call installs anything.
+ */
+function ensureMcpConfigWatcher(): void {
+  if (WATCH_STATE.started) return;
+  const configPath = process.env.TEAMCLU_MCP_CONFIG_PATH;
+  if (!configPath) return;
+  const dir = path.dirname(configPath);
+  const base = path.basename(configPath);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    fs.watch(dir, (_event, filename) => {
+      // A rename fires for the temp file too; only the real name matters.
+      if (filename && filename !== base) return;
+      if (timer) clearTimeout(timer);
+      // One save can fire several events (truncate, write, rename).
+      timer = setTimeout(() => {
+        timer = null;
+        const target = WATCH_STATE.target;
+        if (!target) return;
+        const servers = readMcpServers(configPath);
+        if (!servers) {
+          console.error(`[teamclu] MCP config unreadable; keeping current bridges: ${configPath}`);
+          return;
+        }
+        void reconcileBridges(target.pi, target.ownTools, servers).catch((e) =>
+          console.error(`[teamclu] MCP config reload failed: ${e}`),
+        );
+      }, 250);
+    });
+    WATCH_STATE.started = true;
+  } catch (e) {
+    // No watch ⇒ config changes need a pi restart, as before. Not fatal.
+    console.error(`[teamclu] MCP config watch unavailable (${configPath}): ${e}`);
+  }
+}
+
+/** Reuse (or spawn) one stdio MCP server and register its tools on `pi`.
+ *  Best-effort: a failed server never breaks the others. */
 async function bridgeMcpServer(
   pi: ExtensionAPI,
   ownTools: Set<string>,
@@ -286,18 +631,8 @@ async function bridgeMcpServer(
   env?: Record<string, string>,
 ): Promise<void> {
   try {
-    const bridge = new McpBridge(cmd, env);
-    await bridge.request("initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "teamclu-pi-extension", version: "1.0.0" },
-    });
-    bridge.notify("notifications/initialized");
-
-    const listed = await bridge.request("tools/list");
-    const tools: Array<{ name: string; description?: string; inputSchema?: unknown }> =
-      listed?.tools ?? [];
-    for (const tool of tools) {
+    const entry = await ensureBridge(label, cmd, env);
+    for (const tool of entry.tools) {
       ownTools.add(tool.name);
       pi.registerTool({
         name: tool.name,
@@ -307,6 +642,9 @@ async function bridgeMcpServer(
         // JSON Schema objects at runtime, so pass it through directly.
         parameters: tool.inputSchema ?? { type: "object", properties: {} },
         async execute(_toolCallId, params) {
+          // On a cached start the child may still be handshaking; this is the
+          // only place that waits for it, and only when a tool is actually used.
+          const bridge = await entry.ready;
           const result = await bridge.request("tools/call", {
             name: tool.name,
             arguments: params ?? {},
@@ -382,6 +720,14 @@ export default async function (pi: ExtensionAPI) {
   // 2) The workspace's other MCP servers (from opencode.json `mcp`), bridged so
   //    pi gets the same tools opencode loads natively. Payload:
   //    { "<name>": { "command": [...], "environment": {...} }, ... }
+  // Point the config watcher at this session's instance BEFORE bridging, and
+  // unconditionally — including when nothing is configured yet. Doing it inside
+  // the "has servers" branch below would mean a workspace that starts with no
+  // MCP servers never gets a watcher, so adding the first one would still need
+  // a pi restart, which is the case this exists to remove.
+  WATCH_STATE.target = { pi, ownTools };
+  ensureMcpConfigWatcher();
+
   const serversRaw = process.env.TEAMCLU_MCP_SERVERS;
   if (serversRaw) {
     let servers: Record<string, { command?: unknown; environment?: Record<string, unknown> }>;
@@ -391,10 +737,18 @@ export default async function (pi: ExtensionAPI) {
       console.error(`[teamclu] invalid TEAMCLU_MCP_SERVERS: ${e}`);
       servers = {};
     }
+    const valid: Record<string, McpServerSpec> = {};
     for (const [name, spec] of Object.entries(servers)) {
       const cmd = spec?.command;
-      if (!Array.isArray(cmd) || cmd.length === 0 || cmd.some((c) => typeof c !== "string")) continue;
-      await bridgeMcpServer(pi, ownTools, name, cmd as string[], resolveEnv(spec.environment));
+      if (Array.isArray(cmd) && cmd.length > 0 && cmd.every((c) => typeof c === "string")) {
+        valid[name] = { command: cmd as string[], environment: spec.environment };
+      }
     }
+    // Drops servers that are no longer configured before adding the rest (so an
+    // edit that replaces one server with another does not leave both running),
+    // then spawns in parallel. Only the FIRST session in this process pays a
+    // spawn at all — later ones reuse the registry — but that first one used to
+    // pay for every server end to end, ~4s each for the npx-based ones.
+    await reconcileBridges(pi, ownTools, valid);
   }
 }
