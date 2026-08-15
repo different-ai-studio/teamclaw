@@ -22,6 +22,13 @@ function cronInvokeArgs(scope: CronScope, selectedWorkspacePath: string | null) 
 // (via `cron-prepare-session`) and stamps `session_id` into the run record
 // within a second or two of clicking — well before the ACP turn completes —
 // so it surfaces in `cron_get_runs` almost immediately.
+/**
+ * Latch for the one-time model backfill (ADR-0007 P2). Set only after a
+ * conclusive pass, so an offline daemon does not consume the single window in
+ * which the device MRU can still supply the answer.
+ */
+const CRON_MODEL_BACKFILL_KEY = 'teamclu.cron.model-backfill.v1'
+
 const RUN_JOB_SESSION_POLL_INTERVAL_MS = 1000
 // Even with eager creation, a run whose prepare is queued behind another
 // in-flight cron turn (the daemon serializes turns) can take longer. Keep the
@@ -249,6 +256,11 @@ interface CronState {
   setScope: (scope: CronScope) => Promise<void>
   setSelectedWorkspacePath: (workspacePath: string | null) => Promise<void>
   loadJobs: () => Promise<void>
+  /**
+   * One-time pass that pins a model onto jobs saved before the field was
+   * required. Latches only on a conclusive run — see `lib/cron-model-backfill`.
+   */
+  backfillMissingModels: () => Promise<void>
   addJob: (request: CreateCronJobRequest) => Promise<CronJob>
   updateJob: (request: UpdateCronJobRequest) => Promise<CronJob>
   removeJob: (jobId: string) => Promise<void>
@@ -288,9 +300,52 @@ export const useCronStore = create<CronState>((set, get) => ({
       await invoke('cron_init', cronInvokeArgs(get().activeScope, get().selectedWorkspacePath))
       set({ isInitialized: true })
       await get().loadJobs()
+      void get().backfillMissingModels()
     } catch (error) {
       console.error('[Cron] Init failed:', error)
       set({ error: error instanceof Error ? error.message : String(error) })
+    }
+  },
+
+  backfillMissingModels: async () => {
+    if (localStorage.getItem(CRON_MODEL_BACKFILL_KEY) === 'done') return
+
+    const workspacePath = get().selectedWorkspacePath?.trim()
+    if (!workspacePath) return
+
+    try {
+      const { fetchLocalDaemonCatalog } = await import('@/lib/local-daemon-model-catalog')
+      const { planCronModelBackfill } = await import('@/lib/cron-model-backfill')
+
+      const outcome = await fetchLocalDaemonCatalog(workspacePath)
+      const plan = planCronModelBackfill({
+        jobs: get().jobs,
+        recentModels: outcome.status === 'models' ? outcome.recentModels : [],
+        available: outcome.status === 'models' ? outcome.models : [],
+      })
+
+      for (const { id, model } of plan.updates) {
+        const job = get().jobs.find((j) => j.id === id)
+        if (!job) continue
+        await get().updateJob({
+          id: job.id,
+          name: job.name,
+          description: job.description,
+          enabled: job.enabled,
+          schedule: job.schedule,
+          payload: { ...job.payload, model },
+          delivery: job.delivery ?? null,
+          deleteAfterRun: job.deleteAfterRun,
+        })
+      }
+
+      // Only latch when the run was conclusive. An unreachable daemon must not
+      // burn the one window in which the MRU can still answer (it is deleted in
+      // P5 — see lib/cron-model-backfill.ts).
+      if (plan.complete) localStorage.setItem(CRON_MODEL_BACKFILL_KEY, 'done')
+    } catch (error) {
+      // A migration convenience must never break cron init.
+      console.warn('[Cron] model backfill skipped:', error)
     }
   },
 

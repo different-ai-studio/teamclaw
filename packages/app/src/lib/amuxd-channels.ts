@@ -56,6 +56,33 @@ export async function saveChannelConfig(
   }
 }
 
+/**
+ * The model every gateway session starts on when the chat has not set its own
+ * with `/model` (ADR-0007). `null` = unset, which leaves the spawn unpinned and
+ * lets the backend pick — the behaviour this setting exists to replace.
+ *
+ * Gateway-level rather than per-platform: the platforms differ in how a message
+ * arrives, not in what should answer it.
+ */
+export async function loadGatewayModel(): Promise<string | null> {
+  try {
+    return await invoke<string | null>("load_gateway_model");
+  } catch (e) {
+    if (isUnreachableError(e)) throw new AmuxdUnreachableError();
+    throw e;
+  }
+}
+
+/** Empty string clears it, restoring the unpinned spawn. */
+export async function saveGatewayModel(model: string): Promise<void> {
+  try {
+    await invoke("save_gateway_model", { model });
+  } catch (e) {
+    if (isUnreachableError(e)) throw new AmuxdUnreachableError();
+    throw e;
+  }
+}
+
 export async function reloadChannels(): Promise<void> {
   try {
     await invoke("reload_channels");

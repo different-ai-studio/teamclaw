@@ -149,6 +149,7 @@ impl DaemonServer {
             logical_to_acp: Arc::new(AsyncMutex::new(HashMap::new())),
             team_id: team_id.clone(),
             model_override: Arc::new(AsyncMutex::new(HashMap::new())),
+            gateway_model: split_gateway_model(self.config.channels.model.as_deref()),
             backend: self.backend.clone(),
             default_agent_type,
             default_workspace_dir,
@@ -431,6 +432,34 @@ impl DaemonServer {
         self.reload_channels().await;
     }
 
+    /// Persist the gateway-wide model (`channels.model`) and reload channels so
+    /// the next spawn picks it up.
+    ///
+    /// An empty string clears the setting rather than storing `""` — that is
+    /// how the UI expresses "back to unpinned", and an empty ref would spawn on
+    /// a nameless model.
+    pub(crate) async fn save_gateway_model(&mut self, model: &str) {
+        let trimmed = model.trim();
+        self.config.channels.model = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+
+        // Same destination as the per-platform sections: team-scoped team.toml,
+        // never daemon.toml.
+        if let Err(e) = crate::config::team_config::persist_from(&self.config) {
+            error!("gateway-model: failed to persist team.toml: {e:?}");
+            return;
+        }
+
+        info!(
+            model = trimmed,
+            "gateway-model: persisted, reloading channel manager"
+        );
+        self.reload_channels().await;
+    }
+
     /// Tear down any running channels. Idempotent — safe to call when
     /// `channel_mgr` is `None`.
     pub(crate) async fn shutdown_channels(&mut self) {
@@ -498,6 +527,71 @@ fn placeholder_target_reason(target: &str) -> Option<&'static str> {
         return Some("unresolved 'current' placeholder");
     }
     None
+}
+
+/// Split `channels.model` into the `(provider, model)` pair the spawn path
+/// wants, mirroring how `/model` stores a chat's own choice.
+///
+/// Splits on the **first** slash only: `resolve_initial_model` rejoins with a
+/// single `/`, so an id whose model segment contains slashes must keep them on
+/// the model side to survive the round trip.
+///
+/// A ref with no slash yields an empty provider, which `resolve_initial_model`
+/// already treats as "pass the model through unchanged".
+fn split_gateway_model(raw: Option<&str>) -> Option<(String, String)> {
+    let raw = raw?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(match raw.split_once('/') {
+        Some((provider, model)) if !model.trim().is_empty() => {
+            (provider.trim().to_string(), model.trim().to_string())
+        }
+        // "provider/" is a half-written setting, not a model — treat the whole
+        // thing as a bare model id rather than spawning on an empty name.
+        _ => (String::new(), raw.trim_end_matches('/').to_string()),
+    })
+}
+
+#[cfg(test)]
+mod gateway_model_tests {
+    use super::split_gateway_model;
+
+    #[test]
+    fn splits_provider_and_model_on_the_first_slash() {
+        assert_eq!(
+            split_gateway_model(Some("anthropic/claude-sonnet-4-6")),
+            Some(("anthropic".into(), "claude-sonnet-4-6".into()))
+        );
+        // Model segments can carry slashes; only the first one is the provider
+        // boundary, or `resolve_initial_model` would rejoin a different id.
+        assert_eq!(
+            split_gateway_model(Some("openrouter/meta/llama-4")),
+            Some(("openrouter".into(), "meta/llama-4".into()))
+        );
+    }
+
+    #[test]
+    fn unset_stays_unset_so_the_old_unpinned_spawn_is_preserved() {
+        assert_eq!(split_gateway_model(None), None);
+        assert_eq!(split_gateway_model(Some("")), None);
+        assert_eq!(split_gateway_model(Some("   ")), None);
+    }
+
+    #[test]
+    fn a_bare_model_id_gets_an_empty_provider() {
+        // `resolve_initial_model` passes the model through untouched when the
+        // provider is empty, which is what a claude-style short name needs.
+        assert_eq!(
+            split_gateway_model(Some("claude-sonnet-4-6")),
+            Some((String::new(), "claude-sonnet-4-6".into()))
+        );
+        // Half-written "provider/" must not spawn on an empty model name.
+        assert_eq!(
+            split_gateway_model(Some("anthropic/")),
+            Some((String::new(), "anthropic".into()))
+        );
+    }
 }
 
 #[cfg(test)]
