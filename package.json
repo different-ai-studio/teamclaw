@@ -76,16 +76,8 @@
     "shadcn": "^4.16.2",
     "vitest": "^4.1.9"
   },
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": ">=24.0.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "@codemirror/state": "6.7.0"
-    },
-    "onlyBuiltDependencies": [
-      "@sentry/cli"
-    ]
   }
 }
