@@ -943,14 +943,6 @@ impl RuntimeSupervisor {
         self.agents.lock().await.local_backend_type()
     }
 
-    /// This device's most-recently-used model ids for the configured local
-    /// backend, newest first (`config::model_mru`).
-    ///
-    /// Served alongside the HTTP catalog so a client can resolve "the model
-    /// this device last used" before any runtime exists to publish a retain.
-    pub async fn recent_catalog_models(&self) -> Vec<String> {
-        self.agents.lock().await.recent_models(None)
-    }
 
     pub async fn runtime_status(
         &self,

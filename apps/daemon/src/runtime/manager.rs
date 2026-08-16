@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
@@ -13,7 +13,7 @@ use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
 
 use crate::backend::Backend;
-use crate::config::{DaemonConfig, DeviceModelCatalog, ModelMru};
+use crate::config::{DaemonConfig, DeviceModelCatalog};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 use crate::runtime::permission_policy::PermissionPolicy;
@@ -246,21 +246,13 @@ pub struct RuntimeManager {
     /// Daemon-side mirror of per-agent ACP state (current model + last-announced
     /// slash commands) used to populate `RuntimeInfo`. See `agent_runtime_state`.
     agent_state: PerAgentRuntimeState,
-    /// Recently-used models for this device, newest first. Consulted when a
-    /// runtime starts without a more specific pick, so gateway and cron
-    /// sessions inherit the same default the desktop has been using instead of
-    /// each surface guessing on its own. See `config::model_mru`.
-    model_mru: ModelMru,
-    /// Where [`Self::model_mru`] is persisted. Split out so tests can point at
-    /// a tempdir instead of the real config directory.
-    model_mru_path: PathBuf,
     /// Last-known model catalog per (backend, worktree) for this device. The
     /// catalog belongs to the one global `opencode serve` / pi / cursor child,
     /// not to any single binding — see `config::model_catalog` for why storing
     /// it per-handle produced sessions that could never leave 连接中.
     model_catalog: DeviceModelCatalog,
     /// Where [`Self::model_catalog`] is persisted (same test-isolation split as
-    /// `model_mru_path`).
+    /// the model catalog path).
     model_catalog_path: PathBuf,
     backend: Option<Arc<dyn Backend>>,
     /// agent_ids that were stopped by the idle sweeper and still need their
@@ -335,11 +327,6 @@ impl RuntimeManager {
         // should still exercise the record-and-save path, so give each manager
         // its own throwaway file instead of stubbing the store out.
         #[cfg(test)]
-        let model_mru_path = std::env::temp_dir()
-            .join("amuxd-test-model-mru")
-            .join(format!("{}.toml", Uuid::new_v4()));
-        #[cfg(not(test))]
-        let model_mru_path = ModelMru::default_path();
         #[cfg(test)]
         let model_catalog_path = std::env::temp_dir()
             .join("amuxd-test-model-catalog")
@@ -354,8 +341,6 @@ impl RuntimeManager {
             default_agent_type: agent_type_for_local_agent(local_agent),
             opencode_snapshots: HashMap::new(),
             agent_state: PerAgentRuntimeState::new(),
-            model_mru: ModelMru::load(&model_mru_path),
-            model_mru_path,
             model_catalog: DeviceModelCatalog::load(&model_catalog_path),
             model_catalog_path,
             backend,
@@ -503,7 +488,7 @@ impl RuntimeManager {
     /// this one spot keeps the shared list honest without scattering writes.
     ///
     /// Recorded under the runtime's backend, since model ids only mean
-    /// anything within one (see `config::model_mru`). A runtime that has
+    /// anything within one. A runtime that has
     /// already been dropped from `agents` falls back to the daemon default,
     /// which is the backend it would have been running on.
     pub fn set_current_model(&mut self, agent_id: &str, model_id: &str) {
@@ -516,22 +501,6 @@ impl RuntimeManager {
         self.agent_state.set_model(agent_id, model_id);
         if changed {
             self.persist_participant_model(agent_id, model_id);
-        }
-        let backend = self.backend_id_for_runtime(agent_id);
-        // Catalogs differ per worktree (68–72 models for the same opencode on
-        // one device), so the choice is attributed to the directory it was made
-        // in. A runtime already dropped from `agents` has no worktree to name,
-        // and records device-wide only.
-        let worktree = self
-            .agents
-            .get(agent_id)
-            .map(|h| h.worktree.clone())
-            .unwrap_or_default();
-        if self.model_mru.record(backend, &worktree, model_id) {
-            if let Err(e) = self.model_mru.save(&self.model_mru_path) {
-                // A lost preference is not worth failing a runtime start over.
-                warn!(error = %e, "model MRU save failed");
-            }
         }
     }
 
@@ -599,57 +568,6 @@ impl RuntimeManager {
         ))
     }
 
-    /// Ask the backend what model it actually ran this runtime's session on,
-    /// and fold the answer into the device MRU.
-    ///
-    /// Closes the loop opened by starting runtimes unpinned: when nothing was
-    /// chosen we hand the decision to the backend, so without asking afterwards
-    /// the MRU on a fresh install would stay empty forever and every surface
-    /// would keep falling through to the backend's default. Call once a turn
-    /// has completed — before that the backend has not settled on anything.
-    ///
-    /// No-op when the backend cannot report a model, or when it reports one we
-    /// already have at the front.
-    pub async fn learn_session_model(&mut self, agent_id: &str) {
-        let Some((worktree, backend_session_id, host_generation_id)) = self
-            .agents
-            .get(agent_id)
-            .map(|h| {
-                (
-                    h.worktree.clone(),
-                    h.acp_session_id.clone(),
-                    h.host_generation_id.clone(),
-                )
-            })
-        else {
-            return;
-        };
-        if backend_session_id.is_empty() {
-            return;
-        }
-        let backend = self.backend_id_for_runtime(agent_id);
-        if self
-            .model_mru
-            .recent_for(backend)
-            .first()
-            .is_some_and(|current| self.agent_state.model(agent_id) == Some(current))
-        {
-            // Already the front entry for this backend and this runtime's
-            // tracked model — nothing to learn, skip the round trip.
-            return;
-        }
-        let Some(model_id) = self
-            .agent_backend
-            .lock()
-            .await
-            .session_model(&worktree, &backend_session_id, &host_generation_id)
-            .await
-        else {
-            return;
-        };
-        self.set_current_model(agent_id, &model_id);
-    }
-
     /// Canonical backend id (`"opencode"` / `"pi"`) a runtime runs on.
     fn backend_id_for_runtime(&self, agent_id: &str) -> &'static str {
         let agent_type = self
@@ -658,17 +576,6 @@ impl RuntimeManager {
             .map(|h| h.agent_type)
             .unwrap_or_else(|| self.default_agent_type());
         self.launch_config_for(agent_type).backend_type
-    }
-
-    /// Device MRU for the backend `agent_type` would run on (`None` = the
-    /// daemon default). Lets surfaces that only render a prefix of the catalog
-    /// — the gateway's `/model`, say — put the models this device actually
-    /// uses at the front instead of whatever sorts first alphabetically.
-    pub fn recent_models(&self, agent_type: Option<amux::AgentType>) -> Vec<String> {
-        let agent_type = agent_type.unwrap_or_else(|| self.default_agent_type());
-        self.model_mru
-            .recent_for(self.launch_config_for(agent_type).backend_type)
-            .to_vec()
     }
 
     /// Returns the model id last recorded for `agent_id`, if any.
@@ -806,7 +713,9 @@ impl RuntimeManager {
                 resume_acp_session_id,
                 mcp_config_path,
                 initial_model_override.clone(),
-                self.model_mru.recent_for(launch.backend_type).to_vec(),
+                // No device MRU: every entry point pins a model when it is
+                // created, so attach has nothing left to infer from (ADR-0007).
+                Vec::new(),
                 prompt.to_string(),
                 handle.event_tx.clone(),
                 permission,
@@ -962,7 +871,9 @@ impl RuntimeManager {
                 Some(acp_session_id.to_string()),
                 mcp_config_path,
                 None,
-                self.model_mru.recent_for(launch.backend_type).to_vec(),
+                // No device MRU: every entry point pins a model when it is
+                // created, so attach has nothing left to infer from (ADR-0007).
+                Vec::new(),
                 prompt.to_string(),
                 handle.event_tx.clone(),
                 permission,
@@ -1581,74 +1492,33 @@ impl RuntimeManager {
             .collect()
     }
 
-    /// Catalogs for the ACTIVE backend, deduplicated for the wire.
+    /// Every model the ACTIVE backend advertises on this device, deduplicated.
     ///
-    /// Returns `(union, per_worktree)`: `union` holds each distinct model once,
-    /// and every `WorktreeCatalog` points into it by index. Catalogs repeat
-    /// heavily across worktrees — one device held 563 entries over 8 worktrees
-    /// but only 72 distinct models — so this is ~5.3KB where verbatim copies
-    /// are ~33KB, on a payload every team member downloads on connect.
+    /// This is the actor's *capability*, and it is the only model source a
+    /// remote client has — iOS has no loopback catalog at all. It stays exactly
+    /// as it was when ADR-0007 retired the preference fields around it.
     ///
-    /// Only the active backend ships. The store keeps the others so switching
-    /// back does not re-probe, but a client can only use what is running.
-    pub fn actor_catalog_snapshot(&self) -> (Vec<amux::ModelInfo>, Vec<amux::WorktreeCatalog>) {
+    /// The per-worktree grouping this used to return is gone with
+    /// `ActorPresence.worktrees`: #742 audited 15 worktrees on one device and
+    /// traced every catalog difference to the team gateway or to probe
+    /// staleness, none to the directory. Storage stays sharded (it is an
+    /// observation log); the wire never was.
+    pub fn catalog_models(&self) -> Vec<amux::ModelInfo> {
         let backend = self.local_backend_type();
         let Some(by_worktree) = self.model_catalog.by_backend.get(backend) else {
-            return (Vec::new(), Vec::new());
+            return Vec::new();
         };
 
         let mut union: Vec<amux::ModelInfo> = Vec::new();
-        let mut index_of: HashMap<String, u32> = HashMap::new();
-        let mut worktrees = Vec::with_capacity(by_worktree.len());
-
+        let mut seen: HashSet<String> = HashSet::new();
         for worktree in by_worktree.keys() {
-            let models = self.model_catalog.models_for(backend, worktree);
-            let mut model_indices = Vec::with_capacity(models.len());
-            for model in models {
-                let idx = match index_of.get(&model.id) {
-                    Some(idx) => *idx,
-                    None => {
-                        let idx = union.len() as u32;
-                        index_of.insert(model.id.clone(), idx);
-                        union.push(model);
-                        idx
-                    }
-                };
-                model_indices.push(idx);
+            for model in self.model_catalog.models_for(backend, worktree) {
+                if seen.insert(model.id.clone()) {
+                    union.push(model);
+                }
             }
-
-            worktrees.push(amux::WorktreeCatalog {
-                worktree: worktree.clone(),
-                model_indices,
-                default_model: self
-                    .model_mru
-                    .default_model_for(backend, worktree)
-                    .unwrap_or_default()
-                    .to_string(),
-                // Built-ins for the active backend. NOT `agent_state.commands()`:
-                // that cache is fed only by ACP's `AvailableCommandsUpdate`,
-                // which has no producer under the opencode HTTP runtime, so it
-                // is permanently empty. Workspace skills are a separate source
-                // the desktop reads directly — deliberately not merged here.
-                available_commands: builtin_commands(self.default_agent_type()),
-            });
         }
-
-        (union, worktrees)
-    }
-
-    /// Device-level default model for the active backend (#742 decision 4/5).
-    ///
-    /// The per-worktree MRU layer is gone: an audit found 10 of 12 worktrees on
-    /// one device already falling through to this device-wide value, and
-    /// gateway/cron picked up whichever directory they happened to start in.
-    /// Consumed purely as a display fallback when a session has no model of its
-    /// own; `session_participants.model` remains authoritative (ADR-0005).
-    pub fn actor_default_model(&self) -> String {
-        self.model_mru
-            .default_model_for_backend(self.local_backend_type())
-            .unwrap_or_default()
-            .to_string()
+        union
     }
 
     /// Built-ins for the active backend — the same list every worktree carried,
@@ -2227,10 +2097,9 @@ mod tests {
         );
     }
 
-    /// A backend that reports a fixed `session_model` and nothing else, for
-    /// exercising the "learn what the backend chose" path without a process.
+    /// A backend that records the calls it receives and nothing else, for
+    /// exercising manager-level paths without a process.
     struct StubBackend {
-        session_model: Option<String>,
         shutdown_called: Arc<std::sync::atomic::AtomicBool>,
         catalog_domain: Arc<std::sync::Mutex<Option<IsolationDomainKey>>>,
     }
@@ -2296,28 +2165,6 @@ mod tests {
             *self.catalog_domain.lock().unwrap() = Some(isolation_domain);
             Ok(vec![catalog_model("provider/model")])
         }
-        async fn session_model(
-            &mut self,
-            _w: &str,
-            _s: &str,
-            _host_generation_id: &str,
-        ) -> Option<String> {
-            self.session_model.clone()
-        }
-    }
-
-    fn mgr_with_stub_runtime(session_model: Option<&str>) -> RuntimeManager {
-        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-1");
-        mgr.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
-            session_model: session_model.map(str::to_string),
-            shutdown_called: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            catalog_domain: Arc::new(std::sync::Mutex::new(None)),
-        })));
-        if let Some(h) = mgr.agents.get_mut("rt-1") {
-            h.acp_session_id = "ses_stub".to_string();
-            h.worktree = "/tmp/ws".to_string();
-        }
-        mgr
     }
 
     #[tokio::test]
@@ -2325,7 +2172,6 @@ mod tests {
         let shutdown_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
         mgr.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
-            session_model: None,
             shutdown_called: Arc::clone(&shutdown_called),
             catalog_domain: Arc::new(std::sync::Mutex::new(None)),
         })));
@@ -2341,7 +2187,6 @@ mod tests {
         let catalog_domain = Arc::new(std::sync::Mutex::new(None));
         let mut manager = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
         manager.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
-            session_model: None,
             shutdown_called: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             catalog_domain: Arc::clone(&catalog_domain),
         })));
@@ -2357,93 +2202,6 @@ mod tests {
             *catalog_domain.lock().unwrap(),
             Some(IsolationDomainKey::Workspace("ws-a".into()))
         );
-    }
-
-    #[tokio::test]
-    async fn learn_session_model_seeds_an_empty_mru() {
-        // The cold-start case: nothing was pinned, so the backend picked on its
-        // own. Until we ask, the device has no idea what it has been running.
-        let mut mgr = mgr_with_stub_runtime(Some("opencode/big-pickle"));
-        let backend = test_backend_id(&mgr);
-        assert!(mgr.model_mru.recent_for(backend).is_empty());
-
-        mgr.learn_session_model("rt-1").await;
-
-        assert_eq!(
-            mgr.model_mru.recent_for(backend),
-            ["opencode/big-pickle".to_string()]
-        );
-        let _ = std::fs::remove_file(&mgr.model_mru_path);
-    }
-
-    #[tokio::test]
-    async fn learn_session_model_is_a_noop_when_the_backend_reports_nothing() {
-        let mut mgr = mgr_with_stub_runtime(None);
-        mgr.learn_session_model("rt-1").await;
-        assert!(mgr.model_mru.by_backend.is_empty());
-    }
-
-    #[tokio::test]
-    async fn learn_session_model_ignores_unknown_runtimes() {
-        let mut mgr = mgr_with_stub_runtime(Some("opencode/big-pickle"));
-        mgr.learn_session_model("rt-does-not-exist").await;
-        assert!(mgr.model_mru.by_backend.is_empty());
-    }
-
-    /// The backend unknown runtime ids record under: `default_agent_type`'s.
-    fn test_backend_id(mgr: &RuntimeManager) -> &'static str {
-        mgr.launch_config_for(mgr.default_agent_type()).backend_type
-    }
-
-    #[test]
-    fn set_current_model_feeds_the_device_mru() {
-        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        let backend = test_backend_id(&mgr);
-        mgr.set_current_model("agent-1", "anthropic/claude-sonnet-4-6");
-        mgr.set_current_model("agent-2", "opencode/big-pickle");
-        // Newest first, and one runtime's pick is visible to every other
-        // surface — that sharing is the whole point of holding this in the
-        // daemon rather than in one client.
-        assert_eq!(
-            mgr.model_mru.recent_for(backend),
-            [
-                "opencode/big-pickle".to_string(),
-                "anthropic/claude-sonnet-4-6".to_string()
-            ]
-        );
-
-        // Re-picking an older entry promotes it rather than duplicating.
-        mgr.set_current_model("agent-3", "anthropic/claude-sonnet-4-6");
-        assert_eq!(
-            mgr.model_mru.recent_for(backend),
-            [
-                "anthropic/claude-sonnet-4-6".to_string(),
-                "opencode/big-pickle".to_string()
-            ]
-        );
-    }
-
-    #[test]
-    fn device_mru_survives_a_restart() {
-        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        let backend = test_backend_id(&mgr);
-        let path = mgr.model_mru_path.clone();
-        mgr.set_current_model("agent-1", "opencode/big-pickle");
-
-        // A new daemon process reads the same file back — this is what lets a
-        // gateway or cron runtime inherit a pick made in the desktop.
-        assert_eq!(
-            ModelMru::load(&path).recent_for(backend),
-            ["opencode/big-pickle".to_string()]
-        );
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn empty_model_is_not_recorded_in_the_mru() {
-        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.set_current_model("agent-1", "");
-        assert!(mgr.model_mru.by_backend.is_empty());
     }
 
     #[test]

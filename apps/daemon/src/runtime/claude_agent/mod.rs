@@ -672,35 +672,6 @@ impl AgentBackend for ClaudeAgentBackend {
         self.shared.pool.live_count()
     }
 
-    /// Only `sdkModel` — what the SDK reports (init / `result.modelUsage`) — may
-    /// teach the device MRU; echoing our own request back would defeat the
-    /// point of this hook.
-    async fn session_model(
-        &mut self,
-        worktree: &str,
-        backend_session_id: &str,
-        _host_generation_id: &str,
-    ) -> Option<String> {
-        let session_key = {
-            let routes = self.shared.routes.lock();
-            routes.get(backend_session_id)?.session_key.clone()
-        };
-        let worktree = canonical_dir(worktree);
-        let proc = self.shared.pool.get(&worktree)?;
-        let resp = proc
-            .client
-            .request(
-                "get_session_info",
-                serde_json::json!({ "sessionKey": session_key }),
-            )
-            .await
-            .ok()?;
-        resp.get("sdkModel")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-    }
-
     async fn model_catalog(
         &mut self,
         workspace_path: &Path,

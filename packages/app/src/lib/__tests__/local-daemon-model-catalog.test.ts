@@ -13,7 +13,6 @@ import { ModelInfoSchema, RuntimeInfoSchema, RuntimeLifecycle } from '@/lib/prot
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import {
   fetchLocalDaemonCatalog,
-  firstAvailableRecentModel,
   mergeLocalDaemonModels,
   seedLocalDaemonModelsInBackground,
 } from '../local-daemon-model-catalog'
@@ -162,35 +161,7 @@ describe('fetchLocalDaemonCatalog', () => {
     expect(outcome.status === 'models' && outcome.backend).toBe('cursor')
   })
 
-  it('carries the device MRU through, dropping blanks', async () => {
-    getDaemonModelCatalog.mockResolvedValueOnce(
-      catalog('opencode', ['prov/a', 'prov/b'], ['prov/b', '  ', 'prov/a']),
-    )
-    const outcome = await fetchLocalDaemonCatalog('/w1', 'opencode')
-    expect(outcome.status === 'models' && outcome.recentModels).toEqual(['prov/b', 'prov/a'])
-  })
 
-  it('defaults the MRU to empty on daemons predating the field', async () => {
-    getDaemonModelCatalog.mockResolvedValueOnce(catalog('opencode', ['prov/a']))
-    const outcome = await fetchLocalDaemonCatalog('/w1', 'opencode')
-    expect(outcome.status === 'models' && outcome.recentModels).toEqual([])
-  })
-})
-
-describe('firstAvailableRecentModel', () => {
-  const available = [{ id: 'live/y' }, { id: 'live/z' }]
-
-  it('skips MRU entries the catalog no longer offers', () => {
-    // Same rule as the daemon's `model_mru::first_available`: a retired model
-    // must not be shown as current just because it was used last.
-    expect(firstAvailableRecentModel(['gone/x', 'live/z'], available)).toBe('live/z')
-  })
-
-  it('is empty when nothing matches or there is nothing to match against', () => {
-    expect(firstAvailableRecentModel(['gone/x'], available)).toBe('')
-    expect(firstAvailableRecentModel(['live/y'], [])).toBe('')
-    expect(firstAvailableRecentModel(undefined, available)).toBe('')
-  })
 })
 
 describe('mergeLocalDaemonModels', () => {
@@ -237,18 +208,6 @@ describe('mergeLocalDaemonModels', () => {
     ).toBe('prov/from-retain')
   })
 
-  it('seeds currentModel from the device MRU so the pill shows the last-used model', () => {
-    seedEntry('rt-1', 'actor-1')
-    mergeLocalDaemonModels({
-      daemonActorId: 'actor-1',
-      runtimeId: 'rt-1',
-      models,
-      recentModels: ['prov/http'],
-    })
-    expect(useRuntimeStateStore.getState().byRuntimeId['rt-1'].info.currentModel).toBe(
-      'prov/http',
-    )
-  })
 
   it('ignores an MRU entry the catalog no longer offers', () => {
     seedEntry('rt-1', 'actor-1')

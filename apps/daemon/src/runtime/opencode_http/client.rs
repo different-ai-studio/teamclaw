@@ -407,6 +407,13 @@ pub fn split_model_id(model_id: &str) -> Option<PromptModel> {
 /// `{"id": "big-pickle", "providerID": "opencode", "variant": "default"}`;
 /// this rejoins it into the flat id shape the manager and clients use. A
 /// freshly-created session has no model yet, hence `Option`.
+///
+/// Read on the resume path: a conversation we re-attach to keeps running on
+/// whatever it ran on before, and opencode is the only one who knows what that
+/// was. (This is not the retired MRU hook — ADR-0007 removed
+/// `AgentBackend::session_model`, which asked the same question in order to
+/// teach a device-wide preference. Recovering one session's own model is a
+/// fact about that session.)
 pub fn session_model_id(session: &serde_json::Value) -> Option<String> {
     let model = session.get("model")?;
     let provider = model.get("providerID").and_then(|v| v.as_str())?;

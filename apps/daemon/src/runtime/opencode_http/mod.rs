@@ -356,30 +356,6 @@ impl OpencodeHost {
         Arc::clone(&self.pool)
     }
 
-    /// The model opencode has settled on for `session_id`, from its persisted
-    /// `session.model`. See `AgentBackend::session_model`.
-    pub async fn session_model(
-        &self,
-        worktree: &str,
-        session_id: &str,
-        host_generation_id: &str,
-    ) -> Option<String> {
-        if session_id.is_empty() || host_generation_id.is_empty() {
-            return None;
-        }
-        let generation = self
-            .generations
-            .lock()
-            .get(host_generation_id)
-            .and_then(std::sync::Weak::upgrade)?;
-        let client = generation.serve.ensure().await.ok()?;
-        let session = client
-            .get_session(&canonical_dir(worktree), session_id)
-            .await
-            .ok()??;
-        client::session_model_id(&session)
-    }
-
     /// Number of live backend processes (0 or 1: the global serve instance).
     pub fn host_count(&self) -> usize {
         self.pool.host_count()

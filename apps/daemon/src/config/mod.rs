@@ -4,7 +4,7 @@ pub mod global_team_store;
 pub mod layout;
 mod member_store;
 mod model_catalog;
-mod model_mru;
+mod model_resolution;
 pub mod provider_auth;
 mod roles_skills;
 mod session_store;
@@ -23,8 +23,8 @@ pub use daemon_config::{
     WeComChannel, BOOTSTRAP_ACTOR_NAME,
 };
 pub use member_store::{MemberStore, PendingInvite, StoredMember};
+pub use model_resolution::first_available;
 pub use model_catalog::DeviceModelCatalog;
-pub use model_mru::{first_available, ModelMru};
 pub use provider_auth::{
     builtin_provider_auth_methods, merge_live_provider_auth_methods, ProviderAuthMethod,
     ProviderAuthMethodType, ProviderAuthMethodsResponse,

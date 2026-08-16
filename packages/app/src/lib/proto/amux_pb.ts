@@ -1356,11 +1356,12 @@ export type ActorPresence = Message<"amux.ActorPresence"> & {
   catalogModels: ModelInfo[];
 
   /**
-   * Superseded by the device-level fields below (#742 decision 6). Still sent
-   * for one release so clients that read it keep working; stop sending only
-   * once `actor_client_versions` shows no active reporter below the version
-   * that reads `default_model` / `available_commands`. Reading this instead of
-   * the top-level fields yields an empty model list on multi-worktree devices.
+   * RETIRED (ADR-0007) — never filled. The field stays so an older client
+   * still parses the message; it now always decodes as empty. Both halves it
+   * carried moved: the per-worktree catalog to `catalog_models` (#742 proved
+   * the catalog is not a property of a directory), and `WorktreeCatalog
+   * .default_model` to the client, which now keeps its own MRU keyed by
+   * (backend, team).
    *
    * @generated from field: repeated amux.WorktreeCatalog worktrees = 7;
    */
@@ -1404,9 +1405,12 @@ export type ActorPresence = Message<"amux.ActorPresence"> & {
    * by worktree only ever produced the "multi-worktree device reports no
    * models" bug, since LiveSession could not supply the key clients looked up.
    *
-   * `default_model` is a display fallback — the last model actually used on
-   * this device. The authoritative per-session model is
-   * `session_participants.model` (ADR-0005) and is unaffected.
+   * `default_model` is RETIRED (ADR-0007) — never filled, always decodes as
+   * an empty string. It was the daemon's device MRU head, i.e. a user
+   * *preference*, and amuxd now holds only capability. "What model does this
+   * session run on" is `session_participants.model` (ADR-0005, daemon is the
+   * sole writer); "what did I use last" is a client-local MRU keyed by
+   * (backend, team), kept separately by Tauri and iOS.
    *
    * Numbered 12/13, not the 9/10 the decision note proposed: those were taken
    * by the default-workspace fields above before this landed.
