@@ -977,10 +977,17 @@ export function FileEditor({
                 {showPreview && previewType === "html" ? (
                   // Full screen HTML preview
                   <div className="w-full bg-white">
+                    {/* No `allow-same-origin`: for a srcdoc frame it means the
+                        *parent's* origin, which would put the previewed file in
+                        the app's own document and hand it `parent.__TAURI__`
+                        (withGlobalTauri) — i.e. every IPC command and the
+                        whole-disk fs grants. Without it the frame gets an opaque
+                        origin and reaching `parent` throws SecurityError, while
+                        the preview still renders. */}
                     <iframe
                       srcDoc={currentContent}
                       className="w-full h-full border-0"
-                      sandbox="allow-scripts allow-same-origin"
+                      sandbox="allow-scripts"
                       title={t("app.htmlPreview", "HTML Preview")}
                     />
                   </div>
