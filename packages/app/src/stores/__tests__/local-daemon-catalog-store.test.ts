@@ -66,19 +66,6 @@ describe('ensureLocalDaemonCatalog', () => {
 
   const read = (path: string) => useLocalDaemonCatalogStore.getState().byWorkspacePath[path]
 
-  it('stores models and the device MRU on a successful probe', async () => {
-    fetchLocalDaemonCatalog.mockResolvedValueOnce({
-      status: 'models',
-      backend: 'opencode',
-      models: [{ id: 'prov/a' }],
-      recentModels: ['prov/a'],
-    })
-    ensureLocalDaemonCatalog('/w1')
-    await settled()
-
-    expect(read('/w1').status).toBe('ready')
-    expect(read('/w1').recentModels).toEqual(['prov/a'])
-  })
 
   // Switching the local agent restarts the daemon onto a different backend, so
   // the cached entry describes models the new one has never heard of. Without

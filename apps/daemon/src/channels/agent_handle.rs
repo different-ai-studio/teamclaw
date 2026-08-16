@@ -1066,18 +1066,15 @@ impl AgentHandle for AmuxdAgentHandle {
         // device MRU, then everything else. A chat channel shows a prefix of
         // this list, so the useful entries have to be at the front.
         let current = self.current_model(session).await?;
-        let recent = {
-            let (_, agent_type) = self.resolve_spawn_target(session, "").await?;
-            let mgr = self.manager.lock().await;
-            mgr.recent_models(agent_type)
-        };
+        // Ranking used to put this device's recently-used models next, off the
+        // daemon MRU. ADR-0007 deletes that store, so the chat's own current
+        // model is the only thing left to promote — everything else keeps the
+        // catalog's order.
         let rank = |id: &str| -> usize {
             if current.as_deref() == Some(id) {
-                return 0;
-            }
-            match recent.iter().position(|r| r == id) {
-                Some(i) => 1 + i,
-                None => usize::MAX,
+                0
+            } else {
+                usize::MAX
             }
         };
         // Stable sort: entries the device has no history for keep the

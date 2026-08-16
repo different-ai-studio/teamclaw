@@ -196,26 +196,6 @@ pub trait AgentBackend: Send {
     /// Number of live backend processes.
     fn host_count(&self) -> usize;
 
-    /// The model a backend session is currently on, as the backend itself
-    /// reports it — not what we asked for.
-    ///
-    /// Needed because we deliberately start runtimes with no model pinned when
-    /// nothing has been chosen, letting the backend apply its own default. That
-    /// choice is otherwise invisible to us, so the device MRU could never learn
-    /// its first entry on a fresh install. Read after a turn completes, when
-    /// the backend has settled on (and persisted) a model.
-    ///
-    /// Default `None`: a backend that cannot report this simply teaches the MRU
-    /// nothing, which is the pre-existing behaviour.
-    async fn session_model(
-        &mut self,
-        _worktree: &str,
-        _backend_session_id: &str,
-        _host_generation_id: &str,
-    ) -> Option<String> {
-        None
-    }
-
     /// Model catalog for a workspace directory (cron catalog UI).
     async fn model_catalog(
         &mut self,
@@ -365,17 +345,6 @@ impl AgentBackend for OpencodeHttpBackend {
 
     fn host_count(&self) -> usize {
         self.host.host_count()
-    }
-
-    async fn session_model(
-        &mut self,
-        worktree: &str,
-        backend_session_id: &str,
-        host_generation_id: &str,
-    ) -> Option<String> {
-        self.host
-            .session_model(worktree, backend_session_id, host_generation_id)
-            .await
     }
 
     async fn model_catalog(

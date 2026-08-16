@@ -639,34 +639,6 @@ impl AgentBackend for CursorSdkBackend {
         self.shared.pool.live_count()
     }
 
-    /// Only `sdkModel` — the SDK's own `agent.model`, updated after each
-    /// successful send — is allowed to teach the device MRU. The bridge also
-    /// reports `requestedModel` (what we last asked for); feeding that back
-    /// would just echo our own guess into the MRU, which is what this method's
-    /// contract exists to prevent.
-    async fn session_model(
-        &mut self,
-        worktree: &str,
-        backend_session_id: &str,
-        _host_generation_id: &str,
-    ) -> Option<String> {
-        let session_id = backend_session_id.strip_prefix(SESSION_ID_PREFIX)?;
-        let worktree = canonical_dir(worktree);
-        let proc = self.shared.pool.get(&worktree)?;
-        let resp = proc
-            .client
-            .request(
-                "get_agent_info",
-                serde_json::json!({ "agentId": session_id }),
-            )
-            .await
-            .ok()?;
-        resp.get("sdkModel")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-    }
-
     async fn model_catalog(
         &mut self,
         workspace_path: &Path,
