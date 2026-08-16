@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TeamMcpServer } from '@/lib/backend/types'
-import type { DaemonMcpServerConfig } from '@/lib/daemon-local-client'
-import { planMcpItems } from '../team-share-browser'
+import type { DaemonMcpServerConfig, DaemonMcpServerProbeResult } from '@/lib/daemon-local-client'
+import { applyMcpProbes, planMcpItems } from '../team-share-browser'
 
 const catalogEntry = (installed: boolean): TeamMcpServer => ({
   name: 'memory',
@@ -54,5 +54,41 @@ describe('planMcpItems', () => {
       ['memory', 'team-installed'],
       ['personal:memory', 'personal'],
     ])
+  })
+})
+
+describe('applyMcpProbes', () => {
+  const readyProbe: DaemonMcpServerProbeResult = {
+    probe_status: 'ready',
+    tools: ['remember'],
+    error: null,
+    probed_at: '2026-08-16T00:00:00Z',
+  }
+
+  it('attributes a same-name runtime probe only to the effective personal override', () => {
+    const rows = planMcpItems([catalogEntry(true)], { memory: workspaceOverride })
+
+    const probed = applyMcpProbes(rows, { memory: readyProbe })
+
+    expect(probed.find((row) => row.id === 'memory')).toMatchObject({
+      probeStatus: 'unknown',
+      tools: [],
+      error: null,
+    })
+    expect(probed.find((row) => row.id === 'personal:memory')).toMatchObject({
+      probeStatus: 'ready',
+      tools: ['remember'],
+      error: null,
+    })
+  })
+
+  it('attributes a probe to an unshadowed team row', () => {
+    const rows = planMcpItems([catalogEntry(true)], {})
+
+    expect(applyMcpProbes(rows, { memory: readyProbe })[0]).toMatchObject({
+      id: 'memory',
+      probeStatus: 'ready',
+      tools: ['remember'],
+    })
   })
 })

@@ -631,6 +631,28 @@ export function planMcpItems(
   return items.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
 }
 
+/**
+ * A daemon probe describes the server that actually wins workspace resolution.
+ * When a workspace override shadows a same-name catalog entry, attaching that
+ * probe to both rows would make the dormant team definition look connected.
+ */
+export function applyMcpProbes(
+  items: TeamMcpItem[],
+  probes: Record<string, DaemonMcpServerProbeResult>,
+): TeamMcpItem[] {
+  const locallyOverridden = new Set(
+    items.filter((item) => item.kind === 'personal').map((item) => item.name),
+  )
+
+  return items.map((item) => {
+    if (item.kind !== 'personal' && locallyOverridden.has(item.name)) return item
+    const probe = probes[item.name]
+    return probe
+      ? { ...item, probeStatus: probe.probe_status, tools: probe.tools, error: probe.error }
+      : item
+  })
+}
+
 /** Raised by the Rust installer instead of overwriting a locally edited pack. */
 const DIRTY_CONFLICT_ERROR = 'team_skill_dirty_conflict'
 
@@ -1458,12 +1480,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       set((s) => ({
         mcp: {
           ...s.mcp,
-          items: s.mcp.items.map((it) => {
-            const p = probes[it.name]
-            return p
-              ? { ...it, probeStatus: p.probe_status, tools: p.tools, error: p.error }
-              : it
-          }),
+          items: applyMcpProbes(s.mcp.items, probes),
         },
       }))
     } catch {

@@ -191,21 +191,31 @@ pub async fn put_team_mcp_cache(
         return Err(HttpError::validation("mcpServers must be an object"));
     }
 
+    // Snapshot before replacing the cache. Older builds materialised team MCPs
+    // into opencode.json; after an uninstall/update those stale copies no
+    // longer match the new team cache, so pruning against the new value would
+    // misclassify them as deliberate workspace overrides forever.
+    let workspace_paths = team_mcp_workspace_paths_for_state(&state, &team_id).await;
+    let previous_team_mcp = snapshot_team_mcp(&workspace_paths);
+
     let changed =
         crate::runtime::team_cloud_config::replace_team_mcp_cache(&team_id, &body.mcp_servers)
             .map_err(|e| HttpError::internal(format!("write team mcp cache: {e}")))?;
 
-    prune_and_dispose_team_mcp(&state, &team_id).await;
+    prune_and_dispose_team_mcp(&state, &team_id, previous_team_mcp).await;
 
     Ok(Json(PutTeamMcpCacheResponse { team_id, changed }))
 }
 
-async fn prune_and_dispose_team_mcp(state: &HttpState, team_id: &str) {
-    let client = match state.runtime_supervisor.as_ref() {
-        Some(sup) => sup.try_opencode_serve_client().await,
-        None => None,
-    };
+type TeamMcpSnapshot = (
+    std::path::PathBuf,
+    std::collections::HashMap<String, crate::config::workspace_control::McpServerConfig>,
+);
 
+async fn team_mcp_workspace_paths_for_state(
+    state: &HttpState,
+    team_id: &str,
+) -> Vec<std::path::PathBuf> {
     let rows = match state.backend.as_ref() {
         Some(backend) => backend
             .get_workspaces_by_agent(team_id, backend.actor_id())
@@ -213,10 +223,23 @@ async fn prune_and_dispose_team_mcp(state: &HttpState, team_id: &str) {
             .unwrap_or_default(),
         None => Vec::new(),
     };
+    team_mcp_workspace_paths(team_id, &rows)
+}
 
-    for workspace_path in team_mcp_workspace_paths(team_id, &rows) {
+fn snapshot_team_mcp(workspace_paths: &[std::path::PathBuf]) -> Vec<TeamMcpSnapshot> {
+    workspace_paths
+        .iter()
+        .map(|path| (path.clone(), crate::config::team_mcp::scan_team_mcp(path)))
+        .collect()
+}
+
+fn prune_team_mcp_snapshots(team_id: &str, snapshots: &[TeamMcpSnapshot]) {
+    for (workspace_path, previous_team) in snapshots {
         let path = workspace_path.to_string_lossy().into_owned();
-        if let Err(e) = crate::config::team_mcp::prune_materialised_team_mcp(&workspace_path) {
+        if let Err(e) = crate::config::team_mcp::prune_materialised_team_mcp_entries(
+            workspace_path,
+            previous_team,
+        ) {
             tracing::warn!(
                 team_id,
                 path,
@@ -224,6 +247,23 @@ async fn prune_and_dispose_team_mcp(state: &HttpState, team_id: &str) {
                 "failed to prune leftover team MCP copies from opencode.json"
             );
         }
+    }
+}
+
+async fn prune_and_dispose_team_mcp(
+    state: &HttpState,
+    team_id: &str,
+    snapshots: Vec<TeamMcpSnapshot>,
+) {
+    prune_team_mcp_snapshots(team_id, &snapshots);
+
+    let client = match state.runtime_supervisor.as_ref() {
+        Some(sup) => sup.try_opencode_serve_client().await,
+        None => None,
+    };
+
+    for (workspace_path, _) in snapshots {
+        let path = workspace_path.to_string_lossy().into_owned();
         let Some(client) = client.as_ref() else {
             continue;
         };
@@ -736,5 +776,37 @@ mod tests {
 
         assert!(paths.contains(&default));
         assert!(paths.contains(&regular));
+    }
+
+    #[test]
+    fn mcp_pruning_uses_the_pre_replacement_team_snapshot() {
+        let daemon_home = tempfile::tempdir().unwrap();
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(daemon_home.path());
+        let workspace = tempfile::tempdir().unwrap();
+        let legacy_dir = workspace
+            .path()
+            .join(crate::config::global_team_store::TEAM_LINK_NAME)
+            .join(".mcp");
+        std::fs::create_dir_all(&legacy_dir).unwrap();
+        std::fs::write(
+            legacy_dir.join("memory.json"),
+            r#"{"mcpServers":{"memory":{"command":"npx","args":["old-memory"]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workspace.path().join("opencode.json"),
+            r#"{"mcp":{"memory":{"type":"local","enabled":true,"command":["npx","old-memory"]}}}"#,
+        )
+        .unwrap();
+
+        let snapshots = snapshot_team_mcp(&[workspace.path().to_path_buf()]);
+        std::fs::remove_file(legacy_dir.join("memory.json")).unwrap();
+        prune_team_mcp_snapshots("team-a", &snapshots);
+
+        let persisted = crate::config::team_mcp::read_persisted_mcp(workspace.path()).unwrap();
+        assert!(
+            !persisted.contains_key("memory"),
+            "the old materialised copy is removed even after the team entry disappeared"
+        );
     }
 }
