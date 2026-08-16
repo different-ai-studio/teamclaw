@@ -394,6 +394,40 @@ describe('outbox sender', () => {
     expect(resolveSessionWorkspaceHintForRuntimeStart).toHaveBeenCalled()
   })
 
+  it('local fast path carries a workspace id rather than an empty one', async () => {
+    // It used to hardcode `workspaceId: ''`. The daemon skips its workspace
+    // resolver for an empty id and starts in whatever `worktree` says, so the
+    // slow path landing on a different directory ~0.8s later superseded this
+    // runtime and respawned the backend — a 5.5s cold start paid twice on a
+    // first message, by the very path that exists to be fast.
+    mocks.isTauri.mockReturnValue(true)
+    mocks.getLocalDaemonActorId.mockResolvedValue('agent-local')
+    mocks.runtimeStart.mockResolvedValue({})
+
+    const { useOutboxStore } = await import('@/stores/outbox-store')
+    const { startOutboxSender } = await import('../outbox-sender')
+
+    await useOutboxStore.getState().enqueue({
+      messageId: 'msg-ws-hint',
+      teamId: 'team-1',
+      sessionId: 'session-1',
+      senderActorId: 'member-1',
+      content: '@Local hi',
+      model: 'opencode/qwen',
+      mentionActorIds: ['agent-local'],
+      attachmentUrls: [],
+      workspaceIdHint: 'ws-from-enqueue',
+    })
+    startOutboxSender()
+
+    await vi.waitFor(() => {
+      expect(mocks.runtimeStart).toHaveBeenCalled()
+    })
+    expect(mocks.runtimeStart).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'ws-from-enqueue' }),
+    )
+  })
+
   it('local-only mentions: runtimeStart → ingest → MQTT → Cloud; Cloud failure still delivers', async () => {
     const order: string[] = []
     mocks.isTauri.mockReturnValue(true)
@@ -441,6 +475,8 @@ describe('outbox sender', () => {
         targetActorId: 'agent-local',
         sessionId: 'session-1',
         worktree: '/tmp/workspace',
+        // No enqueue hint and a cold cache in this fixture, so still empty —
+        // the fast path degrades to the old behaviour rather than guessing.
         workspaceId: '',
         modelId: 'opencode/qwen',
       }),
