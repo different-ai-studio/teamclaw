@@ -24,14 +24,11 @@
 //!
 //! # The cache never shrinks on failure
 //!
-//! A fetch error leaves the previous cache **exactly as it was**. This is the
-//! whole offline story, and it also closes a subtler trap: if the team MCP map
-//! were allowed to go empty while entries were still materialized into a
-//! workspace's `opencode.json`, `classify_source` would reclassify every one of
-//! them as `Workspace`, the UI would offer them for editing, and
-//! `filter_put_body` would persist them as workspace-owned — a permanent local
-//! fork that survives the network coming back. Keeping stale-but-correct data
-//! is strictly better than briefly correct-looking emptiness.
+//! A fetch error leaves the previous cache **exactly as it was**. A successful
+//! fetch returning an empty `mcpServers` map is different: it is authoritative
+//! evidence that this actor has no installed team MCP servers and must clear
+//! the cache. Otherwise an uninstall would report success while the daemon
+//! continued running the stale server.
 //!
 //! Note the in-memory TTL cache used by [`crate::runtime::managed_llm`] is not
 //! sufficient here: it is process-local and empty after every daemon restart.
@@ -256,26 +253,6 @@ fn team_mcp_write_lock(team_id: &str) -> Arc<SyncMutex<()>> {
     )
 }
 
-fn cloud_mcp_file_has_servers(path: &Path) -> bool {
-    let Ok(body) = std::fs::read_to_string(path) else {
-        return false;
-    };
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) else {
-        return false;
-    };
-    let cursor = json
-        .get("mcpServers")
-        .and_then(|v| v.as_object())
-        .map(|o| !o.is_empty())
-        .unwrap_or(false);
-    let legacy = json
-        .get("mcp")
-        .and_then(|v| v.as_object())
-        .map(|o| !o.is_empty())
-        .unwrap_or(false);
-    cursor || legacy
-}
-
 /// Write the Cursor SSOT and refresh the OpenCode-only generated adapter.
 pub fn replace_team_mcp_cache(
     team_id: &str,
@@ -431,10 +408,6 @@ impl TeamCloudConfigResolver {
             .get("mcpServers")
             .cloned()
             .unwrap_or(serde_json::json!({}));
-        let incoming_empty = servers.as_object().map(|o| o.is_empty()).unwrap_or(true);
-        if incoming_empty && cloud_mcp_file_has_servers(&team_cloud_mcp_file(team_id)) {
-            return Some(false);
-        }
 
         match replace_team_mcp_cache(team_id, &servers) {
             Ok(changed) => Some(changed),
@@ -600,5 +573,28 @@ mod tests {
                 .collect();
             assert_eq!(cursor_names, generated_names);
         }
+    }
+
+    #[tokio::test]
+    async fn reconcile_mcp_clears_a_populated_cache_when_the_cloud_returns_no_servers() {
+        let home = tempfile::tempdir().unwrap();
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(home.path());
+        let team_id = "empty-mcp-team";
+        replace_team_mcp_cache(
+            team_id,
+            &serde_json::json!({
+                "stale": { "command": "npx", "args": ["stale-mcp"] }
+            }),
+        )
+        .unwrap();
+
+        let resolver =
+            TeamCloudConfigResolver::new(Arc::new(crate::backend::mock::MockBackend::new()));
+
+        assert_eq!(resolver.reconcile_mcp(team_id).await, Some(true));
+        let cache: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(team_cloud_mcp_file(team_id)).unwrap())
+                .unwrap();
+        assert_eq!(cache, serde_json::json!({ "mcpServers": {} }));
     }
 }
