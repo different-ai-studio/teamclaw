@@ -24,7 +24,6 @@ import {
   type TeamShareTarget,
 } from '@/lib/tabs/teamshare-target'
 import { TEAM_REPO_DIR } from '@/lib/build-config'
-import i18n from '@/lib/i18n'
 
 function closeTeamShareTabs(match: (target: string) => boolean): void {
   const { tabs, closeTab } = useTabsStore.getState()
