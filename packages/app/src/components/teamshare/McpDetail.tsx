@@ -266,7 +266,7 @@ function SecretWarning({ keys }: { keys: string[] }) {
 
 export function McpDetail({ name }: { name: string }) {
   const { t } = useTranslation()
-  const item = useTeamShareBrowserStore((s) => s.mcp.items.find((x) => x.name === name))
+  const item = useTeamShareBrowserStore((s) => s.mcp.items.find((x) => x.id === name))
   const loadMcpTools = useTeamShareBrowserStore((s) => s.loadMcpTools)
   const installMcp = useTeamShareBrowserStore((s) => s.installMcp)
   const uninstallMcp = useTeamShareBrowserStore((s) => s.uninstallMcp)
@@ -308,7 +308,7 @@ export function McpDetail({ name }: { name: string }) {
     if (busy || !item) return
     setBusy(true)
     try {
-      await sharePersonalMcp(item.name, {
+      await sharePersonalMcp(item.id, {
         description: shareDescription.trim() || null,
       })
       setShareOpen(false)
@@ -389,7 +389,7 @@ export function McpDetail({ name }: { name: string }) {
               disabled={busy}
               onClick={() =>
                 void run(
-                  () => uninstallMcp(item.name),
+                  () => uninstallMcp(item.id),
                   t('teamShare.mcpDetail.uninstalled', 'Uninstalled'),
                   t('teamShare.mcpDetail.uninstallFailed', 'Uninstall failed'),
                 )

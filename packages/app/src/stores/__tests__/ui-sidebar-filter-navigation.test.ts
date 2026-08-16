@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { useSessionSelectionStore } from '../session-selection-store'
 import { useTabsStore } from '../tabs'
 import { useUIStore, type SidebarFilter } from '../ui'
+import { useWorkspaceStore } from '../workspace'
 
 const OTHER_DESTINATIONS: SidebarFilter[] = [
   { kind: 'all' },
@@ -46,5 +48,25 @@ describe('sidebar navigation from a knowledge file', () => {
     useUIStore.getState().setSidebarFilter({ kind: 'teamShare', section: 'knowledge' })
 
     expect(useTabsStore.getState().activeTabId).toBe(activeTabId)
+  })
+
+  it('hides the file viewer when switching to the already-active session', async () => {
+    useTabsStore.getState().openTab({
+      type: 'file',
+      target: '/workspace/teamclu-team/knowledge/spec.md',
+      label: 'spec.md',
+    })
+    useWorkspaceStore.setState({
+      selectedFile: '/workspace/teamclu-team/knowledge/spec.md',
+      selectedFiles: ['/workspace/teamclu-team/knowledge/spec.md'],
+      fileContent: '# Spec',
+    })
+    useSessionSelectionStore.setState({ activeSessionId: 'session-1' })
+
+    await useUIStore.getState().switchToSession('session-1')
+
+    expect(useTabsStore.getState().activeTabId).toBeNull()
+    expect(useWorkspaceStore.getState().selectedFile).toBeNull()
+    expect(useUIStore.getState().currentView).toBe('chat')
   })
 })

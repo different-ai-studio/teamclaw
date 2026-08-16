@@ -425,7 +425,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
           // for it — show what it is instead of a misleading "Idle".
           if (!m.installed) {
             return {
-              id: m.name,
+              id: m.id,
               kind: m.kind,
               icon: Plug,
               iconTint: 'bg-muted text-muted-foreground',
@@ -446,7 +446,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
                 ? t('teamShare.mcpDetail.failed', 'Needs attention')
                 : t('teamShare.mcpDetail.idle', 'Idle')
           return {
-            id: m.name,
+            id: m.id,
             kind: m.kind,
             icon: Plug,
             iconTint: 'bg-muted text-muted-foreground',

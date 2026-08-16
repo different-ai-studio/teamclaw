@@ -20,7 +20,7 @@ fn same_runtime_workspace(
 }
 
 impl DaemonServer {
-    /// Bind remote-tool routing to a live runtime and persist the host-level MCP config.
+    /// Bind remote-tool routing metadata to a live runtime.
     /// Route selection is message-level via `remote_context_id`; this binding is
     /// retained only for compatibility/diagnostics and must not trigger ACP resume.
     pub(crate) async fn bind_remote_tool_member(
@@ -67,8 +67,8 @@ impl DaemonServer {
     ) {
     }
 
-    /// Keep remote-tools routing metadata on a live collab runtime. MCP itself
-    /// is a host baseline and is not refreshed via per-session ACP resume.
+    /// Keep remote-tools routing metadata on a live collab runtime while MCP
+    /// auto-injection is paused. This does not claim that the runtime has the MCP.
     pub(crate) async fn ensure_live_runtime_remote_tools(
         &self,
         runtime_id: &str,
@@ -563,7 +563,7 @@ impl DaemonServer {
         // Do not write / pass `remote-tools-host.json` — auto-inject of
         // `amuxd-remote-tools` is paused. Re-enable via write_remote_tools_mcp_config.
         let mcp_config_path = None;
-        let remote_mcp_ready = !session_id.is_empty() && !requester_actor_id.is_empty();
+        let should_bind_remote_target = !session_id.is_empty() && !requester_actor_id.is_empty();
 
         // Spawn.
         let spawn_res = self
@@ -624,7 +624,7 @@ impl DaemonServer {
             }
         }
 
-        if remote_mcp_ready {
+        if should_bind_remote_target {
             self.bind_remote_tool_member(&new_id, session_id, requester_actor_id, &team_id)
                 .await;
         }
@@ -711,7 +711,7 @@ impl DaemonServer {
         // and state is ACTIVE.
         self.catchup_runtime(&new_id).await;
 
-        if remote_mcp_ready {
+        if should_bind_remote_target {
             self.sync_peer_remote_tools_on_worktree(&resolved_worktree, &ws_id, &new_id, &team_id)
                 .await;
         }

@@ -137,6 +137,8 @@ export interface TeamSkillItem {
 }
 
 export interface TeamMcpItem {
+  /** Row identity. Personal overrides use `personal:<name>` on collisions. */
+  id: string
   name: string
   config: DaemonMcpServerConfig
   probeStatus: DaemonMcpServerProbeResult['probe_status'] | 'unknown'
@@ -576,28 +578,45 @@ async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamM
       .catch(() => [])
   }
 
-  const items = new Map<string, TeamMcpItem>()
+  return planMcpItems(catalog, daemonConfig)
+}
+
+/**
+ * Keep Cloud catalog identity separate from workspace-owned configuration.
+ * A same-name local override still runs with workspace precedence, but it must
+ * never make an uninstalled team row look installed or become deletion fodder
+ * for a team uninstall.
+ */
+export function planMcpItems(
+  catalog: TeamMcpServer[],
+  daemonConfig: Record<string, DaemonMcpServerConfig>,
+): TeamMcpItem[] {
+  const items: TeamMcpItem[] = []
+  const catalogNames = new Set(catalog.map((entry) => entry.name))
 
   for (const entry of catalog) {
-    const onDisk = Boolean(daemonConfig[entry.name])
-    const installed = entry.installed || onDisk
-    items.set(entry.name, {
+    items.push({
+      id: entry.name,
       name: entry.name,
-      config: daemonConfig[entry.name] ?? catalogToDaemonConfig(entry),
+      config: catalogToDaemonConfig(entry),
       probeStatus: 'unknown',
       tools: [],
       error: null,
-      kind: installed ? 'team-installed' : 'team-available',
+      kind: entry.installed ? 'team-installed' : 'team-available',
       catalog: entry,
-      installed,
+      installed: entry.installed,
     })
   }
 
   // Daemon-only rows (legacy .mcp / workspace custom not in catalog).
   for (const [name, cfg] of Object.entries(daemonConfig)) {
-    if (items.has(name)) continue
     if (cfg.source === 'inherent') continue
-    items.set(name, {
+    // A catalog-backed team entry is already represented above. Only a real
+    // workspace override deserves a second, independently selectable row.
+    const collides = catalogNames.has(name)
+    if (collides && cfg.source !== 'workspace') continue
+    items.push({
+      id: collides ? `personal:${name}` : name,
       name,
       config: cfg,
       probeStatus: 'unknown',
@@ -609,7 +628,7 @@ async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamM
     })
   }
 
-  return [...items.values()].sort((a, b) => a.name.localeCompare(b.name))
+  return items.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
 }
 
 /** Raised by the Rust installer instead of overwriting a locally edited pack. */
@@ -911,10 +930,12 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     await get().loadMcpTools({ refresh: true })
   },
 
-  uninstallMcp: async (name) => {
+  uninstallMcp: async (id) => {
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
-    const item = get().mcp.items.find((m) => m.name === name)
+    const item = get().mcp.items.find((m) => m.id === id)
+    if (!item) throw new Error(`mcp server ${id} not found`)
+    const name = item.name
     if (item?.kind !== 'personal') {
       try {
         await getBackend().teamMcp.uninstallTeamMcpServer(teamId, name)
@@ -924,7 +945,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     }
     const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
     await putInstalledMcpCache(teamId, catalog)
-    await removeMcpFromWorkspace(name)
+    if (item.kind === 'personal') await removeMcpFromWorkspace(name)
     await get().loadSection('mcp', { force: true })
   },
 
@@ -947,13 +968,14 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     await get().loadMcpTools({ refresh: true })
   },
 
-  sharePersonalMcp: async (name, input) => {
+  sharePersonalMcp: async (id, input) => {
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
-    const item = get().mcp.items.find((m) => m.name === name)
+    const item = get().mcp.items.find((m) => m.id === id)
     if (!item || item.kind !== 'personal') {
-      throw new Error(`mcp server ${name} is not a personal server`)
+      throw new Error(`mcp server ${id} is not a personal server`)
     }
+    const name = item.name
     const body: TeamMcpServerWrite = {
       ...daemonConfigToCatalogWrite(name, item.config),
       description: input?.description ?? null,
@@ -962,7 +984,6 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     await getBackend().teamMcp.installTeamMcpServer(teamId, name)
     const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
     await putInstalledMcpCache(teamId, catalog)
-    await removeMcpFromWorkspace(name)
     await get().loadSection('mcp', { force: true })
     await get().loadMcpTools({ refresh: true })
   },
@@ -973,7 +994,6 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     await getBackend().teamMcp.deleteTeamMcpServer(teamId, name)
     const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
     await putInstalledMcpCache(teamId, catalog)
-    await removeMcpFromWorkspace(name)
     const detail = get().detailTarget
     if (detail?.kind === 'mcp' && detail.name === name) {
       set({ detailTarget: null })

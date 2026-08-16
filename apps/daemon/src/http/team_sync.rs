@@ -214,11 +214,8 @@ async fn prune_and_dispose_team_mcp(state: &HttpState, team_id: &str) {
         None => Vec::new(),
     };
 
-    for row in rows {
-        let Some((path, _)) = crate::config::workspace_path::listable_local_workspace(&row) else {
-            continue;
-        };
-        let workspace_path = std::path::PathBuf::from(&path);
+    for workspace_path in team_mcp_workspace_paths(team_id, &rows) {
+        let path = workspace_path.to_string_lossy().into_owned();
         if let Err(e) = crate::config::team_mcp::prune_materialised_team_mcp(&workspace_path) {
             tracing::warn!(
                 team_id,
@@ -242,6 +239,23 @@ async fn prune_and_dispose_team_mcp(state: &HttpState, team_id: &str) {
             );
         }
     }
+}
+
+fn team_mcp_workspace_paths(
+    team_id: &str,
+    rows: &[crate::backend::WorkspaceRow],
+) -> Vec<std::path::PathBuf> {
+    let mut paths = std::collections::BTreeSet::new();
+    let default = crate::config::global_team_store::default_workspace_dir(team_id);
+    if default.is_dir() {
+        paths.insert(default);
+    }
+    for row in rows {
+        if let Some((path, _)) = crate::config::workspace_path::listable_local_workspace(row) {
+            paths.insert(std::path::PathBuf::from(path));
+        }
+    }
+    paths.into_iter().collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -695,4 +709,32 @@ fn team_id_for_workspace(_workspace_path: &str) -> Result<String, HttpError> {
         .filter(|t| !t.is_empty())
         .map(str::to_string)
         .ok_or_else(|| HttpError::validation("daemon is not onboarded to a team"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_workspace_paths_include_the_daemon_default_workspace() {
+        let home = tempfile::tempdir().unwrap();
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(home.path());
+        let default = crate::config::global_team_store::default_workspace_dir("team-a");
+        std::fs::create_dir_all(&default).unwrap();
+        let regular_home = tempfile::tempdir().unwrap();
+        let regular = regular_home.path().join("regular-workspace");
+        std::fs::create_dir(&regular).unwrap();
+        let rows = vec![crate::backend::WorkspaceRow {
+            id: "ws-1".into(),
+            team_id: "team-a".into(),
+            path: Some(regular.to_string_lossy().into_owned()),
+            archived: false,
+            agent_id: None,
+        }];
+
+        let paths = team_mcp_workspace_paths("team-a", &rows);
+
+        assert!(paths.contains(&default));
+        assert!(paths.contains(&regular));
+    }
 }

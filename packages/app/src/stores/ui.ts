@@ -319,6 +319,8 @@ export const useUIStore = create<UIState>((set, get) => ({
         ...sidebarPatch,
       })
       releaseStuckModalLayersAfterViewSwitch()
+      useWorkspaceStore.getState().clearSelection()
+      useTabsStore.getState().hideAll()
       resolveWorkspaceInBackground()
       return
     }

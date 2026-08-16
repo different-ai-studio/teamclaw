@@ -41,7 +41,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as SyncMutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex as AsyncMutex;
@@ -58,6 +59,10 @@ const TEAM_CLOUD_TTL: Duration = Duration::from_secs(60);
 /// so a fetch lands atomically: a partial rename sequence must never be able to
 /// present half a team's servers as the whole set.
 const MCP_CACHE_FILE: &str = "mcp.json";
+
+static TEAM_MCP_WRITE_LOCKS: OnceLock<SyncMutex<HashMap<String, Arc<SyncMutex<()>>>>> =
+    OnceLock::new();
+static CACHE_TMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub struct TeamCloudConfigResolver {
     backend: Arc<dyn Backend>,
@@ -220,10 +225,36 @@ fn write_if_changed(path: &Path, contents: &str) -> std::io::Result<bool> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension("tmp");
+    let sequence = CACHE_TMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "team-cloud-cache".to_string());
+    let tmp = path.with_file_name(format!(
+        ".{file_name}.{}.{}.tmp",
+        std::process::id(),
+        sequence
+    ));
     std::fs::write(&tmp, contents)?;
-    std::fs::rename(&tmp, path)?;
-    Ok(true)
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(true),
+        Err(error) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(error)
+        }
+    }
+}
+
+fn team_mcp_write_lock(team_id: &str) -> Arc<SyncMutex<()>> {
+    let locks = TEAM_MCP_WRITE_LOCKS.get_or_init(|| SyncMutex::new(HashMap::new()));
+    let mut locks = locks
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    Arc::clone(
+        locks
+            .entry(team_id.to_string())
+            .or_insert_with(|| Arc::new(SyncMutex::new(()))),
+    )
 }
 
 fn cloud_mcp_file_has_servers(path: &Path) -> bool {
@@ -251,6 +282,8 @@ pub fn replace_team_mcp_cache(
     team_id: &str,
     mcp_servers: &serde_json::Value,
 ) -> std::io::Result<bool> {
+    let lock = team_mcp_write_lock(team_id);
+    let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let servers = match mcp_servers {
         serde_json::Value::Object(_) => mcp_servers.clone(),
         serde_json::Value::Null => serde_json::json!({}),
@@ -265,13 +298,19 @@ pub fn replace_team_mcp_cache(
     let body = serde_json::to_string_pretty(&config)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let changed = write_if_changed(&team_cloud_mcp_file(team_id), &body)?;
-    sync_opencode_generated(team_id)?;
+    sync_opencode_generated_unlocked(team_id)?;
     Ok(changed)
 }
 
 /// Always materialize `mcp.opencode.generated.json` so spawn can set
 /// `OPENCODE_CONFIG` even before the first install.
 pub fn sync_opencode_generated(team_id: &str) -> std::io::Result<bool> {
+    let lock = team_mcp_write_lock(team_id);
+    let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    sync_opencode_generated_unlocked(team_id)
+}
+
+fn sync_opencode_generated_unlocked(team_id: &str) -> std::io::Result<bool> {
     let mut generated = serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
         "mcp": {},
@@ -485,6 +524,7 @@ impl TeamCloudConfigResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     #[test]
     fn write_if_changed_reports_no_change_for_identical_bytes() {
@@ -510,5 +550,56 @@ mod tests {
             .filter(|n| n.ends_with(".tmp"))
             .collect();
         assert!(leftovers.is_empty(), "stray tmp files: {leftovers:?}");
+    }
+
+    #[test]
+    fn concurrent_mcp_replacements_keep_cursor_and_opencode_files_consistent() {
+        let home = tempfile::tempdir().unwrap();
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(home.path());
+        let team_id = "concurrent-mcp-team";
+
+        for round in 0..16 {
+            let barrier = Arc::new(std::sync::Barrier::new(3));
+            let mut workers = Vec::new();
+            for name in [format!("alpha-{round}"), format!("beta-{round}")] {
+                let barrier = Arc::clone(&barrier);
+                workers.push(std::thread::spawn(move || {
+                    barrier.wait();
+                    replace_team_mcp_cache(
+                        team_id,
+                        &serde_json::json!({
+                            (name.clone()): { "command": "echo", "args": [name] }
+                        }),
+                    )
+                    .unwrap();
+                }));
+            }
+            barrier.wait();
+            for worker in workers {
+                worker.join().unwrap();
+            }
+
+            let cursor: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(team_cloud_mcp_file(team_id)).unwrap(),
+            )
+            .unwrap();
+            let generated: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(team_cloud_mcp_opencode_generated_file(team_id)).unwrap(),
+            )
+            .unwrap();
+            let cursor_names: BTreeSet<_> = cursor["mcpServers"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect();
+            let generated_names: BTreeSet<_> = generated["mcp"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect();
+            assert_eq!(cursor_names, generated_names);
+        }
     }
 }
