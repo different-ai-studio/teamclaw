@@ -163,6 +163,10 @@ public final class SessionDetailViewModel {
     private let mqtt: MQTTService
     private let hub: MQTTMessageHub
     private let teamID: String
+
+    /// This install's model MRU (ADR-0007). Consulted only as the last resort
+    /// before asking the user — never above `session_participants.model`.
+    private let clientModelMRU = ClientModelMRU()
     private let peerId: String
     private let teamcluService: TeamcluService?
     private let connectedAgentsStore: ConnectedAgentsStore?
@@ -714,7 +718,15 @@ public final class SessionDetailViewModel {
                 ),
                 lifecycleState: Self.chipState(forAttachment: att),
                 availableModels: models.isEmpty ? agent.availableModels : models,
-                currentModel: att.currentModel ?? agent.currentModel,
+                // Participant row first: it is the authoritative per-session
+                // model (ADR-0005), and the attachment's value is the same fact
+                // observed from the runtime. Reversed order let a stale or
+                // preference-derived attachment value shadow the truth.
+                currentModel: AgentModelResolution.resolve(
+                    participantModel: agent.currentModel,
+                    liveModel: att.currentModel,
+                    mruCandidate: nil
+                ).modelID,
                 workspaceID: agent.workspaceID,
                 backendType: Self.backendType(forAgentTypeRaw: att.agentType)
             )
@@ -866,13 +878,40 @@ public final class SessionDetailViewModel {
     /// the sole agent's when the chip bar has no explicit selection. Nil when
     /// no agent is attached — the session is cold and the daemon picks on spawn.
     public var currentModelForSendTarget: String? {
-        if let selected = agentChipSelection.first,
-           let model = attachment(forAgentActorID: selected)?.currentModel,
-           !model.isEmpty {
-            return model
+        resolvedModelForSendTarget?.modelID
+    }
+
+    /// The send target's model *and* whether anyone chose it.
+    ///
+    /// The doc on the old version said a nil answer was fine because "the daemon
+    /// picks on spawn". That is precisely the implicit resolution ADR-0007
+    /// removes: the daemon's pick came from a device MRU, so the same chat could
+    /// answer on a different model depending on where the daemon started. A nil
+    /// answer now means **ask the user**, and `requiresExplicitPick` says so.
+    public var resolvedModelForSendTarget: AgentModelResolution.Resolved? {
+        let targetID: String?
+        if let selected = agentChipSelection.first {
+            targetID = selected
+        } else if memberSheetAgents.count == 1 {
+            targetID = memberSheetAgents.first?.id
+        } else {
+            targetID = nil
         }
-        guard memberSheetAgents.count == 1, let only = memberSheetAgents.first else { return nil }
-        return attachment(forAgentActorID: only.id)?.currentModel
+        guard let actorID = targetID else { return nil }
+
+        let agentRow = memberSheetAgents.first(where: { $0.id == actorID })
+        let att = attachment(forAgentActorID: actorID)
+        return AgentModelResolution.resolve(
+            participantModel: agentRow?.currentModel,
+            liveModel: att?.currentModel,
+            // Checked against this agent's live catalog: a remembered model the
+            // catalog no longer offers is not a candidate (ClientModelMRU).
+            mruCandidate: clientModelMRU.firstAvailable(
+                backend: agentRow?.backendType ?? "",
+                teamID: teamID,
+                available: availableModels(forAgentActorID: actorID)
+            )
+        )
     }
 
     /// Union of human + agent actor ids currently in the session, used by

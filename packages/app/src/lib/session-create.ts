@@ -7,10 +7,9 @@ import { seedRuntimeStateAfterStart } from '@/lib/seed-runtime-state'
 import { seedLocalDaemonModelsInBackground } from '@/lib/local-daemon-model-catalog'
 import {
   normalizeAgentModelId,
-  resolveRuntimeStateEntryForAgent,
-  selectAgentModel,
+  requiresExplicitModelPick,
 } from '@/lib/runtime-state-resolve'
-import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
+import { resolveAgentSessionModel } from '@/lib/resolve-agent-session-model'
 import { useAgentModelPickStore } from '@/stores/agent-model-pick-store'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -542,16 +541,38 @@ export async function startAgentRuntimesAsync(
     const agentType = args.agentType ?? resolveAmuxAgentType(backendType)
     const byRuntimeId = useRuntimeStateStore.getState().byRuntimeId
     const userPick = useAgentModelPickStore.getState().getPick(args.sessionId, agentActorId)
-    const available = resolveAgentAvailableModels(
-      resolveRuntimeStateEntryForAgent(agentActorId, byRuntimeId)?.info,
-    )
-    const resolvedModelId = selectAgentModel({
+    // Same resolver the send path uses. It used to look only at the live
+    // retain for the catalog and never consulted this client's MRU, so on a
+    // cold start it answered "no model" for a message the send path had just
+    // stamped with a remembered one.
+    const { selected: selectedForStart, available } = resolveAgentSessionModel({
       sessionId: args.sessionId,
       agentId: agentActorId,
-      available,
-      byRuntimeId,
-      providerFallback: args.modelIdByAgent?.[agentActorId] ?? args.modelId,
-    }).modelId || undefined
+      teamId: args.teamId,
+      backendType,
+      localDaemonActorId,
+      explicitModelId: args.modelIdByAgent?.[agentActorId] ?? args.modelId,
+    })
+    // Starting a runtime is not a licence to answer the model question. When
+    // nothing has chosen yet, `selectAgentModel` hands back the first catalog
+    // entry marked `unpicked` — the send path refuses to run on it (ADR-0007),
+    // and this path must refuse to *pin* it. It used to do the opposite: it
+    // passed the guess to runtimeStart and setModel, the daemon echoed it back
+    // as `currentModel`, and the next resolve read that retain as an answer —
+    // so the guess became the choice and the picker never opened again.
+    const modelNeedsPick = requiresExplicitModelPick(selectedForStart)
+    const resolvedModelId = modelNeedsPick
+      ? undefined
+      : selectedForStart.modelId || undefined
+    if (modelNeedsPick) {
+      sessionFlowLog('runtime_start.model_deferred_awaiting_pick', {
+        sessionId: args.sessionId,
+        teamId: args.teamId,
+        agentActorId,
+        suggestedModelId: selectedForStart.modelId,
+        availableModelCount: available.length,
+      })
+    }
 
     const isLocalDaemonAgent =
       localDaemonActorId !== null && agentActorId === localDaemonActorId

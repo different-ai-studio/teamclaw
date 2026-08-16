@@ -76,10 +76,13 @@ import {
   localRecentModelFallback,
 } from '@/lib/agent-model-fallback'
 import { useLocalDaemonActorId } from "@/lib/daemon-agent-admin";
+import { clientMruModels } from "@/stores/client-model-mru";
+import { ensureParticipantModels } from "@/stores/participant-model-store";
 import { useLocalDaemonCatalogStore } from "@/stores/local-daemon-catalog-store";
 import {
   selectAgentModel,
   resolveRuntimeStateEntryForAgent,
+  backendTypeFromRuntimeEntry,
 } from "@/lib/runtime-state-resolve";
 // xterm + its webgl/search addons are ~560KB of the startup chunk and are only
 // needed once the terminal drawer is actually opened, so pay for them then.
@@ -484,6 +487,15 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     void ensureParticipants([activeSessionId]);
   }, [activeSessionId, sessionParticipants, participantsLoading, ensureParticipants]);
 
+  // `session_participants.model` — the authoritative per-session model
+  // (ADR-0005/0007). Separate from the roster fetch above, which reads the
+  // actor directory and carries no working state. Fire-and-forget: the
+  // resolver falls through to the transcript scan and the retain until it
+  // lands, so nothing here blocks the pill.
+  React.useEffect(() => {
+    ensureParticipantModels(activeSessionId);
+  }, [activeSessionId]);
+
   const prevActiveSessionRef = React.useRef<string | null>(null);
   React.useEffect(() => {
     const prev = prevActiveSessionRef.current;
@@ -762,7 +774,17 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           localRecentModelFallback({
             agentId: modelAgentId,
             localDaemonActorId,
-            recentModels: localDaemonCatalog?.recentModels,
+            // This client's MRU, keyed by the backend this agent runs on
+            // (ADR-0007). `localDaemonCatalog` still supplies the catalog.
+            // `sheetTeamId` resolves from the session list first. Leaving the
+            // team to `current-team` alone read empty during cold start, and an
+            // empty team is indistinguishable from "never picked a model".
+            recentModels: clientMruModels(
+              backendTypeFromRuntimeEntry(
+                resolveRuntimeStateEntryForAgent(modelAgentId, runtimeStates),
+              ),
+              sheetTeamId,
+            ),
             available,
           }) || undefined,
         sessionEstablishedModel: activeEstablishedModel,
@@ -777,6 +799,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     activeEstablishedModel,
     activePickEntry,
     remoteDefaultCatalogModels,
+    sheetTeamId,
   ]);
 
   // ── Refs ───────────────────────────────────────────────────────────────

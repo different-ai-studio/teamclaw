@@ -29,6 +29,7 @@ public final class SessionListViewModel {
     // Retained so markAsRead() can mutate the same context the ingest uses.
     private var ctx: ModelContext?
 
+
     public init() {}
 
     public func start(mqtt: MQTTService,
@@ -427,6 +428,15 @@ public final class SessionListViewModel {
         // Older daemons send only the per-worktree copies; fall back to the
         // first so this build keeps working against one until it is upgraded.
         let legacyCatalog = presence.worktrees.first
+        // NOTE: no client MRU here on purpose. An attachment records *facts*
+        // about a live runtime; folding this install's preference in made it
+        // outrank `session_participants.model` at every read site, which is
+        // backwards (ADR-0005/0007). The MRU is applied at resolve time
+        // instead — see `AgentModelResolution`.
+        //
+        // `presence.default_model` is the daemon's own MRU head, which ADR-0007
+        // removes; it stays only until the field stops being sent, so a daemon
+        // that still fills it keeps working meanwhile.
         let deviceDefaultModel = presence.defaultModel.isEmpty
             ? (legacyCatalog?.defaultModel ?? "")
             : presence.defaultModel

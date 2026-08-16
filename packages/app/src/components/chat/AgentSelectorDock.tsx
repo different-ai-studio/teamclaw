@@ -11,6 +11,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import {
   resolveAgentCatalogModels,
   localRecentModelFallback,
+  recordClientModelPick,
 } from '@/lib/agent-model-fallback'
 import { resolveSessionEstablishedModel } from '@/lib/session-established-model'
 import { sessionFlowError, sessionFlowLog } from '@/lib/session-flow-log'
@@ -31,6 +32,8 @@ import {
 import { useSessionSelectionStore } from '@/stores/session-selection-store'
 import { useSessionMessageStore } from '@/stores/session-message-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { clientMruModels } from '@/stores/client-model-mru'
+import { useModelPickPromptStore } from '@/stores/model-pick-prompt-store'
 import { useSessionListStore } from '@/stores/session-list-store'
 import { useLocalDaemonActorId } from '@/lib/daemon-agent-admin'
 import { getKnownLocalDaemonActorId } from '@/lib/local-daemon-identity'
@@ -147,6 +150,15 @@ function AgentPill({
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
+
+  // A send was refused because nothing had chosen this agent's model. Open the
+  // picker so the refusal is actionable instead of silent (ADR-0007).
+  const pendingPickAgentId = useModelPickPromptStore((s) => s.pendingAgentId)
+  React.useEffect(() => {
+    if (pendingPickAgentId !== agent.id) return
+    setOpen(true)
+    useModelPickPromptStore.getState().clear()
+  }, [pendingPickAgentId, agent.id])
   const localActorId = useLocalDaemonActorId()
   const isSelf = !!localActorId && agent.id === localActorId
   const byRuntimeId = useRuntimeStateStore((s) => s.byRuntimeId)
@@ -229,10 +241,15 @@ function AgentPill({
       localRecentModelFallback({
         agentId: agent.id,
         localDaemonActorId: localActorId,
-        recentModels: localCatalog?.recentModels,
+        // This client's MRU, not the daemon's (ADR-0007). `localCatalog` still
+        // supplies the catalog itself — only the history moved.
+        // No explicit team: the pill only needs one for its own label, and
+        // `current-team` no longer blanks itself while auth restores (see
+        // `current-team.ts`), so the store answer is good here.
+        recentModels: clientMruModels(backendType),
         available: availableModels,
       }),
-    [agent.id, localActorId, localCatalog, availableModels],
+    [agent.id, localActorId, backendType, availableModels],
   )
 
   const selected = React.useMemo(
@@ -368,6 +385,18 @@ function AgentPill({
     // choice immediately and `promoteDraftPicks` carries it onto the session.
     useAgentModelPickStore.getState().setPick(pickScopeId, agent.id, rpcModelId)
 
+    // ...and remember it as this client's MRU, so the NEXT new chat starts
+    // here (ADR-0007). Only this path records. The auto-select above must not:
+    // writing a cold-start guess down turns it into a preference that outlives
+    // the guess, which is the loop this migration exists to break.
+    recordClientModelPick({
+      agentId: agent.id,
+      localDaemonActorId: localActorId,
+      backendType,
+      teamId,
+      modelId: rpcModelId,
+    })
+
     if (!sessionId || !teamId) {
       sessionFlowLog('agent_selector.model_pick.deferred_until_session', {
         agentId: agent.id,
@@ -412,7 +441,7 @@ function AgentPill({
       })
       console.error('[AgentSelectorDock] ensureRuntimeThenSetModel failed (pick preserved)', e)
     }
-  }, [agent.id, agent.displayName, dbRuntimeId, sessionId, pickScopeId, t, effectiveModelId, availableModels])
+  }, [agent.id, agent.displayName, dbRuntimeId, sessionId, pickScopeId, t, effectiveModelId, availableModels, backendType, localActorId])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
