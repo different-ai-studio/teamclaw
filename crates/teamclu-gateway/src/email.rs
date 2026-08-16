@@ -8,7 +8,7 @@ use crate::email_config::{
     EmailConfig, EmailGatewayStatus, EmailGatewayStatusResponse, EmailProvider,
 };
 use crate::email_db::EmailDb;
-use crate::{AgentHandle, ChannelStore};
+use crate::{i18n, AgentHandle, ChannelStore};
 
 /// Maximum number of processed message UIDs to keep in the dedup set.
 /// With UID watermark, this set only grows within a single gateway session,
@@ -1635,20 +1635,22 @@ fn process_and_reply_sync(
         || slash_lower == "/model"
         || slash_lower.starts_with("/model ");
 
+    let locale = {
+        let workspace_path =
+            rt_handle.block_on(async { gateway.workspace_path.read().await.clone() });
+        i18n::get_locale(workspace_path.as_deref().unwrap_or(""))
+    };
+
     if is_help_slash {
-        let help_text = "Available commands:\n\
-            /help - Show this help\n\
-            /model [provider/model] - List or switch models\n\
-            /reset - Reset the conversation context\n\
-            /stop - Stop the current turn";
-        let _ = send_reply_sync(config, email, help_text, access_token)?;
+        let help_text = i18n::t(i18n::MsgKey::HelpEmail, locale);
+        let _ = send_reply_sync(config, email, &help_text, access_token)?;
         return Ok(());
     }
     if is_sessions_slash {
         let _ = send_reply_sync(
             config,
             email,
-            "This command is not supported in v2 yet.",
+            &i18n::t(i18n::MsgKey::SessionsCommandUnsupported, locale),
             access_token,
         )?;
         return Ok(());
@@ -1717,10 +1719,11 @@ fn process_and_reply_sync(
 
         // Slash-command dispatch — /stop /reset /model — against the resolved session.
         if is_session_slash {
-            let reply_text = dispatch_session_slash_cmd_email(
+            let reply_text = crate::commands::dispatch_session_slash_cmd(
                 &agent,
                 &slash_lower_for_async,
                 &outcome.acp_session_id,
+                locale,
             )
             .await;
             return Ok::<_, String>((outcome.acp_session_id, outcome.session_id, reply_text));
@@ -1817,84 +1820,6 @@ fn process_and_reply_sync(
 
     println!("[Email] Reply sent to {}", email.from);
     Ok(())
-}
-
-/// Dispatch /stop, /reset, /model against a resolved agent session id.
-/// Returns the user-facing reply text. Used by the email IMAP processing path.
-async fn dispatch_session_slash_cmd_email(
-    agent: &Arc<dyn AgentHandle>,
-    lower_content: &str,
-    acp_session_id: &str,
-) -> String {
-    let session = acp_session_id.to_string();
-    if lower_content == "/stop" {
-        return match agent.cancel(&session).await {
-            Ok(_) => "⏹ Stopped current turn.".to_string(),
-            Err(e) => format!("⚠️ Could not stop: {e}"),
-        };
-    }
-    if lower_content == "/reset" {
-        return match agent.reset_session(&session).await {
-            Ok(_) => "🔄 Session reset. Next message starts fresh.".to_string(),
-            Err(e) => format!("⚠️ Could not reset: {e}"),
-        };
-    }
-    if lower_content == "/model" {
-        return match agent.list_models(&session).await {
-            Ok(models) => {
-                if models.is_empty() {
-                    "No models available.".to_string()
-                } else {
-                    let current = agent.current_model(&session).await.ok().flatten();
-                    let shown = models.len().min(crate::commands::MODEL_LIST_LIMIT);
-                    let body = models
-                        .iter()
-                        .take(shown)
-                        .map(|m| {
-                            let id = format!("{}/{}", m.provider, m.model);
-                            let mark = if current.as_deref() == Some(id.as_str()) {
-                                " (current)"
-                            } else {
-                                ""
-                            };
-                            format!("- {id} - {}{mark}", m.display_name)
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let more = if models.len() > shown {
-                        format!("\n- ... and {} more", models.len() - shown)
-                    } else {
-                        String::new()
-                    };
-                    format!("Available models:\n{body}{more}\n\nUsage: /model <provider>/<model>")
-                }
-            }
-            Err(e) => format!("Could not list models: {e}"),
-        };
-    }
-    if let Some(arg) = lower_content.strip_prefix("/model ") {
-        let arg = arg.trim();
-        let (provider, model) = match arg.split_once('/') {
-            Some((p, m)) => (p.to_string(), m.to_string()),
-            // Bare name — resolve against the live catalog instead of
-            // assuming anthropic, which is wrong for any other backend.
-            None => {
-                match crate::commands::resolve_bare_model(agent.as_ref(), &session, arg).await {
-                    Ok(Ok(pair)) => pair,
-                    Ok(Err(msg)) => return msg,
-                    Err(e) => return format!("Could not switch model: {e}"),
-                }
-            }
-        };
-        let (provider, model) = (provider.as_str(), model.as_str());
-        return match agent.set_model(&session, provider, model).await {
-            Ok(_) => {
-                format!("Switched to {provider}/{model}. Note: conversation context was cleared.")
-            }
-            Err(e) => format!("Could not switch model: {e}"),
-        };
-    }
-    format!("Unknown command: {lower_content}")
 }
 
 fn send_rejection_reply_sync(

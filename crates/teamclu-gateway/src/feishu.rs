@@ -1077,7 +1077,7 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
         }
     }
 
-    let _locale = i18n::get_locale(&ctx.workspace_path);
+    let locale = i18n::get_locale(&ctx.workspace_path);
 
     // /sessions is intentionally NOT supported in v2.
     let lower = clean_text.to_lowercase();
@@ -1086,7 +1086,7 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
             let _ = reply_feishu_message(
                 &token,
                 &message_id,
-                "This command is not supported in v2 yet.",
+                &i18n::t(i18n::MsgKey::SessionsCommandUnsupported, locale),
             )
             .await;
         }
@@ -1173,6 +1173,7 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
             &ctx.agent,
             &lower,
             &outcome.acp_session_id,
+            locale,
         )
         .await;
         if let Ok(token) = token_manager.get_tenant_token().await {

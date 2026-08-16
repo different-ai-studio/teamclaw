@@ -9,7 +9,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
 use crate::seatalk_config::{SeaTalkConfig, SeaTalkGatewayStatus, SeaTalkGatewayStatusResponse};
 use crate::{
-    AgentHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES,
+    i18n, AgentHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES,
 };
 
 const SEATALK_API_BASE: &str = "https://openapi.seatalk.io";
@@ -247,7 +247,6 @@ struct HandlerContext {
     team_id: String,
     primary_agent_actor_id: String,
     agent_owner_actor_ids: Vec<String>,
-    #[allow(dead_code)]
     workspace_path: String,
     client: Arc<SeaTalkClient>,
     processed_events: Arc<RwLock<ProcessedMessageTracker>>,
@@ -843,18 +842,15 @@ async fn process_inbound(
         lower == "/stop" || lower == "/reset" || lower == "/model" || lower.starts_with("/model ");
 
     if is_session_slash {
-        let reply_text =
-            crate::commands::dispatch_session_slash_cmd(&ctx.agent, &lower, &outcome.acp_session_id)
-                .await;
-        return send_reply(
-            ctx,
-            is_dm,
-            reply_target,
-            group_id,
-            thread_id,
-            &reply_text,
+        let locale = i18n::get_locale(&ctx.workspace_path);
+        let reply_text = crate::commands::dispatch_session_slash_cmd(
+            &ctx.agent,
+            &lower,
+            &outcome.acp_session_id,
+            locale,
         )
         .await;
+        return send_reply(ctx, is_dm, reply_target, group_id, thread_id, &reply_text).await;
     }
 
     let _ = ctx

@@ -901,7 +901,10 @@ impl KookGateway {
         let lower = content.to_lowercase();
         if content.eq_ignore_ascii_case("/sessions") || lower.starts_with("/sessions ") {
             let _ = self
-                .send_reply(msg, "This command is not supported in v2 yet.")
+                .send_reply(
+                    msg,
+                    &i18n::t(i18n::MsgKey::SessionsCommandUnsupported, locale),
+                )
                 .await;
             return Ok(());
         }
@@ -995,6 +998,7 @@ impl KookGateway {
                 &self.agent,
                 &lower,
                 &outcome.acp_session_id,
+                locale,
             )
             .await;
             let _ = self.send_reply(msg, &reply_text).await;

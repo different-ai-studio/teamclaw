@@ -1299,6 +1299,7 @@ impl WeComGateway {
                     // is handled generically; unknown commands also land here.
                     // We have no session yet, so pass a placeholder session id.
                     use std::sync::{Arc as SArc, Mutex};
+                    let locale = i18n::get_locale(&self.workspace_path);
                     let reply_cell: SArc<Mutex<Option<String>>> = SArc::new(Mutex::new(None));
                     let reply_cell_clone = reply_cell.clone();
                     let handled = commands::dispatch(
@@ -1307,6 +1308,7 @@ impl WeComGateway {
                         self.agent.as_ref(),
                         self.store.as_ref(),
                         &String::new(),
+                        locale,
                         move |r| {
                             *reply_cell_clone.lock().unwrap() = Some(r);
                         },
@@ -1319,7 +1321,6 @@ impl WeComGateway {
                             let _ = self.send_reply(&req_id, &text, &ws_sink).await;
                         }
                     } else {
-                        let locale = i18n::get_locale(&self.workspace_path);
                         let _ = self
                             .send_reply(
                                 &req_id,
@@ -1434,6 +1435,7 @@ impl WeComGateway {
         // /workspace, /new, /stop, /ctx).
         if let Some((cmd_name, cmd_arg)) = commands::parse_slash(text_content.trim()) {
             use std::sync::{Arc as SArc, Mutex};
+            let locale = i18n::get_locale(&self.workspace_path);
             let reply_cell: SArc<Mutex<Option<String>>> = SArc::new(Mutex::new(None));
             let reply_cell_clone = reply_cell.clone();
             let handled = commands::dispatch(
@@ -1442,6 +1444,7 @@ impl WeComGateway {
                 self.agent.as_ref(),
                 self.store.as_ref(),
                 &outcome.acp_session_id,
+                locale,
                 move |r| {
                     *reply_cell_clone.lock().unwrap() = Some(r);
                 },
@@ -1454,7 +1457,6 @@ impl WeComGateway {
                     let _ = self.send_reply(&req_id, &text, &ws_sink).await;
                 }
             } else {
-                let locale = i18n::get_locale(&self.workspace_path);
                 let _ = self
                     .send_reply(
                         &req_id,

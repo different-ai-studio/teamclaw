@@ -240,9 +240,10 @@ impl DiscordHandler {
             return;
         }
 
+        let locale = i18n::get_locale(&self.workspace_path);
+
         // /help — early-out: no session resolution needed.
         if content.eq_ignore_ascii_case("/help") {
-            let locale = i18n::get_locale(&self.workspace_path);
             let _ = msg
                 .reply(&ctx.http, &i18n::t(i18n::MsgKey::HelpDiscord, locale))
                 .await;
@@ -255,7 +256,10 @@ impl DiscordHandler {
             || content.to_lowercase().starts_with("/sessions ")
         {
             let _ = msg
-                .reply(&ctx.http, "This command is not supported in v2 yet.")
+                .reply(
+                    &ctx.http,
+                    &i18n::t(i18n::MsgKey::SessionsCommandUnsupported, locale),
+                )
                 .await;
             return;
         }
@@ -348,6 +352,7 @@ impl DiscordHandler {
                 &self.agent,
                 &lower,
                 &outcome.acp_session_id,
+                locale,
             )
             .await;
             let _ = msg.reply(&ctx.http, &reply_text).await;
@@ -698,12 +703,13 @@ impl EventHandler for DiscordHandler {
                     &self.agent,
                     &syn.to_lowercase(),
                     &outcome.acp_session_id,
+                    locale,
                 )
                 .await
             } else {
                 match name {
                     "help" => i18n::t(i18n::MsgKey::HelpDiscord, locale),
-                    "sessions" => "This command is not supported in v2 yet.".to_string(),
+                    "sessions" => i18n::t(i18n::MsgKey::SessionsCommandUnsupported, locale),
                     other => i18n::t(i18n::MsgKey::UnknownCommand(other), locale),
                 }
             };
