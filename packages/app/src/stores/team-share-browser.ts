@@ -543,8 +543,28 @@ async function listTeamSkills(
 export function mergeTeamMcpCatalogAndDaemon(
   catalog: TeamMcpServer[],
   daemonConfig: Record<string, DaemonMcpServerConfig>,
+  previousItems: TeamMcpItem[] = [],
 ): TeamMcpItem[] {
-  return planMcpItems(catalog, daemonConfig)
+  return preserveMcpProbes(planMcpItems(catalog, daemonConfig), previousItems)
+}
+
+/**
+ * Catalog/config refresh creates fresh rows, while probing is asynchronous.
+ * Keep the last known probe for a surviving row so switching sections does not
+ * briefly repaint it as "0 tools" before the daemon's cached probe returns.
+ */
+export function preserveMcpProbes(items: TeamMcpItem[], previousItems: TeamMcpItem[]): TeamMcpItem[] {
+  const previousById = new Map(previousItems.map((item) => [item.id, item]))
+  return items.map((item) => {
+    const previous = previousById.get(item.id)
+    if (!previous) return item
+    return {
+      ...item,
+      probeStatus: previous.probeStatus,
+      tools: previous.tools,
+      error: previous.error,
+    }
+  })
 }
 
 /**
@@ -624,7 +644,11 @@ export function applyMcpProbes(
   })
 }
 
-async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamMcpItem[]> {
+async function listTeamMcp(
+  wsPath: string,
+  teamId: string | null,
+  previousItems: TeamMcpItem[] = [],
+): Promise<TeamMcpItem[]> {
   const wid = encodeWorkspaceId(wsPath)
   const daemonConfig = await getDaemonMcp(wid).catch(() => ({}) as Record<string, DaemonMcpServerConfig>)
 
@@ -636,7 +660,7 @@ async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamM
       // fall back to the daemon's view rather than showing an empty team.
       .catch(() => [])
   }
-  return mergeTeamMcpCatalogAndDaemon(catalog, daemonConfig)
+  return mergeTeamMcpCatalogAndDaemon(catalog, daemonConfig, previousItems)
 }
 
 /** Raised by the Rust installer instead of overwriting a locally edited pack. */
@@ -1422,7 +1446,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
         const items = wsPath ? await listTeamKnowledge(wsPath) : []
         set({ knowledgeRoot: root, knowledge: { items, loading: false, loaded: true, error: null } })
       } else if (section === 'mcp') {
-        const items = wsPath ? await listTeamMcp(wsPath, currentTeamId()) : []
+        const items = wsPath ? await listTeamMcp(wsPath, currentTeamId(), get().mcp.items) : []
         set({ mcp: { items, loading: false, loaded: true, error: null } })
         if (opts?.withTools) await get().loadMcpTools()
       }

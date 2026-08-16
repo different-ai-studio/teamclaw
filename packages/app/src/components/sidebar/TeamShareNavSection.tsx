@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Sparkles, Plug, Box, Bookmark } from 'lucide-react'
 import { useUIStore } from '@/stores/ui'
 import { useTeamShareBrowserStore, type TeamShareSection } from '@/stores/team-share-browser'
+import { useCurrentTeamStore } from '@/stores/current-team'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { cn } from '@/lib/utils'
 
 interface SectionDef {
@@ -74,6 +76,8 @@ export function TeamShareNavSection() {
   const { t } = useTranslation()
   const filter = useUIStore((s) => s.sidebarFilter)
   const setFilter = useUIStore((s) => s.setSidebarFilter)
+  const currentTeamId = useCurrentTeamStore((s) => s.team?.id ?? null)
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
   const loadCounts = useTeamShareBrowserStore((s) => s.loadCounts)
@@ -96,8 +100,9 @@ export function TeamShareNavSection() {
   }
 
   React.useEffect(() => {
+    if (!currentTeamId || !workspacePath) return
     void loadCounts()
-  }, [loadCounts])
+  }, [currentTeamId, workspacePath, loadCounts])
 
   const handleSelect = React.useCallback(
     (section: TeamShareSection) => {
