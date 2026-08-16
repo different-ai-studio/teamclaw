@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 
 const uiStoreState = vi.hoisted(() => ({
   currentView: 'chat',
+  sidebarFilter: { kind: 'all' } as { kind: string; section?: string },
   closeSettings: vi.fn(),
   layoutMode: 'task',
   mainContentLayout: 'stacked',
@@ -47,6 +48,10 @@ const tabsStoreState = vi.hoisted(() => ({
   activeTab: null as null | { id: string; type: string; target: string },
   tabs: [] as Array<{ id: string; type: string; target: string }>,
   activeTabId: null as string | null,
+}))
+const teamShareBrowserState = vi.hoisted(() => ({
+  detailTarget: null as null | { kind: string; name?: string; id?: string; keyId?: string },
+  clearDetail: vi.fn(),
 }))
 const currentTeamStoreState = vi.hoisted(() => ({
   team: null as null | { id: string },
@@ -207,7 +212,15 @@ vi.mock('@/stores/tabs', () => ({
   selectActiveTab: () => tabsStoreState.activeTab,
   selectHasHiddenTabs: (_s: any) => false,
 }))
-vi.mock('@/components/tab-bar/TabBar', () => ({ TabBar: () => null }))
+vi.mock('@/stores/team-share-browser', () => ({
+  useTeamShareBrowserStore: vi.fn((sel: (s: any) => any) => sel(teamShareBrowserState)),
+}))
+vi.mock('@/components/teamshare/TeamShareTabContent', () => ({
+  TeamShareDetailContent: ({ target }: { target: { kind: string } }) => (
+    <div data-testid="team-share-detail">{target.kind}</div>
+  ),
+}))
+vi.mock('@/components/tab-bar/TabBar', () => ({ TabBar: () => <div data-testid="tab-bar" /> }))
 vi.mock('@/components/tab-bar/TabContentRenderer', () => ({ TabContentRenderer: () => <div data-testid="tab-content-renderer" /> }))
 vi.mock('@/components/tab-bar/WebViewToolbar', () => ({ WebViewToolbar: () => null }))
 vi.mock('@/components/tab-bar/FindInPageBar', () => ({ FindInPageBar: () => null }))
@@ -262,6 +275,7 @@ import App from '../App'
 describe('App', () => {
   beforeEach(() => {
     uiStoreState.currentView = 'chat'
+    uiStoreState.sidebarFilter = { kind: 'all' }
     uiStoreState.layoutMode = 'task'
     uiStoreState.mainContentLayout = 'stacked'
     uiStoreState.fileModeRightTab = 'agent'
@@ -273,6 +287,8 @@ describe('App', () => {
     tabsStoreState.activeTab = null
     tabsStoreState.tabs = []
     tabsStoreState.activeTabId = null
+    teamShareBrowserState.detailTarget = null
+    teamShareBrowserState.clearDetail.mockReset()
     sidebarState.state = 'expanded'
     sidebarState.open = true
     sidebarState.setOpen.mockReset()
@@ -346,6 +362,50 @@ describe('App', () => {
     render(<App />)
 
     expect(screen.queryByText('Select a file or web tab')).toBeNull()
+  })
+
+  it.each([
+    ['skills', 'Skills'],
+    ['mcp', 'MCP'],
+    ['env', 'Environment Variables'],
+    ['knowledge', 'Knowledge'],
+  ])('shows the %s page title instead of New Chat', (section, title) => {
+    workspaceStoreState.workspacePath = '/workspace'
+    uiStoreState.sidebarFilter = { kind: 'teamShare', section }
+
+    render(<App />)
+
+    expect(screen.getByRole('button', { name: title })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New Chat' })).toBeNull()
+  })
+
+  it('renders team-share item details directly without the tab bar', () => {
+    workspaceStoreState.workspacePath = '/workspace'
+    uiStoreState.sidebarFilter = { kind: 'teamShare', section: 'mcp' }
+    teamShareBrowserState.detailTarget = { kind: 'mcp', name: 'memory' }
+    tabsStoreState.activeTab = { id: 'tab-1', type: 'file', target: '/workspace/notes.md' }
+    tabsStoreState.tabs = [tabsStoreState.activeTab]
+    tabsStoreState.activeTabId = 'tab-1'
+
+    render(<App />)
+
+    expect(screen.getByTestId('team-share-detail')).toHaveTextContent('mcp')
+    expect(screen.queryByTestId('tab-bar')).toBeNull()
+    expect(screen.queryByTestId('tab-content-renderer')).toBeNull()
+  })
+
+  it('keeps knowledge files in the existing tab layout', () => {
+    workspaceStoreState.workspacePath = '/workspace'
+    uiStoreState.sidebarFilter = { kind: 'teamShare', section: 'knowledge' }
+    tabsStoreState.activeTab = { id: 'tab-1', type: 'file', target: '/workspace/knowledge/spec.md' }
+    tabsStoreState.tabs = [tabsStoreState.activeTab]
+    tabsStoreState.activeTabId = 'tab-1'
+
+    render(<App />)
+
+    expect(screen.getByTestId('tab-bar')).toBeInTheDocument()
+    expect(screen.getByTestId('file-content-viewer')).toBeInTheDocument()
+    expect(screen.queryByTestId('team-share-detail')).toBeNull()
   })
 
   it('renders split main content with file area on the left and chat on the right', () => {

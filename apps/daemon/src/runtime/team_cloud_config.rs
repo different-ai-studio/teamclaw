@@ -183,15 +183,18 @@ async fn record_refresh(
     }
 }
 
-/// The single team-MCP file every runtime reads.
+/// The single team-MCP file every runtime reads (Cursor `{ "mcpServers": … }`).
 ///
-/// Written in opencode's own config shape (`{"mcp": {...}}`) rather than the
-/// server's Cursor shape, because that is what lets one file serve all four
-/// runtimes: `opencode serve` is pointed at it with `OPENCODE_CONFIG` and
-/// merges it itself, and the sidecar runtimes (claude / cursor / pi) already
-/// know how to read an opencode `mcp` map.
+/// OpenCode cannot load this shape; [`sync_opencode_generated`] writes a sibling
+/// adapter for `OPENCODE_CONFIG` only. Other runtimes must not read that sibling.
 pub fn team_cloud_mcp_file(team_id: &str) -> PathBuf {
     global_team_cloud_dir(team_id).join(MCP_CACHE_FILE)
+}
+
+const OPENCODE_GENERATED_FILE: &str = "mcp.opencode.generated.json";
+
+pub fn team_cloud_mcp_opencode_generated_file(team_id: &str) -> PathBuf {
+    global_team_cloud_dir(team_id).join(OPENCODE_GENERATED_FILE)
 }
 
 pub fn team_cloud_mcp_dir(team_id: &str) -> PathBuf {
@@ -221,6 +224,103 @@ fn write_if_changed(path: &Path, contents: &str) -> std::io::Result<bool> {
     std::fs::write(&tmp, contents)?;
     std::fs::rename(&tmp, path)?;
     Ok(true)
+}
+
+fn cloud_mcp_file_has_servers(path: &Path) -> bool {
+    let Ok(body) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) else {
+        return false;
+    };
+    let cursor = json
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .map(|o| !o.is_empty())
+        .unwrap_or(false);
+    let legacy = json
+        .get("mcp")
+        .and_then(|v| v.as_object())
+        .map(|o| !o.is_empty())
+        .unwrap_or(false);
+    cursor || legacy
+}
+
+/// Write the Cursor SSOT and refresh the OpenCode-only generated adapter.
+pub fn replace_team_mcp_cache(
+    team_id: &str,
+    mcp_servers: &serde_json::Value,
+) -> std::io::Result<bool> {
+    let servers = match mcp_servers {
+        serde_json::Value::Object(_) => mcp_servers.clone(),
+        serde_json::Value::Null => serde_json::json!({}),
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "mcpServers must be an object",
+            ));
+        }
+    };
+    let config = serde_json::json!({ "mcpServers": servers });
+    let body = serde_json::to_string_pretty(&config)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let changed = write_if_changed(&team_cloud_mcp_file(team_id), &body)?;
+    sync_opencode_generated(team_id)?;
+    Ok(changed)
+}
+
+/// Always materialize `mcp.opencode.generated.json` so spawn can set
+/// `OPENCODE_CONFIG` even before the first install.
+pub fn sync_opencode_generated(team_id: &str) -> std::io::Result<bool> {
+    let mut generated = serde_json::json!({
+        "$schema": "https://opencode.ai/config.json",
+        "mcp": {},
+    });
+    let global = teamclu_runtime_env::opencode_config::global_opencode_config_path();
+    if let Ok(body) = std::fs::read_to_string(&global) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            if json.is_object() {
+                generated = json;
+            }
+        }
+    }
+    let mcp = generated
+        .as_object_mut()
+        .expect("generated is object")
+        .entry("mcp")
+        .or_insert_with(|| serde_json::json!({}));
+    let mcp_map = mcp.as_object_mut().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "opencode generated mcp must be an object",
+        )
+    })?;
+    if let Ok(body) = std::fs::read_to_string(team_cloud_mcp_file(team_id)) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            let servers = json
+                .get("mcpServers")
+                .and_then(|v| v.as_object())
+                .or_else(|| json.get("mcp").and_then(|v| v.as_object()));
+            if let Some(servers) = servers {
+                for (name, raw) in servers {
+                    if let Ok(parsed) = serde_json::from_value::<
+                        crate::config::team_mcp::CursorMcpServer,
+                    >(raw.clone())
+                    {
+                        let converted = crate::config::team_mcp::convert_cursor_server(&parsed);
+                        if let Ok(val) = serde_json::to_value(converted) {
+                            mcp_map.insert(name.clone(), val);
+                        }
+                    } else if raw.is_object() {
+                        mcp_map.insert(name.clone(), raw.clone());
+                    }
+                }
+            }
+        }
+    }
+    let body = serde_json::to_string_pretty(&generated)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    write_if_changed(&team_cloud_mcp_opencode_generated_file(team_id), &body)
 }
 
 impl TeamCloudConfigResolver {
@@ -289,36 +389,16 @@ impl TeamCloudConfigResolver {
             return None;
         }
 
-        // Convert on the way in, not on the way out. Every reader then sees
-        // opencode's shape and nobody has to know the registry speaks Cursor's.
-        let servers: std::collections::HashMap<String, serde_json::Value> = config
+        let servers = config
             .get("mcpServers")
-            .and_then(|v| v.as_object())
-            .map(|obj| {
-                obj.iter()
-                    .filter_map(|(name, raw)| {
-                        let parsed: crate::config::team_mcp::CursorMcpServer =
-                            serde_json::from_value(raw.clone()).ok()?;
-                        let converted = crate::config::team_mcp::convert_cursor_server(&parsed);
-                        Some((name.clone(), serde_json::to_value(converted).ok()?))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let config = serde_json::json!({
-            "$schema": "https://opencode.ai/config.json",
-            "mcp": servers,
-        });
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
+        let incoming_empty = servers.as_object().map(|o| o.is_empty()).unwrap_or(true);
+        if incoming_empty && cloud_mcp_file_has_servers(&team_cloud_mcp_file(team_id)) {
+            return Some(false);
+        }
 
-        let path = team_cloud_mcp_file(team_id);
-        let body = match serde_json::to_string_pretty(&config) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!(team_id, error = %e, "failed to serialize team MCP cache");
-                return None;
-            }
-        };
-        match write_if_changed(&path, &body) {
+        match replace_team_mcp_cache(team_id, &servers) {
             Ok(changed) => Some(changed),
             Err(e) => {
                 tracing::warn!(team_id, error = %e, "failed to write team MCP cache");

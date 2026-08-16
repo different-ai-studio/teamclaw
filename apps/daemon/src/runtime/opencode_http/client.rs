@@ -122,6 +122,22 @@ impl ServeClient {
             })
     }
 
+    /// POST /instance/dispose — drop the cached instance for `directory` so the
+    /// next request re-reads config (including OPENCODE_CONFIG). Does not kill
+    /// the global serve process. 404 means nothing was cached.
+    pub async fn dispose_instance(&self, directory: &str) -> crate::error::Result<()> {
+        let resp = self
+            .req(reqwest::Method::POST, "/instance/dispose", directory)
+            .send()
+            .await
+            .map_err(|e| crate::error::AmuxError::Agent(format!("dispose instance: {e}")))?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        let _ = Self::check(resp, "dispose instance").await?;
+        Ok(())
+    }
+
     /// GET /session/{id} → the session object, or `None` when opencode has no
     /// such session (404).
     ///

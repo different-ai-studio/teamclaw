@@ -199,6 +199,7 @@ pub fn build(state: HttpState) -> Router {
             "/v1/team/cloud-config/reconcile",
             post(team_sync::reconcile_cloud_config),
         )
+        .route("/v1/team/mcp-cache", put(team_sync::put_team_mcp_cache))
         .route(
             "/v1/team/secrets",
             post(team_sync::set_secrets).get(team_sync::get_secrets),

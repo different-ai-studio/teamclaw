@@ -743,6 +743,17 @@ impl RuntimeSupervisor {
         Arc::clone(&self.refresh)
     }
 
+    pub async fn try_opencode_serve_client(
+        &self,
+    ) -> Option<crate::runtime::opencode_http::client::ServeClient> {
+        self.agents
+            .lock()
+            .await
+            .opencode_serve_supervisor()
+            .await
+            .and_then(|s| s.try_client())
+    }
+
     pub fn start_refresh_auto_applier(self: Arc<Self>) -> JoinHandle<()> {
         self.start_refresh_auto_applier_with_interval(Duration::from_secs(1))
     }
@@ -1158,8 +1169,8 @@ impl RuntimeSupervisor {
 
         let activation_status_for_analysis = activation_status.as_str();
         let active_snapshot_ref = active_snapshot.as_ref();
-        let mut analysis = teamclu_runtime_env::analyze_env_activation(
-            &teamclu_runtime_env::EnvActivationInput {
+        let mut analysis =
+            teamclu_runtime_env::analyze_env_activation(&teamclu_runtime_env::EnvActivationInput {
                 personal_env: &personal_env,
                 team_env: &team_env.values,
                 resolved: &resolved,
@@ -1171,8 +1182,7 @@ impl RuntimeSupervisor {
                 active_snapshot: active_snapshot_ref,
                 served_env_keys: &served_env_keys,
                 opencode_serve_running,
-            },
-        );
+            });
         analysis.mcp_unresolved_placeholders =
             teamclu_runtime_env::find_unresolved_config_placeholders(
                 workspace_path,

@@ -95,7 +95,12 @@ import { startEmbedLinkOpenListener } from "@/lib/embed-link-session";
 import { useUIStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useTabsStore, selectActiveTab, selectHasHiddenTabs } from "@/stores/tabs";
-import { isTeamShareOwnedTarget } from "@/lib/tabs/teamshare-target";
+import {
+  isTeamShareOwnedTarget,
+  teamShareSectionForTarget,
+} from "@/lib/tabs/teamshare-target";
+import { useTeamShareBrowserStore } from "@/stores/team-share-browser";
+import { TeamShareDetailContent } from "@/components/teamshare/TeamShareTabContent";
 import { useTerminalStore } from "@/stores/terminal-store";
 import { TabBar } from "@/components/tab-bar/TabBar";
 import { TabContentRenderer } from "@/components/tab-bar/TabContentRenderer";
@@ -310,6 +315,16 @@ function useTerminalShortcuts() {
 function MainContent() {
   const activeTab = useTabsStore(selectActiveTab);
   const mainContentLayout = useUIStore((s) => s.mainContentLayout);
+  const sidebarFilter = useUIStore((s) => s.sidebarFilter);
+  const teamShareDetail = useTeamShareBrowserStore((s) => s.detailTarget);
+  const directTeamShareSection =
+    sidebarFilter.kind === "teamShare" && sidebarFilter.section !== "knowledge"
+      ? sidebarFilter.section
+      : null;
+  const visibleTeamShareDetail =
+    directTeamShareSection && teamShareSectionForTarget(teamShareDetail) === directTeamShareSection
+      ? teamShareDetail
+      : null;
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const [splitContainerWidth, setSplitContainerWidth] = useState(0);
   const mainSplitLeftMaxWidth =
@@ -379,22 +394,28 @@ function MainContent() {
 
   const fileArea = (
     <div className="relative h-full flex flex-col">
-      <TabBar />
-      {hasActiveTab && activeTab.type === "webview" && (
+      {!directTeamShareSection && <TabBar />}
+      {!directTeamShareSection && hasActiveTab && activeTab.type === "webview" && (
         <WebViewToolbar
           url={activeTab.target}
           label={urlToLabel(activeTab.target)}
           zoomLevel={zoomLevels[urlToLabel(activeTab.target)]}
         />
       )}
-      {hasActiveTab && activeTab.type === "webview" && showFind && (
+      {!directTeamShareSection && hasActiveTab && activeTab.type === "webview" && showFind && (
         <FindInPageBar
           label={urlToLabel(activeTab.target)}
           onClose={() => useWebviewUIStore.getState().setShowFind(false)}
         />
       )}
       <div className="relative flex-1">
-        {hasActiveTab ? (
+        {directTeamShareSection ? (
+          <div className="absolute inset-0 bg-background">
+            {visibleTeamShareDetail ? (
+              <TeamShareDetailContent target={visibleTeamShareDetail} />
+            ) : null}
+          </div>
+        ) : hasActiveTab ? (
           <div className={cn(
             "absolute inset-0",
             activeTab.type === "webview" ? "bg-transparent pointer-events-none" : "bg-background"
@@ -454,7 +475,9 @@ function MainContent() {
   return (
     <div className="relative h-full flex flex-col">
       {fileArea}
-      <div className={`absolute inset-0 ${hasActiveTab ? "invisible" : "visible"}`}>
+      <div
+        className={`absolute inset-0 ${hasActiveTab || directTeamShareSection ? "invisible" : "visible"}`}
+      >
         <ErrorBoundary scope="Chat" inline>
           <ChatPanel />
         </ErrorBoundary>
@@ -614,6 +637,7 @@ function AppContent() {
   const embedMode = useUIStore((s) => s.embedMode);
   const currentView = useUIStore((s) => s.currentView);
   const closeSettings = useUIStore((s) => s.closeSettings);
+  const sidebarFilter = useUIStore((s) => s.sidebarFilter);
   const authSession = useAuthStore((s) => s.session);
   const loadCurrentTeam = useCurrentTeamStore((s) => s.load);
   // Team-share state drives the top-right "team shared files" tab visibility.
@@ -634,6 +658,16 @@ function AppContent() {
   const settingsOpen = currentView === "settings";
   /** Extension welcome has its own empty state — skip duplicate "New Chat" header. */
   const showChatSessionHeader = !(embedMode && !activeSession);
+  const teamShareHeaderTitle =
+    sidebarFilter.kind === "teamShare"
+      ? sidebarFilter.section === "skills"
+        ? t("teamShare.skills", "Skills")
+        : sidebarFilter.section === "mcp"
+          ? t("teamShare.mcp", "MCP")
+          : sidebarFilter.section === "env"
+            ? t("teamShare.env", "Environment Variables")
+            : t("teamShare.knowledge", "Knowledge")
+      : null;
 
   const handleCloseSettings = React.useCallback(() => {
     setFeedbackOpen(false);
@@ -769,6 +803,7 @@ function AppContent() {
     useTabsStore
       .getState()
       .closeWhere((tab) => tab.type === "native" && isTeamShareOwnedTarget(tab.target));
+    useTeamShareBrowserStore.getState().clearDetail();
   }, [currentTeamId]);
 
   // Keep team-share status fresh so the top-right "team shared files" tab shows
@@ -1016,7 +1051,7 @@ function AppContent() {
               }}
               disabled={!hasActiveFileTab}
             >
-              {activeSession?.title || t("chat.newChat", "New Chat")}
+              {teamShareHeaderTitle || activeSession?.title || t("chat.newChat", "New Chat")}
             </button>
             {activeSession && !isSoloBuild() && (
               <button

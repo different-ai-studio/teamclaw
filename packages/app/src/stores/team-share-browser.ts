@@ -20,35 +20,17 @@ import { useTabsStore } from '@/stores/tabs'
 import {
   decodeTeamShareTarget,
   encodeTeamShareTarget,
-  tabSelectionForSection,
+  teamShareSectionForTarget,
+  type TeamShareTarget,
 } from '@/lib/tabs/teamshare-target'
 import { TEAM_REPO_DIR } from '@/lib/build-config'
 import i18n from '@/lib/i18n'
-
-/** Open, or re-activate: the tabs store already dedupes on `type` + `target`. */
-function openTeamShareTab(target: string, label: string): void {
-  useTabsStore.getState().openTab({ type: 'native', target, label })
-}
 
 function closeTeamShareTabs(match: (target: string) => boolean): void {
   const { tabs, closeTab } = useTabsStore.getState()
   for (const tab of tabs) {
     if (tab.type === 'native' && match(tab.target)) closeTab(tab.id)
   }
-}
-
-/**
- * What the tab is called. Ids are addresses, not names — a skill row's id may be
- * `personal:deploy-check`, and an env key's is scoped `team:OPENAI_API_KEY`.
- */
-function sectionLabel(
-  state: TeamShareBrowserState,
-  section: TeamShareSection,
-  id: string,
-): string {
-  if (section === 'skills') return state.skills.items.find((s) => s.id === id)?.name ?? id
-  if (section === 'env') return id.includes(':') ? id.slice(id.indexOf(':') + 1) : id
-  return id
 }
 
 /**
@@ -60,17 +42,19 @@ function sectionLabel(
  */
 function closeSkillTabs(slug: string): void {
   const ids = [slug, `personal:${slug}`]
+  const detail = useTeamShareBrowserStore.getState().detailTarget
+  if (
+    detail &&
+    (detail.kind === 'skill' || detail.kind === 'skill-file') &&
+    ids.includes(detail.id)
+  ) {
+    useTeamShareBrowserStore.setState({ detailTarget: null })
+  }
   closeTeamShareTabs((target) => {
     const t = decodeTeamShareTarget(target)
     if (!t) return false
     return (t.kind === 'skill' || t.kind === 'skill-file') && ids.includes(t.id)
   })
-}
-
-function createLabel(section: 'mcp' | 'env'): string {
-  return section === 'mcp'
-    ? i18n.t('teamShare.mcpAdd', 'Add MCP server')
-    : i18n.t('teamShare.envAdd', 'Add team env key')
 }
 
 /** `knowledge/` may not exist yet on a freshly enabled team. */
@@ -88,12 +72,14 @@ import type {
   TeamSkillStatus,
 } from '@/lib/backend/cloud-api/team-skills'
 import type { TeamMcpServer, TeamMcpServerWrite } from '@/lib/backend/cloud-api/team-mcp'
+import { CloudApiError } from '@/lib/backend/cloud-api/http'
 import {
   encodeWorkspaceId,
   deleteDaemonSkill,
   getDaemonMcp,
   getDaemonMcpTools,
   putDaemonMcp,
+  putDaemonTeamMcpCache,
   type DaemonMcpServerConfig,
   type DaemonMcpServerProbeResult,
 } from '@/lib/daemon-local-client'
@@ -105,6 +91,8 @@ export type TeamShareSection = 'skills' | 'mcp' | 'env' | 'knowledge'
 export const TEAM_SHARE_SECTIONS: TeamShareSection[] = ['skills', 'mcp', 'env', 'knowledge']
 
 export type TeamSkillKind = 'team-available' | 'team-installed' | 'personal'
+
+export type TeamMcpKind = 'team-available' | 'team-installed' | 'personal'
 
 /**
  * A row in the unified skills list.
@@ -154,10 +142,10 @@ export interface TeamMcpItem {
   probeStatus: DaemonMcpServerProbeResult['probe_status'] | 'unknown'
   tools: string[]
   error: string | null
+  kind: TeamMcpKind
   /**
    * The catalog row, when this server came from the Cloud API. `null` for a
-   * legacy entry that only exists as a synced `.mcp/*.json` file — those stay
-   * read-only, since there is no catalog row to edit.
+   * personal / legacy entry that only exists on this machine.
    */
   catalog: TeamMcpServer | null
   /** Whether *you* have installed it. Uninstalled servers do not run. */
@@ -197,27 +185,18 @@ interface TeamShareBrowserState {
   /** Absolute path of the team shared root, for the knowledge file tree. */
   knowledgeRoot: string | null
   subjectActorId: string | null
+  /** Single detail shown beside the list. Team-share items never create tabs. */
+  detailTarget: TeamShareTarget | null
 
   counts: () => Record<TeamShareSection, number>
-  /**
-   * Open a section item in the main area, or with `null` close whatever of this
-   * section is open.
-   *
-   * These are tab operations, not stored selection: the open tab is the single
-   * record of what is being looked at, so the list column reads it back rather
-   * than keeping a parallel copy. `knowledge` is not addressed here — documents
-   * are ordinary file tabs and go through the workspace's own selectFile.
-   */
+  /** Show one section item in the direct detail pane. Knowledge keeps file tabs. */
   select: (section: TeamShareSection, id: string | null) => void
-  /** Open one file of a skill package. */
+  /** Replace the detail pane with one file of a skill package. */
   selectSkillFile: (id: string, rel: string) => void
-  /**
-   * Close the tabs for a package file that is gone from disk. `rel` may name a
-   * directory, in which case everything under it goes too — deleting a folder
-   * has to take the tabs of the files it contained.
-   */
+  /** Clear a removed package file from the detail pane and any legacy tabs. */
   closeSkillFiles: (id: string, rel: string) => void
   setCreating: (section: TeamShareSection | null) => void
+  clearDetail: () => void
   setSubjectActor: (actorId: string | null) => Promise<void>
   installSkill: (slug: string) => Promise<void>
   uninstallSkill: (slug: string) => Promise<void>
@@ -229,6 +208,8 @@ interface TeamShareBrowserState {
   createMcp: (input: TeamMcpServerWrite) => Promise<void>
   updateMcp: (name: string, patch: TeamMcpServerWrite) => Promise<void>
   deleteMcp: (name: string) => Promise<void>
+  /** Publish a personal MCP into the team catalog and install it for yourself. */
+  sharePersonalMcp: (name: string, input?: Pick<TeamMcpServerWrite, 'description'>) => Promise<void>
   /** Copy-publish a personal skill to the team registry, then auto-install. */
   /** Returns where the personal original was retired to, if it was. */
   sharePersonalSkill: (slug: string, input: TeamSkillShareInput) => Promise<string | null>
@@ -297,26 +278,15 @@ function currentTeamId(): string | null {
 }
 
 /**
- * Materialise a team catalog MCP into this workspace's `opencode.json`.
- *
- * No FC / actorId changes: cloud install stays self-only (human). Runtime reads
- * the workspace file directly (same idea as Skills landing on disk). Use
- * `source: 'workspace'` so daemon `filter_put_body` persists the entry — a
- * `team` source would be stripped on PUT.
+ * Write the currently-installed catalog rows to the daemon's shared Cursor cache.
  */
-async function writeMcpIntoWorkspace(
-  name: string,
-  entry: TeamMcpServer | DaemonMcpServerConfig,
-): Promise<void> {
-  const wsPath = workspacePath()
-  if (!wsPath) throw new Error('no workspace')
-  const wid = encodeWorkspaceId(wsPath)
-  const current = await getDaemonMcp(wid)
-  const cfg =
-    'transport' in entry
-      ? catalogToWorkspaceConfig(entry)
-      : { ...entry, source: 'workspace' as const, enabled: entry.enabled ?? true }
-  await putDaemonMcp(wid, { ...current, [name]: cfg })
+async function putInstalledMcpCache(teamId: string, catalog: TeamMcpServer[]): Promise<void> {
+  const mcpServers: Record<string, unknown> = {}
+  for (const entry of catalog) {
+    if (!entry.installed) continue
+    mcpServers[entry.name] = catalogToCursorEntry(entry)
+  }
+  await putDaemonTeamMcpCache(teamId, mcpServers)
 }
 
 async function removeMcpFromWorkspace(name: string): Promise<void> {
@@ -325,42 +295,23 @@ async function removeMcpFromWorkspace(name: string): Promise<void> {
   const wid = encodeWorkspaceId(wsPath)
   const current = await getDaemonMcp(wid)
   if (!(name in current)) return
-  // Only remove workspace-owned copies we materialised. Leave inherent / true
-  // team overlays alone.
   if (current[name]?.source && current[name].source !== 'workspace') return
   const next = { ...current }
   delete next[name]
   await putDaemonMcp(wid, next)
 }
 
-/**
- * Cloud says installed but workspace has no entry (e.g. installed before this
- * fix). Copy catalog defs into opencode.json so the agent can see them.
- */
-async function repairMissingWorkspaceMcp(catalog: TeamMcpServer[]): Promise<void> {
-  const wsPath = workspacePath()
-  if (!wsPath) return
-  const wid = encodeWorkspaceId(wsPath)
-  let current: Record<string, DaemonMcpServerConfig>
-  try {
-    current = await getDaemonMcp(wid)
-  } catch {
-    return
-  }
-  let changed = false
-  const next = { ...current }
-  for (const entry of catalog) {
-    if (!entry.installed) continue
-    if (next[entry.name]) continue
-    next[entry.name] = catalogToWorkspaceConfig(entry)
-    changed = true
-  }
-  if (changed) {
-    try {
-      await putDaemonMcp(wid, next)
-    } catch {
-      // Best-effort repair — list still shows catalog state.
+function catalogToCursorEntry(entry: TeamMcpServer): Record<string, unknown> {
+  if (entry.transport === 'remote') {
+    return {
+      ...(entry.url ? { url: entry.url } : {}),
+      ...(entry.headers ? { headers: entry.headers } : {}),
     }
+  }
+  return {
+    command: entry.command ?? '',
+    ...(entry.args ? { args: entry.args } : {}),
+    ...(entry.env ? { env: entry.env } : {}),
   }
 }
 
@@ -625,26 +576,20 @@ async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamM
       .catch(() => [])
   }
 
-  // Skill-like repair: cloud install without local materialisation.
-  await repairMissingWorkspaceMcp(catalog)
-  if (catalog.some((c) => c.installed && !daemonConfig[c.name])) {
-    daemonConfig = await getDaemonMcp(wid).catch(() => daemonConfig)
-  }
-
-  const catalogByName = new Map(catalog.map((c) => [c.name, c]))
   const items = new Map<string, TeamMcpItem>()
 
   for (const entry of catalog) {
     const onDisk = Boolean(daemonConfig[entry.name])
+    const installed = entry.installed || onDisk
     items.set(entry.name, {
       name: entry.name,
       config: daemonConfig[entry.name] ?? catalogToDaemonConfig(entry),
       probeStatus: 'unknown',
       tools: [],
       error: null,
+      kind: installed ? 'team-installed' : 'team-available',
       catalog: entry,
-      // Installed for UI = cloud bookkeeping OR already on this machine.
-      installed: entry.installed || onDisk,
+      installed,
     })
   }
 
@@ -658,7 +603,8 @@ async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamM
       probeStatus: 'unknown',
       tools: [],
       error: null,
-      catalog: catalogByName.get(name) ?? null,
+      kind: 'personal',
+      catalog: null,
       installed: true,
     })
   }
@@ -758,10 +704,10 @@ async function listInstalledPacks(): Promise<OnDiskSkill[]> {
   return invoke<OnDiskSkill[]>('team_skill_list_installed')
 }
 
-/** Catalog row → workspace-persisted daemon shape (`source: workspace`). */
-function catalogToWorkspaceConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
+/** Render a catalog row in the daemon's config shape so one detail view serves both. */
+function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
   const base = {
-    source: 'workspace' as const,
+    source: 'team' as const,
     enabled: true,
     environment: entry.env ?? {},
   }
@@ -775,10 +721,38 @@ function catalogToWorkspaceConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
       } as DaemonMcpServerConfig)
 }
 
-/** Render a catalog row in the daemon's config shape so one detail view serves both. */
-function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
-  // Display-only; writes use catalogToWorkspaceConfig so PUT persists.
-  return { ...catalogToWorkspaceConfig(entry), source: 'team' }
+function isCloudNotFound(e: unknown): boolean {
+  if (e instanceof CloudApiError) return e.status === 404 || e.code === 'not_found'
+  return /not found/i.test(String(e instanceof Error ? e.message : e))
+}
+
+function daemonConfigToCatalogWrite(
+  name: string,
+  cfg: DaemonMcpServerConfig,
+): TeamMcpServerWrite {
+  const env =
+    cfg.environment && Object.keys(cfg.environment).length ? cfg.environment : null
+  if (cfg.type === 'remote' || (Boolean(cfg.url) && cfg.type !== 'local')) {
+    return {
+      name,
+      transport: 'remote',
+      url: cfg.url ?? null,
+      headers: cfg.headers ?? null,
+      env,
+      command: null,
+      args: null,
+    }
+  }
+  const parts = (cfg.command ?? []).filter(Boolean)
+  return {
+    name,
+    transport: 'local',
+    command: parts[0] ?? '',
+    args: parts.slice(1),
+    url: null,
+    headers: null,
+    env,
+  }
 }
 
 export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get) => ({
@@ -788,6 +762,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   envCount: 0,
   knowledgeRoot: null,
   subjectActorId: null,
+  detailTarget: null,
   skillLocalState: {},
   skillSyncErrors: {},
   skillArchived: {},
@@ -802,33 +777,38 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     }
   },
 
-  // Selection *is* the open tab. There is no `selectedId` here to keep in step
-  // with it — two records of "what am I looking at" is how the old detail pane
-  // ended up disagreeing with the tab strip.
   select: (section, id) => {
     if (section === 'knowledge') return // documents are plain file tabs
     if (!id) {
-      closeTeamShareTabs((t) => tabSelectionForSection(t, section) !== null)
+      if (teamShareSectionForTarget(get().detailTarget) === section) {
+        set({ detailTarget: null })
+      }
       return
     }
-    openTeamShareTab(
-      encodeTeamShareTarget(
+    set({
+      detailTarget:
         section === 'mcp'
           ? { kind: 'mcp', name: id }
           : section === 'env'
             ? { kind: 'env', keyId: id }
             : { kind: 'skill', id },
-      ),
-      sectionLabel(get(), section, id),
-    )
+    })
   },
 
   selectSkillFile: (id, rel) => {
-    const target = encodeTeamShareTarget({ kind: 'skill-file', id, rel })
-    openTeamShareTab(target, rel.slice(rel.lastIndexOf('/') + 1))
+    set({ detailTarget: { kind: 'skill-file', id, rel } })
   },
 
   closeSkillFiles: (id, rel) => {
+    const detail = get().detailTarget
+    if (
+      detail?.kind === 'skill-file' &&
+      detail.id === id &&
+      (detail.rel === rel || detail.rel.startsWith(`${rel}/`))
+    ) {
+      set({ detailTarget: null })
+    }
+    // Clean up tabs persisted by older builds.
     closeTeamShareTabs((target) => {
       const t = decodeTeamShareTarget(target)
       if (t?.kind !== 'skill-file' || t.id !== id) return false
@@ -838,8 +818,10 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
 
   setCreating: (section) => {
     if (section !== 'mcp' && section !== 'env') return
-    openTeamShareTab(encodeTeamShareTarget({ kind: 'create', section }), createLabel(section))
+    set({ detailTarget: { kind: 'create', section } })
   },
+
+  clearDetail: () => set({ detailTarget: null }),
 
   setSubjectActor: async (actorId) => {
     set({ subjectActorId: actorId })
@@ -924,9 +906,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     // what the agent runtime reads — same pattern as Skills on disk.
     await getBackend().teamMcp.installTeamMcpServer(teamId, name)
     const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
-    const entry = catalog.find((c) => c.name === name)
-    if (!entry) throw new Error(`mcp server ${name} missing from catalog after install`)
-    await writeMcpIntoWorkspace(name, entry)
+    await putInstalledMcpCache(teamId, catalog)
     await get().loadSection('mcp', { force: true })
     await get().loadMcpTools({ refresh: true })
   },
@@ -934,7 +914,16 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   uninstallMcp: async (name) => {
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
-    await getBackend().teamMcp.uninstallTeamMcpServer(teamId, name)
+    const item = get().mcp.items.find((m) => m.name === name)
+    if (item?.kind !== 'personal') {
+      try {
+        await getBackend().teamMcp.uninstallTeamMcpServer(teamId, name)
+      } catch (e) {
+        if (!isCloudNotFound(e)) throw e
+      }
+    }
+    const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
+    await putInstalledMcpCache(teamId, catalog)
     await removeMcpFromWorkspace(name)
     await get().loadSection('mcp', { force: true })
   },
@@ -953,10 +942,27 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     if (!teamId) throw new Error('no current team')
     await getBackend().teamMcp.updateTeamMcpServer(teamId, name, patch)
     const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
-    const entry = catalog.find((c) => c.name === name)
-    if (entry?.installed) {
-      await writeMcpIntoWorkspace(name, entry)
+    await putInstalledMcpCache(teamId, catalog)
+    await get().loadSection('mcp', { force: true })
+    await get().loadMcpTools({ refresh: true })
+  },
+
+  sharePersonalMcp: async (name, input) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    const item = get().mcp.items.find((m) => m.name === name)
+    if (!item || item.kind !== 'personal') {
+      throw new Error(`mcp server ${name} is not a personal server`)
     }
+    const body: TeamMcpServerWrite = {
+      ...daemonConfigToCatalogWrite(name, item.config),
+      description: input?.description ?? null,
+    }
+    await getBackend().teamMcp.createTeamMcpServer(teamId, body)
+    await getBackend().teamMcp.installTeamMcpServer(teamId, name)
+    const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
+    await putInstalledMcpCache(teamId, catalog)
+    await removeMcpFromWorkspace(name)
     await get().loadSection('mcp', { force: true })
     await get().loadMcpTools({ refresh: true })
   },
@@ -965,7 +971,13 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
     await getBackend().teamMcp.deleteTeamMcpServer(teamId, name)
+    const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
+    await putInstalledMcpCache(teamId, catalog)
     await removeMcpFromWorkspace(name)
+    const detail = get().detailTarget
+    if (detail?.kind === 'mcp' && detail.name === name) {
+      set({ detailTarget: null })
+    }
     closeTeamShareTabs((t) => t === encodeTeamShareTarget({ kind: 'mcp', name }))
     await get().loadSection('mcp', { force: true })
   },

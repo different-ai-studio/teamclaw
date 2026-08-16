@@ -153,6 +153,97 @@ pub async fn reconcile_cloud_config(
     }))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PutTeamMcpCacheRequest {
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(rename = "mcpServers")]
+    pub mcp_servers: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PutTeamMcpCacheResponse {
+    pub team_id: String,
+    pub changed: bool,
+}
+
+/// `PUT /v1/team/mcp-cache` — desktop writes the human's installed MCP snapshot
+/// (Cursor `mcpServers`) after Cloud install/uninstall. Daemon `/config` fetch
+/// uses the daemon actor and is often empty.
+pub async fn put_team_mcp_cache(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Json(body): Json<PutTeamMcpCacheRequest>,
+) -> Result<Json<PutTeamMcpCacheResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let team_id = body
+        .team_id
+        .and_then(|id| {
+            let trimmed = id.trim().to_string();
+            (!trimmed.is_empty()).then_some(trimmed)
+        })
+        .map(Ok)
+        .unwrap_or_else(|| team_id_for_workspace(""))?;
+
+    if !body.mcp_servers.is_object() && !body.mcp_servers.is_null() {
+        return Err(HttpError::validation("mcpServers must be an object"));
+    }
+
+    let changed =
+        crate::runtime::team_cloud_config::replace_team_mcp_cache(&team_id, &body.mcp_servers)
+            .map_err(|e| HttpError::internal(format!("write team mcp cache: {e}")))?;
+
+    prune_and_dispose_team_mcp(&state, &team_id).await;
+
+    Ok(Json(PutTeamMcpCacheResponse { team_id, changed }))
+}
+
+async fn prune_and_dispose_team_mcp(state: &HttpState, team_id: &str) {
+    let client = match state.runtime_supervisor.as_ref() {
+        Some(sup) => sup.try_opencode_serve_client().await,
+        None => None,
+    };
+
+    let rows = match state.backend.as_ref() {
+        Some(backend) => backend
+            .get_workspaces_by_agent(team_id, backend.actor_id())
+            .await
+            .unwrap_or_default(),
+        None => Vec::new(),
+    };
+
+    for row in rows {
+        let Some((path, _)) = crate::config::workspace_path::listable_local_workspace(&row) else {
+            continue;
+        };
+        let workspace_path = std::path::PathBuf::from(&path);
+        if let Err(e) = crate::config::team_mcp::prune_materialised_team_mcp(&workspace_path) {
+            tracing::warn!(
+                team_id,
+                path,
+                error = %e,
+                "failed to prune leftover team MCP copies from opencode.json"
+            );
+        }
+        let Some(client) = client.as_ref() else {
+            continue;
+        };
+        let directory = std::fs::canonicalize(&workspace_path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or(path);
+        if let Err(e) = client.dispose_instance(&directory).await {
+            tracing::warn!(
+                team_id,
+                directory,
+                error = %e,
+                "opencode instance dispose after MCP cache write failed"
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Task 11: secrets delivery
 // ---------------------------------------------------------------------------

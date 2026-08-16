@@ -85,6 +85,10 @@ impl ServeSupervisor {
         }
     }
 
+    pub fn try_client(&self) -> Option<ServeClient> {
+        self.state.lock().as_ref().map(|s| s.client.clone())
+    }
+
     /// Merge session env into the env applied at (re)spawn. The serve process
     /// is global; when `force` is false, existing cached keys are kept
     /// (first-wins). When `force` is true, incoming values overwrite.
@@ -323,25 +327,20 @@ impl ServeSupervisor {
             ),
         );
         cmd.env("OPENCODE_SERVER_PASSWORD", &self.password);
-        // Team MCP reaches opencode as an extra config file rather than by
-        // being copied into the user's `<worktree>/opencode.json`.
-        //
-        // `OPENCODE_CONFIG` *merges* with the normal config chain instead of
-        // replacing it, and the workspace file wins a name collision — verified
-        // against opencode 1.18.5 with `opencode debug config`. That is exactly
-        // the precedence the merged view already documented (workspace beats
-        // team), so pointing at the file gets it for free and stops the daemon
-        // writing team entries into a file the user edits and commits.
-        if let Some(team_id) = crate::config::team_mcp::onboarded_team_id() {
-            let path = crate::runtime::team_cloud_config::team_cloud_mcp_file(&team_id);
-            if path.is_file() {
-                cmd.env("OPENCODE_CONFIG", &path);
-            }
-        }
         for (k, v) in &spawn_env {
             if std::env::var_os(k).is_none() {
                 cmd.env(k, v);
             }
+        }
+        // Last: OpenCode has a single OPENCODE_CONFIG. Point it at the
+        // generated adapter so team MCP is in the process env from the first
+        // spawn (dispose cannot add this later).
+        if let Some(team_id) = crate::config::team_mcp::onboarded_team_id() {
+            let _ = crate::runtime::team_cloud_config::sync_opencode_generated(&team_id);
+            cmd.env(
+                "OPENCODE_CONFIG",
+                crate::runtime::team_cloud_config::team_cloud_mcp_opencode_generated_file(&team_id),
+            );
         }
         cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())

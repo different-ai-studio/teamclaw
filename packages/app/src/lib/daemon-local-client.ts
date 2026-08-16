@@ -1131,6 +1131,16 @@ export async function getDaemonMcpTools(
  * and `materialize-team` only prunes stale workspace copies — it no longer
  * refreshes the cloud cache runtimes read.
  */
+export async function putDaemonTeamMcpCache(
+  teamId: string,
+  mcpServers: Record<string, unknown>,
+): Promise<{ teamId: string; changed: boolean }> {
+  return daemonFetchData<{ teamId: string; changed: boolean }>(
+    '/v1/team/mcp-cache',
+    { method: 'PUT', body: JSON.stringify({ teamId, mcpServers }) },
+  )
+}
+
 export async function reconcileDaemonTeamCloudConfig(
   teamId: string,
 ): Promise<{ teamId: string; mcpChanged: boolean; envChanged: boolean }> {

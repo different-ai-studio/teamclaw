@@ -201,10 +201,38 @@ fn mcp_servers_from_value(root: &serde_json::Value) -> Option<String> {
 }
 
 fn mcp_servers_from_opencode_json(worktree: &str) -> Option<String> {
+    let mut mcp = serde_json::Map::new();
+    if let Some(team_id) = crate::config::team_mcp::onboarded_team_id() {
+        let path = crate::runtime::team_cloud_config::team_cloud_mcp_file(&team_id);
+        if let Ok(body) = std::fs::read_to_string(&path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                if let Some(servers) = json.get("mcpServers").and_then(|v| v.as_object()) {
+                    for (name, raw) in servers {
+                        let Ok(parsed) = serde_json::from_value::<
+                            crate::config::team_mcp::CursorMcpServer,
+                        >(raw.clone()) else {
+                            continue;
+                        };
+                        let cfg = crate::config::team_mcp::convert_cursor_server(&parsed);
+                        if let Ok(val) = serde_json::to_value(cfg) {
+                            mcp.insert(name.clone(), val);
+                        }
+                    }
+                }
+            }
+        }
+    }
     let path = Path::new(worktree).join("opencode.json");
-    let body = std::fs::read_to_string(&path).ok()?;
-    let root: serde_json::Value = serde_json::from_str(&body).ok()?;
-    mcp_servers_from_value(&root)
+    if let Ok(body) = std::fs::read_to_string(&path) {
+        if let Ok(root) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(ws) = root.get("mcp").and_then(|v| v.as_object()) {
+                for (name, server) in ws {
+                    mcp.insert(name.clone(), server.clone());
+                }
+            }
+        }
+    }
+    mcp_servers_from_value(&serde_json::json!({ "mcp": mcp }))
 }
 
 /// Current model id (`provider/model`) from a `get_state` response.
