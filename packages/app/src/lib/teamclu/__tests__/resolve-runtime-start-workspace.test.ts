@@ -27,6 +27,7 @@ import {
   ensureCloudWorkspaceIdForAgentRuntime,
   runtimeStartWorkspaceArgs,
 } from '../resolve-runtime-start-workspace'
+import { useAgentDefaultWorkspaceStore } from '@/stores/agent-default-workspace-store'
 
 describe('resolveAgentRuntimeWorkspaceId', () => {
   it('prefers caller hint over session runtime and defaults', () => {
@@ -195,6 +196,7 @@ describe('ensureCloudWorkspaceIdForAgentRuntime', () => {
     backendMocks.listDaemonWorkspaces.mockReset()
     backendMocks.createDaemonWorkspace.mockReset()
     backendMocks.listDaemonWorkspaces.mockResolvedValue([])
+    useAgentDefaultWorkspaceStore.getState().clear()
   })
 
   it('creates a cloud workspace when lookup and path match both fail', async () => {
@@ -225,5 +227,62 @@ describe('ensureCloudWorkspaceIdForAgentRuntime', () => {
       name: 'TeamClu',
       path: '/Users/me/TeamClu',
     })
+  })
+
+  it('still creates when this agent has a cached default from a previous run', async () => {
+    // The cache answers "what did this agent last start in", which is a hint.
+    // It cannot answer "does THIS path already have a cloud workspace" — and
+    // reading it here suppressed the create, leaving the runtime bound to a
+    // workspace pointing at a different directory.
+    useAgentDefaultWorkspaceStore.getState().remember('agent-1', 'ws-from-last-run')
+    backendMocks.createDaemonWorkspace.mockResolvedValue({
+      id: 'ws-new',
+      team_id: 'team-1',
+      agent_id: 'agent-1',
+      name: 'TeamClu',
+      path: '/Users/me/TeamClu',
+      archived: false,
+      created_at: '',
+      updated_at: '',
+    })
+
+    await expect(
+      ensureCloudWorkspaceIdForAgentRuntime({
+        teamId: 'team-1',
+        agentActorId: 'agent-1',
+        localWorkspacePath: '/Users/me/TeamClu',
+        createdByMemberId: 'member-1',
+      }),
+    ).resolves.toBe('ws-new')
+
+    expect(backendMocks.createDaemonWorkspace).toHaveBeenCalledTimes(1)
+    // And the freshly created one replaces the stale cache entry.
+    expect(useAgentDefaultWorkspaceStore.getState().recall('agent-1')).toBe('ws-new')
+  })
+
+  it('does not create when the path already resolves to a live workspace', async () => {
+    backendMocks.listDaemonWorkspaces.mockResolvedValue([
+      {
+        id: 'ws-live',
+        team_id: 'team-1',
+        agent_id: 'agent-1',
+        name: 'TeamClu',
+        path: '/Users/me/TeamClu',
+        archived: false,
+        created_at: '',
+        updated_at: '',
+      },
+    ])
+
+    await expect(
+      ensureCloudWorkspaceIdForAgentRuntime({
+        teamId: 'team-1',
+        agentActorId: 'agent-1',
+        localWorkspacePath: '/Users/me/TeamClu',
+        createdByMemberId: 'member-1',
+      }),
+    ).resolves.toBe('ws-live')
+
+    expect(backendMocks.createDaemonWorkspace).not.toHaveBeenCalled()
   })
 })
