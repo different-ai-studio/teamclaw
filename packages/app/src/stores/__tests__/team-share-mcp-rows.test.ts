@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TeamMcpServer } from '@/lib/backend/types'
 import type { DaemonMcpServerConfig, DaemonMcpServerProbeResult } from '@/lib/daemon-local-client'
-import { applyMcpProbes, planMcpItems } from '../team-share-browser'
+import { applyMcpProbes, mergeTeamMcpCatalogAndDaemon, planMcpItems } from '../team-share-browser'
 
 const catalogEntry = (installed: boolean): TeamMcpServer => ({
   name: 'memory',
@@ -87,6 +87,24 @@ describe('applyMcpProbes', () => {
 
     expect(applyMcpProbes(rows, { memory: readyProbe })[0]).toMatchObject({
       id: 'memory',
+      probeStatus: 'ready',
+      tools: ['remember'],
+    })
+  })
+})
+
+describe('mergeTeamMcpCatalogAndDaemon', () => {
+  it('retains the prior probe while the same MCP rows are reloaded', () => {
+    const previous = applyMcpProbes(planMcpItems([catalogEntry(true)], {}), {
+      memory: {
+        probe_status: 'ready',
+        tools: ['remember'],
+        error: null,
+        probed_at: '2026-08-16T00:00:00Z',
+      },
+    })
+
+    expect(mergeTeamMcpCatalogAndDaemon([catalogEntry(true)], {}, previous)[0]).toMatchObject({
       probeStatus: 'ready',
       tools: ['remember'],
     })
