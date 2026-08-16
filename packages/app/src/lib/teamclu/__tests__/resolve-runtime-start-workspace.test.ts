@@ -189,6 +189,31 @@ describe('resolveSessionWorkspaceHintForRuntimeStart', () => {
       }),
     ).resolves.toBe('ws-copilot')
   })
+
+  // The other half of the #926 contract. That change stopped
+  // ensureCloudWorkspaceIdForAgentRuntime from reading the cache, and pinned it
+  // with two tests. Nothing pins the cache fallback that must REMAIN here.
+  //
+  // It is load-bearing: an empty hint makes the daemon skip its workspace
+  // resolver entirely (runtime_lifecycle.rs runs it only when
+  // `!workspace_id.is_empty()`) and start in whatever worktree the client
+  // passed, so a new session's first send paid the backend cold start twice —
+  // the 5.5s #921 measured. Deleting the fallback as "the thing that caused the
+  // #926 bug" would silently bring that back, and no test would go red.
+  it('falls back to the remembered default when nothing is live', async () => {
+    useAgentDefaultWorkspaceStore.getState().clear()
+    useAgentDefaultWorkspaceStore.getState().remember('agent-1', 'ws-remembered')
+
+    await expect(
+      resolveSessionWorkspaceHintForRuntimeStart({
+        teamId: 'team-1',
+        localWorkspacePath: '/Users/me/brand-new-folder',
+        sessionId: 'sess-new',
+        agentActorIds: ['agent-1'],
+        localDaemonActorId: 'agent-1',
+      }),
+    ).resolves.toBe('ws-remembered')
+  })
 })
 
 describe('ensureCloudWorkspaceIdForAgentRuntime', () => {
