@@ -2,15 +2,9 @@
 //!
 //! Three sources, merged in this order (later wins a name clash):
 //!
-//! 1. `~/.amuxd/teams/<id>/cloud/mcp.json` — the team registry's servers, in
-//!    opencode's own `mcp` shape. The same file `opencode serve` is pointed at
-//!    with `OPENCODE_CONFIG`, so all four runtimes read one source and nothing
-//!    is copied into the user's workspace config to get there.
-//! 2. `<worktree>/opencode.json` `mcp` map — the user's own servers and local
-//!    overrides of team ones.
-//! 3. `mcp_config_path` — the host-level `remote-tools-host.json` written by
-//!    `remote_tools::mcp_config`, shape `{"mcpServers": {name: {command, args}}}`.
-//!    Daemon-owned, so it wins outright.
+//! 1. `~/.amuxd/teams/<id>/cloud/mcp.json` — Cursor `{ "mcpServers": … }`.
+//! 2. `<worktree>/opencode.json` `mcp` map — the user's own servers.
+//! 3. `mcp_config_path` — host-level `remote-tools-host.json`.
 //!
 //! The SDK wants `Record<string, McpServerConfig>` (`options.d.ts:235`) where a
 //! stdio entry is `{type:"stdio", command: string, args: string[], env}` — note
@@ -124,23 +118,40 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&body).ok()
 }
 
+fn servers_from_team_cloud_value(root: &Value) -> McpServers {
+    let mut out = Map::new();
+    let Some(servers) = root.get("mcpServers").and_then(|v| v.as_object()) else {
+        return out;
+    };
+    for (name, raw) in servers {
+        let Ok(parsed) =
+            serde_json::from_value::<crate::config::team_mcp::CursorMcpServer>(raw.clone())
+        else {
+            continue;
+        };
+        let cfg = crate::config::team_mcp::convert_cursor_server(&parsed);
+        let Ok(val) = serde_json::to_value(&cfg) else {
+            continue;
+        };
+        let Some(entry) = val.as_object() else {
+            continue;
+        };
+        if let Some(sdk) = server_from_opencode_entry(entry) {
+            out.insert(name.clone(), sdk);
+        }
+    }
+    out
+}
+
 /// Assemble every MCP server a cursor session should see. Missing or malformed
 /// files contribute nothing rather than failing the attach.
 pub fn assemble(worktree: &str, mcp_config_path: Option<&Path>) -> McpServers {
     // Team servers first, so a same-named workspace entry overwrites them
-    // below. That is the same precedence `opencode serve` applies to the file
-    // we hand it via `OPENCODE_CONFIG`, and the same one the merged view has
-    // always documented: a local override beats the team's copy, because a
-    // server definition carries machine-specific paths and ports that only the
-    // person at that machine can be right about.
-    //
-    // Read straight from the cloud file rather than from whatever a
-    // materialise step last copied into the workspace: one source, no step in
-    // between that can drift or be overwritten.
+    // below. Local override beats the team's copy.
     let mut out = crate::config::team_mcp::onboarded_team_id()
         .map(|id| crate::runtime::team_cloud_config::team_cloud_mcp_file(&id))
         .and_then(|p| read_json(&p))
-        .map(|v| servers_from_opencode_value(&v))
+        .map(|v| servers_from_team_cloud_value(&v))
         .unwrap_or_default();
     for (name, cfg) in read_json(&Path::new(worktree).join("opencode.json"))
         .map(|v| servers_from_opencode_value(&v))
@@ -265,5 +276,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert!(assemble(&dir.path().to_string_lossy(), None).is_empty());
         assert!(assemble("/nonexistent/worktree", Some(Path::new("/nope.json"))).is_empty());
+    }
+
+    #[test]
+    fn team_cloud_value_includes_remote_url() {
+        let root = json!({
+            "mcpServers": {
+                "stdio": { "command": "npx", "args": ["-y", "x"] },
+                "remote": { "url": "https://example.invalid/mcp" }
+            }
+        });
+        let servers = servers_from_team_cloud_value(&root);
+        assert_eq!(servers["stdio"]["command"], json!("npx"));
+        assert_eq!(servers["remote"]["type"], json!("http"));
+        assert_eq!(
+            servers["remote"]["url"],
+            json!("https://example.invalid/mcp")
+        );
     }
 }

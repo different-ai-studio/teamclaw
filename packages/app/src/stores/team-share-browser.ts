@@ -20,35 +20,16 @@ import { useTabsStore } from '@/stores/tabs'
 import {
   decodeTeamShareTarget,
   encodeTeamShareTarget,
-  tabSelectionForSection,
+  teamShareSectionForTarget,
+  type TeamShareTarget,
 } from '@/lib/tabs/teamshare-target'
 import { TEAM_REPO_DIR } from '@/lib/build-config'
-import i18n from '@/lib/i18n'
-
-/** Open, or re-activate: the tabs store already dedupes on `type` + `target`. */
-function openTeamShareTab(target: string, label: string): void {
-  useTabsStore.getState().openTab({ type: 'native', target, label })
-}
 
 function closeTeamShareTabs(match: (target: string) => boolean): void {
   const { tabs, closeTab } = useTabsStore.getState()
   for (const tab of tabs) {
     if (tab.type === 'native' && match(tab.target)) closeTab(tab.id)
   }
-}
-
-/**
- * What the tab is called. Ids are addresses, not names — a skill row's id may be
- * `personal:deploy-check`, and an env key's is scoped `team:OPENAI_API_KEY`.
- */
-function sectionLabel(
-  state: TeamShareBrowserState,
-  section: TeamShareSection,
-  id: string,
-): string {
-  if (section === 'skills') return state.skills.items.find((s) => s.id === id)?.name ?? id
-  if (section === 'env') return id.includes(':') ? id.slice(id.indexOf(':') + 1) : id
-  return id
 }
 
 /**
@@ -60,17 +41,19 @@ function sectionLabel(
  */
 function closeSkillTabs(slug: string): void {
   const ids = [slug, `personal:${slug}`]
+  const detail = useTeamShareBrowserStore.getState().detailTarget
+  if (
+    detail &&
+    (detail.kind === 'skill' || detail.kind === 'skill-file') &&
+    ids.includes(detail.id)
+  ) {
+    useTeamShareBrowserStore.setState({ detailTarget: null })
+  }
   closeTeamShareTabs((target) => {
     const t = decodeTeamShareTarget(target)
     if (!t) return false
     return (t.kind === 'skill' || t.kind === 'skill-file') && ids.includes(t.id)
   })
-}
-
-function createLabel(section: 'mcp' | 'env'): string {
-  return section === 'mcp'
-    ? i18n.t('teamShare.mcpAdd', 'Add MCP server')
-    : i18n.t('teamShare.envAdd', 'Add team env key')
 }
 
 /** `knowledge/` may not exist yet on a freshly enabled team. */
@@ -93,6 +76,7 @@ import {
   deleteDaemonSkill,
   getDaemonMcp,
   getDaemonMcpTools,
+  putDaemonMcp,
   installDaemonTeamMcp,
   reconcileDaemonTeamCloudConfig,
   uninstallDaemonTeamMcp,
@@ -107,6 +91,8 @@ export type TeamShareSection = 'skills' | 'mcp' | 'env' | 'knowledge'
 export const TEAM_SHARE_SECTIONS: TeamShareSection[] = ['skills', 'mcp', 'env', 'knowledge']
 
 export type TeamSkillKind = 'team-available' | 'team-installed' | 'personal'
+
+export type TeamMcpKind = 'team-available' | 'team-installed' | 'personal'
 
 /**
  * A row in the unified skills list.
@@ -151,15 +137,17 @@ export interface TeamSkillItem {
 }
 
 export interface TeamMcpItem {
+  /** Row identity. Personal overrides use `personal:<name>` on collisions. */
+  id: string
   name: string
   config: DaemonMcpServerConfig
   probeStatus: DaemonMcpServerProbeResult['probe_status'] | 'unknown'
   tools: string[]
   error: string | null
+  kind: TeamMcpKind
   /**
    * The catalog row, when this server came from the Cloud API. `null` for a
-   * legacy entry that only exists as a synced `.mcp/*.json` file — those stay
-   * read-only, since there is no catalog row to edit.
+   * personal / legacy entry that only exists on this machine.
    */
   catalog: TeamMcpServer | null
   /** Whether this machine's daemon actor has installed it. Uninstalled servers do not run. */
@@ -199,27 +187,18 @@ interface TeamShareBrowserState {
   /** Absolute path of the team shared root, for the knowledge file tree. */
   knowledgeRoot: string | null
   subjectActorId: string | null
+  /** Single detail shown beside the list. Team-share items never create tabs. */
+  detailTarget: TeamShareTarget | null
 
   counts: () => Record<TeamShareSection, number>
-  /**
-   * Open a section item in the main area, or with `null` close whatever of this
-   * section is open.
-   *
-   * These are tab operations, not stored selection: the open tab is the single
-   * record of what is being looked at, so the list column reads it back rather
-   * than keeping a parallel copy. `knowledge` is not addressed here — documents
-   * are ordinary file tabs and go through the workspace's own selectFile.
-   */
+  /** Show one section item in the direct detail pane. Knowledge keeps file tabs. */
   select: (section: TeamShareSection, id: string | null) => void
-  /** Open one file of a skill package. */
+  /** Replace the detail pane with one file of a skill package. */
   selectSkillFile: (id: string, rel: string) => void
-  /**
-   * Close the tabs for a package file that is gone from disk. `rel` may name a
-   * directory, in which case everything under it goes too — deleting a folder
-   * has to take the tabs of the files it contained.
-   */
+  /** Clear a removed package file from the detail pane and any legacy tabs. */
   closeSkillFiles: (id: string, rel: string) => void
   setCreating: (section: TeamShareSection | null) => void
+  clearDetail: () => void
   setSubjectActor: (actorId: string | null) => Promise<void>
   installSkill: (slug: string) => Promise<void>
   uninstallSkill: (slug: string) => Promise<void>
@@ -231,6 +210,8 @@ interface TeamShareBrowserState {
   createMcp: (input: TeamMcpServerWrite) => Promise<void>
   updateMcp: (name: string, patch: TeamMcpServerWrite) => Promise<void>
   deleteMcp: (name: string) => Promise<void>
+  /** Publish a personal MCP into the team catalog and install it for yourself. */
+  sharePersonalMcp: (name: string, input?: Pick<TeamMcpServerWrite, 'description'>) => Promise<void>
   /** Copy-publish a personal skill to the team registry, then auto-install. */
   /** Returns where the personal original was retired to, if it was. */
   sharePersonalSkill: (slug: string, input: TeamSkillShareInput) => Promise<string | null>
@@ -298,6 +279,17 @@ function currentTeamId(): string | null {
   return useCurrentTeamStore.getState().team?.id ?? null
 }
 
+async function removeMcpFromWorkspace(name: string): Promise<void> {
+  const wsPath = workspacePath()
+  if (!wsPath) return
+  const wid = encodeWorkspaceId(wsPath)
+  const current = await getDaemonMcp(wid)
+  if (!(name in current)) return
+  if (current[name]?.source && current[name].source !== 'workspace') return
+  const next = { ...current }
+  delete next[name]
+  await putDaemonMcp(wid, next)
+}
 function frontmatterValue(content: string, key: string): string | null {
   return frontmatterString(content, key) ?? null
 }
@@ -552,42 +544,84 @@ export function mergeTeamMcpCatalogAndDaemon(
   catalog: TeamMcpServer[],
   daemonConfig: Record<string, DaemonMcpServerConfig>,
 ): TeamMcpItem[] {
-  const daemonTeamEntries = Object.entries(daemonConfig).filter(([, cfg]) => cfg.source === 'team')
-  const catalogByName = new Map(catalog.map((c) => [c.name, c]))
+  return planMcpItems(catalog, daemonConfig)
+}
 
-  const items = new Map<string, TeamMcpItem>()
+/**
+ * Keep Cloud catalog identity separate from workspace-owned configuration.
+ * A same-name local override still runs with workspace precedence, but it must
+ * never make an uninstalled team row look installed or become deletion fodder
+ * for a team uninstall.
+ */
+export function planMcpItems(
+  catalog: TeamMcpServer[],
+  daemonConfig: Record<string, DaemonMcpServerConfig>,
+): TeamMcpItem[] {
+  const items: TeamMcpItem[] = []
+  const catalogNames = new Set(catalog.map((entry) => entry.name))
 
   for (const entry of catalog) {
-    items.set(entry.name, {
+    const live = daemonConfig[entry.name]
+    const installed = live?.source === 'team'
+    items.push({
+      id: entry.name,
       name: entry.name,
-      config: catalogToDaemonConfig(entry),
+      config: installed ? live : catalogToDaemonConfig(entry),
       probeStatus: 'unknown',
       tools: [],
       error: null,
+      kind: installed ? 'team-installed' : 'team-available',
       catalog: entry,
       // The catalog is fetched with the desktop user's token, while install
       // mutations target the daemon actor. Only the daemon's live merged config
       // can answer whether this machine will actually run the server.
-      installed: false,
+      installed,
     })
   }
 
-  for (const [name, cfg] of daemonTeamEntries) {
-    const known = items.get(name)
-    // The daemon's config is the live one, so it wins for display; the catalog
-    // row is still what edit/delete act on.
-    items.set(name, {
+  // Daemon-only rows (legacy team entries / workspace custom not in catalog),
+  // plus independently selectable workspace overrides on catalog collisions.
+  for (const [name, cfg] of Object.entries(daemonConfig)) {
+    if (cfg.source === 'inherent') continue
+    const collides = catalogNames.has(name)
+    if (collides && cfg.source === 'team') continue
+    const personal = cfg.source !== 'team'
+    items.push({
+      id: collides ? `personal:${name}` : name,
       name,
       config: cfg,
-      probeStatus: known?.probeStatus ?? 'unknown',
-      tools: known?.tools ?? [],
-      error: known?.error ?? null,
-      catalog: catalogByName.get(name) ?? null,
+      probeStatus: 'unknown',
+      tools: [],
+      error: null,
+      kind: personal ? 'personal' : 'team-installed',
+      catalog: null,
       installed: true,
     })
   }
 
-  return [...items.values()].sort((a, b) => a.name.localeCompare(b.name))
+  return items.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+}
+
+/**
+ * A daemon probe describes the server that actually wins workspace resolution.
+ * When a workspace override shadows a same-name catalog entry, attaching that
+ * probe to both rows would make the dormant team definition look connected.
+ */
+export function applyMcpProbes(
+  items: TeamMcpItem[],
+  probes: Record<string, DaemonMcpServerProbeResult>,
+): TeamMcpItem[] {
+  const locallyOverridden = new Set(
+    items.filter((item) => item.kind === 'personal').map((item) => item.name),
+  )
+
+  return items.map((item) => {
+    if (item.kind !== 'personal' && locallyOverridden.has(item.name)) return item
+    const probe = probes[item.name]
+    return probe
+      ? { ...item, probeStatus: probe.probe_status, tools: probe.tools, error: probe.error }
+      : item
+  })
 }
 
 async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamMcpItem[]> {
@@ -700,7 +734,7 @@ async function listInstalledPacks(): Promise<OnDiskSkill[]> {
 /** Render a catalog row in the daemon's config shape so one detail view serves both. */
 function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
   const base = {
-    source: 'team',
+    source: 'team' as const,
     enabled: true,
     environment: entry.env ?? {},
   }
@@ -714,6 +748,35 @@ function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
       } as DaemonMcpServerConfig)
 }
 
+function daemonConfigToCatalogWrite(
+  name: string,
+  cfg: DaemonMcpServerConfig,
+): TeamMcpServerWrite {
+  const env =
+    cfg.environment && Object.keys(cfg.environment).length ? cfg.environment : null
+  if (cfg.type === 'remote' || (Boolean(cfg.url) && cfg.type !== 'local')) {
+    return {
+      name,
+      transport: 'remote',
+      url: cfg.url ?? null,
+      headers: cfg.headers ?? null,
+      env,
+      command: null,
+      args: null,
+    }
+  }
+  const parts = (cfg.command ?? []).filter(Boolean)
+  return {
+    name,
+    transport: 'local',
+    command: parts[0] ?? '',
+    args: parts.slice(1),
+    url: null,
+    headers: null,
+    env,
+  }
+}
+
 export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get) => ({
   skills: emptySection<TeamSkillItem>(),
   mcp: emptySection<TeamMcpItem>(),
@@ -721,6 +784,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   envCount: 0,
   knowledgeRoot: null,
   subjectActorId: null,
+  detailTarget: null,
   skillLocalState: {},
   skillSyncErrors: {},
   skillArchived: {},
@@ -735,33 +799,38 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     }
   },
 
-  // Selection *is* the open tab. There is no `selectedId` here to keep in step
-  // with it — two records of "what am I looking at" is how the old detail pane
-  // ended up disagreeing with the tab strip.
   select: (section, id) => {
     if (section === 'knowledge') return // documents are plain file tabs
     if (!id) {
-      closeTeamShareTabs((t) => tabSelectionForSection(t, section) !== null)
+      if (teamShareSectionForTarget(get().detailTarget) === section) {
+        set({ detailTarget: null })
+      }
       return
     }
-    openTeamShareTab(
-      encodeTeamShareTarget(
+    set({
+      detailTarget:
         section === 'mcp'
           ? { kind: 'mcp', name: id }
           : section === 'env'
             ? { kind: 'env', keyId: id }
             : { kind: 'skill', id },
-      ),
-      sectionLabel(get(), section, id),
-    )
+    })
   },
 
   selectSkillFile: (id, rel) => {
-    const target = encodeTeamShareTarget({ kind: 'skill-file', id, rel })
-    openTeamShareTab(target, rel.slice(rel.lastIndexOf('/') + 1))
+    set({ detailTarget: { kind: 'skill-file', id, rel } })
   },
 
   closeSkillFiles: (id, rel) => {
+    const detail = get().detailTarget
+    if (
+      detail?.kind === 'skill-file' &&
+      detail.id === id &&
+      (detail.rel === rel || detail.rel.startsWith(`${rel}/`))
+    ) {
+      set({ detailTarget: null })
+    }
+    // Clean up tabs persisted by older builds.
     closeTeamShareTabs((target) => {
       const t = decodeTeamShareTarget(target)
       if (t?.kind !== 'skill-file' || t.id !== id) return false
@@ -771,8 +840,10 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
 
   setCreating: (section) => {
     if (section !== 'mcp' && section !== 'env') return
-    openTeamShareTab(encodeTeamShareTarget({ kind: 'create', section }), createLabel(section))
+    set({ detailTarget: { kind: 'create', section } })
   },
+
+  clearDetail: () => set({ detailTarget: null }),
 
   setSubjectActor: async (actorId) => {
     set({ subjectActorId: actorId })
@@ -860,8 +931,14 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     await get().loadSection('mcp', { force: true, withTools: true })
   },
 
-  uninstallMcp: async (name) => {
-    await uninstallDaemonTeamMcp(name)
+  uninstallMcp: async (id) => {
+    const item = get().mcp.items.find((candidate) => candidate.id === id)
+    if (!item) throw new Error(`mcp server ${id} not found`)
+    if (item.kind === 'personal') {
+      await removeMcpFromWorkspace(item.name)
+    } else {
+      await uninstallDaemonTeamMcp(item.name)
+    }
     await get().loadSection('mcp', { force: true, withTools: true })
   },
 
@@ -882,11 +959,32 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     await get().loadSection('mcp', { force: true, withTools: true })
   },
 
+  sharePersonalMcp: async (id, input) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    const item = get().mcp.items.find((candidate) => candidate.id === id)
+    if (!item || item.kind !== 'personal') {
+      throw new Error(`mcp server ${id} is not a personal server`)
+    }
+    const name = item.name
+    const body: TeamMcpServerWrite = {
+      ...daemonConfigToCatalogWrite(name, item.config),
+      description: input?.description ?? null,
+    }
+    await getBackend().teamMcp.createTeamMcpServer(teamId, body)
+    await installDaemonTeamMcp(name)
+    await get().loadSection('mcp', { force: true, withTools: true })
+  },
+
   deleteMcp: async (name) => {
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
     await getBackend().teamMcp.deleteTeamMcpServer(teamId, name)
     await reconcileDaemonTeamCloudConfig()
+    const detail = get().detailTarget
+    if (detail?.kind === 'mcp' && detail.name === name) {
+      set({ detailTarget: null })
+    }
     closeTeamShareTabs((t) => t === encodeTeamShareTarget({ kind: 'mcp', name }))
     await get().loadSection('mcp', { force: true, withTools: true })
   },
@@ -1347,12 +1445,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       set((s) => ({
         mcp: {
           ...s.mcp,
-          items: s.mcp.items.map((it) => {
-            const p = probes[it.name]
-            return p
-              ? { ...it, probeStatus: p.probe_status, tools: p.tools, error: p.error }
-              : it
-          }),
+          items: applyMcpProbes(s.mcp.items, probes),
         },
       }))
     } catch {

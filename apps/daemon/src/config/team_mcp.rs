@@ -158,11 +158,7 @@ pub fn scan_team_mcp(workspace: &Path) -> HashMap<String, McpServerConfig> {
     team_servers
 }
 
-/// Read the cloud file, which is already in opencode's `mcp` shape.
-///
-/// Kept separate from the legacy scan because the two speak different formats:
-/// the synced `.mcp/*.json` files are Cursor's `mcpServers`, this one is what
-/// every runtime consumes directly.
+/// Read the cloud file in Cursor `{ "mcpServers": … }` shape.
 fn read_cloud_mcp_file_into(path: &Path, out: &mut HashMap<String, McpServerConfig>) {
     let Ok(content) = std::fs::read_to_string(path) else {
         return;
@@ -170,11 +166,17 @@ fn read_cloud_mcp_file_into(path: &Path, out: &mut HashMap<String, McpServerConf
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
         return;
     };
-    let Some(map) = json.get("mcp").and_then(|v| v.as_object()) else {
+    let Some(map) = json
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .or_else(|| json.get("mcp").and_then(|v| v.as_object()))
+    else {
         return;
     };
     for (name, raw) in map {
-        if let Ok(cfg) = serde_json::from_value::<McpServerConfig>(raw.clone()) {
+        if let Ok(parsed) = serde_json::from_value::<CursorMcpServer>(raw.clone()) {
+            out.insert(name.clone(), convert_cursor_server(&parsed));
+        } else if let Ok(cfg) = serde_json::from_value::<McpServerConfig>(raw.clone()) {
             out.insert(name.clone(), cfg);
         }
     }
@@ -485,6 +487,30 @@ mod tests {
         let cfg = team.get("team-db").unwrap();
         assert_eq!(cfg.server_type, "local");
         assert_eq!(cfg.command, vec!["npx", "-y", "team-db-mcp"]);
+    }
+
+    #[test]
+    fn cloud_mcp_file_parses_cursor_mcp_servers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "mcpServers": {
+    "team-db": { "command": "npx", "args": ["-y", "team-db-mcp"] },
+    "remote": { "url": "https://example.invalid/mcp" }
+  }
+}"#,
+        )
+        .unwrap();
+        let mut team = HashMap::new();
+        read_cloud_mcp_file_into(&path, &mut team);
+        assert_eq!(team["team-db"].command, vec!["npx", "-y", "team-db-mcp"]);
+        assert_eq!(team["remote"].server_type, "remote");
+        assert_eq!(
+            team["remote"].url.as_deref(),
+            Some("https://example.invalid/mcp")
+        );
     }
 
     /// The legacy directory is still read, but never last — so a stale copy in a

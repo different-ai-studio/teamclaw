@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "TeamClu",
+  "productName": "TeamClu Dev",
   "version": "0.4.1-beta.12",
   "identifier": "com.teamclu.app",
   "build": {
@@ -14,7 +14,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "TeamClu",
+        "title": "TeamClu Dev",
         "width": 1200,
         "height": 800,
         "minWidth": 800,

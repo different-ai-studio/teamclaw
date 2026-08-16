@@ -139,13 +139,10 @@ fn mutate_inherent_mcp(
 
     let mut changed = false;
 
-    let remote_tools = remote_tools_mcp_config()?;
-    let needs_remote_tools = mcp_obj
-        .get(REMOTE_TOOLS_MCP_SERVER_NAME)
-        .map(|existing| existing != &remote_tools)
-        .unwrap_or(true);
-    if needs_remote_tools {
-        mcp_obj.insert(REMOTE_TOOLS_MCP_SERVER_NAME.to_string(), remote_tools);
+    // Auto-inject of `amuxd-remote-tools` is paused — keep the stdio server
+    // (`amuxd remote-tools-mcp`) but do not surface it in workspace MCP.
+    // Strip leftovers from earlier builds so GET /mcp and Team Share go quiet.
+    if mcp_obj.remove(REMOTE_TOOLS_MCP_SERVER_NAME).is_some() {
         changed = true;
     }
 
@@ -257,26 +254,6 @@ pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControl
         );
     }
     Ok(())
-}
-
-fn remote_tools_mcp_config() -> Result<serde_json::Value, WorkspaceControlError> {
-    let amuxd_bin =
-        std::env::current_exe().map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
-    let sock = crate::config::DaemonConfig::sock_path();
-    info!(
-        amuxd_bin = %amuxd_bin.display(),
-        sock = %sock.display(),
-        "ensure_inherent_mcp: building remote-tools config"
-    );
-    Ok(serde_json::json!({
-        "type": "local",
-        "enabled": true,
-        "command": [
-            amuxd_bin.to_string_lossy(),
-            "remote-tools-mcp",
-            format!("--sock={}", sock.to_string_lossy())
-        ]
-    }))
 }
 
 fn resolve_executable(path: PathBuf) -> Option<PathBuf> {
@@ -942,7 +919,6 @@ impl RuntimeSupervisor {
     pub async fn local_backend_type(&self) -> &'static str {
         self.agents.lock().await.local_backend_type()
     }
-
 
     pub async fn runtime_status(
         &self,
@@ -2236,13 +2212,9 @@ mod tests {
         )
         .unwrap();
         assert!(cfg.get("permission").is_some());
-        assert_eq!(
-            cfg["mcp"][REMOTE_TOOLS_MCP_SERVER_NAME]["enabled"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            cfg["mcp"][REMOTE_TOOLS_MCP_SERVER_NAME]["command"][1],
-            serde_json::json!("remote-tools-mcp")
+        assert!(
+            cfg["mcp"].get(REMOTE_TOOLS_MCP_SERVER_NAME).is_none(),
+            "amuxd-remote-tools must not be auto-injected"
         );
 
         assert!(dir
@@ -2250,6 +2222,32 @@ mod tests {
             .join(".teamclu/skills/create-role/SKILL.md")
             .is_file());
         assert!(!dir.path().join(".opencode/data").exists());
+    }
+
+    #[test]
+    fn prepare_workspace_strips_paused_remote_tools_mcp() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("opencode.json"),
+            r#"{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "amuxd-remote-tools": {
+      "type": "local",
+      "enabled": true,
+      "command": ["amuxd", "remote-tools-mcp"]
+    }
+  }
+}"#,
+        )
+        .unwrap();
+        prepare_workspace(dir.path()).unwrap();
+        let cfg: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("opencode.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(cfg["mcp"].get("amuxd-remote-tools").is_none());
     }
 
     #[test]
