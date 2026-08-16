@@ -549,7 +549,6 @@ pub fn run() {
             telemetry::commands::telemetry_get_consent,
             telemetry::commands::telemetry_set_consent,
             telemetry::commands::telemetry_track,
-            commands::webview::webview_eval_js,
             commands::webview::webview_create,
             commands::webview::webview_close,
             commands::webview::webview_hide,
