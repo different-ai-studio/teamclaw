@@ -53,6 +53,55 @@ pub fn suppress_internal_opencode_write(worktree: &std::path::Path) {
         );
     }
 }
+
+/// Record an `EnvVars` pending refresh for `worktree` via the global coordinator.
+/// Used when attach tolerates fingerprint drift so idle auto-apply can still run.
+pub async fn record_env_vars_change_for_worktree(worktree: &std::path::Path) {
+    let Some(coordinator) = GLOBAL_COORDINATOR.get() else {
+        return;
+    };
+    let workspace_id = refresh_watch::workspace_runtime_id(worktree);
+    if let Err(error) = coordinator
+        .record_change(
+            &workspace_id,
+            worktree,
+            RefreshChangeKind::EnvVars,
+            RefreshSource::UiMutation,
+        )
+        .await
+    {
+        tracing::warn!(
+            workspace_id = %workspace_id,
+            workspace_path = %worktree.display(),
+            error = %error,
+            "failed to record env_vars refresh after fingerprint tolerate"
+        );
+    }
+}
+
+/// Parse API `change_kinds` strings into [`RefreshChangeKind`] values.
+pub fn parse_refresh_change_kinds(kinds: &[String]) -> Vec<RefreshChangeKind> {
+    let mut out = Vec::new();
+    for kind in kinds {
+        let parsed = match kind.as_str() {
+            "env_vars" => Some(RefreshChangeKind::EnvVars),
+            "skills" => Some(RefreshChangeKind::Skills),
+            "mcp" => Some(RefreshChangeKind::Mcp),
+            "provider_auth" => Some(RefreshChangeKind::ProviderAuth),
+            "provider_catalog" => Some(RefreshChangeKind::ProviderCatalog),
+            "permissions" => Some(RefreshChangeKind::Permissions),
+            "opencode_json" => Some(RefreshChangeKind::OpencodeJson),
+            "teamclu_config" => Some(RefreshChangeKind::TeamcluConfig),
+            _ => None,
+        };
+        if let Some(parsed) = parsed {
+            if !out.contains(&parsed) {
+                out.push(parsed);
+            }
+        }
+    }
+    out
+}
 pub const INTERNAL_PREPARE_KINDS: [RefreshChangeKind; 3] = [
     RefreshChangeKind::OpencodeJson,
     RefreshChangeKind::Skills,
@@ -251,6 +300,45 @@ impl RuntimeRefreshCoordinator {
             .workspaces
             .get(workspace_id)
             .cloned()
+    }
+
+    /// Resolve a refresh identity by its filesystem path. HTTP workspace
+    /// control routes use a base64url path as `:id`, while runtime isolation
+    /// uses the cloud workspace UUID. The watcher records the UUID; status and
+    /// Apply callers therefore need this path bridge to address the same state.
+    pub async fn workspace_id_for_path(&self, workspace_path: &Path) -> Option<String> {
+        let workspace_path = workspace_path.to_string_lossy();
+        let path_identity = refresh_watch::workspace_runtime_id(Path::new(workspace_path.as_ref()));
+        self.inner
+            .read()
+            .await
+            .workspaces
+            .values()
+            .filter(|state| state.workspace_path == workspace_path)
+            .max_by_key(|state| state.workspace_id != path_identity)
+            .map(|state| state.workspace_id.clone())
+    }
+
+    pub async fn runtime_refresh_dto_for_path(
+        &self,
+        workspace_id: &str,
+        workspace_path: &Path,
+    ) -> RuntimeRefreshDto {
+        let workspace_path = workspace_path.to_string_lossy();
+        let path_identity = refresh_watch::workspace_runtime_id(Path::new(workspace_path.as_ref()));
+        let guard = self.inner.read().await;
+        if workspace_id != path_identity {
+            if let Some(state) = guard.workspaces.get(workspace_id) {
+                return state.to_dto();
+            }
+        }
+        guard
+            .workspaces
+            .values()
+            .filter(|state| state.workspace_path == workspace_path)
+            .max_by_key(|state| state.workspace_id != path_identity)
+            .map(WorkspaceRefreshState::to_dto)
+            .unwrap_or_else(RuntimeRefreshDto::clean)
     }
 
     pub async fn pending_workspace_states(&self) -> Vec<WorkspaceRefreshState> {
@@ -511,6 +599,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn path_lookup_bridges_http_route_id_to_runtime_workspace_id() {
+        let coordinator = RuntimeRefreshCoordinator::new();
+        let path = Path::new("/tmp/teamclu-runtime-id-bridge");
+        coordinator
+            .record_change(
+                "cloud-workspace-uuid",
+                path,
+                RefreshChangeKind::Skills,
+                RefreshSource::FilesystemWatch,
+            )
+            .await
+            .unwrap();
+        let path_identity = refresh_watch::workspace_runtime_id(path);
+        coordinator
+            .record_change(
+                &path_identity,
+                path,
+                RefreshChangeKind::OpencodeJson,
+                RefreshSource::UiMutation,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            coordinator.workspace_id_for_path(path).await.as_deref(),
+            Some("cloud-workspace-uuid")
+        );
+        let dto = coordinator
+            .runtime_refresh_dto_for_path(&path_identity, path)
+            .await;
+        assert_eq!(dto.status, "pending");
+        assert_eq!(dto.change_kinds, vec!["skills"]);
+    }
+
+    #[tokio::test]
     async fn failed_apply_preserves_failed_state_and_change_context() {
         let coordinator = RuntimeRefreshCoordinator::new();
         coordinator
@@ -705,5 +828,19 @@ mod tests {
         assert_eq!(dto.recommended_action, "apply_changes");
         assert!(dto.change_kinds.is_empty());
         assert_eq!(dto.last_error.as_deref(), Some("reload failed"));
+    }
+
+    #[test]
+    fn parse_refresh_change_kinds_maps_known_and_dedupes() {
+        let kinds = parse_refresh_change_kinds(&[
+            "env_vars".to_string(),
+            "skills".to_string(),
+            "env_vars".to_string(),
+            "nope".to_string(),
+        ]);
+        assert_eq!(
+            kinds,
+            vec![RefreshChangeKind::EnvVars, RefreshChangeKind::Skills]
+        );
     }
 }

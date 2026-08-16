@@ -639,6 +639,11 @@ function AppContent() {
   const closeSettings = useUIStore((s) => s.closeSettings);
   const sidebarFilter = useUIStore((s) => s.sidebarFilter);
   const authSession = useAuthStore((s) => s.session);
+  // `load()` keeps the cached team while auth is still restoring, so it has to
+  // run again once auth settles. The user id alone is not enough of a trigger:
+  // a genuinely signed-out user never gets one, and the cached team would
+  // linger with nothing to clear it.
+  const authLoading = useAuthStore((s) => s.loading);
   const loadCurrentTeam = useCurrentTeamStore((s) => s.load);
   // Team-share state drives the top-right "team shared files" tab visibility.
   // Refresh it centrally (below) so the tab reflects the true share mode even
@@ -678,7 +683,7 @@ function AppContent() {
 
   useEffect(() => {
     void loadCurrentTeam();
-  }, [authSession?.user.id, loadCurrentTeam]);
+  }, [authSession?.user.id, authLoading, loadCurrentTeam]);
 
   // In workspace mode, SessionListColumn always sits to the left of SidebarInset
   // and renders its own traffic-light + collapse strip when the sidebar is

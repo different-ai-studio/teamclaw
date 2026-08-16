@@ -714,9 +714,33 @@ fn backend_launchable(agent_type: amux::AgentType, cfg: &AgentLaunchConfig) -> b
     }
 }
 
+pub async fn prewarm_workspace_domains(
+    pool: Arc<crate::runtime::opencode_http::host_pool::OpenCodeHostPool>,
+    workspaces: Vec<(String, std::collections::HashMap<String, String>)>,
+) {
+    for (workspace_id, env) in workspaces.into_iter().take(2) {
+        let domain =
+            crate::runtime::execution_context::IsolationDomainKey::Workspace(workspace_id.clone());
+        let revision = crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&env);
+        if let Err(error) = pool
+            .acquire(
+                domain,
+                revision,
+                env,
+                std::time::Instant::now() + Duration::from_secs(30),
+            )
+            .await
+        {
+            warn!(workspace_id, %error, "workspace host prewarm failed");
+        }
+    }
+}
+
 pub struct RuntimeSupervisor {
     agents: Arc<AsyncMutex<RuntimeManager>>,
     refresh: Arc<RuntimeRefreshCoordinator>,
+    host_pool: Option<Arc<crate::runtime::opencode_http::host_pool::OpenCodeHostPool>>,
+    context_resolver: Option<Arc<dyn crate::opencode_settings::WorkspaceSettingsContextResolver>>,
     /// When set, `reload_workspace` reports each provider-host evict as
     /// `(workspace_id, workspace_path)` so the daemon can re-prewarm the
     /// evicted hosts off the critical path. Without this, the first session
@@ -729,8 +753,73 @@ impl RuntimeSupervisor {
         Arc::new(Self {
             agents,
             refresh: RuntimeRefreshCoordinator::new(),
+            host_pool: None,
+            context_resolver: None,
             prewarm_notify: parking_lot::Mutex::new(None),
         })
+    }
+
+    pub fn new_with_host_pool(
+        agents: Arc<AsyncMutex<RuntimeManager>>,
+        host_pool: Arc<crate::runtime::opencode_http::host_pool::OpenCodeHostPool>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            agents,
+            refresh: RuntimeRefreshCoordinator::new(),
+            host_pool: Some(host_pool),
+            context_resolver: None,
+            prewarm_notify: parking_lot::Mutex::new(None),
+        })
+    }
+
+    pub fn new_with_workspace_services(
+        agents: Arc<AsyncMutex<RuntimeManager>>,
+        host_pool: Arc<crate::runtime::opencode_http::host_pool::OpenCodeHostPool>,
+        context_resolver: Arc<dyn crate::opencode_settings::WorkspaceSettingsContextResolver>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            agents,
+            refresh: RuntimeRefreshCoordinator::new(),
+            host_pool: Some(host_pool),
+            context_resolver: Some(context_resolver),
+            prewarm_notify: parking_lot::Mutex::new(None),
+        })
+    }
+
+    pub async fn request_workspace_host_refresh(
+        &self,
+        workspace_id: &str,
+        workspace_path: &Path,
+    ) -> usize {
+        let Some(pool) = self.host_pool.as_ref() else {
+            return 0;
+        };
+        let stopped = self
+            .agents
+            .lock()
+            .await
+            .stop_idle_runtimes_for_workspace(&workspace_path.to_string_lossy(), workspace_id)
+            .await;
+        pool.invalidate_domain(
+            &crate::runtime::execution_context::IsolationDomainKey::Workspace(
+                workspace_id.to_string(),
+            ),
+        );
+        if stopped > 0 {
+            info!(
+                workspace_id,
+                workspace = %workspace_path.display(),
+                stopped,
+                "detached idle workspace runtimes before pooled host refresh"
+            );
+        }
+        stopped
+    }
+
+    pub fn request_all_workspace_host_refreshes(&self) -> usize {
+        self.host_pool
+            .as_ref()
+            .map_or(0, |pool| pool.invalidate_all_domains())
     }
 
     /// Install the channel that receives `(workspace_id, path)` whenever a
@@ -741,17 +830,6 @@ impl RuntimeSupervisor {
 
     pub fn refresh_coordinator(&self) -> Arc<RuntimeRefreshCoordinator> {
         Arc::clone(&self.refresh)
-    }
-
-    pub async fn try_opencode_serve_client(
-        &self,
-    ) -> Option<crate::runtime::opencode_http::client::ServeClient> {
-        self.agents
-            .lock()
-            .await
-            .opencode_serve_supervisor()
-            .await
-            .and_then(|s| s.try_client())
     }
 
     pub fn start_refresh_auto_applier(self: Arc<Self>) -> JoinHandle<()> {
@@ -790,6 +868,15 @@ impl RuntimeSupervisor {
         &self,
         workspace_path: &Path,
     ) -> Result<Vec<amux::ModelInfo>, String> {
+        let context = match self.context_resolver.as_ref() {
+            Some(resolver) => Some(
+                resolver
+                    .resolve_settings_context(workspace_path)
+                    .await
+                    .map_err(|error| format!("workspace catalog context: {error}"))?,
+            ),
+            None => None,
+        };
         let mut manager = self.agents.lock().await;
         let agent_type = manager.default_agent_type();
         let launch = manager.launch_config_for(agent_type);
@@ -799,10 +886,17 @@ impl RuntimeSupervisor {
                 backend_label(agent_type)
             ));
         }
-        manager
-            .probe_catalog_models(workspace_path)
-            .await
-            .map_err(|e| e.to_string())
+        if let Some(context) = context {
+            manager
+                .probe_catalog_models_with_context(context)
+                .await
+                .map_err(|e| e.to_string())
+        } else {
+            manager
+                .probe_catalog_models(workspace_path)
+                .await
+                .map_err(|e| e.to_string())
+        }
     }
 
     /// This device's last-known catalog for `workspace_path` under the
@@ -824,15 +918,6 @@ impl RuntimeSupervisor {
     /// `"cursor"` / `"claude"`).
     pub async fn local_backend_type(&self) -> &'static str {
         self.agents.lock().await.local_backend_type()
-    }
-
-    /// This device's most-recently-used model ids for the configured local
-    /// backend, newest first (`config::model_mru`).
-    ///
-    /// Served alongside the HTTP catalog so a client can resolve "the model
-    /// this device last used" before any runtime exists to publish a retain.
-    pub async fn recent_catalog_models(&self) -> Vec<String> {
-        self.agents.lock().await.recent_models(None)
     }
 
     pub async fn runtime_status(
@@ -865,7 +950,10 @@ impl RuntimeSupervisor {
             ready: backend_ready,
             backend,
             current_model,
-            refresh: self.refresh.runtime_refresh_dto(workspace_id).await,
+            refresh: self
+                .refresh
+                .runtime_refresh_dto_for_path(workspace_id, workspace_path)
+                .await,
         })
     }
 
@@ -905,8 +993,6 @@ impl RuntimeSupervisor {
             cached_env_count,
             served_env_keys,
             active_env_fingerprint,
-            installed_env_fingerprint,
-            snapshot_conflict_workspace,
             active_snapshot,
         ) = {
             let manager = self.agents.lock().await;
@@ -918,24 +1004,22 @@ impl RuntimeSupervisor {
             let active_snapshot = manager
                 .workspace_env_snapshot(&workspace_path_str, workspace_id)
                 .map(|(snapshot, _)| snapshot);
-            let serve_stats = manager
-                .opencode_serve_supervisor()
-                .await
-                .map(|serve| {
-                    let canonical_workspace = std::fs::canonicalize(workspace_path)
-                        .unwrap_or_else(|_| workspace_path.to_path_buf())
-                        .to_string_lossy()
-                        .into_owned();
+            let domain = crate::runtime::execution_context::IsolationDomainKey::Workspace(
+                workspace_id.to_string(),
+            );
+            let serve_stats = self
+                .host_pool
+                .as_ref()
+                .and_then(|pool| pool.current_generation(&domain))
+                .map(|generation| {
                     (
-                        serve.is_running(),
-                        serve.cached_env_key_count(),
-                        serve.cached_env_keys(),
-                        serve.active_env_fingerprint(),
-                        serve.requested_env_fingerprint(&canonical_workspace),
-                        serve.snapshot_conflict_workspace(&canonical_workspace),
+                        generation.serve.is_running(),
+                        generation.serve.cached_env_key_count(),
+                        generation.serve.cached_env_keys(),
+                        generation.serve.active_env_fingerprint(),
                     )
                 })
-                .unwrap_or((false, 0, Vec::new(), None, None, None));
+                .unwrap_or((false, 0, Vec::new(), None));
             (
                 active_runtime_count,
                 workspace_has_active_turn,
@@ -943,8 +1027,6 @@ impl RuntimeSupervisor {
                 serve_stats.1,
                 serve_stats.2,
                 serve_stats.3,
-                serve_stats.4,
-                serve_stats.5,
                 active_snapshot,
             )
         };
@@ -1038,7 +1120,10 @@ impl RuntimeSupervisor {
             })
             .unwrap_or(0);
 
-        let refresh = self.refresh.runtime_refresh_dto(workspace_id).await;
+        let refresh = self
+            .refresh
+            .runtime_refresh_dto_for_path(workspace_id, workspace_path)
+            .await;
         let mut blockers: Vec<EnvActivationBlocker> = Vec::new();
 
         if !store.blob_readable {
@@ -1121,28 +1206,13 @@ impl RuntimeSupervisor {
                 detail: Some(override_keys.join(", ")),
             });
         }
-        let workspace_conflicted = snapshot_conflict_workspace
-            .as_deref()
-            .is_some_and(|conflict| {
-                std::fs::canonicalize(workspace_path)
-                    .unwrap_or_else(|_| workspace_path.to_path_buf())
-                    .to_string_lossy()
-                    == conflict
-            });
-        if workspace_conflicted {
-            blockers.push(EnvActivationBlocker {
-                code: "env_snapshot_conflict".to_string(),
-                detail: snapshot_conflict_workspace.clone(),
-            });
-        }
-        let activation_status = if workspace_conflicted {
-            "blocked"
-        } else if resolved_env_fingerprint.as_deref() == active_env_fingerprint.as_deref() {
-            "active"
-        } else {
-            "pending"
-        }
-        .to_string();
+        let activation_status =
+            if resolved_env_fingerprint.as_deref() == active_env_fingerprint.as_deref() {
+                "active"
+            } else {
+                "pending"
+            }
+            .to_string();
         if activation_status == "pending" {
             blockers.push(EnvActivationBlocker {
                 code: "env_snapshot_pending".to_string(),
@@ -1224,13 +1294,22 @@ impl RuntimeSupervisor {
             active_runtime_count,
             workspace_has_active_turn,
             refresh,
+            host_pool: self
+                .host_pool
+                .as_ref()
+                .map(|pool| {
+                    pool.stats_for(
+                        &crate::runtime::execution_context::IsolationDomainKey::Workspace(
+                            workspace_id.to_string(),
+                        ),
+                    )
+                })
+                .unwrap_or_default(),
             host_env_shadowed_keys,
             resolved_env_fingerprint,
-            active_env_fingerprint,
             override_keys,
             alias_collision_keys,
             unresolved_env_keys,
-            snapshot_conflict_workspace,
             activation_status,
             blockers,
             expected_env_keys: analysis.expected_env_keys,
@@ -1238,7 +1317,6 @@ impl RuntimeSupervisor {
             missing_expected_keys: analysis.missing_expected_keys,
             key_statuses: analysis.key_statuses,
             mcp_unresolved_placeholders: analysis.mcp_unresolved_placeholders,
-            installed_env_fingerprint,
             active_handle_env_fingerprint,
             team_secret_configured,
             opencode_serve_cached_env_keys: analysis.served_env_keys,
@@ -1261,16 +1339,18 @@ impl RuntimeSupervisor {
         prepare_workspace(workspace_path)?;
 
         let workspace_path_str = workspace_path.to_string_lossy();
-        let stopped = {
+        let stopped = if self.host_pool.is_some() {
+            if evict_provider_hosts {
+                self.request_workspace_host_refresh(workspace_id, workspace_path)
+                    .await
+            } else {
+                0
+            }
+        } else {
             let mut manager = self.agents.lock().await;
             let stopped = manager
                 .stop_runtimes_for_workspace(&workspace_path_str, workspace_id)
                 .await;
-            // Only nuke the pooled provider hosts when the change actually
-            // affects provider auth/config. A Skills/MCP/permissions reload used
-            // to evict here too, discarding the prewarmed opencode host and
-            // re-cold-starting the next session — see
-            // `RefreshChangeKind::requires_provider_host_evict`.
             if evict_provider_hosts {
                 manager.evict_acp_hosts_after_provider_auth_change().await;
             }
@@ -1466,12 +1546,14 @@ impl RuntimeSupervisor {
 }
 
 fn auto_applicable_refresh(state: &WorkspaceRefreshState) -> bool {
+    // Skills are intentionally excluded: disk changes stay pending until an
+    // explicit Apply / runtime reload. New session attach always re-discovers
+    // skills from disk, so remote/headless daemons are not stuck without a UI.
     !state.change_kinds.is_empty()
         && state.change_kinds.iter().all(|kind| {
             matches!(
                 kind,
-                RefreshChangeKind::Skills
-                    | RefreshChangeKind::EnvVars
+                RefreshChangeKind::EnvVars
                     | RefreshChangeKind::ProviderAuth
                     | RefreshChangeKind::ProviderCatalog
                     | RefreshChangeKind::Permissions
@@ -1483,7 +1565,325 @@ fn auto_applicable_refresh(state: &WorkspaceRefreshState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
+    use crate::runtime::opencode_http::host_pool::{
+        GenerationFactory, HostGeneration, OpenCodeHostPool,
+    };
+    use crate::runtime::opencode_http::process_registry::ServeProcessRegistry;
+    use crate::runtime::opencode_http::supervisor::{ServeSupervisor, ShutdownOutcome};
     use crate::runtime::refresh::{self, refresh_watch};
+    use async_trait::async_trait;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct ServiceFactory {
+        starts: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl GenerationFactory for ServiceFactory {
+        async fn start(
+            &self,
+            generation_id: String,
+            _domain: IsolationDomainKey,
+            revision: ProcessEnvRevision,
+            env: HashMap<String, String>,
+        ) -> Result<Arc<ServeSupervisor>, String> {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            Ok(Arc::new(ServeSupervisor::new(
+                generation_id,
+                Arc::new(ServeProcessRegistry::new(
+                    tempfile::tempdir().unwrap().keep().join("pgids.json"),
+                )),
+                env,
+                revision,
+            )))
+        }
+
+        fn stop(&self, _generation: &HostGeneration) -> ShutdownOutcome {
+            ShutdownOutcome::Stopped
+        }
+    }
+
+    fn service_pool() -> (Arc<OpenCodeHostPool>, Arc<ServiceFactory>) {
+        let factory = Arc::new(ServiceFactory {
+            starts: AtomicUsize::new(0),
+        });
+        (OpenCodeHostPool::new(factory.clone()), factory)
+    }
+
+    async fn seed_domain(
+        pool: &Arc<OpenCodeHostPool>,
+        workspace_id: &str,
+        env_value: &str,
+    ) -> (
+        ProcessEnvRevision,
+        crate::runtime::opencode_http::host_pool::HostLease,
+    ) {
+        let env = HashMap::from([("SENTINEL".to_string(), env_value.to_string())]);
+        let revision = ProcessEnvRevision::from_bindings(&env);
+        let lease = pool
+            .acquire(
+                IsolationDomainKey::Workspace(workspace_id.to_string()),
+                revision.clone(),
+                env,
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+        (revision, lease)
+    }
+
+    #[tokio::test]
+    async fn workspace_provider_refresh_rolls_only_selected_domain() {
+        let (pool, factory) = service_pool();
+        let (revision_a, lease_a) = seed_domain(&pool, "ws-a", "a").await;
+        let (revision_b, lease_b) = seed_domain(&pool, "ws-b", "b").await;
+        let manager = Arc::new(AsyncMutex::new(RuntimeManager::new(
+            RuntimeManager::default_launch_configs(),
+            None,
+        )));
+        let supervisor = RuntimeSupervisor::new_with_host_pool(manager, pool.clone());
+
+        supervisor
+            .request_workspace_host_refresh("ws-a", Path::new("/tmp/ws-a"))
+            .await;
+        let replacement_a = pool
+            .acquire(
+                IsolationDomainKey::Workspace("ws-a".into()),
+                revision_a,
+                HashMap::from([("SENTINEL".into(), "a".into())]),
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+        let reused_b = pool
+            .acquire(
+                IsolationDomainKey::Workspace("ws-b".into()),
+                revision_b,
+                HashMap::from([("SENTINEL".into(), "b".into())]),
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+
+        assert_ne!(
+            replacement_a.generation.generation_id,
+            lease_a.generation.generation_id
+        );
+        assert_eq!(
+            reused_b.generation.generation_id,
+            lease_b.generation.generation_id
+        );
+        assert_eq!(factory.starts.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn device_provider_auth_rolls_every_domain_without_killing_active_routes() {
+        let (pool, factory) = service_pool();
+        let (revision_a, lease_a) = seed_domain(&pool, "ws-a", "a").await;
+        let (revision_b, lease_b) = seed_domain(&pool, "ws-b", "b").await;
+        let manager = Arc::new(AsyncMutex::new(RuntimeManager::new(
+            RuntimeManager::default_launch_configs(),
+            None,
+        )));
+        let supervisor = RuntimeSupervisor::new_with_host_pool(manager, pool.clone());
+
+        assert_eq!(supervisor.request_all_workspace_host_refreshes(), 2);
+        let replacement_a = pool
+            .acquire(
+                IsolationDomainKey::Workspace("ws-a".into()),
+                revision_a,
+                HashMap::from([("SENTINEL".into(), "a".into())]),
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            lease_a.generation.lifecycle(),
+            crate::runtime::opencode_http::host_pool::HostLifecycle::Draining
+        );
+        drop(lease_a);
+        let replacement_b = pool
+            .acquire(
+                IsolationDomainKey::Workspace("ws-b".into()),
+                revision_b,
+                HashMap::from([("SENTINEL".into(), "b".into())]),
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(factory.starts.load(Ordering::SeqCst), 4);
+        assert_eq!(
+            lease_b.generation.lifecycle(),
+            crate::runtime::opencode_http::host_pool::HostLifecycle::Draining
+        );
+        assert_eq!(replacement_a.generation.route_count(), 1);
+        assert_eq!(replacement_b.generation.route_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn provider_refresh_does_not_stop_active_workspace_routes() {
+        let (pool, _factory) = service_pool();
+        let workspace_a = tempfile::tempdir().unwrap();
+        let workspace_b = tempfile::tempdir().unwrap();
+        let path_a = workspace_a.path().to_string_lossy().into_owned();
+        let path_b = workspace_b.path().to_string_lossy().into_owned();
+        let manager = Arc::new(AsyncMutex::new(RuntimeManager::new(
+            RuntimeManager::default_launch_configs(),
+            None,
+        )));
+        {
+            let mut manager = manager.lock().await;
+            manager.add_test_workspace_runtime("rt-a", &path_a, "ws-a", amux::AgentStatus::Active);
+            manager.add_test_workspace_runtime("rt-b", &path_b, "ws-b", amux::AgentStatus::Active);
+        }
+        let supervisor = RuntimeSupervisor::new_with_host_pool(manager.clone(), pool);
+
+        supervisor
+            .reload_workspace("ws-a", workspace_a.path(), true)
+            .await
+            .unwrap();
+
+        let manager = manager.lock().await;
+        let ids = manager.agent_ids();
+        assert!(ids.iter().any(|id| id == "rt-a"));
+        assert!(ids.iter().any(|id| id == "rt-b"));
+    }
+
+    #[tokio::test]
+    async fn pooled_refresh_detaches_idle_route_before_starting_replacement() {
+        let (pool, factory) = service_pool();
+        let workspace = tempfile::tempdir().unwrap();
+        let workspace_id = "ws-idle";
+        let workspace_path = workspace.path().to_string_lossy().into_owned();
+        let (revision, lease) = seed_domain(&pool, workspace_id, "before").await;
+        let old_generation = Arc::clone(&lease.generation);
+        let (generation, route_lease) = lease.into_route_parts();
+        let manager = Arc::new(AsyncMutex::new(RuntimeManager::new(
+            RuntimeManager::default_launch_configs(),
+            None,
+        )));
+        {
+            let mut manager = manager.lock().await;
+            manager.add_test_workspace_runtime(
+                "rt-idle",
+                &workspace_path,
+                workspace_id,
+                amux::AgentStatus::Idle,
+            );
+            let handle = manager.get_handle_mut("rt-idle").unwrap();
+            handle.host_generation_id = generation.generation_id.clone();
+            handle.route_lease = Some(route_lease);
+        }
+        let supervisor = RuntimeSupervisor::new_with_host_pool(manager.clone(), pool.clone());
+
+        let outcome = supervisor
+            .reload_workspace(workspace_id, workspace.path(), true)
+            .await
+            .unwrap();
+        assert!(matches!(outcome, ApplyOutcome::RestartRequired));
+        assert!(manager.lock().await.agent_ids().is_empty());
+
+        let replacement = pool
+            .acquire(
+                IsolationDomainKey::Workspace(workspace_id.into()),
+                revision,
+                HashMap::from([("SENTINEL".into(), "before".into())]),
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+
+        assert_ne!(
+            replacement.generation.generation_id,
+            old_generation.generation_id
+        );
+        assert_eq!(factory.starts.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            pool.stats_for(&IsolationDomainKey::Workspace(workspace_id.into()))
+                .draining_generations,
+            0,
+            "the detached idle route must not leave a draining generation"
+        );
+    }
+
+    #[tokio::test]
+    async fn diagnostics_report_workspace_domain_generation_state() {
+        let (pool, _factory) = service_pool();
+        let (revision_a, old) = seed_domain(&pool, "ws-a", "old").await;
+        pool.invalidate_domain(&IsolationDomainKey::Workspace("ws-a".into()));
+        let replacement = pool
+            .acquire(
+                IsolationDomainKey::Workspace("ws-a".into()),
+                revision_a,
+                HashMap::from([("SENTINEL".into(), "old".into())]),
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+
+        let workspace = tempfile::tempdir().unwrap();
+        let supervisor = RuntimeSupervisor::new_with_host_pool(
+            Arc::new(AsyncMutex::new(RuntimeManager::new(
+                RuntimeManager::default_launch_configs(),
+                None,
+            ))),
+            pool,
+        );
+        let diagnostics = supervisor
+            .env_activation_diagnostics("ws-a", workspace.path(), None)
+            .await;
+        let stats = diagnostics.host_pool;
+        assert_eq!(
+            stats.current_generation,
+            Some(replacement.generation.generation_id.clone())
+        );
+        assert_eq!(stats.current_routes, 1);
+        assert_eq!(stats.draining_generations, 1);
+        assert_eq!(stats.draining_routes, 1);
+        assert!(stats.current_revision.is_some());
+        assert!(stats.requested_revision.is_some());
+        drop(old);
+    }
+
+    #[tokio::test]
+    async fn startup_prewarm_keeps_two_workspace_currents() {
+        let (pool, factory) = service_pool();
+        prewarm_workspace_domains(
+            pool.clone(),
+            vec![
+                (
+                    "ws-default".into(),
+                    HashMap::from([("W".into(), "default".into())]),
+                ),
+                (
+                    "ws-second".into(),
+                    HashMap::from([("W".into(), "second".into())]),
+                ),
+                (
+                    "ws-third".into(),
+                    HashMap::from([("W".into(), "third".into())]),
+                ),
+            ],
+        )
+        .await;
+
+        assert_eq!(factory.starts.load(Ordering::SeqCst), 2);
+        assert!(pool
+            .stats_for(&IsolationDomainKey::Workspace("ws-default".into()))
+            .current_generation
+            .is_some());
+        assert!(pool
+            .stats_for(&IsolationDomainKey::Workspace("ws-second".into()))
+            .current_generation
+            .is_some());
+        assert!(pool
+            .stats_for(&IsolationDomainKey::Workspace("ws-third".into()))
+            .current_generation
+            .is_none());
+    }
 
     #[tokio::test]
     async fn apply_refresh_clears_pending_despite_internal_writes() {
@@ -1518,7 +1918,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auto_apply_idle_skills_refresh_clears_pending_state() {
+    async fn skills_refresh_stays_pending_without_auto_apply() {
         let dir = tempfile::tempdir().unwrap();
         let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
         let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
@@ -1539,12 +1939,14 @@ mod tests {
 
         let applied = supervisor.auto_apply_pending_refreshes().await;
 
-        assert_eq!(applied, 1);
+        assert_eq!(applied, 0);
         let dto = supervisor
             .refresh_coordinator()
             .runtime_refresh_dto(&workspace_id)
             .await;
-        assert_eq!(dto.status, "clean");
+        assert_eq!(dto.status, "pending");
+        assert!(!dto.auto_apply_blocked_by_active_runtime);
+        assert_eq!(dto.recommended_action, "apply_changes");
     }
 
     #[tokio::test]
@@ -1603,7 +2005,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auto_apply_busy_skills_refresh_stays_pending_and_marks_blocked() {
+    async fn skills_refresh_stays_pending_even_when_workspace_is_busy() {
         let dir = tempfile::tempdir().unwrap();
         let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
         let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
@@ -1639,11 +2041,12 @@ mod tests {
             .runtime_refresh_dto(&workspace_id)
             .await;
         assert_eq!(dto.status, "pending");
-        assert!(dto.auto_apply_blocked_by_active_runtime);
+        // Not auto-applicable at all — busy gating must not mark it blocked.
+        assert!(!dto.auto_apply_blocked_by_active_runtime);
     }
 
     #[tokio::test]
-    async fn auto_apply_busy_skills_refresh_applies_after_workspace_becomes_idle() {
+    async fn skills_refresh_stays_pending_after_workspace_becomes_idle() {
         let dir = tempfile::tempdir().unwrap();
         let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
         let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
@@ -1679,16 +2082,93 @@ mod tests {
 
         let applied = supervisor.auto_apply_pending_refreshes().await;
 
-        assert_eq!(applied, 1);
+        assert_eq!(applied, 0);
         let dto = supervisor
             .refresh_coordinator()
             .runtime_refresh_dto(&workspace_id)
             .await;
-        assert_eq!(dto.status, "clean");
+        assert_eq!(dto.status, "pending");
+        assert_eq!(dto.recommended_action, "apply_changes");
     }
 
     #[tokio::test]
-    async fn auto_applier_loop_applies_idle_pending_skills_refresh() {
+    async fn skills_plus_env_refresh_is_not_auto_applicable() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
+        let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
+            RuntimeManager::default_launch_configs(),
+            None,
+        ))));
+
+        for kind in [
+            refresh::RefreshChangeKind::Skills,
+            refresh::RefreshChangeKind::EnvVars,
+        ] {
+            supervisor
+                .refresh_coordinator()
+                .record_change(
+                    &workspace_id,
+                    dir.path(),
+                    kind,
+                    refresh::RefreshSource::FilesystemWatch,
+                )
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(supervisor.auto_apply_pending_refreshes().await, 0);
+        let dto = supervisor
+            .refresh_coordinator()
+            .runtime_refresh_dto(&workspace_id)
+            .await;
+        assert_eq!(dto.status, "pending");
+        assert!(dto.change_kinds.contains(&"skills".to_string()));
+        assert!(dto.change_kinds.contains(&"env_vars".to_string()));
+    }
+
+    #[tokio::test]
+    async fn auto_applier_loop_applies_idle_pending_permissions_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
+        let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
+            RuntimeManager::default_launch_configs(),
+            None,
+        ))));
+        let handle = supervisor
+            .clone()
+            .start_refresh_auto_applier_with_interval(std::time::Duration::from_millis(20));
+
+        supervisor
+            .refresh_coordinator()
+            .record_change(
+                &workspace_id,
+                dir.path(),
+                refresh::RefreshChangeKind::Permissions,
+                refresh::RefreshSource::FilesystemWatch,
+            )
+            .await
+            .unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let dto = supervisor
+                    .refresh_coordinator()
+                    .runtime_refresh_dto(&workspace_id)
+                    .await;
+                if dto.status == "clean" {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("auto applier should clean pending permissions refresh");
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn auto_applier_loop_leaves_idle_pending_skills_refresh() {
         let dir = tempfile::tempdir().unwrap();
         let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
         let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
@@ -1710,20 +2190,13 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                let dto = supervisor
-                    .refresh_coordinator()
-                    .runtime_refresh_dto(&workspace_id)
-                    .await;
-                if dto.status == "clean" {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("auto applier should clean pending refresh");
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        let dto = supervisor
+            .refresh_coordinator()
+            .runtime_refresh_dto(&workspace_id)
+            .await;
+        assert_eq!(dto.status, "pending");
+        assert_eq!(dto.recommended_action, "apply_changes");
 
         handle.abort();
     }

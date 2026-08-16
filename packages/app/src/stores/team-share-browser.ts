@@ -72,14 +72,15 @@ import type {
   TeamSkillStatus,
 } from '@/lib/backend/cloud-api/team-skills'
 import type { TeamMcpServer, TeamMcpServerWrite } from '@/lib/backend/cloud-api/team-mcp'
-import { CloudApiError } from '@/lib/backend/cloud-api/http'
 import {
   encodeWorkspaceId,
   deleteDaemonSkill,
   getDaemonMcp,
   getDaemonMcpTools,
   putDaemonMcp,
-  putDaemonTeamMcpCache,
+  installDaemonTeamMcp,
+  reconcileDaemonTeamCloudConfig,
+  uninstallDaemonTeamMcp,
   type DaemonMcpServerConfig,
   type DaemonMcpServerProbeResult,
 } from '@/lib/daemon-local-client'
@@ -150,7 +151,7 @@ export interface TeamMcpItem {
    * personal / legacy entry that only exists on this machine.
    */
   catalog: TeamMcpServer | null
-  /** Whether *you* have installed it. Uninstalled servers do not run. */
+  /** Whether this machine's daemon actor has installed it. Uninstalled servers do not run. */
   installed: boolean
 }
 
@@ -279,18 +280,6 @@ function currentTeamId(): string | null {
   return useCurrentTeamStore.getState().team?.id ?? null
 }
 
-/**
- * Write the currently-installed catalog rows to the daemon's shared Cursor cache.
- */
-async function putInstalledMcpCache(teamId: string, catalog: TeamMcpServer[]): Promise<void> {
-  const mcpServers: Record<string, unknown> = {}
-  for (const entry of catalog) {
-    if (!entry.installed) continue
-    mcpServers[entry.name] = catalogToCursorEntry(entry)
-  }
-  await putDaemonTeamMcpCache(teamId, mcpServers)
-}
-
 async function removeMcpFromWorkspace(name: string): Promise<void> {
   const wsPath = workspacePath()
   if (!wsPath) return
@@ -302,21 +291,6 @@ async function removeMcpFromWorkspace(name: string): Promise<void> {
   delete next[name]
   await putDaemonMcp(wid, next)
 }
-
-function catalogToCursorEntry(entry: TeamMcpServer): Record<string, unknown> {
-  if (entry.transport === 'remote') {
-    return {
-      ...(entry.url ? { url: entry.url } : {}),
-      ...(entry.headers ? { headers: entry.headers } : {}),
-    }
-  }
-  return {
-    command: entry.command ?? '',
-    ...(entry.args ? { args: entry.args } : {}),
-    ...(entry.env ? { env: entry.env } : {}),
-  }
-}
-
 function frontmatterValue(content: string, key: string): string | null {
   return frontmatterString(content, key) ?? null
 }
@@ -567,17 +541,10 @@ async function listTeamSkills(
  * the daemon side with no catalog row; it stays read-only and is reported as
  * installed, because for those the two concepts never separated.
  */
-async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamMcpItem[]> {
-  const wid = encodeWorkspaceId(wsPath)
-  let daemonConfig = await getDaemonMcp(wid).catch(() => ({}) as Record<string, DaemonMcpServerConfig>)
-
-  let catalog: TeamMcpServer[] = []
-  if (teamId) {
-    catalog = await getBackend()
-      .teamMcp.listTeamMcpServers(teamId)
-      .catch(() => [])
-  }
-
+export function mergeTeamMcpCatalogAndDaemon(
+  catalog: TeamMcpServer[],
+  daemonConfig: Record<string, DaemonMcpServerConfig>,
+): TeamMcpItem[] {
   return planMcpItems(catalog, daemonConfig)
 }
 
@@ -595,26 +562,31 @@ export function planMcpItems(
   const catalogNames = new Set(catalog.map((entry) => entry.name))
 
   for (const entry of catalog) {
+    const live = daemonConfig[entry.name]
+    const installed = live?.source === 'team'
     items.push({
       id: entry.name,
       name: entry.name,
-      config: catalogToDaemonConfig(entry),
+      config: installed ? live : catalogToDaemonConfig(entry),
       probeStatus: 'unknown',
       tools: [],
       error: null,
-      kind: entry.installed ? 'team-installed' : 'team-available',
+      kind: installed ? 'team-installed' : 'team-available',
       catalog: entry,
-      installed: entry.installed,
+      // The catalog is fetched with the desktop user's token, while install
+      // mutations target the daemon actor. Only the daemon's live merged config
+      // can answer whether this machine will actually run the server.
+      installed,
     })
   }
 
-  // Daemon-only rows (legacy .mcp / workspace custom not in catalog).
+  // Daemon-only rows (legacy team entries / workspace custom not in catalog),
+  // plus independently selectable workspace overrides on catalog collisions.
   for (const [name, cfg] of Object.entries(daemonConfig)) {
     if (cfg.source === 'inherent') continue
-    // A catalog-backed team entry is already represented above. Only a real
-    // workspace override deserves a second, independently selectable row.
     const collides = catalogNames.has(name)
-    if (collides && cfg.source !== 'workspace') continue
+    if (collides && cfg.source === 'team') continue
+    const personal = cfg.source !== 'team'
     items.push({
       id: collides ? `personal:${name}` : name,
       name,
@@ -622,7 +594,7 @@ export function planMcpItems(
       probeStatus: 'unknown',
       tools: [],
       error: null,
-      kind: 'personal',
+      kind: personal ? 'personal' : 'team-installed',
       catalog: null,
       installed: true,
     })
@@ -651,6 +623,21 @@ export function applyMcpProbes(
       ? { ...item, probeStatus: probe.probe_status, tools: probe.tools, error: probe.error }
       : item
   })
+}
+
+async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamMcpItem[]> {
+  const wid = encodeWorkspaceId(wsPath)
+  const daemonConfig = await getDaemonMcp(wid).catch(() => ({}) as Record<string, DaemonMcpServerConfig>)
+
+  let catalog: TeamMcpServer[] = []
+  if (teamId) {
+    catalog = await getBackend()
+      .teamMcp.listTeamMcpServers(teamId)
+      // A catalog fetch failure must not blank the servers already running —
+      // fall back to the daemon's view rather than showing an empty team.
+      .catch(() => [])
+  }
+  return mergeTeamMcpCatalogAndDaemon(catalog, daemonConfig)
 }
 
 /** Raised by the Rust installer instead of overwriting a locally edited pack. */
@@ -760,11 +747,6 @@ function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
         command: [entry.command ?? '', ...(entry.args ?? [])].filter(Boolean),
         headers: {},
       } as DaemonMcpServerConfig)
-}
-
-function isCloudNotFound(e: unknown): boolean {
-  if (e instanceof CloudApiError) return e.status === 404 || e.code === 'not_found'
-  return /not found/i.test(String(e instanceof Error ? e.message : e))
 }
 
 function daemonConfigToCatalogWrite(
@@ -941,34 +923,24 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   },
 
   installMcp: async (name) => {
-    const teamId = currentTeamId()
-    if (!teamId) throw new Error('no current team')
-    // Cloud bookkeeping stays self-only (existing FC). Local materialisation is
-    // what the agent runtime reads — same pattern as Skills on disk.
-    await getBackend().teamMcp.installTeamMcpServer(teamId, name)
-    const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
-    await putInstalledMcpCache(teamId, catalog)
-    await get().loadSection('mcp', { force: true })
-    await get().loadMcpTools({ refresh: true })
+    // Install for the daemon's own agent actor, not the desktop user. The
+    // daemon is what spawns and probes the server, so an install on the human's
+    // actor would never reach the merged MCP view and the row would keep
+    // reporting zero tools. The daemon re-fetches its team MCP cache before it
+    // returns, so a plain reload sees the server (and its probed tools).
+    await installDaemonTeamMcp(name)
+    await get().loadSection('mcp', { force: true, withTools: true })
   },
 
   uninstallMcp: async (id) => {
-    const teamId = currentTeamId()
-    if (!teamId) throw new Error('no current team')
-    const item = get().mcp.items.find((m) => m.id === id)
+    const item = get().mcp.items.find((candidate) => candidate.id === id)
     if (!item) throw new Error(`mcp server ${id} not found`)
-    const name = item.name
-    if (item?.kind !== 'personal') {
-      try {
-        await getBackend().teamMcp.uninstallTeamMcpServer(teamId, name)
-      } catch (e) {
-        if (!isCloudNotFound(e)) throw e
-      }
+    if (item.kind === 'personal') {
+      await removeMcpFromWorkspace(item.name)
+    } else {
+      await uninstallDaemonTeamMcp(item.name)
     }
-    const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
-    await putInstalledMcpCache(teamId, catalog)
-    if (item.kind === 'personal') await removeMcpFromWorkspace(name)
-    await get().loadSection('mcp', { force: true })
+    await get().loadSection('mcp', { force: true, withTools: true })
   },
 
   createMcp: async (input) => {
@@ -984,16 +956,14 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
     await getBackend().teamMcp.updateTeamMcpServer(teamId, name, patch)
-    const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
-    await putInstalledMcpCache(teamId, catalog)
-    await get().loadSection('mcp', { force: true })
-    await get().loadMcpTools({ refresh: true })
+    await reconcileDaemonTeamCloudConfig()
+    await get().loadSection('mcp', { force: true, withTools: true })
   },
 
   sharePersonalMcp: async (id, input) => {
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
-    const item = get().mcp.items.find((m) => m.id === id)
+    const item = get().mcp.items.find((candidate) => candidate.id === id)
     if (!item || item.kind !== 'personal') {
       throw new Error(`mcp server ${id} is not a personal server`)
     }
@@ -1003,25 +973,21 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       description: input?.description ?? null,
     }
     await getBackend().teamMcp.createTeamMcpServer(teamId, body)
-    await getBackend().teamMcp.installTeamMcpServer(teamId, name)
-    const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
-    await putInstalledMcpCache(teamId, catalog)
-    await get().loadSection('mcp', { force: true })
-    await get().loadMcpTools({ refresh: true })
+    await installDaemonTeamMcp(name)
+    await get().loadSection('mcp', { force: true, withTools: true })
   },
 
   deleteMcp: async (name) => {
     const teamId = currentTeamId()
     if (!teamId) throw new Error('no current team')
     await getBackend().teamMcp.deleteTeamMcpServer(teamId, name)
-    const catalog = await getBackend().teamMcp.listTeamMcpServers(teamId)
-    await putInstalledMcpCache(teamId, catalog)
+    await reconcileDaemonTeamCloudConfig()
     const detail = get().detailTarget
     if (detail?.kind === 'mcp' && detail.name === name) {
       set({ detailTarget: null })
     }
     closeTeamShareTabs((t) => t === encodeTeamShareTarget({ kind: 'mcp', name }))
-    await get().loadSection('mcp', { force: true })
+    await get().loadSection('mcp', { force: true, withTools: true })
   },
 
   sharePersonalSkill: async (slug, input) => {

@@ -95,7 +95,7 @@ Caddy 把证书存成 `0700 root:root`，而 emqx 容器跑在 uid 1000 下，�
 |---|---|---|
 | `ADDITIONAL_REDIRECT_URLS` | 同时包含 `teamclu://auth-callback` **和** `teamclaw://auth-callback` | 桌面深链 scheme 变了；旧版客户端仍回调旧 scheme，两个都留着，等存量清空再删 |
 | `APPLE_CLIENT_IDS` | **追加** `com.teamclu.mobile`（逗号分隔，不要替换） | Apple 的用户 `sub` 按开发者 team 稳定，追加就能延续身份；直接替换会让旧 App 无法登录 |
-| `APNS_TOPIC` | `com.teamclu.mobile` | 注意：旧 App 的 topic 仍是 `tech.teamclaw.mobile`，切了之后旧装机收不到推送 |
+| `APNS_TOPIC` | `com.teamclu.mobile` | **不是改名，是新增**：切换那会儿这台机器根本没配过 APNs，旧装机当时也收不到推送，所以切换不损失任何东西。整套 APNs 变量现已配齐，见下 |
 | `BUCKET` | `teamclu-team`（自建 compose 默认值已改） | OSS bucket 要先建出来，否则新团队开通共享盘直接失败 |
 
 #### 已核实（2026-08-10）：Apple 相关的值不在 `.env` 里
@@ -110,10 +110,31 @@ compose 里的默认值。也就是说改仓库里那个默认值就等于改线
 GOTRUE_EXTERNAL_APPLE_CLIENT_ID = tech.teamclaw.mobile,com.teamclu.mobile
 GOTRUE_EXTERNAL_APPLE_ENABLED   = true
 ADDITIONAL_REDIRECT_URLS        = http://127.0.0.1:*/callback,teamclaw://auth-callback,teamclu://auth-callback
-APNS_TOPIC                      = com.teamclu.mobile
 ```
 
 排查这类问题时以容器里的 env 为准，不要以 `.env` 为准。
+
+（这份清单原先还列了一行 `APNS_TOPIC`，是抄错了容器：compose 的 `auth` 服务下没有任何
+`APNS_*`，`docker compose exec -T auth printenv APNS_TOPIC` 是空的。APNs 变量只发给 `fc`。）
+
+#### iOS 推送：切换时是空的，现在已配齐（2026-08-16 核实）
+
+`services/fc/src/lib/push-deps.ts` 的 `buildApns()` **无条件**构造 APNs 客户端，不做"是否已配置"
+的判断——签名 key 是空字符串时，每次推送都在 APNs 那边失败。所以下面这些必须凑齐，
+只设 `APNS_TOPIC` 等于没配。`deploy/self-host/.env.example` 那句 "all five needed together"
+说的就是这个；compose 的 `fc.environment` 里这六个都写成 `${VAR:-}`，`.env` 不给就是空串。
+
+| 变量 | 从哪来 |
+|---|---|
+| `APNS_PRIVATE_KEY_P8` | 开发者门户的 APNs Auth Key（`.p8` 全文）。**token-based key 是 team 级的，跨 bundle id 通用，不用为改名新建** |
+| `APNS_KEY_ID` | 同一把 key 的 Key ID（文件名 `AuthKey_<KEYID>.p8` 里那段） |
+| `APNS_TEAM_ID` | `43G5A6G9QV`（同 `apps/ios/project.yml` 的 `DEVELOPMENT_TEAM`） |
+| `APNS_TOPIC` | 新 bundle id `com.teamclu.mobile` |
+| `APNS_ENV` | `production`——`AMUXApp/AMUX.entitlements` 是 `aps-environment: production`。留空也默认 production |
+| `PUSH_WEBHOOK_SECRET` | 推送 webhook 的鉴权共享密钥 |
+
+**2026-08-16 复核：六个在 `.env` 里都有值，`docker compose exec -T fc printenv <VAR>` 六个也都非空。**
+所以下面 Apple 一节第 4 步「新建或重新映射 APNs key」不用再做了。复核只看键是否为空，不要把值贴出来。
 
 ### Google OAuth 回调地址（控制台，无 API）
 
@@ -174,7 +195,8 @@ sed -i '' 's|mqtt\.teamclaw-dev\.ucar\.cc|mqtt.teamclu-dev.ucar.cc|' ~/.amuxd/da
 1. 开发者门户建 App ID `com.teamclu.mobile`（+ `.uitests`）
 2. `fastlane match` 重新签发描述文件（`Matchfile` / `Appfile` / `Fastfile` 代码里已改）
 3. ASC 建新 App 记录，重新配 TestFlight 测试组
-4. 新建或重新映射 APNs key
+4. ~~新建或重新映射 APNs key~~ —— 不需要。token-based APNs Auth Key 是 team 级的，跨 bundle id
+   通用；自建机上六个 `APNS_*` / `PUSH_WEBHOOK_SECRET` 已配齐（2026-08-16 核实），见上文
 5. 旧记录 `tech.teamclaw.mobile` 保留但不再发版；已装用户不会自动迁移，需要引导重装
 
 ### Sentry

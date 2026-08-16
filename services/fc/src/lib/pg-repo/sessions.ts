@@ -869,6 +869,31 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
         );
     },
 
+    // ── updateParticipantModel ────────────────────────────────────────────────
+    /**
+     * Which model this agent runs on in this session. Same key as the cursor
+     * above, and same reason it belongs here rather than on a runtime row.
+     *
+     * Added late: the ADR-0005 migration created the column and backfilled it
+     * from `agent_runtimes.current_model`, but no writer was ever wired up, so
+     * it sat frozen while the glossary called it authoritative.
+     */
+    async updateParticipantModel(
+      sessionId: string,
+      actorId: string,
+      { model }: { model: string },
+    ) {
+      await (db as any)
+        .update(sessionParticipants)
+        .set({ model, updatedAt: new Date() })
+        .where(
+          and(
+            eq(sessionParticipants.sessionId, sessionId),
+            eq(sessionParticipants.actorId, actorId),
+          ),
+        );
+    },
+
     // ── upsertSessionParticipant ──────────────────────────────────────────────
     async upsertSessionParticipant(
       sessionId: string,

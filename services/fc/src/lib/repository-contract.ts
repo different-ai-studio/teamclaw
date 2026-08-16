@@ -223,6 +223,26 @@ export function runBusinessRepositoryContract({ test, assert, createRepository }
     );
   });
 
+  test("repository contract: updateParticipantModel succeeds", async () => {
+    const repo = createRepository();
+    await repo.updateParticipantModel("session-1", "actor-1", {
+      model: "anthropic/claude-sonnet-4-6",
+    });
+  });
+
+  test("repository contract: updateParticipantModel round-trips through the participant row", async () => {
+    // The point of the whole endpoint: `session_participants.model` was
+    // backfilled once by the ADR-0005 migration and then had no writer, so it
+    // read as authoritative while drifting. Asserting the read-back here is
+    // what keeps a future refactor from quietly disconnecting it again.
+    const repo = createRepository();
+    await repo.updateParticipantModel("session-1", "actor-1", { model: "openai/gpt-5" });
+    const out = await repo.listSessionParticipants("session-1");
+    const row = out.items.find((p) => p.actorId === "actor-1");
+    assert.ok(row, "actor-1 should still be a participant");
+    assert.equal(row.model, "openai/gpt-5");
+  });
+
   test("repository contract: removeSessionParticipant succeeds", async () => {
     const repo = createRepository();
     await repo.removeSessionParticipant("session-1", "actor-1");

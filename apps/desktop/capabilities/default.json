@@ -1,12 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for the main window",
+  "description": "Capabilities for app-origin surfaces only. Every webview listed here loads TeamClu's own frontend (WebviewUrl::App): `main`, the per-workspace `ws-*` windows (index.html?workspace=), and `local-agent-panel`. Third-party content — the in-app browser's `wv-*` webviews and the `websso-login` webview, both built from a caller-supplied URL as WebviewUrl::External — is deliberately absent, so an arbitrary page cannot reach a single IPC command. Do NOT add a `remote` block here. `remote.urls` is the only thing that lets a non-app origin use these permissions, and it is what actually keeps `wv-*` out: RuntimeAuthority::resolve_access allows a command when the webview OR the window label matches, and `wv-*` webviews are children of window `main` — so dropping them from `webviews` alone would not have been enough. The fs grants below are whole-disk.",
   "windows": ["main", "ws-*", "local-agent-panel"],
-  "webviews": ["main", "wv-*", "ws-*", "local-agent-panel"],
-  "remote": {
-    "urls": ["https://*", "http://*"]
-  },
+  "webviews": ["main", "ws-*", "local-agent-panel"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -17,6 +14,9 @@
     "dialog:allow-ask",
     "dialog:allow-confirm",
     "notification:default",
+    "clipboard:allow-has-files",
+    "clipboard:allow-read-files",
+    "clipboard:allow-write-files",
     "notification:allow-show",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",

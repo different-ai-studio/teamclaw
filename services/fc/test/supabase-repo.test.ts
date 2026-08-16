@@ -2331,4 +2331,3 @@ test("createSession returns 403 when the caller is not a member of the team", as
     (err: any) => err?.statusCode === 403,
   );
 });
-

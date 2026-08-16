@@ -313,26 +313,38 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   pasteFiles: async (targetDir: string) => {
     const { clipboardPaths, clipboardMode, refreshFileTree } = get();
-    if (!clipboardPaths.length || !clipboardMode) return false;
     if (!isTauri()) return false;
 
     try {
+      const { readSystemClipboardFiles, resolvePasteSource } = await import(
+        "@/components/workspace/system-clipboard-files"
+      );
+      // The OS pasteboard wins when it holds files, so a Copy performed in
+      // Finder can be pasted here. Falls back to the in-app clipboard, which
+      // is the only source that can express a pending move.
+      const source = resolvePasteSource(
+        await readSystemClipboardFiles(),
+        clipboardPaths,
+        clipboardMode,
+      );
+      if (!source) return false;
+
       const { copyItem, moveItem } = await import(
         "@/components/workspace/file-tree-operations"
       );
 
       let allSuccess = true;
-      for (const sourcePath of clipboardPaths) {
+      for (const sourcePath of source.paths) {
         // Skip copy/move into self or own subtree
         if (targetDir === sourcePath || targetDir.startsWith(sourcePath + '/')) continue;
         const success =
-          clipboardMode === "copy"
+          source.mode === "copy"
             ? await copyItem(sourcePath, targetDir)
             : await moveItem(sourcePath, targetDir);
         if (!success) allSuccess = false;
       }
 
-      if (clipboardMode === "cut") {
+      if (source.mode === "cut") {
         set({ clipboardPaths: [], clipboardMode: null });
       }
 

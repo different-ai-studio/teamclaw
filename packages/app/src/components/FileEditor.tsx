@@ -32,7 +32,6 @@ import { ConflictBanner } from "@/components/editors/ConflictBanner";
 import { useSessionStore } from "@/stores/session";
 import { sendAgentPromptInActiveSession } from "@/lib/session-send-agent";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { useTeamPermissions } from "@/lib/team-permissions";
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { OssHistoryProvider } from '@/lib/history/oss-provider'
 import { Button } from "@/components/ui/button";
@@ -366,9 +365,7 @@ export function FileEditor({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const { canEditFiles } = useTeamPermissions()
   const isTeamFile = filePath?.includes(`/${TEAM_REPO_DIR}/`) ?? false
-  const isViewerReadOnly = isTeamFile && !canEditFiles
   const targetLine = useWorkspaceStore((s) => s.targetLine);
   const targetHeading = useWorkspaceStore((s) => s.targetHeading);
   const [currentContent, setCurrentContent] = useState(content);
@@ -894,14 +891,6 @@ export function FileEditor({
         />
       )}
 
-      {/* Viewer read-only banner */}
-      {isViewerReadOnly && (
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300">
-          <Eye className="h-3.5 w-3.5" />
-          {t('team.viewerReadOnly', 'Read-only mode — you don\'t have edit permissions')}
-        </div>
-      )}
-
       {/* Editor / Diff / Preview - file-type-routed */}
       <div className="flex-1 overflow-hidden">
         {/* History view */}
@@ -976,7 +965,6 @@ export function FileEditor({
                     isDark={isDark}
                     targetLine={targetLine}
                     targetHeading={targetHeading}
-                    readOnly={isViewerReadOnly}
                   />
                 </Suspense>
               );
@@ -989,10 +977,17 @@ export function FileEditor({
                 {showPreview && previewType === "html" ? (
                   // Full screen HTML preview
                   <div className="w-full bg-white">
+                    {/* No `allow-same-origin`: for a srcdoc frame it means the
+                        *parent's* origin, which would put the previewed file in
+                        the app's own document and hand it `parent.__TAURI__`
+                        (withGlobalTauri) — i.e. every IPC command and the
+                        whole-disk fs grants. Without it the frame gets an opaque
+                        origin and reaching `parent` throws SecurityError, while
+                        the preview still renders. */}
                     <iframe
                       srcDoc={currentContent}
                       className="w-full h-full border-0"
-                      sandbox="allow-scripts allow-same-origin"
+                      sandbox="allow-scripts"
                       title={t("app.htmlPreview", "HTML Preview")}
                     />
                   </div>
@@ -1014,7 +1009,6 @@ export function FileEditor({
                         isDark={isDark}
                         originalContent={gitHeadContent ?? fileDiff?.before ?? null}
                         targetLine={targetLine}
-                        readOnly={isViewerReadOnly}
                     />
                   </Suspense>
                 </div>

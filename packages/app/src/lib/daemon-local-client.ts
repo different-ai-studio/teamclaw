@@ -1124,29 +1124,43 @@ export async function getDaemonMcpTools(
   return data.servers
 }
 
-/**
- * Pull team MCP / team env from the Cloud API into the daemon cache now.
- *
- * Needed after catalog/install writes: the background tick is up to ~5 minutes,
- * and `materialize-team` only prunes stale workspace copies — it no longer
- * refreshes the cloud cache runtimes read.
- */
-export async function putDaemonTeamMcpCache(
-  teamId: string,
-  mcpServers: Record<string, unknown>,
-): Promise<{ teamId: string; changed: boolean }> {
-  return daemonFetchData<{ teamId: string; changed: boolean }>(
-    '/v1/team/mcp-cache',
-    { method: 'PUT', body: JSON.stringify({ teamId, mcpServers }) },
+export interface DaemonTeamMcpInstallOutcome {
+  teamId: string
+  mcpChanged: boolean
+}
+
+export interface DaemonTeamCloudReconcileOutcome {
+  teamId: string
+  mcpChanged: boolean
+  envChanged: boolean
+}
+
+/** Re-fetch the daemon actor's team MCP/env cache immediately. */
+export async function reconcileDaemonTeamCloudConfig(): Promise<DaemonTeamCloudReconcileOutcome> {
+  return daemonFetchData<DaemonTeamCloudReconcileOutcome>(
+    '/v1/team/cloud-config/reconcile',
+    { method: 'POST', body: JSON.stringify({}) },
   )
 }
 
-export async function reconcileDaemonTeamCloudConfig(
-  teamId: string,
-): Promise<{ teamId: string; mcpChanged: boolean; envChanged: boolean }> {
-  return daemonFetchData<{ teamId: string; mcpChanged: boolean; envChanged: boolean }>(
-    '/v1/team/cloud-config/reconcile',
-    { method: 'POST', body: JSON.stringify({ teamId }) },
+/**
+ * Install a team MCP server for the daemon's own agent actor (not the desktop
+ * user). The daemon is what spawns and probes the server, so the install must
+ * land on the daemon's actor for the merged MCP view to contain it. The daemon
+ * then re-fetches its team MCP cache before returning.
+ */
+export async function installDaemonTeamMcp(name: string): Promise<DaemonTeamMcpInstallOutcome> {
+  return daemonFetchData<DaemonTeamMcpInstallOutcome>(
+    `/v1/team/mcp-servers/${encodeURIComponent(name)}/install`,
+    { method: 'PUT', body: JSON.stringify({}) },
+  )
+}
+
+/** Uninstall a team MCP server for the daemon's own agent actor. */
+export async function uninstallDaemonTeamMcp(name: string): Promise<DaemonTeamMcpInstallOutcome> {
+  return daemonFetchData<DaemonTeamMcpInstallOutcome>(
+    `/v1/team/mcp-servers/${encodeURIComponent(name)}/install`,
+    { method: 'DELETE' },
   )
 }
 
@@ -1190,6 +1204,21 @@ export async function reloadDaemonRuntime(
   return result.ok ? result.data.outcome : null
 }
 
+/** Queue runtime refresh kinds for idle auto-apply (does not reload immediately). */
+export async function notifyDaemonRuntimePendingChanges(
+  workspaceId: string,
+  changeKinds: string[],
+): Promise<boolean> {
+  const result = await daemonFetch<{ ok: boolean }>(
+    `/v1/workspaces/${workspaceId}/runtime/pending-changes`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ change_kinds: changeKinds }),
+    },
+  )
+  return result.ok
+}
+
 export interface DaemonEnvActivationBlocker {
   code: string
   detail?: string | null
@@ -1207,6 +1236,20 @@ export interface DaemonUnresolvedConfigPlaceholder {
   key: string
 }
 
+export interface DaemonDomainHostStats {
+  current_generation: string | null
+  current_lifecycle: string | null
+  pending_lifecycle: string | null
+  current_revision: string | null
+  requested_revision: string | null
+  current_routes: number
+  draining_generations: number
+  draining_routes: number
+  idle_age: { secs: number; nanos: number } | null
+  queued_acquisitions: number
+  last_error: string | null
+}
+
 export interface DaemonEnvActivationDiagnostics {
   personal_env_var_count: number
   personal_blob_user_var_count: number
@@ -1219,6 +1262,7 @@ export interface DaemonEnvActivationDiagnostics {
   active_runtime_count: number
   workspace_has_active_turn: boolean
   refresh: DaemonRuntimeRefresh
+  host_pool: DaemonDomainHostStats
   host_env_shadowed_keys: string[]
   resolved_env_fingerprint: string | null
   active_env_fingerprint: string | null

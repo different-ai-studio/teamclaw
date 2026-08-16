@@ -71,29 +71,46 @@ impl DaemonServer {
         let default_workspace_models = if default_worktree.is_empty() {
             Vec::new()
         } else {
-            RuntimeManager::probe_default_workspace_catalog(
-                Arc::clone(&self.agents),
-                std::path::PathBuf::from(&default_worktree),
-            )
-            .await
+            match self
+                .assemble_execution_context(
+                    &default_worktree,
+                    Some(&default_worktree),
+                    Some(&default_workspace_id),
+                    false,
+                    None,
+                )
+                .await
+            {
+                Ok(context) => {
+                    RuntimeManager::probe_default_workspace_catalog(
+                        Arc::clone(&self.agents),
+                        context,
+                    )
+                    .await
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        workspace_id = %default_workspace_id,
+                        workspace = %default_worktree,
+                        %error,
+                        "default workspace catalog context resolution failed"
+                    );
+                    Vec::new()
+                }
+            }
         };
 
         let (
             active_agent_type,
             catalog_models,
-            worktrees,
             live_sessions,
-            actor_default_model,
             actor_available_commands,
         ) = {
             let agents = self.agents.lock().await;
-            let (catalog_models, worktrees) = agents.actor_catalog_snapshot();
             (
                 agents.default_agent_type() as i32,
-                catalog_models,
-                worktrees,
+                agents.catalog_models(),
                 agents.live_sessions(),
-                agents.actor_default_model(),
                 agents.actor_available_commands(),
             )
         };
@@ -107,16 +124,23 @@ impl DaemonServer {
             // inside a running daemon that just serviced an attach or detach.
             // STARTING/FAILED are wired where the supervisor learns them.
             backend_health: amux::AgentHostHealth::Ready as i32,
+            // The CATALOG stays. It is this actor's capability, and for a
+            // remote client it is the only source there is — iOS has no
+            // loopback fallback at all, so an empty list here means "no models
+            // to pick from", which is the #742 bug. ADR-0007 retires the
+            // *preference* fields below, never this one.
             catalog_models,
-            // Dual-written for one release: `worktrees` for clients that have
-            // not moved to the device-level fields yet, and those fields for
-            // the ones that have (#742 decision 6).
-            worktrees,
+            // Retired (ADR-0007). `worktrees` carried a per-directory catalog +
+            // default that #742 disproved; `default_model` was the daemon's MRU
+            // head. Both fields stay in the proto so an older client still
+            // parses the message — they are simply no longer filled, and every
+            // client on or past the P3 release resolves the model itself.
+            worktrees: Vec::new(),
             live_sessions,
             default_workspace_id,
             default_worktree,
             default_workspace_models,
-            default_model: actor_default_model,
+            default_model: String::new(),
             available_commands: actor_available_commands,
         };
 
@@ -361,12 +385,11 @@ impl DaemonServer {
                     .await
                     .clear_runtime(agent_id);
                 self.flush_pending_remote_tools_mcp_refresh(agent_id).await;
-                // The turn is over, so the backend has settled on a model and
-                // persisted it. Ask what it picked: runtimes start unpinned
-                // when nobody chose, and this is the only point at which that
-                // choice becomes observable — without it the device MRU never
-                // gets a first entry on a fresh install.
-                self.agents.lock().await.learn_session_model(agent_id).await;
+                // No `learn_session_model` here any more. It existed to give a
+                // fresh install's device MRU a first entry by asking the backend
+                // what an unpinned start had settled on — and ADR-0007 removes
+                // both the MRU and unpinned starts, since every entry point now
+                // pins a model when it is created.
             }
 
             // Status transitions used to upsert `agent_runtimes` here. The

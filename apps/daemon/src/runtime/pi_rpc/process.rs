@@ -21,6 +21,11 @@ pub(crate) struct PiProcess {
     /// The acp session id currently active in this process (pi is
     /// one-active-session; prompts for another session switch first).
     pub(crate) active_acp_session: parking_lot::Mutex<Option<String>>,
+    /// Held across "ask pi whether it is busy, then switch it". Those are two
+    /// round trips, and without the lock a second caller can pass the busy
+    /// check with the answer the first one already invalidated — which is the
+    /// exact race the check exists to close.
+    pub(crate) switch_lock: tokio::sync::Mutex<()>,
     child: parking_lot::Mutex<tokio::process::Child>,
     /// Fingerprint of the env this child was spawned with (binary + team
     /// provider + MCP servers + extra env). A prewarmed child is spawned before
@@ -218,6 +223,20 @@ impl PiProcessPool {
         if let Some(servers) = self.mcp_servers.lock().clone() {
             cmd.env("TEAMCLU_MCP_SERVERS", servers);
         }
+        // Same file `mcp_servers_from_opencode_json` read to build the payload
+        // above. The extension watches it so an edit re-bridges in place; the
+        // env payload alone only ever reflects spawn time, and a config change
+        // otherwise needs the whole pi process to be replaced to take effect.
+        cmd.env(
+            "TEAMCLU_MCP_CONFIG_PATH",
+            std::path::Path::new(worktree).join("opencode.json"),
+        );
+        let tool_cache = mcp_tool_cache_dir();
+        if let Err(e) = std::fs::create_dir_all(&tool_cache) {
+            warn!(path = %tool_cache.display(), error = %e, "pi MCP tool cache dir unavailable");
+        } else {
+            cmd.env("TEAMCLU_MCP_TOOL_CACHE_DIR", &tool_cache);
+        }
         cmd.env(
             "PATH",
             crate::runtime::opencode_http::enriched_spawn_path(
@@ -269,6 +288,7 @@ impl PiProcessPool {
         let proc = Arc::new(PiProcess {
             client: client.clone(),
             active_acp_session: parking_lot::Mutex::new(None),
+            switch_lock: tokio::sync::Mutex::new(()),
             child: parking_lot::Mutex::new(child),
             env_fingerprint: self.env_fingerprint(),
         });
@@ -343,6 +363,15 @@ fn amuxd_pi_dir() -> PathBuf {
 
 pub(crate) fn extension_path() -> PathBuf {
     amuxd_pi_dir().join("extensions").join("teamclu.ts")
+}
+
+/// Where the extension caches each MCP server's `tools/list` result
+/// (`TEAMCLU_MCP_TOOL_CACHE_DIR`). Bridging a server takes seconds — measured
+/// 4.2s for the slowest one here — and pi cannot start a session until the
+/// extension has registered its tools. With a cached list the tools register
+/// at once and the child is spawned in the background instead.
+fn mcp_tool_cache_dir() -> PathBuf {
+    amuxd_pi_dir().join("mcp-tools")
 }
 
 /// Write the embedded extension to its on-disk path (only when its content

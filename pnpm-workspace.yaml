@@ -1,6 +1,31 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+# Since pnpm v11 this file is the only home for these settings: the `pnpm` field
+# in package.json is no longer read, and .npmrc is limited to auth/registry.
+# Settings left in the old places are ignored, announced only by one WARN line.
+
 allowBuilds:
+  # Was package.json#pnpm.onlyBuiltDependencies: ['@sentry/cli'].
+  # The value here used to be the literal string "set this to true or false",
+  # which pnpm reads as undecided — so `pnpm install` failed outright with
+  # ERR_PNPM_IGNORED_BUILDS once the local pnpm reached v11.
+  # @sentry/cli arrives via @sentry/react-native in apps/expo; its postinstall
+  # (scripts/install.js) fetches the platform CLI binary.
+  '@sentry/cli': true
   esbuild: false
   msw: false
+
+overrides:
+  # Was package.json#pnpm.overrides. Carried over verbatim — the pin predates
+  # this repo's history (present in the initial import, 0f585b2a) and no commit
+  # records why, so this migration does not touch the version.
+  '@codemirror/state': '6.7.0'
+
+publicHoistPattern:
+  # Was .npmrc's public-hoist-pattern[]. Per that file's own note: packages/app
+  # declares the @tailwindcss/oxide-* natives explicitly, and hoisting is what
+  # lets Node resolve them.
+  - '*@tailwindcss/*'
+  - '*lightningcss*'

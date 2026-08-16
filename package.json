@@ -1,6 +1,6 @@
 {
   "name": "teamclu",
-  "version": "0.4.1-beta.10",
+  "version": "0.4.1-beta.12",
   "private": true,
   "description": "TeamClu - AI Agent Desktop Platform",
   "scripts": {
@@ -28,6 +28,7 @@
     "tauri:dev:win": "node scripts/update-tauri-config.js && node scripts/tauri-cli.js dev -- --no-default-features",
     "rust:check": "node scripts/rust-cli.js check --manifest-path apps/desktop/Cargo.toml",
     "rust:build": "node scripts/rust-cli.js build --manifest-path apps/desktop/Cargo.toml",
+    "rust:clippy": "node scripts/rust-cli.js clippy --manifest-path apps/desktop/Cargo.toml -- -D warnings",
     "daemon:run": "node scripts/run-daemon.js",
     "daemon:deploy": "scripts/deploy-daemon-binaries.sh",
     "daemon:ctl": "scripts/amuxdctl.sh",
@@ -52,7 +53,7 @@
     "typecheck:expo": "pnpm --filter @teamclu/expo typecheck",
     "test:extension": "pnpm --filter @teamclu/extension test",
     "typecheck:extension": "pnpm --filter @teamclu/extension typecheck",
-    "test:scripts": "node --test scripts/lib/*.test.js",
+    "test:scripts": "node --test scripts/lib/*.test.js apps/desktop/capabilities/*.test.js",
     "test:smoke": "vitest run --config vitest.config.v2-e2e.ts tests/v2-e2e/pr",
     "test:e2e": "pnpm test:e2e:v2:pr",
     "test:e2e:v2:pr": "vitest run --config vitest.config.v2-e2e.ts tests/v2-e2e/pr",
@@ -75,16 +76,8 @@
     "shadcn": "^4.16.2",
     "vitest": "^4.1.9"
   },
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": ">=24.0.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "@codemirror/state": "6.7.0"
-    },
-    "onlyBuiltDependencies": [
-      "@sentry/cli"
-    ]
   }
 }

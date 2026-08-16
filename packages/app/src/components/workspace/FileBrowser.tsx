@@ -75,6 +75,9 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
   const setSearchExpanded = onSearchExpandedChange ?? setInternalSearchExpanded
 
   const isCustomRoot = !!rootPath || !!rootPaths
+  // Multi-root trees have no single directory to fall back to, so only the
+  // single-root form tells FileTree where untargeted drops and pastes belong.
+  const singleRootPath = rootPaths && rootPaths.length > 0 ? undefined : rootPath
 
   // OSS team-share "sync now" — only surfaced when this workspace actually has
   // OSS sync state (oss_sync_status reports a teamId). Non-team / git-mode
@@ -371,7 +374,7 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
       <ScrollAreaPrimitive.Root className="flex-1 relative overflow-hidden">
         <ScrollAreaPrimitive.Viewport className="h-full w-full">
           <div className="py-1 min-w-max">
-            <FileTree filterText={deferredFilterText} nodes={effectiveTree} rootCreating={rootCreating} onRootCreateConfirm={onRootCreateConfirm} onRootCreateCancel={onRootCreateCancel} />
+            <FileTree filterText={deferredFilterText} nodes={effectiveTree} rootPath={singleRootPath} rootCreating={rootCreating} onRootCreateConfirm={onRootCreateConfirm} onRootCreateCancel={onRootCreateCancel} />
           </div>
         </ScrollAreaPrimitive.Viewport>
         <ScrollBar orientation="vertical" />

@@ -107,19 +107,39 @@ retain 保留 fallback 就是灰度窗口：两端不必同时上线，先发哪
 
 ## P4 · 停止填充 proto 字段（contract 第一步）
 
-停发 `RuntimeInfo.current_model`、`ActorPresence.default_model`(12)、
-`ActorPresence.worktrees`(7)。**保留字段定义**，只停止填充。
+停发 `ActorPresence.default_model`(12) 与 `ActorPresence.worktrees`(7)。
+**保留字段定义**，只停止填充。
 
-**放行门槛**：`amux.actor_client_versions` 显示无低于 P3 版本的活跃 reporter。
-该表键为 `(actor_id, client_type, device_id)`，三端都在上报各自的 `client_type`：
+两个字段必须一起停：`worktrees[0].default_model`（`WorktreeCatalog` 字段 3）是
+同一个偏好的第二条通路，两端的解析链都写成
+`presence.defaultModel || legacy?.defaultModel`
+（`runtime-state-store.ts:312-313`、`SessionListViewModel.swift:429-432`），
+只停 12 号，偏好照样从 7 号流进来。
+
+**`RuntimeInfo.current_model` 不在本阶段** —— 计划原文列了它，但 ADR-0004
+phase 7 已于 2026-08-04 停发 `runtime/{id}/state`，`RuntimeInfo` 整条消息今天
+就没有发布者，无从"停发"。retain 上真正承载模型的是
+`LiveSession.current_model`（`manager.rs:1489`，在 `ActorPresence.live_sessions`
+里），它**保留** —— 那是 P3 客户端解析链里的 live 那一层，也是 ADR-0007
+「daemon 仍在进程内跟踪当前模型」那条例外的出口。
+
+**放行门槛（已于 2026-08-16 由决策豁免，未达成即执行）**：原定
+`amux.actor_client_versions` 显示无低于 P3 版本的活跃 reporter。执行时 P3 尚未
+发版，线上 P3 客户端为零；近 7 日活跃 tauri 13 / daemon 13 / expo 4 / ios 2 台
+全部低于门槛，其模型 pill 会退回到各自的兜底。这是明知代价的选择，不是疏漏。
+
+该表键为 `(actor_id, client_type, device_id)`，**四**端在上报各自的
+`client_type`（原表漏了 expo）：
 
 | client_type | 上报处 |
 |---|---|
 | `tauri` | `packages/app/src/App.tsx:824` |
 | `ios` | `AMUXCore/CloudAPI/CloudAPIRepositories.swift` |
 | `daemon` | `apps/daemon/src/backend/cloud_api/mod.rs` |
+| `expo` | `apps/expo/src/features/notifications/report-client-version.ts:10` |
 
-所以可以按端分别放行 —— iOS 落后不阻塞桌面。
+expo 不读这两个偏好字段，所以本阶段不波及它；它读的 `RuntimeInfo.currentModel`
+早已是空通路（`decodeRuntimeInfo` / `handleRuntimeInfo` 均无生产调用方）。
 
 ---
 
@@ -147,7 +167,17 @@ retain 保留 fallback 就是灰度窗口：两端不必同时上线，先发哪
 `model-catalog.toml` 不动。
 
 > 刻意的不对称：toml 立即删，proto 字段缓退。toml 只有 daemon 自己读；proto 字段
-> 有线上老客户端在读。
+> 有线上老客户端在读。（P4 的门槛被豁免后，这条不对称在本次执行中失去意义 ——
+> 两者同批发出。）
+
+**顺带清掉的死代码** —— `learn_session_model` 一删，它独占的
+`AgentBackend::session_model` 就没有调用方了，连同三个后端的实现一并删除
+（opencode_http / claude_agent / cursor_sdk，pi 用的是 trait 默认实现）。
+每一处的注释都写着自己存在的理由是「teach the device MRU」。
+
+`client::session_model_id` **保留** —— 它看着同名，但服务的是 resume 路径
+（`opencode_http/mod.rs:755`：重新挂上一个已有会话时读回它上次实际跑在什么模型
+上）。那是关于这一个会话的事实，不是设备级偏好。
 
 ---
 

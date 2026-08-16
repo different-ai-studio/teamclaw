@@ -47,11 +47,11 @@ describe('planMcpItems', () => {
     })
   })
 
-  it('keeps an installed team row separate from a colliding personal override', () => {
+  it('does not borrow the desktop user installation flag when a personal override wins', () => {
     const rows = planMcpItems([catalogEntry(true)], { memory: workspaceOverride })
 
     expect(rows.map((row) => [row.id, row.kind])).toEqual([
-      ['memory', 'team-installed'],
+      ['memory', 'team-available'],
       ['personal:memory', 'personal'],
     ])
   })

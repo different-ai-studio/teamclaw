@@ -186,6 +186,10 @@ pub fn build(state: HttpState) -> Router {
             "/v1/workspaces/:id/runtime/reload",
             post(workspaces::reload_runtime),
         )
+        .route(
+            "/v1/workspaces/:id/runtime/pending-changes",
+            post(workspaces::record_pending_runtime_changes),
+        )
         // Team-share: materialize the global dir + workspace symlink on demand
         // (called by the app right after enabling/joining team-share).
         .route("/v1/team/link", post(team::link_team_workspace))
@@ -199,7 +203,12 @@ pub fn build(state: HttpState) -> Router {
             "/v1/team/cloud-config/reconcile",
             post(team_sync::reconcile_cloud_config),
         )
-        .route("/v1/team/mcp-cache", put(team_sync::put_team_mcp_cache))
+        // Install/uninstall a team MCP server for the daemon's own agent actor
+        // (not the desktop user), then re-fetch the team MCP cache immediately.
+        .route(
+            "/v1/team/mcp-servers/:name/install",
+            put(team_sync::install_team_mcp).delete(team_sync::uninstall_team_mcp),
+        )
         .route(
             "/v1/team/secrets",
             post(team_sync::set_secrets).get(team_sync::get_secrets),

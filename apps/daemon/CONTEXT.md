@@ -26,16 +26,28 @@ _Avoid_: Runtime、RuntimeHandle、runtime_id（见下）
 
 | 曾经指 | 现在叫 |
 |---|---|
-| 全局 opencode 进程（每设备一个） | [AgentHost](#agenthost) |
+| opencode 后端进程 | [AgentHostGeneration](#agenthostgeneration) |
 | 每 session 一次挂载（`runtime_id` 键控） | [Attachment](#attachment) |
 
 `runtime_id` 一并废除 —— 它是每次启动新生成的一次性 id，结构上无法保持正确。
 见 ADR-0004。
 
-### AgentHost
-承载全部 [Attachment](#attachment) 的**单个全局后端进程**（`opencode serve` HTTP，
-或 pi）。每设备一个，随 daemon 生命周期。其可用性作为单值健康字段挂在
-`ActorPresence` 上 —— client 需要区分「daemon 挂了」和「daemon 在、后端起不来」。
+### IsolationDomain
+OpenCode host 的 workspace 级隔离边界。注册 workspace 以稳定 workspace id
+键控；其 root 与 worktree 共用 domain，再由 OpenCode `directory` query 区分 cwd。
+无法解析 workspace 的 gateway session 才使用 team + actor 键控的 unscoped domain。
+
+### AgentHostGeneration
+一个 isolation domain 某一份 immutable process environment 对应的
+`opencode serve` HTTP 进程。每个 domain 恰有 0 或 1 个 current generation，也可
+暂时有仍承载旧 [Attachment](#attachment) 的 draining generations。环境修订只会
+rolling 新 generation，不会修改 live session 的环境；Attachment 始终绑定创建它的
+generation，SSE、permission、question 与 command route 也在该 generation 内。
+
+amuxd 的 host pool 全局上限是 idle TTL 300 秒、soft limit 2、hard limit 3；
+容量不足时 FIFO 等待，active/draining generation 不被驱逐。每个 generation 的
+PGID 单独登记，daemon 可同时清理多个 process group。后端可用性仍通过
+`ActorPresence` 报告，让 client 区分「daemon 挂了」与「daemon 在、后端起不来」。
 详见 `docs/architecture/single-agent-opencode-http.md`。
 
 ### Session
@@ -44,7 +56,7 @@ _Avoid_: Runtime、RuntimeHandle、runtime_id（见下）
 Session ↔ Attachment 是 **1:0..1**（每 actor 而言）。
 
 ### AgentType
-[AgentHost](#agenthost) 的**后端实现种类**。即 `amux.AgentType` 枚举，沿用此名（**不重命名**）。
+[AgentHostGeneration](#agenthostgeneration) 的**后端实现种类**。即 `amux.AgentType` 枚举，沿用此名（**不重命名**）。
 一个 actor 同时**具备**多个（装了哪些二进制），但任一时刻只有一个**活跃** —— 见
 [proto.AgentType](../../proto/CONTEXT.md#agenttype) 与 ADR-0002。
 区别于 [proto.AgentKind](../../proto/CONTEXT.md#agentkind)（personal vs team，归属类型）。
@@ -52,7 +64,7 @@ Session ↔ Attachment 是 **1:0..1**（每 actor 而言）。
 ### Agent（弃用）
 不在本 context 使用裸 `Agent` 一词。
 - 指本 daemon 对某 session 的挂载时用 [Attachment](#attachment)
-- 指全局后端进程时用 [AgentHost](#agenthost)
+- 指后端进程时用 [AgentHostGeneration](#agenthostgeneration)
 - 指后端种类时用 [AgentType](#agenttype)
 - desktop 端"用户选中的对话对象"语义属于 `desktop` context，不在此定义
 

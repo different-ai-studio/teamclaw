@@ -1,13 +1,12 @@
-//! Global `opencode serve` process supervisor.
+//! One-generation `opencode serve` process supervisor.
 //!
-//! One serve instance per daemon (loopback, ephemeral port, HTTP Basic auth
-//! via `OPENCODE_SERVER_PASSWORD`). Sessions for every worktree ride on it via
-//! the `?directory=` query parameter. Crash recovery is lazy: `ensure()`
-//! respawns on the next call (the SSE tasks call it in their reconnect loops,
-//! which provides the restart-with-backoff behavior).
+//! Each supervisor owns one immutable process environment and one generation
+//! entry in the shared process-group registry. Crash recovery is lazy:
+//! `ensure()` respawns the same generation with the same environment.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rand::Rng;
@@ -15,6 +14,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{info, warn};
 
 use super::client::ServeClient;
+use super::process_registry::ServeProcessRegistry;
+use crate::runtime::execution_context::ProcessEnvRevision;
 
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(20);
 const HEALTH_TICK: Duration = Duration::from_millis(200);
@@ -24,25 +25,89 @@ const STOP_GRACE: Duration = Duration::from_millis(500);
 struct ServeInstance {
     child: tokio::process::Child,
     client: ServeClient,
+    pgid: u32,
+}
+
+/// Owns a registered process group until its child is stored by the supervisor.
+///
+/// Dropping the spawn future during a health check runs this synchronously, so
+/// descendants cannot outlive the `Child` handle and block a later respawn.
+struct SpawnOwnershipGuard<'a> {
+    child: &'a mut tokio::process::Child,
+    pgid: u32,
+    generation_id: &'a str,
+    registry: &'a ServeProcessRegistry,
+    armed: bool,
+}
+
+impl<'a> SpawnOwnershipGuard<'a> {
+    fn new(
+        child: &'a mut tokio::process::Child,
+        pgid: u32,
+        generation_id: &'a str,
+        registry: &'a ServeProcessRegistry,
+    ) -> Self {
+        Self {
+            child,
+            pgid,
+            generation_id,
+            registry,
+            armed: true,
+        }
+    }
+
+    fn child_mut(&mut self) -> &mut tokio::process::Child {
+        self.child
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for SpawnOwnershipGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed || !kill_serve_tree(self.child, self.pgid) {
+            return;
+        }
+        if let Err(error) = self.registry.unregister(self.generation_id) {
+            warn!(
+                generation_id = %self.generation_id,
+                pgid = self.pgid,
+                %error,
+                "failed to unregister cancelled opencode serve spawn"
+            );
+        }
+    }
 }
 
 pub struct ServeSupervisor {
+    generation_id: String,
+    registry: Arc<ServeProcessRegistry>,
     /// `[agents.opencode].binary` override from daemon.toml, when configured.
     binary_override: parking_lot::Mutex<Option<String>>,
-    /// Extra env captured from the first prewarm/attach; applied on (re)spawn.
-    extra_env: parking_lot::Mutex<HashMap<String, String>>,
-    /// Fingerprint of the complete env queued for the next spawn.
-    configured_env_fingerprint: parking_lot::Mutex<Option<String>>,
-    /// Fingerprint actually inherited by the currently running serve process.
-    active_env_fingerprint: parking_lot::Mutex<Option<String>>,
-    /// Most recently resolved fingerprint per canonical workspace.
-    requested_env_fingerprints: parking_lot::Mutex<HashMap<String, String>>,
-    /// Workspace whose snapshot could not replace the active global host.
-    snapshot_conflict_workspaces: parking_lot::Mutex<HashSet<String>>,
+    /// Complete environment inherited by every spawn of this generation.
+    extra_env: HashMap<String, String>,
+    process_env_revision: ProcessEnvRevision,
     state: parking_lot::Mutex<Option<ServeInstance>>,
     /// Serializes spawn attempts without holding `state` across awaits.
     spawn_lock: tokio::sync::Mutex<()>,
     password: String,
+    #[cfg(test)]
+    test_client: Option<ServeClient>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShutdownOutcome {
+    Idle,
+    Stopped,
+    Survived { pgid: u32 },
+}
+
+impl ShutdownOutcome {
+    pub fn was_running(self) -> bool {
+        !matches!(self, Self::Idle)
+    }
 }
 
 fn generate_password() -> String {
@@ -63,17 +128,49 @@ fn pick_free_port() -> crate::error::Result<u16> {
 }
 
 impl ServeSupervisor {
-    pub fn new() -> Self {
+    pub fn new(
+        generation_id: String,
+        registry: Arc<ServeProcessRegistry>,
+        extra_env: HashMap<String, String>,
+        revision: ProcessEnvRevision,
+    ) -> Self {
         Self {
+            generation_id,
+            registry,
             binary_override: parking_lot::Mutex::new(None),
-            extra_env: parking_lot::Mutex::new(HashMap::new()),
-            configured_env_fingerprint: parking_lot::Mutex::new(None),
-            active_env_fingerprint: parking_lot::Mutex::new(None),
-            requested_env_fingerprints: parking_lot::Mutex::new(HashMap::new()),
-            snapshot_conflict_workspaces: parking_lot::Mutex::new(HashSet::new()),
+            extra_env,
+            process_env_revision: revision,
             state: parking_lot::Mutex::new(None),
             spawn_lock: tokio::sync::Mutex::new(()),
             password: generate_password(),
+            #[cfg(test)]
+            test_client: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_with_base_url(
+        generation_id: String,
+        revision: ProcessEnvRevision,
+        base_url: String,
+    ) -> Self {
+        let password = generate_password();
+        let registry = Arc::new(ServeProcessRegistry::new(
+            tempfile::tempdir()
+                .expect("temporary process registry")
+                .keep()
+                .join("opencode-pgids.json"),
+        ));
+        Self {
+            generation_id,
+            registry,
+            binary_override: parking_lot::Mutex::new(None),
+            extra_env: HashMap::new(),
+            process_env_revision: revision,
+            state: parking_lot::Mutex::new(None),
+            spawn_lock: tokio::sync::Mutex::new(()),
+            test_client: Some(ServeClient::new(base_url, password.clone())),
+            password,
         }
     }
 
@@ -85,151 +182,35 @@ impl ServeSupervisor {
         }
     }
 
-    pub fn try_client(&self) -> Option<ServeClient> {
-        self.state.lock().as_ref().map(|s| s.client.clone())
+    pub fn process_env_revision(&self) -> &ProcessEnvRevision {
+        &self.process_env_revision
     }
 
-    /// Merge session env into the env applied at (re)spawn. The serve process
-    /// is global; when `force` is false, existing cached keys are kept
-    /// (first-wins). When `force` is true, incoming values overwrite.
-    pub fn merge_extra_env(&self, extra_env: &HashMap<String, String>, force: bool) {
-        if extra_env.is_empty() {
-            return;
-        }
-        let mut env = self.extra_env.lock();
-        for (k, v) in extra_env {
-            if force {
-                env.insert(k.clone(), v.clone());
-            } else {
-                env.entry(k.clone()).or_insert_with(|| v.clone());
-            }
-        }
-        *self.configured_env_fingerprint.lock() = Some(
-            teamclu_runtime_env::resolved_env::fingerprint_bindings(&env),
-        );
-    }
-
-    /// Record and atomically queue a complete workspace env snapshot.
-    ///
-    /// Unlike [`Self::merge_extra_env`], this removes keys absent from the new
-    /// snapshot, preventing values from an earlier workspace leaking into the
-    /// next serve spawn.
-    pub fn install_env_snapshot(
-        &self,
-        workspace: &str,
-        extra_env: HashMap<String, String>,
-    ) -> String {
-        let fingerprint = teamclu_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
-        self.record_requested_env_fingerprint(workspace, &fingerprint);
-        *self.extra_env.lock() = extra_env;
-        *self.configured_env_fingerprint.lock() = Some(fingerprint.clone());
-        fingerprint
-    }
-
-    pub fn record_requested_env_fingerprint(&self, workspace: &str, fingerprint: &str) {
-        self.requested_env_fingerprints
-            .lock()
-            .insert(workspace.to_string(), fingerprint.to_string());
-    }
-
-    pub fn requested_env_fingerprint(&self, workspace: &str) -> Option<String> {
-        self.requested_env_fingerprints
-            .lock()
-            .get(workspace)
-            .cloned()
-    }
-
+    /// Legacy diagnostics now reflect this generation's immutable environment.
     pub fn active_env_fingerprint(&self) -> Option<String> {
-        self.active_env_fingerprint.lock().clone()
+        self.is_running()
+            .then(|| teamclu_runtime_env::resolved_env::fingerprint_bindings(&self.extra_env))
     }
 
-    /// Test seam: pretend a serve child inherited `fingerprint` without spawning.
-    #[cfg(test)]
-    pub(crate) fn set_active_env_fingerprint_for_test(&self, fingerprint: Option<String>) {
-        *self.active_env_fingerprint.lock() = fingerprint;
+    pub fn requested_env_fingerprint(&self, _workspace: &str) -> Option<String> {
+        Some(teamclu_runtime_env::resolved_env::fingerprint_bindings(
+            &self.extra_env,
+        ))
     }
 
-    /// Fingerprint queued for the next spawn (`install_env_snapshot` / merge).
-    pub fn configured_env_fingerprint(&self) -> Option<String> {
-        self.configured_env_fingerprint.lock().clone()
+    /// A generation cannot conflict with its own immutable environment.
+    pub fn snapshot_conflict_workspace(&self, _workspace: &str) -> Option<String> {
+        None
     }
 
-    /// True when a running serve still holds an older env than the queued snapshot.
-    ///
-    /// Used after the last route detaches so we can recycle the process without
-    /// discarding the queued bindings (see #779).
-    pub fn has_pending_env_refresh(&self) -> bool {
-        match (
-            self.configured_env_fingerprint.lock().clone(),
-            self.active_env_fingerprint.lock().clone(),
-        ) {
-            (Some(configured), Some(active)) => configured != active,
-            _ => false,
-        }
-    }
-
-    /// Stop the serve process group but keep the queued env for the next spawn.
-    ///
-    /// Unlike [`Self::shutdown`], this does **not** call [`Self::clear_extra_env`].
-    /// Returns whether a child was running.
-    pub fn shutdown_preserving_configured_env(&self) -> bool {
-        let taken = self.state.lock().take();
-        *self.active_env_fingerprint.lock() = None;
-        match taken {
-            Some(mut inst) => {
-                kill_serve_tree(&mut inst.child);
-                info!("opencode serve shut down to apply pending env snapshot");
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// When no routes remain and a newer env is queued, recycle the serve child
-    /// so the next `ensure()` inherits the configured snapshot.
-    pub fn apply_pending_env_if_idle(&self, routes_empty: bool) -> bool {
-        if !routes_empty || !self.has_pending_env_refresh() {
-            return false;
-        }
-        let _ = self.shutdown_preserving_configured_env();
-        true
-    }
-
-    pub fn mark_snapshot_conflict(&self, workspace: &str) {
-        self.snapshot_conflict_workspaces
-            .lock()
-            .insert(workspace.to_string());
-    }
-
-    pub fn clear_snapshot_conflict(&self, workspace: &str) {
-        self.snapshot_conflict_workspaces.lock().remove(workspace);
-    }
-
-    pub fn snapshot_conflict_workspace(&self, workspace: &str) -> Option<String> {
-        if !self.snapshot_conflict_workspaces.lock().contains(workspace) {
-            return None;
-        }
-        let requested = self.requested_env_fingerprint(workspace);
-        let active = self.active_env_fingerprint();
-        (requested.is_some() && active.is_some() && requested != active)
-            .then(|| workspace.to_string())
-    }
-
-    /// Drop cached env so the next serve spawn does not inherit stale keys.
-    pub fn clear_extra_env(&self) {
-        self.extra_env.lock().clear();
-        *self.configured_env_fingerprint.lock() = None;
-        *self.active_env_fingerprint.lock() = None;
-    }
-
-    /// Count of env keys queued for the next serve spawn (no values exposed).
+    /// Count of immutable env keys inherited by this generation.
     pub fn cached_env_key_count(&self) -> usize {
-        self.extra_env.lock().len()
+        self.extra_env.len()
     }
 
-    /// Key names queued for the next serve spawn (sorted, no values exposed).
+    /// Immutable key names inherited by this generation (sorted, no values exposed).
     pub fn cached_env_keys(&self) -> Vec<String> {
-        let mut keys: Vec<String> = self.extra_env.lock().keys().cloned().collect();
+        let mut keys: Vec<String> = self.extra_env.keys().cloned().collect();
         keys.sort_by(|left, right| left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase()));
         keys
     }
@@ -241,9 +222,10 @@ impl ServeSupervisor {
             Some(inst) => match inst.child.try_wait() {
                 Ok(None) => true,
                 _ => {
-                    *guard = None;
-                    *self.active_env_fingerprint.lock() = None;
-                    clear_opencode_pgid();
+                    let mut inst = guard.take().expect("serve instance present");
+                    if !self.finish_process_group(&mut inst) {
+                        *guard = Some(inst);
+                    }
                     false
                 }
             },
@@ -253,60 +235,104 @@ impl ServeSupervisor {
 
     /// Kill the current serve process group (serve + MCP children). Next
     /// `ensure()` respawns. Used on daemon stop and after provider auth/config
-    /// changes. Returns true when a process was running.
-    pub fn shutdown(&self) -> bool {
+    /// changes. A surviving process group remains owned by this supervisor.
+    pub fn shutdown(&self) -> ShutdownOutcome {
         let taken = self.state.lock().take();
-        // Cached env is queued for the NEXT spawn, so it must go whether or not
-        // a child was alive to kill. Clearing it only in the `Some` arm left
-        // stale keys behind exactly when `evict_agent_types` runs against an
-        // already-dead serve — the case that eviction exists to recover from.
-        self.clear_extra_env();
         match taken {
             Some(mut inst) => {
-                kill_serve_tree(&mut inst.child);
-                info!("opencode serve process group shut down");
-                true
+                if self.finish_process_group(&mut inst) {
+                    info!(generation_id = %self.generation_id, "opencode serve process group shut down");
+                    ShutdownOutcome::Stopped
+                } else {
+                    let pgid = inst.pgid;
+                    self.state.lock().replace(inst);
+                    ShutdownOutcome::Survived { pgid }
+                }
             }
-            None => false,
+            None => ShutdownOutcome::Idle,
         }
     }
 
     /// Ensure the global serve instance is up; returns a client for it.
     pub async fn ensure(&self) -> crate::error::Result<ServeClient> {
-        if let Some(client) = self.client_if_running() {
+        #[cfg(test)]
+        if let Some(client) = self.test_client.clone() {
+            return Ok(client);
+        }
+        if let Some(client) = self.client_if_running()? {
             return Ok(client);
         }
         let _guard = self.spawn_lock.lock().await;
-        if let Some(client) = self.client_if_running() {
+        if let Some(client) = self.client_if_running()? {
             return Ok(client);
+        }
+        if let Some(pgid) = self.registry.live_pgid(&self.generation_id) {
+            return Err(surviving_group_error(&self.generation_id, pgid));
         }
         self.spawn().await
     }
 
-    fn client_if_running(&self) -> Option<ServeClient> {
+    fn client_if_running(&self) -> crate::error::Result<Option<ServeClient>> {
         let mut guard = self.state.lock();
-        let inst = guard.as_mut()?;
+        let Some(inst) = guard.as_mut() else {
+            return Ok(None);
+        };
         match inst.child.try_wait() {
-            Ok(None) => Some(inst.client.clone()),
+            Ok(None) => Ok(Some(inst.client.clone())),
             other => {
                 warn!(exit = ?other, "opencode serve process is gone; will respawn");
-                *guard = None;
-                *self.active_env_fingerprint.lock() = None;
-                clear_opencode_pgid();
-                None
+                let mut inst = guard.take().expect("serve instance present");
+                if self.finish_process_group(&mut inst) {
+                    Ok(None)
+                } else {
+                    let pgid = inst.pgid;
+                    *guard = Some(inst);
+                    Err(surviving_group_error(&self.generation_id, pgid))
+                }
             }
         }
+    }
+
+    fn finish_process_group(&self, inst: &mut ServeInstance) -> bool {
+        if kill_serve_tree(&mut inst.child, inst.pgid) {
+            if let Err(error) = self.registry.unregister(&self.generation_id) {
+                warn!(
+                    generation_id = %self.generation_id,
+                    pgid = inst.pgid,
+                    %error,
+                    "failed to unregister dead opencode serve group"
+                );
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    fn register_spawned_group(
+        &self,
+        child: &mut tokio::process::Child,
+        pgid: u32,
+    ) -> crate::error::Result<()> {
+        self.registry
+            .register(&self.generation_id, pgid)
+            .map_err(|error| {
+                if !kill_serve_tree(child, pgid) {
+                    warn!(
+                        generation_id = %self.generation_id,
+                        pgid,
+                        "unregistered opencode serve group survived spawn cleanup"
+                    );
+                }
+                crate::error::AmuxError::Agent(format!(
+                    "register opencode serve process group: {error}"
+                ))
+            })
     }
 
     async fn spawn(&self) -> crate::error::Result<ServeClient> {
         let configured = self.binary_override.lock().clone();
         let binary = crate::opencode_install::resolve_binary(configured.as_deref());
-        // Capture one immutable env snapshot for this child. Configuration may
-        // change while health-checking; the active fingerprint must describe
-        // what the process actually inherited, not whatever is queued later.
-        let spawn_env = self.extra_env.lock().clone();
-        let spawn_env_fingerprint =
-            teamclu_runtime_env::resolved_env::fingerprint_bindings(&spawn_env);
         let port = pick_free_port()?;
         let base = format!("http://127.0.0.1:{port}");
 
@@ -327,14 +353,14 @@ impl ServeSupervisor {
             ),
         );
         cmd.env("OPENCODE_SERVER_PASSWORD", &self.password);
-        for (k, v) in &spawn_env {
+        for (k, v) in &self.extra_env {
             if std::env::var_os(k).is_none() {
                 cmd.env(k, v);
             }
         }
         // Last: OpenCode has a single OPENCODE_CONFIG. Point it at the
         // generated adapter so team MCP is in the process env from the first
-        // spawn (dispose cannot add this later).
+        // spawn so every host generation starts with the reconciled team config.
         if let Some(team_id) = crate::config::team_mcp::onboarded_team_id() {
             let _ = crate::runtime::team_cloud_config::sync_opencode_generated(&team_id);
             cmd.env(
@@ -353,13 +379,12 @@ impl ServeSupervisor {
             cmd.process_group(0);
         }
 
-        // If a prior kill_serve_tree left survivors (and kept the pgid file),
-        // reap that group before we overwrite the file with the new leader.
-        // Local helper — must not call `crate::cli` (integration tests compile
-        // runtime without the cli module).
-        reap_kept_opencode_pgid_before_spawn();
-
-        info!(binary = %binary, port, "spawning global opencode serve");
+        info!(
+            binary = %binary,
+            port,
+            generation_id = %self.generation_id,
+            "spawning opencode serve generation"
+        );
         let mut child = cmd.spawn().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 crate::error::agent_binary_missing(
@@ -370,11 +395,16 @@ impl ServeSupervisor {
                 crate::error::AmuxError::Agent(format!("spawn opencode serve ({binary}): {e}"))
             }
         })?;
-        if let Some(pid) = child.id() {
-            write_opencode_pgid(pid);
-        }
+        let pgid = child.id().ok_or_else(|| {
+            crate::error::AmuxError::Agent(
+                "spawned opencode serve did not expose a process id".into(),
+            )
+        })?;
+        self.register_spawned_group(&mut child, pgid)?;
+        let mut spawn_owner =
+            SpawnOwnershipGuard::new(&mut child, pgid, &self.generation_id, &self.registry);
 
-        if let Some(stdout) = child.stdout.take() {
+        if let Some(stdout) = spawn_owner.child_mut().stdout.take() {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
@@ -382,7 +412,7 @@ impl ServeSupervisor {
                 }
             });
         }
-        if let Some(stderr) = child.stderr.take() {
+        if let Some(stderr) = spawn_owner.child_mut().stderr.take() {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
@@ -397,14 +427,22 @@ impl ServeSupervisor {
             if client.health().await {
                 break;
             }
-            if let Ok(Some(status)) = child.try_wait() {
-                clear_opencode_pgid();
+            if let Ok(Some(status)) = spawn_owner.child_mut().try_wait() {
+                let group_dead = kill_serve_tree(spawn_owner.child_mut(), pgid);
+                spawn_owner.disarm();
+                if group_dead {
+                    let _ = self.registry.unregister(&self.generation_id);
+                }
                 return Err(crate::error::AmuxError::Agent(format!(
                     "opencode serve exited during startup: {status}"
                 )));
             }
             if started.elapsed() > HEALTH_TIMEOUT {
-                kill_serve_tree(&mut child);
+                let group_dead = kill_serve_tree(spawn_owner.child_mut(), pgid);
+                spawn_owner.disarm();
+                if group_dead {
+                    let _ = self.registry.unregister(&self.generation_id);
+                }
                 return Err(crate::error::AmuxError::Agent(
                     "opencode serve health check timed out".into(),
                 ));
@@ -413,27 +451,33 @@ impl ServeSupervisor {
         }
         info!(base = %base, ready_ms = started.elapsed().as_millis() as u64, "opencode serve ready");
 
-        *self.active_env_fingerprint.lock() = Some(spawn_env_fingerprint);
+        spawn_owner.disarm();
+        drop(spawn_owner);
         *self.state.lock() = Some(ServeInstance {
             child,
             client: client.clone(),
+            pgid,
         });
         Ok(client)
     }
 }
 
+fn surviving_group_error(generation_id: &str, pgid: u32) -> crate::error::AmuxError {
+    crate::error::AmuxError::Agent(format!(
+        "opencode serve process group {pgid} for generation {generation_id} is still alive after cleanup; refusing to respawn until cleanup succeeds"
+    ))
+}
+
 /// SIGTERM the serve process group, wait briefly, then SIGKILL the group.
 /// Children (MCP servers) inherit the group from `setpgid(0,0)` at spawn.
 ///
-/// The pgid file is only removed once the *whole group* is confirmed dead —
-/// a reaped leader with surviving MCP children must keep the file so
-/// `amuxd stop` or the next `spawn()` (`reap_kept_opencode_pgid_before_spawn`) can
-/// still find them.
-fn kill_serve_tree(child: &mut tokio::process::Child) {
+/// The generation registry entry is removed only once the *whole group* is
+/// confirmed dead. A reaped leader with surviving MCP children stays
+/// registered so `amuxd stop` can still find them.
+fn kill_serve_tree(child: &mut tokio::process::Child, pgid: u32) -> bool {
     #[cfg(unix)]
     {
-        if let Some(pid) = child.id() {
-            let pgid = pid as i32;
+        if let Ok(pgid) = i32::try_from(pgid) {
             unsafe {
                 let _ = libc::kill(-pgid, libc::SIGTERM);
             }
@@ -448,8 +492,7 @@ fn kill_serve_tree(child: &mut tokio::process::Child) {
                     }
                 }
                 if leader_reaped && !process_group_alive(pgid) {
-                    clear_opencode_pgid();
-                    return;
+                    return true;
                 }
                 if Instant::now() >= deadline {
                     break;
@@ -467,98 +510,49 @@ fn kill_serve_tree(child: &mut tokio::process::Child) {
                 std::thread::sleep(Duration::from_millis(50));
             }
             if process_group_alive(pgid) {
-                // Keep the pgid file: `amuxd stop` / next start can still reap.
                 warn!(
                     pgid,
-                    "opencode serve group survived SIGKILL; keeping pgid file"
+                    "opencode serve group survived SIGKILL; keeping registry entry"
                 );
-            } else {
-                clear_opencode_pgid();
             }
-            return;
+            return !process_group_alive(pgid);
         }
-        // No pid (already reaped by a previous wait): just clean up the handle.
         let _ = child.start_kill();
         let _ = child.try_wait();
-        clear_opencode_pgid();
+        true
     }
     #[cfg(windows)]
     {
         // taskkill /T terminates the whole child tree (serve + MCP children);
         // Child::start_kill alone would only hit the leader.
-        if let Some(pid) = child.id() {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/T", "/F"])
-                .output();
-        }
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pgid.to_string(), "/T", "/F"])
+            .output();
         let _ = child.start_kill();
         let _ = child.try_wait();
-        clear_opencode_pgid();
+        let deadline = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < deadline && windows_pid_alive(pgid) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        !windows_pid_alive(pgid)
     }
     #[cfg(not(any(unix, windows)))]
     {
         let _ = child.start_kill();
         let _ = child.try_wait();
-        clear_opencode_pgid();
+        false
     }
 }
 
-/// Reap a process group recorded in the pgid file before writing a new one.
-/// Kept intentionally inside this module so integration tests (which compile
-/// `runtime` without `cli`) still build.
-fn reap_kept_opencode_pgid_before_spawn() {
-    #[cfg(unix)]
-    {
-        let path = crate::config::DaemonConfig::opencode_serve_pgid_path();
-        let Ok(body) = std::fs::read_to_string(&path) else {
-            return;
-        };
-        let Ok(pgid) = body.trim().parse::<i32>() else {
-            let _ = std::fs::remove_file(&path);
-            return;
-        };
-        if pgid <= 1 {
-            let _ = std::fs::remove_file(&path);
-            return;
-        }
-        if process_group_alive(pgid) {
-            warn!(pgid, "reaping leftover opencode serve group before respawn");
-            unsafe {
-                let _ = libc::kill(-pgid, libc::SIGTERM);
-            }
-            let deadline = Instant::now() + Duration::from_millis(500);
-            while Instant::now() < deadline && process_group_alive(pgid) {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            if process_group_alive(pgid) {
-                unsafe {
-                    let _ = libc::kill(-pgid, libc::SIGKILL);
-                }
-                let kill_deadline = Instant::now() + Duration::from_millis(300);
-                while Instant::now() < kill_deadline && process_group_alive(pgid) {
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-            }
-        }
-        clear_opencode_pgid();
-    }
-    #[cfg(windows)]
-    {
-        let path = crate::config::DaemonConfig::opencode_serve_pgid_path();
-        let Ok(body) = std::fs::read_to_string(&path) else {
-            return;
-        };
-        let Ok(pid) = body.trim().parse::<u32>() else {
-            let _ = std::fs::remove_file(&path);
-            return;
-        };
-        if pid > 0 {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/T", "/F"])
-                .output();
-        }
-        clear_opencode_pgid();
-    }
+#[cfg(windows)]
+fn windows_pid_alive(pid: u32) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()
+        .is_some_and(|output| {
+            String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\""))
+        })
 }
 
 /// `kill(-pgid, 0)` succeeds while any member of the group exists.
@@ -570,200 +564,91 @@ fn process_group_alive(pgid: i32) -> bool {
     unsafe { libc::kill(-pgid, 0) == 0 }
 }
 
-fn write_opencode_pgid(pid: u32) {
-    let path = crate::config::DaemonConfig::opencode_serve_pgid_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Err(e) = std::fs::write(&path, pid.to_string()) {
-        warn!(error = %e, path = %path.display(), "failed to write opencode serve pgid");
-    }
-}
-
-fn clear_opencode_pgid() {
-    let path = crate::config::DaemonConfig::opencode_serve_pgid_path();
-    let _ = std::fs::remove_file(path);
-}
-
-impl Default for ServeSupervisor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
-    #[test]
-    fn merge_extra_env_force_overwrites_existing_keys() {
-        let serve = ServeSupervisor::new();
-        let mut first = HashMap::new();
-        first.insert("API_KEY".to_string(), "old".to_string());
-        serve.merge_extra_env(&first, false);
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn registration_failure_reaps_spawned_process_group() {
+        use std::os::unix::process::CommandExt;
 
-        let mut second = HashMap::new();
-        second.insert("API_KEY".to_string(), "new".to_string());
-        serve.merge_extra_env(&second, false);
-        assert_eq!(serve.cached_env_key_count(), 1);
+        let dir = tempfile::tempdir().unwrap();
+        let blocked_parent = dir.path().join("not-a-directory");
+        std::fs::write(&blocked_parent, "file").unwrap();
+        let registry = Arc::new(super::super::process_registry::ServeProcessRegistry::new(
+            blocked_parent.join("opencode-pgids.json"),
+        ));
+        let revision =
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&HashMap::new());
+        let serve = ServeSupervisor::new(
+            "gen-a".to_string(),
+            registry.clone(),
+            HashMap::new(),
+            revision,
+        );
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30 & wait")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pgid = child.id().unwrap();
 
-        serve.merge_extra_env(&second, true);
-        assert_eq!(serve.cached_env_key_count(), 1);
+        let error = serve.register_spawned_group(&mut child, pgid).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("register opencode serve process group"));
+        assert!(!process_group_alive(i32::try_from(pgid).unwrap()));
+        assert!(!registry.snapshot().contains_key("gen-a"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dropping_spawn_ownership_reaps_registered_process_group() {
+        use std::os::unix::process::CommandExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(super::super::process_registry::ServeProcessRegistry::new(
+            dir.path().join("opencode-pgids.json"),
+        ));
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30 & wait")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pgid = child.id().unwrap();
+        registry.register("gen-a", pgid).unwrap();
+
+        drop(SpawnOwnershipGuard::new(
+            &mut child,
+            pgid,
+            "gen-a",
+            registry.as_ref(),
+        ));
+
+        assert!(!process_group_alive(i32::try_from(pgid).unwrap()));
+        assert!(!registry.snapshot().contains_key("gen-a"));
     }
 
     #[test]
-    fn cached_env_keys_returns_sorted_key_names() {
-        let serve = ServeSupervisor::new();
-        let mut env = HashMap::new();
-        env.insert("Z_KEY".to_string(), "z".to_string());
-        env.insert("a_key".to_string(), "a".to_string());
-        serve.merge_extra_env(&env, false);
-        assert_eq!(
-            serve.cached_env_keys(),
-            vec!["a_key".to_string(), "Z_KEY".to_string()]
-        );
-    }
+    fn constructor_captures_immutable_process_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(super::super::process_registry::ServeProcessRegistry::new(
+            dir.path().join("opencode-pgids.json"),
+        ));
+        let env = HashMap::from([
+            ("API_KEY".to_string(), "secret".to_string()),
+            ("REGION".to_string(), "local".to_string()),
+        ]);
+        let revision = crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&env);
 
-    #[test]
-    fn shutdown_clears_cached_env() {
-        let serve = ServeSupervisor::new();
-        let mut env = HashMap::new();
-        env.insert("FOO".to_string(), "bar".to_string());
-        serve.merge_extra_env(&env, true);
-        assert_eq!(serve.cached_env_key_count(), 1);
-        assert!(!serve.shutdown());
-        assert_eq!(serve.cached_env_key_count(), 0);
-    }
+        let serve = ServeSupervisor::new("gen-a".to_string(), registry, env, revision.clone());
 
-    #[test]
-    fn install_snapshot_replaces_stale_keys_and_tracks_workspace() {
-        let serve = ServeSupervisor::new();
-        serve.install_env_snapshot(
-            "/workspace-a",
-            HashMap::from([
-                ("ONLY_A".to_string(), "a".to_string()),
-                ("SHARED".to_string(), "old".to_string()),
-            ]),
-        );
-
-        let fingerprint = serve.install_env_snapshot(
-            "/workspace-b",
-            HashMap::from([("SHARED".to_string(), "new".to_string())]),
-        );
-
-        assert_eq!(serve.cached_env_key_count(), 1);
-        assert_eq!(
-            serve.requested_env_fingerprint("/workspace-b"),
-            Some(fingerprint)
-        );
-    }
-
-    #[test]
-    fn configured_env_fingerprint_is_readable_after_install() {
-        let serve = ServeSupervisor::new();
-        let fingerprint = serve.install_env_snapshot(
-            "/workspace-a",
-            HashMap::from([("KEY".to_string(), "value".to_string())]),
-        );
-        assert_eq!(
-            serve.configured_env_fingerprint().as_deref(),
-            Some(fingerprint.as_str())
-        );
-    }
-
-    #[test]
-    fn pending_env_refresh_when_configured_differs_from_active() {
-        let serve = ServeSupervisor::new();
-        let active = serve.install_env_snapshot(
-            "/workspace-a",
-            HashMap::from([("KEY".to_string(), "old".to_string())]),
-        );
-        *serve.active_env_fingerprint.lock() = Some(active);
-        assert!(!serve.has_pending_env_refresh());
-
-        serve.install_env_snapshot(
-            "/workspace-a",
-            HashMap::from([("KEY".to_string(), "new".to_string())]),
-        );
-        assert!(serve.has_pending_env_refresh());
-    }
-
-    #[test]
-    fn shutdown_preserving_configured_env_keeps_queued_snapshot() {
-        let serve = ServeSupervisor::new();
-        let fingerprint = serve.install_env_snapshot(
-            "/workspace-a",
-            HashMap::from([("KEY".to_string(), "new".to_string())]),
-        );
-        *serve.active_env_fingerprint.lock() = Some("stale-active".to_string());
-        assert!(serve.has_pending_env_refresh());
-
-        assert!(!serve.shutdown_preserving_configured_env());
-        assert_eq!(serve.cached_env_key_count(), 1);
-        assert_eq!(
-            serve.configured_env_fingerprint().as_deref(),
-            Some(fingerprint.as_str())
-        );
-        assert!(serve.active_env_fingerprint().is_none());
-        assert!(!serve.has_pending_env_refresh());
-    }
-
-    #[test]
-    fn apply_pending_env_if_idle_only_when_routes_empty_and_pending() {
-        let serve = ServeSupervisor::new();
-        serve.install_env_snapshot(
-            "/workspace-a",
-            HashMap::from([("KEY".to_string(), "new".to_string())]),
-        );
-        *serve.active_env_fingerprint.lock() = Some("stale-active".to_string());
-
-        assert!(!serve.apply_pending_env_if_idle(false));
-        assert!(serve.has_pending_env_refresh());
-        assert_eq!(serve.cached_env_key_count(), 1);
-
-        assert!(serve.apply_pending_env_if_idle(true));
-        assert!(!serve.has_pending_env_refresh());
-        assert_eq!(serve.cached_env_key_count(), 1);
-        assert!(serve.active_env_fingerprint().is_none());
-    }
-
-    #[test]
-    fn snapshot_conflict_is_non_secret_workspace_metadata() {
-        let serve = ServeSupervisor::new();
-        serve.record_requested_env_fingerprint("/workspace-b", "fingerprint-b");
-        serve.record_requested_env_fingerprint("/workspace-c", "fingerprint-c");
-        *serve.active_env_fingerprint.lock() = Some("fingerprint-a".to_string());
-        serve.mark_snapshot_conflict("/workspace-b");
-        serve.mark_snapshot_conflict("/workspace-c");
-        assert_eq!(
-            serve.snapshot_conflict_workspace("/workspace-b").as_deref(),
-            Some("/workspace-b")
-        );
-        serve.clear_snapshot_conflict("/workspace-b");
-        assert!(serve.snapshot_conflict_workspace("/workspace-b").is_none());
-        assert_eq!(
-            serve.snapshot_conflict_workspace("/workspace-c").as_deref(),
-            Some("/workspace-c")
-        );
-    }
-
-    #[test]
-    fn host_switch_preserves_other_workspace_conflicts() {
-        let serve = ServeSupervisor::new();
-        serve.record_requested_env_fingerprint("/workspace-b", "fingerprint-b");
-        serve.record_requested_env_fingerprint("/workspace-c", "fingerprint-c");
-        *serve.active_env_fingerprint.lock() = Some("fingerprint-a".to_string());
-        serve.mark_snapshot_conflict("/workspace-b");
-        serve.mark_snapshot_conflict("/workspace-c");
-
-        serve.shutdown();
-        assert!(serve.snapshot_conflict_workspace("/workspace-c").is_none());
-
-        *serve.active_env_fingerprint.lock() = Some("fingerprint-b".to_string());
-        assert!(serve.snapshot_conflict_workspace("/workspace-b").is_none());
-        assert_eq!(
-            serve.snapshot_conflict_workspace("/workspace-c").as_deref(),
-            Some("/workspace-c")
-        );
+        assert_eq!(serve.process_env_revision(), &revision);
+        assert_eq!(serve.cached_env_key_count(), 2);
     }
 }

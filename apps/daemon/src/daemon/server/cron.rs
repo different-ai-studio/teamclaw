@@ -136,14 +136,20 @@ impl DaemonServer {
     ) -> anyhow::Result<(String, String, String, Duration)> {
         let parsed = parse_prompt_await_payload(payload)?;
 
-        let working_directory = match parsed.working_directory.filter(|s| !s.is_empty()) {
-            Some(dir) => dir.to_string(),
-            None => self.resolve_cron_default_workspace().await.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no working directory: configure a default workspace in Daemon > Workspace settings"
-                )
-            })?,
-        };
+        let permission = crate::runtime::PermissionPolicy::from_wire(
+            parsed.permission_mode,
+            crate::runtime::PermissionPolicy::Full,
+        );
+        let context = self
+            .assemble_execution_context(
+                parsed.working_directory.unwrap_or_default(),
+                parsed.workspace_root,
+                None,
+                true,
+                Some(permission),
+            )
+            .await
+            .map_err(anyhow::Error::msg)?;
 
         // The daemon must have been onboarded (team_id present) before any
         // cron prompt can be honored — the gateway-session model expects a
@@ -191,41 +197,16 @@ impl DaemonServer {
                 .and_then(agent_type_from_name)
                 .map(|requested| resolve_requested_agent_type(&self.config, requested));
 
-            let mut mgr = self.agents.lock().await;
-            let acp_sid = mgr
-                .create_gateway_session_with_model(
+            let acp_sid = self
+                .create_cron_gateway_session(
                     &team_id,
-                    parsed.session_key,                        // logical id
-                    &format!("cron://{}", parsed.session_key), // binding
-                    "cron",                                    // title (display only)
+                    parsed.session_key,
+                    &sb_sid,
                     parsed.model_override.clone(),
-                    Some(&sb_sid), // bind AgentReply to the cloud session
-                    Some(working_directory.as_str()),
+                    context,
                     agent_type_override,
-                    // Unchanged from before this parameter existed. Cron has
-                    // the same cold-start exposure as the gateway did (a
-                    // cron-first launch starts `opencode serve` with no team
-                    // providers), but resolving a cron job's workspace_id —
-                    // which is what the team-LLM lookup keys on — is a
-                    // separate piece of work.
-                    crate::runtime::SpawnRuntimeEnv {
-                        is_gateway: true,
-                        // Cron runs unattended: nobody can answer a permission
-                        // prompt, and a pending one is not seen as a stalled
-                        // turn, so an "ask" job simply burns its timeout. Full
-                        // access is the default; a job may still opt back into
-                        // asking, which is only useful when a human is
-                        // watching the session live.
-                        permission: Some(crate::runtime::PermissionPolicy::from_wire(
-                            parsed.permission_mode,
-                            crate::runtime::PermissionPolicy::Full,
-                        )),
-                        ..Default::default()
-                    },
                 )
-                .await
-                .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))?;
-            drop(mgr);
+                .await?;
 
             tracing::debug!(
                 session_key = %parsed.session_key,
@@ -265,6 +246,48 @@ impl DaemonServer {
             parsed.message.to_string(),
             Duration::from_secs(parsed.timeout_secs),
         ))
+    }
+
+    async fn create_cron_gateway_session(
+        &mut self,
+        team_id: &str,
+        session_key: &str,
+        remote_session_id: &str,
+        model_override: Option<(String, String)>,
+        context: crate::runtime::execution_context::ExecutionContext,
+        agent_type_override: Option<crate::proto::amux::AgentType>,
+    ) -> anyhow::Result<String> {
+        self.agents
+            .lock()
+            .await
+            .create_gateway_session_with_model(
+                team_id,
+                session_key,
+                &format!("cron://{session_key}"),
+                "cron",
+                model_override,
+                Some(remote_session_id),
+                context,
+                agent_type_override,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))
+    }
+
+    #[cfg(test)]
+    pub(super) async fn create_cron_gateway_session_for_propagation_test(
+        &mut self,
+        context: crate::runtime::execution_context::ExecutionContext,
+    ) -> anyhow::Result<String> {
+        self.create_cron_gateway_session(
+            "team-test",
+            "cron/cross-entry/run",
+            "cloud-cron-cross-entry",
+            None,
+            context,
+            Some(crate::proto::amux::AgentType::Opencode),
+        )
+        .await
     }
 
     /// Handle a `prompt-await` sock command. Runs the (fast) setup inline, then
@@ -812,7 +835,10 @@ mod tests {
     use crate::backend::{AgentDefaults, Backend, WorkspaceRow};
     use crate::daemon::server::tests::test_server_with_cloud_api;
     use crate::daemon::server::DaemonServer;
+    use crate::runtime::execution_context::IsolationDomainKey;
+    use crate::runtime::PermissionPolicy;
     use std::sync::Arc;
+    use teamclu_runtime_env::team_crypto::{self, SecretEntry};
 
     #[test]
     fn cron_job_id_parsed_from_session_key() {
@@ -869,6 +895,214 @@ mod tests {
             .await
             .expect("should resolve agent default workspace");
         assert_eq!(resolved, dir.path().to_string_lossy().to_string());
+    }
+
+    #[tokio::test]
+    async fn resolve_cron_default_workspace_context_inherits_parent_domain_and_full_environment() {
+        let workspace = tempfile::tempdir().unwrap();
+        let worktree = workspace.path().join(".worktrees/cron-j1-r1");
+        std::fs::create_dir_all(&worktree).unwrap();
+
+        let team_secret = "6a".repeat(32);
+        let config_dir = teamclu_runtime_env::workspace_meta_dir_from_env(workspace.path());
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("teamclu.json"),
+            serde_json::json!({ "team": { "envSecret": team_secret } }).to_string(),
+        )
+        .unwrap();
+        let secrets_dir = workspace.path().join("teamclu-team/_secrets");
+        std::fs::create_dir_all(&secrets_dir).unwrap();
+        let key = team_crypto::derive_key(&team_secret).unwrap();
+        let envelope = team_crypto::encrypt_secret(
+            &SecretEntry {
+                key_id: "cron_parent_workspace_sentinel".into(),
+                key: "from-parent".into(),
+                ..Default::default()
+            },
+            &key,
+        )
+        .unwrap();
+        std::fs::write(
+            secrets_dir.join("cron_parent_workspace_sentinel.enc.json"),
+            serde_json::to_vec(&envelope).unwrap(),
+        )
+        .unwrap();
+
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        {
+            let mut state = mock.state();
+            state.workspaces_by_id.insert(
+                "ws-default".into(),
+                WorkspaceRow {
+                    id: "ws-default".into(),
+                    team_id: "team-test".into(),
+                    path: Some(workspace.path().to_string_lossy().into_owned()),
+                    archived: false,
+                    agent_id: None,
+                },
+            );
+        }
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let test_server = test_server_with_cloud_api(backend);
+
+        let context = test_server
+            .server
+            .assemble_execution_context(
+                worktree.to_string_lossy().as_ref(),
+                Some(workspace.path().to_string_lossy().as_ref()),
+                None,
+                true,
+                Some(PermissionPolicy::Full),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            context.isolation_domain,
+            IsolationDomainKey::Workspace("ws-default".into())
+        );
+        assert_eq!(context.working_directory, worktree);
+        assert_eq!(
+            context
+                .spawn_env
+                .extra_env
+                .get("CRON_PARENT_WORKSPACE_SENTINEL")
+                .map(String::as_str),
+            Some("from-parent")
+        );
+        assert!(context.spawn_env.is_gateway);
+        assert_eq!(
+            context.spawn_env.permission_policy(),
+            PermissionPolicy::Full
+        );
+    }
+
+    #[tokio::test]
+    async fn cron_gateway_spawn_reaches_workspace_host_pool() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        mock.state().workspaces_by_id.insert(
+            "workspace-b".into(),
+            WorkspaceRow {
+                id: "workspace-b".into(),
+                team_id: "team-test".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let mut test_server = test_server_with_cloud_api(backend);
+        let pool = crate::runtime::test_support::test_host_pool();
+        let desktop_env =
+            std::collections::HashMap::from([("SENTINEL".to_string(), "A".to_string())]);
+        let desktop = pool
+            .acquire(
+                IsolationDomainKey::Workspace("workspace-a".into()),
+                crate::runtime::execution_context::ProcessEnvRevision::from_bindings(&desktop_env),
+                desktop_env,
+                std::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+        let captures = {
+            let mut manager = test_server.server.agents.lock().await;
+            crate::runtime::test_support::install_pool_capturing_backend(&mut manager, pool.clone())
+        };
+        let context = test_server
+            .server
+            .assemble_execution_context(
+                workspace.path().to_string_lossy().as_ref(),
+                None,
+                Some("workspace-b"),
+                true,
+                Some(PermissionPolicy::Full),
+            )
+            .await
+            .unwrap();
+        let expected_revision =
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(
+                &context.spawn_env.extra_env,
+            );
+        let expected_env = context.spawn_env.extra_env.clone();
+
+        test_server
+            .server
+            .create_cron_gateway_session(
+                "team-test",
+                "cron/job-a/run-a",
+                "cloud-session-a",
+                None,
+                context,
+                Some(crate::proto::amux::AgentType::Opencode),
+            )
+            .await
+            .unwrap();
+
+        let captures = captures.lock().unwrap();
+        assert_eq!(captures.len(), 1);
+        assert_eq!(
+            captures[0].domain,
+            IsolationDomainKey::Workspace("workspace-b".into())
+        );
+        assert_eq!(captures[0].working_directory, workspace.path());
+        assert_eq!(captures[0].process_env_revision, expected_revision);
+        assert_eq!(captures[0].extra_env, expected_env);
+        assert_eq!(captures[0].permission, PermissionPolicy::Full);
+        drop(captures);
+
+        let desktop_stats = pool.stats_for(&IsolationDomainKey::Workspace("workspace-a".into()));
+        let cron_stats = pool.stats_for(&IsolationDomainKey::Workspace("workspace-b".into()));
+        assert_eq!(desktop_stats.current_routes, 1);
+        assert_eq!(cron_stats.current_routes, 1);
+        assert_ne!(
+            desktop_stats.current_generation,
+            cron_stats.current_generation
+        );
+        assert_eq!(desktop.generation.route_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn resolve_cron_default_workspace_context_rejects_unrelated_execution_directory() {
+        let workspace = tempfile::tempdir().unwrap();
+        let unrelated = tempfile::tempdir().unwrap();
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        {
+            let mut state = mock.state();
+            state.workspaces_by_id.insert(
+                "ws-default".into(),
+                WorkspaceRow {
+                    id: "ws-default".into(),
+                    team_id: "team-test".into(),
+                    path: Some(workspace.path().to_string_lossy().into_owned()),
+                    archived: false,
+                    agent_id: None,
+                },
+            );
+        }
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let test_server = test_server_with_cloud_api(backend);
+
+        let result = test_server
+            .server
+            .assemble_execution_context(
+                unrelated.path().to_string_lossy().as_ref(),
+                Some(workspace.path().to_string_lossy().as_ref()),
+                None,
+                true,
+                Some(PermissionPolicy::Full),
+            )
+            .await;
+        let error = match result {
+            Ok(_) => panic!("unrelated execution directory must not borrow workspace identity"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error.contains("working directory") && error.contains("workspace"),
+            "unexpected error: {error}"
+        );
     }
 
     #[tokio::test]

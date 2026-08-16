@@ -3,6 +3,7 @@ pub mod backend;
 pub mod claude_agent;
 mod claude_skills;
 pub mod cursor_sdk;
+pub mod execution_context;
 pub mod opencode_http;
 pub mod pi_rpc;
 // Compatibility alias: external modules still reach the runtime backend as
@@ -23,6 +24,8 @@ pub mod sidecar;
 pub mod supervisor;
 pub mod team_cloud_config;
 pub mod team_skills;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod turn_aggregator;
 mod workspace_runtime;
 
@@ -32,8 +35,8 @@ pub use instruction_delivery::{
     resolve_instruction_delivery, skips_buffered_inject, InstructionDelivery,
 };
 pub use manager::{
-    restore_gateway_shape_for_resume, AgentLaunchConfig, CheckedOutTurn, RuntimeManager,
-    SpawnRuntimeEnv,
+    is_gateway_workspace_id, restore_gateway_shape_for_resume, AgentLaunchConfig, CheckedOutTurn,
+    RuntimeManager, SpawnRuntimeEnv,
 };
 pub use permission_policy::PermissionPolicy;
 // Kept importable for external callers/tests even though in-crate code now

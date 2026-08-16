@@ -1,5 +1,9 @@
 import { getBackend } from '@/lib/backend'
 import { workspacePathsMatch } from '@/stores/session-utils'
+import {
+  cachedDefaultWorkspaceId,
+  rememberDefaultWorkspaceId,
+} from '@/stores/agent-default-workspace-store'
 
 /** Inputs for picking the cloud workspace id sent in runtimeStart. */
 export type AgentWorkspaceLookup = {
@@ -168,6 +172,15 @@ export async function resolveCloudWorkspaceIdForAgents(
 /**
  * Resolve or create the cloud workspace UUID for runtimeStart.workspaceId.
  * Never returns a filesystem path.
+ *
+ * Deliberately resolves **live only**, unlike
+ * `resolveSessionWorkspaceHintForRuntimeStart`. Here a non-empty answer is an
+ * existence claim — "this path already has a cloud workspace, don't create one"
+ * — and a remembered id from a previous run cannot support that claim. Reading
+ * the cache here suppressed `createDaemonWorkspace` for a directory that had no
+ * workspace at all, leaving the runtime bound to one whose path is somewhere
+ * else entirely. The cache exists to avoid a slow start, not to answer whether
+ * a row exists.
  */
 export async function ensureCloudWorkspaceIdForAgentRuntime(args: {
   teamId: string
@@ -179,14 +192,19 @@ export async function ensureCloudWorkspaceIdForAgentRuntime(args: {
   const agentActorId = args.agentActorId.trim()
   if (!agentActorId || !args.teamId.trim()) return ''
 
-  const fromHint = await resolveSessionWorkspaceHintForRuntimeStart({
-    teamId: args.teamId,
-    localWorkspacePath: args.localWorkspacePath,
-    sessionId: args.sessionId,
-    agentActorIds: [agentActorId],
-    localDaemonActorId: args.localWorkspacePath?.trim() ? agentActorId : null,
-  })
-  if (fromHint) return fromHint
+  const fromLive = await resolveLiveWorkspaceHint(
+    {
+      teamId: args.teamId,
+      localWorkspacePath: args.localWorkspacePath,
+      sessionId: args.sessionId,
+      localDaemonActorId: args.localWorkspacePath?.trim() ? agentActorId : null,
+    },
+    [agentActorId],
+  )
+  if (fromLive) {
+    rememberDefaultWorkspaceId([agentActorId], fromLive)
+    return fromLive
+  }
 
   const path = args.localWorkspacePath?.trim()
   if (!path) return ''
@@ -200,7 +218,11 @@ export async function ensureCloudWorkspaceIdForAgentRuntime(args: {
       name,
       path,
     })
-    return created.id?.trim() || ''
+    const id = created.id?.trim() || ''
+    // A workspace we just created is as live as it gets — seed the cache with
+    // it so the next send skips the lookup round trip.
+    if (id) rememberDefaultWorkspaceId([agentActorId], id)
+    return id
   } catch {
     return ''
   }
@@ -220,6 +242,31 @@ export async function resolveSessionWorkspaceHintForRuntimeStart(args: {
   localDaemonActorId?: string | null
 }): Promise<string> {
   const agentActorIds = [...new Set((args.agentActorIds ?? []).map((id) => id.trim()).filter(Boolean))]
+  const live = await resolveLiveWorkspaceHint(args, agentActorIds)
+  if (live) {
+    // Live value wins and refreshes the cache. This is server-owned config, so
+    // the cache must never get ahead of it (see the store's ordering note).
+    rememberDefaultWorkspaceId(agentActorIds, live)
+    return live
+  }
+  // Nothing live. An empty hint makes the daemon skip its workspace resolver
+  // and start in whatever worktree the client passed — measured cost is a full
+  // backend cold start in the wrong directory, superseded seconds later when
+  // the real id lands. A remembered default from a previous run is a far better
+  // guess than none.
+  return cachedDefaultWorkspaceId(agentActorIds)
+}
+
+/** The original chain: session binding → local path → per-agent lookups. */
+async function resolveLiveWorkspaceHint(
+  args: {
+    teamId: string
+    localWorkspacePath?: string | null
+    sessionId?: string
+    localDaemonActorId?: string | null
+  },
+  agentActorIds: string[],
+): Promise<string> {
 
   const localPath = args.localWorkspacePath?.trim()
   const localDaemonActorId = args.localDaemonActorId?.trim()

@@ -388,6 +388,23 @@ fn default_claude_binary() -> String {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ChannelsConfig {
+    /// Model every gateway session starts on, as a `provider/model` ref.
+    ///
+    /// Gateway-level rather than per-platform: the platforms differ in how a
+    /// message arrives, not in what should answer it, and a per-platform field
+    /// would be seven settings to keep in sync for one decision.
+    ///
+    /// Before this existed a gateway session started **unpinned** — the backend
+    /// picked, and attach-time resolution fell back to the device MRU, so the
+    /// same chat answered on a different model depending on which directory the
+    /// daemon happened to spawn in. ADR-0007 removes that MRU, so the choice has
+    /// to be stated somewhere; this is where.
+    ///
+    /// `None` keeps the old unpinned behaviour, which is what an existing
+    /// team.toml deserializes to — the setting is additive, not a hard cutover.
+    /// A chat's own `/model` still wins for that session.
+    #[serde(default)]
+    pub model: Option<String>,
     #[serde(default)]
     pub discord: Option<DiscordChannel>,
     #[serde(default)]

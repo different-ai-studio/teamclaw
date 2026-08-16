@@ -1940,12 +1940,32 @@ export function createSupabaseBusinessRepository(options) {
     // --- Directory resolution (frontend supabase delegate parity) ---
 
     async resolveCallerActorForTeam(teamId) {
-      // Resolve the bearer caller's member actor in this team (not any member).
+      // Resolve the bearer caller's actor in this team, member OR agent. The
+      // daemon authenticates as an "agent" actor (its machine-bound identity),
+      // and team MCP / team skills / team env must resolve that actor so the
+      // daemon can install/read them — `resolveCurrentMemberActor` below is
+      // member-only and is reserved for the human member directory.
       const { data: userData, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr;
       const userId = userData?.user?.id;
       if (!userId) return null;
-      return this.resolveCurrentMemberActor(teamId, userId);
+      return this.resolveCurrentActor(teamId, userId);
+    },
+
+    // The caller's single actor in this team regardless of `actor_type`.
+    // `actors_team_user_idx` guarantees at most one actor per (team, user), so
+    // this is unambiguous: a human resolves to their member actor, a daemon
+    // resolves to its agent actor.
+    async resolveCurrentActor(teamId, userId) {
+      const { data, error } = await supabase
+        .from("actors")
+        .select("id")
+        .eq("team_id", teamId)
+        .eq("user_id", userId)
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data ? { id: data.id } : null;
     },
 
     async resolveCurrentMemberActor(teamId, userId) {
@@ -2517,6 +2537,23 @@ export function createSupabaseBusinessRepository(options) {
           last_processed_message_id: lastProcessedMessageId,
           updated_at: new Date().toISOString(),
         })
+        .eq("session_id", sessionId)
+        .eq("actor_id", actorId);
+      if (error) throw error;
+    },
+
+    /**
+     * Which model this agent runs on in this session.
+     *
+     * The column landed with the ADR-0005 migration alongside `workspace_id`
+     * and the cursor, but only those two got writers: `model` was backfilled
+     * from `agent_runtimes.current_model` and then never touched again, so
+     * every reader trusting the ADR got a frozen value. This is that writer.
+     */
+    async updateParticipantModel(sessionId, actorId, { model }) {
+      const { error } = await supabase
+        .from("session_participants")
+        .update({ model, updated_at: new Date().toISOString() })
         .eq("session_id", sessionId)
         .eq("actor_id", actorId);
       if (error) throw error;

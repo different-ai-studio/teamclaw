@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
@@ -8,11 +8,12 @@ use uuid::Uuid;
 use super::agent_runtime_state::PerAgentRuntimeState;
 use super::backend::{agent_type_for_local_agent, create_backend, AgentBackend};
 use super::builtin_commands::builtin_commands;
+use super::execution_context::{ExecutionContext, IsolationDomainKey, ProcessEnvRevision};
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
 
 use crate::backend::Backend;
-use crate::config::{DaemonConfig, DeviceModelCatalog, ModelMru};
+use crate::config::{DaemonConfig, DeviceModelCatalog};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 use crate::runtime::permission_policy::PermissionPolicy;
@@ -231,7 +232,7 @@ pub struct RuntimeManager {
     launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
     /// Local agent backend selected by daemon config `agents.local_agent`
     /// (`opencode` / `pi` / `cursor` / `claude-code` via `dyn AgentBackend`).
-    agent_backend: Arc<AsyncMutex<Box<dyn AgentBackend>>>,
+    pub(super) agent_backend: Arc<AsyncMutex<Box<dyn AgentBackend>>>,
     /// The agent type `agents.local_agent` resolved to — the same value
     /// [`create_backend`] dispatched on when building `agent_backend`.
     ///
@@ -245,21 +246,13 @@ pub struct RuntimeManager {
     /// Daemon-side mirror of per-agent ACP state (current model + last-announced
     /// slash commands) used to populate `RuntimeInfo`. See `agent_runtime_state`.
     agent_state: PerAgentRuntimeState,
-    /// Recently-used models for this device, newest first. Consulted when a
-    /// runtime starts without a more specific pick, so gateway and cron
-    /// sessions inherit the same default the desktop has been using instead of
-    /// each surface guessing on its own. See `config::model_mru`.
-    model_mru: ModelMru,
-    /// Where [`Self::model_mru`] is persisted. Split out so tests can point at
-    /// a tempdir instead of the real config directory.
-    model_mru_path: PathBuf,
     /// Last-known model catalog per (backend, worktree) for this device. The
     /// catalog belongs to the one global `opencode serve` / pi / cursor child,
     /// not to any single binding — see `config::model_catalog` for why storing
     /// it per-handle produced sessions that could never leave 连接中.
     model_catalog: DeviceModelCatalog,
     /// Where [`Self::model_catalog`] is persisted (same test-isolation split as
-    /// `model_mru_path`).
+    /// the model catalog path).
     model_catalog_path: PathBuf,
     backend: Option<Arc<dyn Backend>>,
     /// agent_ids that were stopped by the idle sweeper and still need their
@@ -305,12 +298,11 @@ impl RuntimeManager {
         self.refresh_coordinator = Some(coordinator);
     }
 
-    /// Shared global `opencode serve` supervisor (settings/OAuth + chat).
-    /// `None` when the local agent backend is not opencode HTTP (e.g. pi).
-    pub async fn opencode_serve_supervisor(
+    /// Shared OpenCode host pool used by chat and workspace services.
+    pub async fn opencode_host_pool(
         &self,
-    ) -> Option<Arc<crate::runtime::opencode_http::supervisor::ServeSupervisor>> {
-        self.agent_backend.lock().await.opencode_serve_supervisor()
+    ) -> Option<Arc<crate::runtime::opencode_http::host_pool::OpenCodeHostPool>> {
+        self.agent_backend.lock().await.opencode_host_pool()
     }
 
     pub fn agent_backend_handle(&self) -> Arc<AsyncMutex<Box<dyn AgentBackend>>> {
@@ -335,11 +327,6 @@ impl RuntimeManager {
         // should still exercise the record-and-save path, so give each manager
         // its own throwaway file instead of stubbing the store out.
         #[cfg(test)]
-        let model_mru_path = std::env::temp_dir()
-            .join("amuxd-test-model-mru")
-            .join(format!("{}.toml", Uuid::new_v4()));
-        #[cfg(not(test))]
-        let model_mru_path = ModelMru::default_path();
         #[cfg(test)]
         let model_catalog_path = std::env::temp_dir()
             .join("amuxd-test-model-catalog")
@@ -354,8 +341,6 @@ impl RuntimeManager {
             default_agent_type: agent_type_for_local_agent(local_agent),
             opencode_snapshots: HashMap::new(),
             agent_state: PerAgentRuntimeState::new(),
-            model_mru: ModelMru::load(&model_mru_path),
-            model_mru_path,
             model_catalog: DeviceModelCatalog::load(&model_catalog_path),
             model_catalog_path,
             backend,
@@ -454,6 +439,28 @@ impl RuntimeManager {
             .await;
     }
 
+    pub async fn prewarm_agent_backend_for_workspace(
+        &mut self,
+        workspace_id: &str,
+        extra_env: HashMap<String, String>,
+        force_env_override: bool,
+        worktree: &str,
+    ) {
+        let revision = ProcessEnvRevision::from_bindings(&extra_env);
+        self.agent_backend
+            .lock()
+            .await
+            .prewarm_workspace(
+                &self.launch_configs,
+                IsolationDomainKey::Workspace(workspace_id.to_string()),
+                revision,
+                extra_env,
+                force_env_override,
+                worktree,
+            )
+            .await;
+    }
+
     /// Records the latest slash-command list for an agent. Callers feed this
     /// from translated `AvailableCommands` events (e.g. messaging path /
     /// backend event translators) so `to_proto_info` can include them in
@@ -481,72 +488,84 @@ impl RuntimeManager {
     /// this one spot keeps the shared list honest without scattering writes.
     ///
     /// Recorded under the runtime's backend, since model ids only mean
-    /// anything within one (see `config::model_mru`). A runtime that has
+    /// anything within one. A runtime that has
     /// already been dropped from `agents` falls back to the daemon default,
     /// which is the backend it would have been running on.
     pub fn set_current_model(&mut self, agent_id: &str, model_id: &str) {
+        // Whether this is a real change, decided *before* `set_model` overwrites
+        // it. Attach-time resolution re-applies the same value on every runtime
+        // start, so without this the cloud write below would fire once per
+        // spawn with nothing new to say.
+        let changed = self.agent_state.model(agent_id).map(String::as_str) != Some(model_id);
+
         self.agent_state.set_model(agent_id, model_id);
-        let backend = self.backend_id_for_runtime(agent_id);
-        // Catalogs differ per worktree (68–72 models for the same opencode on
-        // one device), so the choice is attributed to the directory it was made
-        // in. A runtime already dropped from `agents` has no worktree to name,
-        // and records device-wide only.
-        let worktree = self
-            .agents
-            .get(agent_id)
-            .map(|h| h.worktree.clone())
-            .unwrap_or_default();
-        if self.model_mru.record(backend, &worktree, model_id) {
-            if let Err(e) = self.model_mru.save(&self.model_mru_path) {
-                // A lost preference is not worth failing a runtime start over.
-                warn!(error = %e, "model MRU save failed");
-            }
+        if changed {
+            self.persist_participant_model(agent_id, model_id);
         }
     }
 
-    /// Ask the backend what model it actually ran this runtime's session on,
-    /// and fold the answer into the device MRU.
+    /// Mirror a settled model onto `session_participants.model` (ADR-0005),
+    /// which is the authoritative answer to "what model does this session run
+    /// on" and the one every client reads (ADR-0007).
     ///
-    /// Closes the loop opened by starting runtimes unpinned: when nothing was
-    /// chosen we hand the decision to the backend, so without asking afterwards
-    /// the MRU on a fresh install would stay empty forever and every surface
-    /// would keep falling through to the backend's default. Call once a turn
-    /// has completed — before that the backend has not settled on anything.
+    /// Fire-and-forget on purpose. The cursor write in `messaging.rs` can await
+    /// its backend call because it already sits in an async handler; this is a
+    /// sync method reached from six call sites, several of them on the runtime
+    /// start path. Blocking any of them on a cloud round trip to persist a
+    /// display value would trade a correct field for a slower spawn.
     ///
-    /// No-op when the backend cannot report a model, or when it reports one we
-    /// already have at the front.
-    pub async fn learn_session_model(&mut self, agent_id: &str) {
-        let Some((worktree, backend_session_id)) = self
-            .agents
-            .get(agent_id)
-            .map(|h| (h.worktree.clone(), h.acp_session_id.clone()))
+    /// Skipped when there is no backend (tests, offline daemon) or when the
+    /// attachment carries no session / actor to address the row by —
+    /// `owner_actor_id` is stamped by the env snapshot and back-filled in
+    /// `runtime_lifecycle`, so it is briefly empty on a cold attach.
+    fn persist_participant_model(&self, runtime_id: &str, model_id: &str) {
+        let Some(backend) = self.backend.clone() else {
+            return;
+        };
+        let Some((session_id, actor_id, model)) =
+            self.participant_model_write(runtime_id, model_id)
         else {
             return;
         };
-        if backend_session_id.is_empty() {
-            return;
+
+        tokio::spawn(async move {
+            if let Err(e) = backend
+                .update_participant_model(&session_id, &actor_id, &model)
+                .await
+            {
+                // A stale display value is not worth failing anything over; the
+                // next model change re-attempts it.
+                warn!(?e, session_id, "update_participant_model failed");
+            }
+        });
+    }
+
+    /// The `(session, actor, model)` a participant-model write would target, or
+    /// `None` when this runtime cannot address a row.
+    ///
+    /// Split out from the spawn above so the decision is testable without
+    /// waiting on a detached task — the addressing is the part that has a
+    /// wrong answer available (see `owner_actor_id` vs `agent_id`), the spawn
+    /// is glue.
+    fn participant_model_write(
+        &self,
+        runtime_id: &str,
+        model_id: &str,
+    ) -> Option<(String, String, String)> {
+        let handle = self.agents.get(runtime_id)?;
+        let session_id = handle.session_id.trim();
+        // The cloud row is keyed by the *actor*, not by `agent_id` — that one is
+        // the 8-char spawn key and means nothing to Supabase.
+        let actor_id = handle.owner_actor_id.trim();
+        let model = model_id.trim();
+        if session_id.is_empty() || actor_id.is_empty() || model.is_empty() {
+            return None;
         }
-        let backend = self.backend_id_for_runtime(agent_id);
-        if self
-            .model_mru
-            .recent_for(backend)
-            .first()
-            .is_some_and(|current| self.agent_state.model(agent_id) == Some(current))
-        {
-            // Already the front entry for this backend and this runtime's
-            // tracked model — nothing to learn, skip the round trip.
-            return;
-        }
-        let Some(model_id) = self
-            .agent_backend
-            .lock()
-            .await
-            .session_model(&worktree, &backend_session_id)
-            .await
-        else {
-            return;
-        };
-        self.set_current_model(agent_id, &model_id);
+        Some((
+            session_id.to_string(),
+            actor_id.to_string(),
+            model.to_string(),
+        ))
     }
 
     /// Canonical backend id (`"opencode"` / `"pi"`) a runtime runs on.
@@ -557,17 +576,6 @@ impl RuntimeManager {
             .map(|h| h.agent_type)
             .unwrap_or_else(|| self.default_agent_type());
         self.launch_config_for(agent_type).backend_type
-    }
-
-    /// Device MRU for the backend `agent_type` would run on (`None` = the
-    /// daemon default). Lets surfaces that only render a prefix of the catalog
-    /// — the gateway's `/model`, say — put the models this device actually
-    /// uses at the front instead of whatever sorts first alphabetically.
-    pub fn recent_models(&self, agent_type: Option<amux::AgentType>) -> Vec<String> {
-        let agent_type = agent_type.unwrap_or_else(|| self.default_agent_type());
-        self.model_mru
-            .recent_for(self.launch_config_for(agent_type).backend_type)
-            .to_vec()
     }
 
     /// Returns the model id last recorded for `agent_id`, if any.
@@ -591,15 +599,14 @@ impl RuntimeManager {
     pub async fn start_runtime(
         &mut self,
         agent_type: amux::AgentType,
-        worktree: &str,
         prompt: &str,
         workspace_id: &str,
         remote_workspace_id: Option<&str>,
         session_id: &str,
+        context: ExecutionContext,
     ) -> crate::error::Result<String> {
         self.start_runtime_with_model(
             agent_type,
-            worktree,
             prompt,
             workspace_id,
             remote_workspace_id,
@@ -607,7 +614,7 @@ impl RuntimeManager {
             None,
             None,
             None,
-            SpawnRuntimeEnv::default(),
+            context,
         )
         .await
     }
@@ -623,7 +630,6 @@ impl RuntimeManager {
     pub async fn start_runtime_with_model(
         &mut self,
         agent_type: amux::AgentType,
-        worktree: &str,
         prompt: &str,
         workspace_id: &str,
         remote_workspace_id: Option<&str>,
@@ -631,7 +637,7 @@ impl RuntimeManager {
         initial_model_override: Option<String>,
         mcp_config_path: Option<PathBuf>,
         resume_acp_session_id: Option<String>,
-        runtime_env: SpawnRuntimeEnv,
+        context: ExecutionContext,
     ) -> crate::error::Result<String> {
         // An attachment is an attachment *to a session* (ADR-0004). The map is
         // keyed by that session, so a spawn without one has no identity — it
@@ -650,6 +656,14 @@ impl RuntimeManager {
                 "session {agent_id} already has an attachment on this daemon"
             )));
         }
+        let ExecutionContext {
+            isolation_domain,
+            workspace: _,
+            working_directory,
+            spawn_env: runtime_env,
+        } = context;
+        let worktree = working_directory.to_string_lossy().into_owned();
+        let process_env_revision = ProcessEnvRevision::from_bindings(&runtime_env.extra_env);
         let permission = runtime_env.permission_policy();
         let SpawnRuntimeEnv {
             extra_env,
@@ -660,13 +674,15 @@ impl RuntimeManager {
             is_gateway,
             permission: _,
         } = runtime_env;
-        self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
+        self.register_opencode_snapshot(&worktree, opencode_json_original, &extra_env);
         let mut handle = RuntimeHandle::new(
             agent_id.clone(),
             agent_type,
-            worktree.into(),
+            worktree.clone(),
             workspace_id.into(),
         );
+        handle.isolation_domain = isolation_domain.clone();
+        handle.process_env_revision = process_env_revision.clone();
         handle.current_prompt = prompt.into();
         handle.env_fingerprint = resolved_env
             .as_ref()
@@ -682,20 +698,24 @@ impl RuntimeManager {
 
         let launch = self.launch_config_for(agent_type);
         let resume_requested = resume_acp_session_id.is_some();
-        let (cmd_tx, startup) = self
+        let (cmd_tx, mut startup) = self
             .agent_backend
             .lock()
             .await
             .attach_session(
                 agent_type,
                 &launch,
+                isolation_domain,
+                process_env_revision,
                 extra_env,
                 force_env_override,
-                worktree.to_string(),
+                worktree.clone(),
                 resume_acp_session_id,
                 mcp_config_path,
                 initial_model_override.clone(),
-                self.model_mru.recent_for(launch.backend_type).to_vec(),
+                // No device MRU: every entry point pins a model when it is
+                // created, so attach has nothing left to infer from (ADR-0007).
+                Vec::new(),
                 prompt.to_string(),
                 handle.event_tx.clone(),
                 permission,
@@ -704,13 +724,15 @@ impl RuntimeManager {
             .await?;
 
         handle.cmd_tx = Some(cmd_tx);
+        handle.host_generation_id = startup.host_generation_id.clone();
+        handle.route_lease = startup.route_lease.take();
 
         self.agents.insert(agent_id.clone(), handle);
         self.mark_actor_state_dirty();
         self.aggregators
             .insert(agent_id.clone(), TurnAggregator::new());
 
-        self.record_catalog(worktree, &startup.available_models);
+        self.record_catalog(&worktree, &startup.available_models);
         if let Some(h) = self.agents.get_mut(&agent_id) {
             h.available_models = startup.available_models;
             h.acp_session_id = startup.acp_session_id.clone();
@@ -790,13 +812,20 @@ impl RuntimeManager {
         session_id: &str,
         acp_session_id: &str,
         agent_type: amux::AgentType,
-        worktree: &str,
         workspace_id: &str,
         remote_workspace_id: Option<&str>,
         prompt: &str,
         mcp_config_path: Option<std::path::PathBuf>,
-        runtime_env: SpawnRuntimeEnv,
+        context: ExecutionContext,
     ) -> crate::error::Result<String> {
+        let ExecutionContext {
+            isolation_domain,
+            workspace: _,
+            working_directory,
+            spawn_env: runtime_env,
+        } = context;
+        let worktree = working_directory.to_string_lossy().into_owned();
+        let process_env_revision = ProcessEnvRevision::from_bindings(&runtime_env.extra_env);
         let permission = runtime_env.permission_policy();
         let SpawnRuntimeEnv {
             extra_env,
@@ -807,14 +836,16 @@ impl RuntimeManager {
             is_gateway,
             permission: _,
         } = runtime_env;
-        self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
+        self.register_opencode_snapshot(&worktree, opencode_json_original, &extra_env);
 
         let mut handle = RuntimeHandle::new(
             session_id.to_string(),
             agent_type,
-            worktree.into(),
+            worktree.clone(),
             workspace_id.into(),
         );
+        handle.isolation_domain = isolation_domain.clone();
+        handle.process_env_revision = process_env_revision.clone();
         handle.env_fingerprint = resolved_env
             .as_ref()
             .map(|snapshot| snapshot.fingerprint.clone());
@@ -825,20 +856,24 @@ impl RuntimeManager {
         handle.is_gateway = is_gateway;
 
         let launch = self.launch_config_for(agent_type);
-        let (cmd_tx, startup) = self
+        let (cmd_tx, mut startup) = self
             .agent_backend
             .lock()
             .await
             .attach_session(
                 agent_type,
                 &launch,
+                isolation_domain,
+                process_env_revision,
                 extra_env,
                 force_env_override,
-                worktree.to_string(),
+                worktree.clone(),
                 Some(acp_session_id.to_string()),
                 mcp_config_path,
                 None,
-                self.model_mru.recent_for(launch.backend_type).to_vec(),
+                // No device MRU: every entry point pins a model when it is
+                // created, so attach has nothing left to infer from (ADR-0007).
+                Vec::new(),
                 prompt.to_string(),
                 handle.event_tx.clone(),
                 permission,
@@ -847,6 +882,8 @@ impl RuntimeManager {
             .await?;
 
         handle.cmd_tx = Some(cmd_tx);
+        handle.host_generation_id = startup.host_generation_id.clone();
+        handle.route_lease = startup.route_lease.take();
         handle.current_prompt = prompt.to_string();
         // No static fallback: models come only from the live serve catalog
         // captured at attach time. Empty until the runtime advertises them.
@@ -859,7 +896,7 @@ impl RuntimeManager {
             .insert(session_id.to_string(), TurnAggregator::new());
 
         let new_acp_sid = startup.acp_session_id.clone();
-        self.record_catalog(worktree, &startup.available_models);
+        self.record_catalog(&worktree, &startup.available_models);
         if let Some(h) = self.agents.get_mut(session_id) {
             h.available_models = startup.available_models;
             h.acp_session_id = startup.acp_session_id;
@@ -890,8 +927,7 @@ impl RuntimeManager {
         }
     }
 
-    /// Model catalog for a workspace directory via the global opencode serve
-    /// instance (cron catalog UI).
+    /// Model catalog for a workspace directory (cron catalog UI).
     /// Probe the configured local backend for its live model catalog. The
     /// backend trait dispatches to opencode (serve `/config/providers`) or pi
     /// (`get_available_models`, spawning a child if none is live).
@@ -909,20 +945,50 @@ impl RuntimeManager {
         Ok(models)
     }
 
+    pub async fn probe_catalog_models_with_context(
+        &mut self,
+        context: crate::runtime::execution_context::ExecutionContext,
+    ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+        let workspace_path = context.working_directory;
+        let revision = ProcessEnvRevision::from_bindings(&context.spawn_env.extra_env);
+        let models = self
+            .agent_backend
+            .lock()
+            .await
+            .model_catalog_for_context(
+                &workspace_path,
+                context.isolation_domain,
+                revision,
+                context.spawn_env.extra_env,
+            )
+            .await?;
+        self.record_catalog(&workspace_path.to_string_lossy(), &models);
+        Ok(models)
+    }
+
     /// Live-probe a workspace catalog without holding the outer `agents`
     /// mutex across slow backend I/O (attach/detach only contend on the
     /// backend lock, not the whole manager).
     pub async fn probe_default_workspace_catalog(
         agents: Arc<AsyncMutex<Self>>,
-        workspace_path: std::path::PathBuf,
+        context: crate::runtime::execution_context::ExecutionContext,
     ) -> Vec<amux::ModelInfo> {
+        let workspace_path = context.working_directory.clone();
         let backend = {
             let guard = agents.lock().await;
             guard.agent_backend_handle()
         };
         let probe_result = {
             let mut backend_guard = backend.lock().await;
-            backend_guard.model_catalog(&workspace_path).await
+            let revision = ProcessEnvRevision::from_bindings(&context.spawn_env.extra_env);
+            backend_guard
+                .model_catalog_for_context(
+                    &workspace_path,
+                    context.isolation_domain,
+                    revision,
+                    context.spawn_env.extra_env,
+                )
+                .await
         };
         match probe_result {
             Ok(models) => {
@@ -1009,6 +1075,20 @@ impl RuntimeManager {
         }
     }
 
+    pub async fn request_workspace_host_refresh(&mut self, workspace_id: &str) -> bool {
+        self.agent_backend
+            .lock()
+            .await
+            .invalidate_workspace_host(&IsolationDomainKey::Workspace(workspace_id.to_string()))
+    }
+
+    pub async fn request_all_workspace_host_refreshes(&mut self) -> usize {
+        self.agent_backend
+            .lock()
+            .await
+            .invalidate_all_workspace_hosts()
+    }
+
     /// Full local-runtime teardown for daemon exit (`amuxd stop` / SIGTERM).
     /// Stops every session handle, then kills backend host processes
     /// (`opencode serve` process group including MCP children).
@@ -1017,11 +1097,7 @@ impl RuntimeManager {
         for id in ids {
             let _ = self.stop_runtime(&id).await;
         }
-        let removed = self
-            .agent_backend
-            .lock()
-            .await
-            .evict_agent_types(Self::EVICTABLE_AGENT_TYPES);
+        let removed = self.agent_backend.lock().await.shutdown_for_exit().await;
         info!(
             removed_hosts = removed,
             "local agent backends shut down for daemon exit"
@@ -1416,74 +1492,33 @@ impl RuntimeManager {
             .collect()
     }
 
-    /// Catalogs for the ACTIVE backend, deduplicated for the wire.
+    /// Every model the ACTIVE backend advertises on this device, deduplicated.
     ///
-    /// Returns `(union, per_worktree)`: `union` holds each distinct model once,
-    /// and every `WorktreeCatalog` points into it by index. Catalogs repeat
-    /// heavily across worktrees — one device held 563 entries over 8 worktrees
-    /// but only 72 distinct models — so this is ~5.3KB where verbatim copies
-    /// are ~33KB, on a payload every team member downloads on connect.
+    /// This is the actor's *capability*, and it is the only model source a
+    /// remote client has — iOS has no loopback catalog at all. It stays exactly
+    /// as it was when ADR-0007 retired the preference fields around it.
     ///
-    /// Only the active backend ships. The store keeps the others so switching
-    /// back does not re-probe, but a client can only use what is running.
-    pub fn actor_catalog_snapshot(&self) -> (Vec<amux::ModelInfo>, Vec<amux::WorktreeCatalog>) {
+    /// The per-worktree grouping this used to return is gone with
+    /// `ActorPresence.worktrees`: #742 audited 15 worktrees on one device and
+    /// traced every catalog difference to the team gateway or to probe
+    /// staleness, none to the directory. Storage stays sharded (it is an
+    /// observation log); the wire never was.
+    pub fn catalog_models(&self) -> Vec<amux::ModelInfo> {
         let backend = self.local_backend_type();
         let Some(by_worktree) = self.model_catalog.by_backend.get(backend) else {
-            return (Vec::new(), Vec::new());
+            return Vec::new();
         };
 
         let mut union: Vec<amux::ModelInfo> = Vec::new();
-        let mut index_of: HashMap<String, u32> = HashMap::new();
-        let mut worktrees = Vec::with_capacity(by_worktree.len());
-
+        let mut seen: HashSet<String> = HashSet::new();
         for worktree in by_worktree.keys() {
-            let models = self.model_catalog.models_for(backend, worktree);
-            let mut model_indices = Vec::with_capacity(models.len());
-            for model in models {
-                let idx = match index_of.get(&model.id) {
-                    Some(idx) => *idx,
-                    None => {
-                        let idx = union.len() as u32;
-                        index_of.insert(model.id.clone(), idx);
-                        union.push(model);
-                        idx
-                    }
-                };
-                model_indices.push(idx);
+            for model in self.model_catalog.models_for(backend, worktree) {
+                if seen.insert(model.id.clone()) {
+                    union.push(model);
+                }
             }
-
-            worktrees.push(amux::WorktreeCatalog {
-                worktree: worktree.clone(),
-                model_indices,
-                default_model: self
-                    .model_mru
-                    .default_model_for(backend, worktree)
-                    .unwrap_or_default()
-                    .to_string(),
-                // Built-ins for the active backend. NOT `agent_state.commands()`:
-                // that cache is fed only by ACP's `AvailableCommandsUpdate`,
-                // which has no producer under the opencode HTTP runtime, so it
-                // is permanently empty. Workspace skills are a separate source
-                // the desktop reads directly — deliberately not merged here.
-                available_commands: builtin_commands(self.default_agent_type()),
-            });
         }
-
-        (union, worktrees)
-    }
-
-    /// Device-level default model for the active backend (#742 decision 4/5).
-    ///
-    /// The per-worktree MRU layer is gone: an audit found 10 of 12 worktrees on
-    /// one device already falling through to this device-wide value, and
-    /// gateway/cron picked up whichever directory they happened to start in.
-    /// Consumed purely as a display fallback when a session has no model of its
-    /// own; `session_participants.model` remains authoritative (ADR-0005).
-    pub fn actor_default_model(&self) -> String {
-        self.model_mru
-            .default_model_for_backend(self.local_backend_type())
-            .unwrap_or_default()
-            .to_string()
+        union
     }
 
     /// Built-ins for the active backend — the same list every worktree carried,
@@ -1568,12 +1603,19 @@ impl RuntimeManager {
             title,
             None,
             None,
-            None,
-            None,
-            SpawnRuntimeEnv {
-                is_gateway: true,
-                ..SpawnRuntimeEnv::default()
+            ExecutionContext {
+                isolation_domain: IsolationDomainKey::UnscopedAgent {
+                    team_id: team_id.to_string(),
+                    actor_id: logical_session_id.to_string(),
+                },
+                workspace: None,
+                working_directory: PathBuf::new(),
+                spawn_env: SpawnRuntimeEnv {
+                    is_gateway: true,
+                    ..SpawnRuntimeEnv::default()
+                },
             },
+            None,
         )
         .await
     }
@@ -1595,7 +1637,7 @@ impl RuntimeManager {
         _title: &str,
         model_override: Option<(String, String)>,
         remote_session_id: Option<&str>,
-        working_directory: Option<&str>,
+        context: ExecutionContext,
         // Backend to run on. `None` falls back to `default_agent_type` (the
         // gateway path and "auto" cron selection); cron jobs that pin a backend
         // pass `Some(..)` so a job created for Claude does not run on OpenCode
@@ -1606,8 +1648,13 @@ impl RuntimeManager {
         // start does not launch the shared `opencode serve` without any
         // provider credentials; `is_gateway` must stay true on whatever is
         // passed.
-        spawn_env: SpawnRuntimeEnv,
     ) -> crate::error::Result<String> {
+        let ExecutionContext {
+            isolation_domain,
+            workspace,
+            working_directory,
+            spawn_env,
+        } = context;
         // Gateway sessions don't yet have a "real" workspace concept — they
         // run against a freshly-created scratch dir so the ACP process has a
         // valid cwd. Future work can wire this through `default_workspace_id`
@@ -1618,20 +1665,20 @@ impl RuntimeManager {
         // mkdir caller-supplied paths; the caller's lifecycle code owns that.
         // `None` keeps the legacy throwaway behavior so other gateway callers
         // (channels/agent_handle.rs etc.) are unaffected.
-        let worktree = match working_directory {
-            Some(wd) => wd.to_string(),
-            None => {
-                let scratch = format!(
-                    "/tmp/amuxd-gateway-{}",
-                    Uuid::new_v4().to_string()[..8].to_string()
-                );
-                std::fs::create_dir_all(&scratch).map_err(|e| {
-                    crate::error::AmuxError::Agent(format!(
-                        "create_gateway_session: mkdir {scratch}: {e}"
-                    ))
-                })?;
-                scratch
-            }
+        let has_working_directory = !working_directory.as_os_str().is_empty();
+        let worktree = if has_working_directory {
+            working_directory.to_string_lossy().into_owned()
+        } else {
+            let scratch = format!(
+                "/tmp/amuxd-gateway-{}",
+                Uuid::new_v4().to_string()[..8].to_string()
+            );
+            std::fs::create_dir_all(&scratch).map_err(|e| {
+                crate::error::AmuxError::Agent(format!(
+                    "create_gateway_session: mkdir {scratch}: {e}"
+                ))
+            })?;
+            scratch
         };
 
         // Resolve the initial model against the backend that will actually
@@ -1699,7 +1746,6 @@ impl RuntimeManager {
         let agent_id = match self
             .start_runtime_with_model(
                 agent_type,
-                &worktree,
                 "",
                 &workspace_id,
                 None,
@@ -1707,7 +1753,12 @@ impl RuntimeManager {
                 initial_model,
                 mcp_cfg_path,
                 None,
-                spawn_env,
+                ExecutionContext {
+                    isolation_domain,
+                    workspace,
+                    working_directory: PathBuf::from(&worktree),
+                    spawn_env,
+                },
             )
             .await
         {
@@ -1745,7 +1796,7 @@ impl RuntimeManager {
             ));
         }
 
-        if working_directory.is_some() {
+        if has_working_directory {
             if let Err(e) = super::workspace_runtime::apply_workspace_system_instructions(
                 self,
                 &agent_id,
@@ -1883,6 +1934,19 @@ mod tests {
     use super::super::handle::PendingMessage;
     use super::*;
 
+    fn workspace_context(path: &std::path::Path) -> ExecutionContext {
+        ExecutionContext {
+            isolation_domain: IsolationDomainKey::Workspace("ws-a".into()),
+            workspace: Some(super::super::execution_context::WorkspaceIdentity {
+                workspace_id: "ws-a".into(),
+                workspace_root: path.to_path_buf(),
+                team_id: Some("team-a".into()),
+            }),
+            working_directory: path.to_path_buf(),
+            spawn_env: SpawnRuntimeEnv::default(),
+        }
+    }
+
     fn catalog_model(id: &str) -> amux::ModelInfo {
         amux::ModelInfo {
             id: id.to_string(),
@@ -1989,6 +2053,40 @@ mod tests {
         assert_eq!(mgr.catalog_for_worktree("/w1").len(), 1);
     }
 
+    /// The cloud row is keyed by the actor, not by the spawn key. `agent_id` is
+    /// an 8-char spawn key that means nothing to Supabase, so addressing the
+    /// participant row with it would write to a row that does not exist —
+    /// silently, since the PATCH matches zero rows and still returns 204.
+    #[test]
+    fn participant_model_write_addresses_the_actor_not_the_spawn_key() {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("session_S");
+        mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "actor-A".into();
+
+        let (session_id, actor_id, model) = mgr
+            .participant_model_write("session_S", "anthropic/claude-sonnet-4-6")
+            .expect("addressable");
+        assert_eq!(session_id, "session_S");
+        assert_eq!(actor_id, "actor-A");
+        assert_eq!(model, "anthropic/claude-sonnet-4-6");
+    }
+
+    /// `owner_actor_id` is stamped by the env snapshot and back-filled in
+    /// `runtime_lifecycle`, so a cold attach can reach here with it still empty.
+    /// Writing then would address `/participants//model`.
+    #[test]
+    fn participant_model_write_skips_what_it_cannot_address() {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("session_S");
+        // owner_actor_id still empty — the cold-attach window.
+        assert_eq!(mgr.participant_model_write("session_S", "a/b"), None);
+
+        mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "actor-A".into();
+        assert_eq!(mgr.participant_model_write("session_S", "   "), None);
+        assert_eq!(mgr.participant_model_write("no-such-runtime", "a/b"), None);
+
+        mgr.get_handle_mut("session_S").unwrap().session_id = String::new();
+        assert_eq!(mgr.participant_model_write("session_S", "a/b"), None);
+    }
+
     #[test]
     fn set_current_model_records_value() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
@@ -1999,10 +2097,11 @@ mod tests {
         );
     }
 
-    /// A backend that reports a fixed `session_model` and nothing else, for
-    /// exercising the "learn what the backend chose" path without a process.
+    /// A backend that records the calls it receives and nothing else, for
+    /// exercising manager-level paths without a process.
     struct StubBackend {
-        session_model: Option<String>,
+        shutdown_called: Arc<std::sync::atomic::AtomicBool>,
+        catalog_domain: Arc<std::sync::Mutex<Option<IsolationDomainKey>>>,
     }
 
     #[async_trait::async_trait]
@@ -2011,6 +2110,8 @@ mod tests {
             &mut self,
             _agent_type: amux::AgentType,
             _launch: &AgentLaunchConfig,
+            _isolation_domain: IsolationDomainKey,
+            _process_env_revision: ProcessEnvRevision,
             _extra_env: HashMap<String, String>,
             _force_env_override: bool,
             _worktree: String,
@@ -2040,6 +2141,11 @@ mod tests {
         fn evict_agent_types(&mut self, _t: &[amux::AgentType]) -> usize {
             0
         }
+        async fn shutdown_for_exit(&mut self) -> usize {
+            self.shutdown_called
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            0
+        }
         fn host_count(&self) -> usize {
             0
         }
@@ -2049,108 +2155,53 @@ mod tests {
         ) -> crate::error::Result<Vec<amux::ModelInfo>> {
             Ok(Vec::new())
         }
-        async fn session_model(&mut self, _w: &str, _s: &str) -> Option<String> {
-            self.session_model.clone()
+        async fn model_catalog_for_context(
+            &mut self,
+            _workspace_path: &std::path::Path,
+            isolation_domain: IsolationDomainKey,
+            _process_env_revision: ProcessEnvRevision,
+            _extra_env: HashMap<String, String>,
+        ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+            *self.catalog_domain.lock().unwrap() = Some(isolation_domain);
+            Ok(vec![catalog_model("provider/model")])
         }
     }
 
-    fn mgr_with_stub_runtime(session_model: Option<&str>) -> RuntimeManager {
-        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-1");
+    #[tokio::test]
+    async fn daemon_exit_uses_backend_exit_teardown() {
+        let shutdown_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
         mgr.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
-            session_model: session_model.map(str::to_string),
+            shutdown_called: Arc::clone(&shutdown_called),
+            catalog_domain: Arc::new(std::sync::Mutex::new(None)),
         })));
-        if let Some(h) = mgr.agents.get_mut("rt-1") {
-            h.acp_session_id = "ses_stub".to_string();
-            h.worktree = "/tmp/ws".to_string();
-        }
-        mgr
+
+        mgr.shutdown_for_exit().await;
+
+        assert!(shutdown_called.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     #[tokio::test]
-    async fn learn_session_model_seeds_an_empty_mru() {
-        // The cold-start case: nothing was pinned, so the backend picked on its
-        // own. Until we ask, the device has no idea what it has been running.
-        let mut mgr = mgr_with_stub_runtime(Some("opencode/big-pickle"));
-        let backend = test_backend_id(&mgr);
-        assert!(mgr.model_mru.recent_for(backend).is_empty());
+    async fn default_workspace_catalog_uses_resolved_workspace_domain() {
+        let workspace = tempfile::tempdir().unwrap();
+        let catalog_domain = Arc::new(std::sync::Mutex::new(None));
+        let mut manager = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        manager.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
+            shutdown_called: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            catalog_domain: Arc::clone(&catalog_domain),
+        })));
 
-        mgr.learn_session_model("rt-1").await;
+        let models = RuntimeManager::probe_default_workspace_catalog(
+            Arc::new(AsyncMutex::new(manager)),
+            workspace_context(workspace.path()),
+        )
+        .await;
 
+        assert_eq!(models, vec![catalog_model("provider/model")]);
         assert_eq!(
-            mgr.model_mru.recent_for(backend),
-            ["opencode/big-pickle".to_string()]
+            *catalog_domain.lock().unwrap(),
+            Some(IsolationDomainKey::Workspace("ws-a".into()))
         );
-        let _ = std::fs::remove_file(&mgr.model_mru_path);
-    }
-
-    #[tokio::test]
-    async fn learn_session_model_is_a_noop_when_the_backend_reports_nothing() {
-        let mut mgr = mgr_with_stub_runtime(None);
-        mgr.learn_session_model("rt-1").await;
-        assert!(mgr.model_mru.by_backend.is_empty());
-    }
-
-    #[tokio::test]
-    async fn learn_session_model_ignores_unknown_runtimes() {
-        let mut mgr = mgr_with_stub_runtime(Some("opencode/big-pickle"));
-        mgr.learn_session_model("rt-does-not-exist").await;
-        assert!(mgr.model_mru.by_backend.is_empty());
-    }
-
-    /// The backend unknown runtime ids record under: `default_agent_type`'s.
-    fn test_backend_id(mgr: &RuntimeManager) -> &'static str {
-        mgr.launch_config_for(mgr.default_agent_type()).backend_type
-    }
-
-    #[test]
-    fn set_current_model_feeds_the_device_mru() {
-        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        let backend = test_backend_id(&mgr);
-        mgr.set_current_model("agent-1", "anthropic/claude-sonnet-4-6");
-        mgr.set_current_model("agent-2", "opencode/big-pickle");
-        // Newest first, and one runtime's pick is visible to every other
-        // surface — that sharing is the whole point of holding this in the
-        // daemon rather than in one client.
-        assert_eq!(
-            mgr.model_mru.recent_for(backend),
-            [
-                "opencode/big-pickle".to_string(),
-                "anthropic/claude-sonnet-4-6".to_string()
-            ]
-        );
-
-        // Re-picking an older entry promotes it rather than duplicating.
-        mgr.set_current_model("agent-3", "anthropic/claude-sonnet-4-6");
-        assert_eq!(
-            mgr.model_mru.recent_for(backend),
-            [
-                "anthropic/claude-sonnet-4-6".to_string(),
-                "opencode/big-pickle".to_string()
-            ]
-        );
-    }
-
-    #[test]
-    fn device_mru_survives_a_restart() {
-        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        let backend = test_backend_id(&mgr);
-        let path = mgr.model_mru_path.clone();
-        mgr.set_current_model("agent-1", "opencode/big-pickle");
-
-        // A new daemon process reads the same file back — this is what lets a
-        // gateway or cron runtime inherit a pick made in the desktop.
-        assert_eq!(
-            ModelMru::load(&path).recent_for(backend),
-            ["opencode/big-pickle".to_string()]
-        );
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn empty_model_is_not_recorded_in_the_mru() {
-        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.set_current_model("agent-1", "");
-        assert!(mgr.model_mru.by_backend.is_empty());
     }
 
     #[test]
@@ -2841,7 +2892,6 @@ mod tests {
         let result = mgr
             .start_runtime_with_model(
                 amux::AgentType::ClaudeCode,
-                tmp.path().to_str().unwrap(),
                 "",
                 "workspace-1",
                 None,
@@ -2849,7 +2899,7 @@ mod tests {
                 None,
                 None,
                 None,
-                SpawnRuntimeEnv::default(),
+                workspace_context(tmp.path()),
             )
             .await;
 
@@ -2900,12 +2950,19 @@ mod tests {
                 "SeaTalk DM",
                 None,
                 Some("f8346f4d-62a5-4fdc-b8fc-8cb0e9ee4d93"),
-                None,
-                None,
-                SpawnRuntimeEnv {
-                    is_gateway: true,
-                    ..SpawnRuntimeEnv::default()
+                ExecutionContext {
+                    isolation_domain: IsolationDomainKey::UnscopedAgent {
+                        team_id: "team-1".into(),
+                        actor_id: "logical-acp-hex".into(),
+                    },
+                    workspace: None,
+                    working_directory: PathBuf::new(),
+                    spawn_env: SpawnRuntimeEnv {
+                        is_gateway: true,
+                        ..SpawnRuntimeEnv::default()
+                    },
                 },
+                None,
             )
             .await
             .expect("should reuse, not re-attach");

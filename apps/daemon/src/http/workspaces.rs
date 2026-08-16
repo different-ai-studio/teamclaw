@@ -90,6 +90,64 @@ async fn workspace_path_or_404(workspace_id: &str) -> Result<std::path::PathBuf,
     Ok(wpath)
 }
 
+fn paths_refer_to_same_workspace(left: &StdPath, right: &StdPath) -> bool {
+    if left == right {
+        return true;
+    }
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+/// Convert the path-encoded id used by workspace-control HTTP routes into the
+/// cloud UUID used by runtime isolation and the OpenCode host pool.
+async fn resolve_runtime_workspace_id(
+    state: &HttpState,
+    route_workspace_id: &str,
+    workspace_path: &StdPath,
+) -> String {
+    // A watcher may already have recorded a pending change under the canonical
+    // UUID. Prefer that local mapping and avoid a cloud round trip on Apply.
+    if let Some(refresh) = state.runtime_refresh.as_ref() {
+        if let Some(workspace_id) = refresh.workspace_id_for_path(workspace_path).await {
+            return workspace_id;
+        }
+    }
+
+    let Some(backend) = state.backend.as_ref() else {
+        return route_workspace_id.to_owned();
+    };
+    let team_id = backend.team_id();
+    if team_id.trim().is_empty() {
+        return route_workspace_id.to_owned();
+    }
+    match backend
+        .get_workspaces_by_agent(team_id, backend.actor_id())
+        .await
+    {
+        Ok(rows) => rows
+            .into_iter()
+            .find(|row| {
+                !row.archived
+                    && row.path.as_deref().is_some_and(|path| {
+                        paths_refer_to_same_workspace(StdPath::new(path), workspace_path)
+                    })
+            })
+            .map(|row| row.id)
+            .unwrap_or_else(|| route_workspace_id.to_owned()),
+        Err(error) => {
+            tracing::warn!(
+                route_workspace_id,
+                workspace_path = %workspace_path.display(),
+                error = %error,
+                "failed to resolve runtime workspace UUID; using route identity"
+            );
+            route_workspace_id.to_owned()
+        }
+    }
+}
+
 async fn record_skills_refresh_change(
     state: &HttpState,
     workspace_id: &str,
@@ -98,9 +156,11 @@ async fn record_skills_refresh_change(
     let Some(refresh) = state.runtime_refresh.as_ref() else {
         return;
     };
+    let runtime_workspace_id =
+        resolve_runtime_workspace_id(state, workspace_id, workspace_path).await;
     if let Err(error) = refresh
         .record_change(
-            workspace_id,
+            &runtime_workspace_id,
             workspace_path,
             RefreshChangeKind::Skills,
             RefreshSource::UiMutation,
@@ -108,11 +168,22 @@ async fn record_skills_refresh_change(
         .await
     {
         tracing::warn!(
-            workspace_id = %workspace_id,
+            workspace_id = %runtime_workspace_id,
             workspace_path = %workspace_path.display(),
             error = %error,
             "failed to record skills refresh change after workspace mutation"
         );
+        return;
+    }
+
+    // OpenCode discovers skills when `opencode serve` starts, not when an
+    // individual session is attached. Preserve active turns, detach resumable
+    // idle sessions, then drain the generation so the next session starts a
+    // fresh host and sees the mutation without requiring an explicit Apply.
+    if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+        supervisor
+            .request_workspace_host_refresh(&runtime_workspace_id, workspace_path)
+            .await;
     }
 }
 
@@ -122,16 +193,18 @@ async fn reload_runtime_after_provider_auth(
     workspace_id: &str,
     workspace_path: &std::path::Path,
 ) -> ApplyOutcome {
+    let runtime_workspace_id =
+        resolve_runtime_workspace_id(state, workspace_id, workspace_path).await;
     if let Some(supervisor) = state.runtime_supervisor.as_ref() {
         match supervisor
             // Explicit provider-auth reload path: always refresh the hosts.
-            .reload_workspace(workspace_id, workspace_path, true)
+            .reload_workspace(&runtime_workspace_id, workspace_path, true)
             .await
         {
             Ok(outcome) => return outcome,
             Err(e) => {
                 tracing::warn!(
-                    workspace_id = %workspace_id,
+                    workspace_id = %runtime_workspace_id,
                     error = %e,
                     "runtime reload after provider auth failed"
                 );
@@ -256,9 +329,19 @@ async fn reconcile_team_provider(state: &HttpState, workspace_id: &str) {
     let Ok(wpath) = workspace_path_or_404(workspace_id).await else {
         return;
     };
+    let config_path = wpath.join("opencode.json");
+    let before = std::fs::read(&config_path).ok();
     managed_llm
         .reconcile_workspace(&wpath, team_id.trim())
         .await;
+    let after = std::fs::read(config_path).ok();
+    if before != after {
+        if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+            supervisor
+                .request_workspace_host_refresh(workspace_id, &wpath)
+                .await;
+        }
+    }
 }
 
 fn merge_live_provider_catalog(providers: &mut Vec<ProviderInfo>, catalog: &LiveProviderCatalog) {
@@ -317,25 +400,31 @@ pub async fn get_device_providers(
 /// started later reads the config at spawn time anyway.
 pub async fn put_device_provider_auth(
     principal: Principal,
-    State(_state): State<HttpState>,
+    State(state): State<HttpState>,
     Path(provider_id): Path<String>,
     Json(body): Json<ProviderAuthRequest>,
 ) -> Result<(StatusCode, Json<ApplyResponse>), HttpError> {
     require_scope(&principal, "workspace:write")?;
     let outcome = crate::config::workspace_control::put_device_provider_auth(&provider_id, body)
         .map_err(map_control_err)?;
+    if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+        supervisor.request_all_workspace_host_refreshes();
+    }
     Ok((StatusCode::OK, apply_ok(outcome)))
 }
 
 /// `DELETE /v1/providers/:provider_id/auth`
 pub async fn delete_device_provider_auth(
     principal: Principal,
-    State(_state): State<HttpState>,
+    State(state): State<HttpState>,
     Path(provider_id): Path<String>,
 ) -> Result<(StatusCode, Json<ApplyResponse>), HttpError> {
     require_scope(&principal, "workspace:write")?;
     let outcome = crate::config::workspace_control::delete_device_provider_auth(&provider_id)
         .map_err(map_control_err)?;
+    if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+        supervisor.request_all_workspace_host_refreshes();
+    }
     Ok((StatusCode::OK, apply_ok(outcome)))
 }
 
@@ -517,16 +606,6 @@ pub struct BackendCatalog {
     /// Human-readable label for the backend group header.
     pub label: String,
     pub models: Vec<CatalogModel>,
-    /// This device's most-recently-used model ids for this backend, newest
-    /// first (`config::model_mru`).
-    ///
-    /// The same answer rides `RuntimeInfo.current_model` on the MQTT retain,
-    /// but only once a runtime is actually up. Serving it here lets a client
-    /// resolve "the model this device last used" from the loopback catalog
-    /// alone — which is the whole point of the local fast path: no retain, no
-    /// running runtime, still the right model on the pill.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub recent_models: Vec<String>,
 }
 
 /// Full per-backend model catalog for a workspace.
@@ -639,9 +718,6 @@ pub fn build_model_catalog(
             backend: backend.clone(),
             label: backend_label(backend).to_string(),
             models,
-            // Filled in by `attach_recent_models` — the MRU lives behind the
-            // supervisor lock, which this pure builder deliberately avoids.
-            recent_models: Vec::new(),
         });
     }
 
@@ -654,38 +730,6 @@ pub fn build_model_catalog(
         backends,
         // Set by the caller, which is the only layer that saw the probe fail.
         probe_error: None,
-    }
-}
-
-/// Attach this device's MRU to the group it belongs to.
-///
-/// Model ids are backend-local (`config::model_mru` keys by backend for exactly
-/// that reason), so the list is only valid for the backend it was recorded
-/// under — matching on `default_backend` keeps a second configured group from
-/// inheriting ids it could never run. `"claude-code"` and `"claude"` are the
-/// wire and launch-config spellings of one backend, so they match each other.
-fn attach_recent_models(
-    catalog: &mut ModelCatalog,
-    default_backend: Option<&str>,
-    recent_models: Vec<String>,
-) {
-    if recent_models.is_empty() {
-        return;
-    }
-    let Some(default_backend) = default_backend.map(str::trim).filter(|b| !b.is_empty()) else {
-        return;
-    };
-    fn canon(s: &str) -> &str {
-        match s {
-            "claude" | "claude-code" => "claude-code",
-            other => other,
-        }
-    }
-    for group in &mut catalog.backends {
-        if canon(group.backend.trim()) == canon(default_backend) {
-            group.recent_models = recent_models;
-            return;
-        }
     }
 }
 
@@ -762,17 +806,6 @@ pub async fn get_model_catalog(
     // front of the user.
     if catalog.backends.iter().all(|b| b.models.is_empty()) {
         catalog.probe_error = probe_error;
-    }
-
-    // The device MRU rides along so a client can resolve the last-used model
-    // without waiting for a runtime to come up and publish its retain.
-    if let Some(supervisor) = state.runtime_supervisor.as_ref() {
-        let default_backend = supervisor.local_backend_type().await;
-        attach_recent_models(
-            &mut catalog,
-            Some(default_backend),
-            supervisor.recent_catalog_models().await,
-        );
     }
 
     Ok(Json(catalog))
@@ -1112,6 +1145,60 @@ pub struct RuntimeEnvDiagnosticsQuery {
     pub team_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PendingRuntimeChangesBody {
+    pub change_kinds: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PendingRuntimeChangesResponse {
+    pub ok: bool,
+    pub recorded: Vec<String>,
+}
+
+/// `POST /v1/workspaces/:id/runtime/pending-changes`
+///
+/// Queue refresh kinds for idle auto-apply without immediately reloading.
+pub async fn record_pending_runtime_changes(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Path(workspace_id): Path<String>,
+    Json(body): Json<PendingRuntimeChangesBody>,
+) -> Result<Json<PendingRuntimeChangesResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let workspace_path = decode_workspace_path(&workspace_id).map_err(map_control_err)?;
+    let runtime_workspace_id =
+        resolve_runtime_workspace_id(&state, &workspace_id, &workspace_path).await;
+    let kinds = crate::runtime::refresh::parse_refresh_change_kinds(&body.change_kinds);
+    if kinds.is_empty() {
+        return Err(HttpError::validation(
+            "change_kinds must include at least one known kind",
+        ));
+    }
+
+    let Some(refresh) = state.runtime_refresh.as_ref() else {
+        return Err(HttpError::runtime_unavailable(
+            "runtime refresh coordinator unavailable",
+        ));
+    };
+
+    let mut recorded = Vec::new();
+    for kind in kinds {
+        refresh
+            .record_change(
+                &runtime_workspace_id,
+                &workspace_path,
+                kind,
+                RefreshSource::UiMutation,
+            )
+            .await
+            .map_err(|e| HttpError::internal(e.to_string()))?;
+        recorded.push(kind.as_str().to_string());
+    }
+
+    Ok(Json(PendingRuntimeChangesResponse { ok: true, recorded }))
+}
+
 /// `POST /v1/workspaces/:id/runtime/reload`
 pub async fn reload_runtime(
     principal: Principal,
@@ -1120,11 +1207,13 @@ pub async fn reload_runtime(
 ) -> Result<Json<ApplyResponse>, HttpError> {
     require_scope(&principal, "workspace:write")?;
     let workspace_path = decode_workspace_path(&workspace_id).map_err(map_control_err)?;
+    let runtime_workspace_id =
+        resolve_runtime_workspace_id(&state, &workspace_id, &workspace_path).await;
 
     if let Some(supervisor) = state.runtime_supervisor.as_ref() {
         let outcome = supervisor
             // Explicit user-triggered apply: refresh provider hosts too.
-            .apply_refresh(&workspace_id, &workspace_path, true)
+            .apply_refresh(&runtime_workspace_id, &workspace_path, true)
             .await
             .map_err(map_control_err)?;
         return Ok(apply_ok(outcome));
@@ -1132,7 +1221,11 @@ pub async fn reload_runtime(
 
     let store = resolve_store(&state)?;
     let attempt = if let Some(refresh) = state.runtime_refresh.as_ref() {
-        Some(refresh.mark_applying(&workspace_id, &workspace_path).await)
+        Some(
+            refresh
+                .mark_applying(&runtime_workspace_id, &workspace_path)
+                .await,
+        )
     } else {
         None
     };
@@ -1141,14 +1234,19 @@ pub async fn reload_runtime(
         Err(err) => {
             if let (Some(refresh), Some(attempt)) = (state.runtime_refresh.as_ref(), attempt) {
                 refresh
-                    .mark_apply_failed(&workspace_id, &workspace_path, attempt, err.to_string())
+                    .mark_apply_failed(
+                        &runtime_workspace_id,
+                        &workspace_path,
+                        attempt,
+                        err.to_string(),
+                    )
                     .await;
             }
             return Err(map_control_err(err));
         }
     };
     if let (Some(refresh), Some(attempt)) = (state.runtime_refresh.as_ref(), attempt) {
-        refresh.clear_applied(&workspace_id, attempt).await;
+        refresh.clear_applied(&runtime_workspace_id, attempt).await;
     }
     Ok(apply_ok(outcome))
 }
@@ -1428,52 +1526,6 @@ mod tests {
         let providers = vec![provider("scnet", &["MiniMax-M2.5"])];
         let catalog = build_model_catalog(&["opencode".to_string()], None, &cached, &providers);
         assert_eq!(catalog.backends[0].models[0].model_ref, "prov/from-cache");
-    }
-
-    #[test]
-    fn recent_models_attach_to_the_default_backend_group() {
-        let probed = vec![acp("prov/live")];
-        let mut catalog = build_model_catalog(&["opencode".to_string()], Some(&probed), &[], &[]);
-        attach_recent_models(
-            &mut catalog,
-            Some("opencode"),
-            vec!["prov/last-used".to_string()],
-        );
-        assert_eq!(catalog.backends[0].recent_models, vec!["prov/last-used"]);
-    }
-
-    #[test]
-    fn recent_models_match_across_the_two_claude_spellings() {
-        // "claude" is the launch-config spelling, "claude-code" the wire name;
-        // a mismatch here would silently drop the MRU for claude daemons.
-        for (group, default_backend) in [("claude", "claude-code"), ("claude-code", "claude")] {
-            let probed = vec![acp("anthropic/opus")];
-            let mut catalog = build_model_catalog(&[group.to_string()], Some(&probed), &[], &[]);
-            attach_recent_models(
-                &mut catalog,
-                Some(default_backend),
-                vec!["anthropic/opus".to_string()],
-            );
-            assert_eq!(
-                catalog.backends[0].recent_models,
-                vec!["anthropic/opus"],
-                "{group} vs {default_backend} should be the same backend"
-            );
-        }
-    }
-
-    #[test]
-    fn recent_models_never_leak_into_another_backends_group() {
-        // Model ids are backend-local: an opencode MRU handed to a pi group
-        // would advertise ids pi can never run.
-        let probed = vec![acp("pi/x")];
-        let mut catalog = build_model_catalog(&["pi".to_string()], Some(&probed), &[], &[]);
-        attach_recent_models(
-            &mut catalog,
-            Some("opencode"),
-            vec!["opencode/big-pickle".to_string()],
-        );
-        assert!(catalog.backends[0].recent_models.is_empty());
     }
 
     #[test]

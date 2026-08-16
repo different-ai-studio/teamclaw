@@ -535,6 +535,39 @@ impl CloudApiBackend {
     pub(super) fn cloud_url(&self, path: &str) -> String {
         cloud_url(&self.cfg, path)
     }
+
+    /// DELETE with the response body discarded. Mirrors `put_no_content` for
+    /// idempotent removals whose only interesting outcome is success.
+    pub(super) async fn delete_no_content(&self, path: &str) -> BackendResult<()> {
+        for is_retry in [false, true] {
+            let token = self.access_token().await?;
+            let resp = self
+                .http
+                .delete(self.cloud_url(path))
+                .bearer_auth(token)
+                .header("x-request-id", request_id())
+                .send()
+                .await
+                .map_err(network_error)?;
+            if resp.status().is_success() {
+                return Ok(());
+            }
+            let status = resp.status();
+            let bytes = resp.bytes().await.map_err(network_error)?;
+            let envelope = serde_json::from_slice::<client::CloudErrorEnvelope>(&bytes).ok();
+            match client::decode_error(status, envelope) {
+                BackendError::Auth(_) if !is_retry => {
+                    tracing::debug!(
+                        path,
+                        "cloud_api: 401 unauthorized, invalidating cached access token and retrying once"
+                    );
+                    self.invalidate_access_token_cache();
+                }
+                err => return Err(err),
+            }
+        }
+        unreachable!("cloud_api delete retry loop exhausted")
+    }
 }
 
 /// One participant row for (session, actor). The participant owns this agent's
@@ -673,6 +706,20 @@ impl Backend for CloudApiBackend {
             Err(BackendError::NotFound(_)) => Ok(serde_json::json!({ "mcpServers": {} })),
             Err(e) => Err(e),
         }
+    }
+
+    async fn install_team_mcp(&self, team_id: &str, name: &str) -> BackendResult<()> {
+        // No `actorId`: the endpoint records against the caller, and the
+        // daemon's caller is the hosted agent actor itself — the same contract
+        // `record_team_skill_install` relies on. Installing on the human's actor
+        // would never reach this daemon's merged MCP view (see team-mcp design).
+        let path = format!("/v1/teams/{team_id}/mcp-servers/{name}/install");
+        self.put_no_content(&path, &serde_json::json!({})).await
+    }
+
+    async fn uninstall_team_mcp(&self, team_id: &str, name: &str) -> BackendResult<()> {
+        let path = format!("/v1/teams/{team_id}/mcp-servers/{name}/install");
+        self.delete_no_content(&path).await
     }
 
     async fn team_env_secrets(&self, team_id: &str) -> BackendResult<Vec<TeamEnvSecretRow>> {
@@ -1129,6 +1176,23 @@ impl Backend for CloudApiBackend {
             &Body {
                 last_processed_message_id,
             },
+        )
+        .await
+    }
+
+    async fn update_participant_model(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+        model: &str,
+    ) -> BackendResult<()> {
+        #[derive(serde::Serialize)]
+        struct Body<'a> {
+            model: &'a str,
+        }
+        self.patch_no_content(
+            &format!("/v1/sessions/{session_id}/participants/{actor_id}/model"),
+            &Body { model },
         )
         .await
     }

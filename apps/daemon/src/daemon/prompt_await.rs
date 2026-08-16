@@ -7,6 +7,7 @@ pub(crate) struct PromptAwaitPayload<'a> {
     /// falls back to "Cron job".
     pub job_name: Option<&'a str>,
     pub working_directory: Option<&'a str>,
+    pub workspace_root: Option<&'a str>,
     pub model_override: Option<(String, String)>,
     // Backend the cron job should run on, e.g. "opencode" | "claude" | "codex".
     // Optional: when absent the daemon falls back to default_agent_type, which
@@ -46,6 +47,10 @@ pub(crate) fn parse_prompt_await_payload(
         .get("working_directory")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty());
+    let workspace_root = payload
+        .get("workspace_root")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
     let model_override = payload
         .get("model_override")
         .and_then(|v| v.as_object())
@@ -73,6 +78,7 @@ pub(crate) fn parse_prompt_await_payload(
         message,
         job_name,
         working_directory,
+        workspace_root,
         model_override,
         agent_type,
         permission_mode,
@@ -117,6 +123,7 @@ mod tests {
         assert_eq!(parsed.message, "hello");
         assert!(parsed.job_name.is_none());
         assert!(parsed.working_directory.is_none());
+        assert!(parsed.workspace_root.is_none());
         assert!(parsed.model_override.is_none());
         assert!(parsed.agent_type.is_none());
         assert!(parsed.permission_mode.is_none());
@@ -129,14 +136,19 @@ mod tests {
             "session_key": "cron/j1/r1",
             "message": "hello",
             "job_name": "Nightly digest",
-            "working_directory": "/tmp/wt",
+            "working_directory": "/repo/.worktrees/cron-j1-r1",
+            "workspace_root": "/repo",
             "model_override": { "provider": "anthropic", "model": "sonnet" },
             "agent_type": "claude",
             "timeout_secs": 120
         });
         let parsed = parse_prompt_await_payload(&p).unwrap();
         assert_eq!(parsed.job_name, Some("Nightly digest"));
-        assert_eq!(parsed.working_directory, Some("/tmp/wt"));
+        assert_eq!(
+            parsed.working_directory,
+            Some("/repo/.worktrees/cron-j1-r1")
+        );
+        assert_eq!(parsed.workspace_root, Some("/repo"));
         assert_eq!(parsed.agent_type, Some("claude"));
         assert_eq!(
             parsed.model_override.as_ref().map(|m| m.0.as_str()),

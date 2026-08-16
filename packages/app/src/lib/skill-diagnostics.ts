@@ -213,7 +213,7 @@ export async function runSkillsDiagnostics(workspacePath: string): Promise<Skill
           label: 'Runtime refresh',
           status: 'warn',
           detail: 'Skills changes pending',
-          hint: 'New or updated skills were detected but the runtime has not reloaded yet.',
+          hint: 'Skills changes stay pending until you Apply. New sessions re-discover skills from disk automatically.',
         })
       } else if (runtimeRefreshPending) {
         checks.push({

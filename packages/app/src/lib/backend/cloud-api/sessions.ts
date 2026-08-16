@@ -137,13 +137,27 @@ export function createSessionsModule(client: CloudApiClient): SessionsBackend {
       await client.patch(`/v1/sessions/${encodeURIComponent(sessionId)}`, { archivedAt });
     },
     async getSessionParticipants(sessionId): Promise<SessionParticipant[]> {
-      const out = await client.get<{ items: Array<{ sessionId?: string; actorId: string; role?: string | null }> }>(
-        `/v1/sessions/${encodeURIComponent(sessionId)}/participants`,
-      );
+      const out = await client.get<{
+        items: Array<{
+          sessionId?: string;
+          actorId: string;
+          role?: string | null;
+          workspaceId?: string | null;
+          model?: string | null;
+          lastProcessedMessageId?: string | null;
+        }>;
+      }>(`/v1/sessions/${encodeURIComponent(sessionId)}/participants`);
       return out.items.map((row) => ({
         session_id: row.sessionId ?? sessionId,
         actor_id: row.actorId,
         role: row.role ?? null,
+        // The agent's working state for this session (ADR-0005). The server has
+        // returned all three since that migration and `SessionParticipant` has
+        // always declared them — this mapper just dropped them, so every client
+        // read `undefined` regardless of what the row held.
+        workspaceId: row.workspaceId ?? null,
+        model: row.model ?? null,
+        lastProcessedMessageId: row.lastProcessedMessageId ?? null,
       }));
     },
     async getSession(sessionId) {

@@ -101,30 +101,22 @@ impl DaemonServer {
                 "resume_stored_collab_runtimes: resuming stored runtime with prior ACP session"
             );
 
-            // opencode.json suppress is inside assemble (after managed-LLM await).
-            let mut runtime_env = match self
-                .assemble_spawn_runtime_env_for_worktree(&stored.worktree, &stored.workspace_id)
+            let context = match self
+                .assemble_stored_execution_context(&stored.worktree, &stored.workspace_id)
                 .await
             {
-                Ok(env) => env,
+                Ok(context) => context,
                 Err(e) => {
                     warn!(
                         runtime_id = %stored.runtime_id,
                         worktree = %stored.worktree,
                         error = %e,
                         log_label,
-                        "resume_stored_collab_runtimes: assemble runtime env failed; continuing with empty env"
+                        "resume_stored_collab_runtimes: assemble execution context failed"
                     );
-                    crate::runtime::SpawnRuntimeEnv::default()
+                    continue;
                 }
             };
-
-            // Both branches above produce a desktop-shaped env, which for a
-            // gateway/cron runtime means it comes back as "ask".
-            crate::runtime::restore_gateway_shape_for_resume(
-                &mut runtime_env,
-                &stored.workspace_id,
-            );
 
             let resume_res = self
                 .agents
@@ -134,12 +126,11 @@ impl DaemonServer {
                     cloud_session_id,
                     &acp_resume,
                     at,
-                    &stored.worktree,
                     &stored.workspace_id,
                     remote_workspace_id.as_deref(),
                     initial_prompt,
                     mcp_config_path.clone(),
-                    runtime_env,
+                    context,
                 )
                 .await;
 
@@ -316,5 +307,99 @@ impl DaemonServer {
 
         self.publish_runtime_state_by_id(runtime_id).await;
         self.catchup_runtime(runtime_id).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::backend::mock::MockBackend;
+    use crate::backend::{Backend, WorkspaceRow};
+    use crate::daemon::server::tests::{make_stored_session, test_server_with_cloud_api};
+    use crate::proto::amux;
+    use crate::runtime::execution_context::{IsolationDomainKey, ProcessEnvRevision};
+
+    #[tokio::test]
+    async fn collab_runtime_ensure_resume_propagates_workspace_attach_context() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        mock.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-test".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let mut fixture = test_server_with_cloud_api(backend);
+        let captures = {
+            let mut manager = fixture.server.agents.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        let mut stored = make_stored_session(
+            "runtime-a",
+            "session-a",
+            amux::AgentType::Opencode,
+            "ws-a",
+            1,
+        );
+        stored.worktree = workspace.path().to_string_lossy().into_owned();
+        fixture.server.sessions.upsert(stored);
+
+        assert!(
+            fixture
+                .server
+                .resume_historical_runtimes_for_session("session-a", None)
+                .await
+        );
+
+        let captures = captures.lock().unwrap();
+        assert_eq!(captures.len(), 1);
+        assert_eq!(
+            captures[0].domain,
+            IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(captures[0].working_directory, workspace.path());
+        assert_eq!(
+            captures[0].process_env_revision,
+            ProcessEnvRevision::from_bindings(&captures[0].extra_env)
+        );
+    }
+
+    #[tokio::test]
+    async fn stored_workspace_scoped_gateway_resume_lookup_failure_does_not_attach_bare_env() {
+        let workspace = tempfile::tempdir().unwrap();
+        let backend: Arc<dyn Backend> =
+            Arc::new(MockBackend::with_identity("team-test", "agent-actor"));
+        let mut fixture = test_server_with_cloud_api(backend);
+        let captures = {
+            let mut manager = fixture.server.agents.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+        let mut stored = make_stored_session(
+            "runtime-gateway",
+            "session-gateway",
+            amux::AgentType::Opencode,
+            "gateway:wecom://bot/chat",
+            1,
+        );
+        stored.worktree = workspace.path().to_string_lossy().into_owned();
+        fixture.server.sessions.upsert(stored);
+
+        assert!(
+            !fixture
+                .server
+                .resume_historical_runtimes_for_session("session-gateway", None)
+                .await,
+            "workspace-scoped stored gateway must fail closed when identity lookup fails"
+        );
+        assert!(
+            captures.lock().unwrap().is_empty(),
+            "failed workspace lookup must not attach with UnscopedAgent and bare env"
+        );
     }
 }

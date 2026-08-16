@@ -42,8 +42,6 @@ export type LocalDaemonCatalogStatus = 'pending' | 'ready' | 'empty' | 'error' |
 export type LocalDaemonCatalogEntry = {
   status: LocalDaemonCatalogStatus
   models: ModelInfo[]
-  /** Device MRU, newest first — resolves "last used model" with no retain. */
-  recentModels: string[]
   /** ms epoch of the last completed fetch; 0 while the first one is in flight. */
   fetchedAt: number
 }
@@ -146,7 +144,7 @@ export function ensureLocalDaemonCatalog(
   store.setEntry(path, {
     status: 'pending',
     models: previous?.models ?? [],
-    recentModels: previous?.recentModels ?? [],
+
     fetchedAt: previous?.fetchedAt ?? 0,
   })
 
@@ -158,7 +156,7 @@ export function ensureLocalDaemonCatalog(
           ? {
               status: 'ready',
               models: outcome.models,
-              recentModels: outcome.recentModels,
+
               fetchedAt: Date.now(),
             }
           : {
@@ -173,8 +171,6 @@ export function ensureLocalDaemonCatalog(
               // 'error' / 'unknown' learned nothing about the list, so whatever
               // was last resolved stays.
               models: outcome.status === 'empty' ? [] : (previous?.models ?? []),
-              recentModels:
-                outcome.status === 'empty' ? [] : (previous?.recentModels ?? []),
               fetchedAt: Date.now(),
             }
       useLocalDaemonCatalogStore.getState().setEntry(path, settled)
@@ -184,7 +180,7 @@ export function ensureLocalDaemonCatalog(
       useLocalDaemonCatalogStore.getState().setEntry(path, {
         status: 'unknown',
         models: previous?.models ?? [],
-        recentModels: previous?.recentModels ?? [],
+
         fetchedAt: Date.now(),
       })
     } finally {

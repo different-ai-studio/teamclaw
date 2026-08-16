@@ -22,11 +22,14 @@ import {
   type TeamMemberOption,
 } from '@/lib/daemon-agent-admin'
 import {
+  encodeWorkspaceId,
   getCursorAgentSettings,
   getDaemonLocalAgent,
+  reloadDaemonRuntime,
   setDaemonLocalAgent,
   type DaemonLocalAgent,
 } from '@/lib/daemon-local-client'
+import { describeEnvReloadOutcome } from '@/lib/env-runtime-reload'
 import { useUIStore } from '@/stores/ui'
 import { useSetupStore } from '@/stores/setup'
 import { ensureLocalDaemonCatalog } from '@/stores/local-daemon-catalog-store'
@@ -34,6 +37,17 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { ensureAgentsSkillsPaths } from '@/lib/skills/ensure-agents-paths'
 import { useDaemonMqttConnected } from '@/stores/daemon-mqtt-status'
 import { cn, isTauri } from '@/lib/utils'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { toast } from 'sonner'
 import { SectionHeader, SettingCard } from './shared'
 import { DaemonManualResetCard } from './DaemonManualResetCard'
 import { TeamSecretEntry } from './team/TeamSecretEntry'
@@ -79,6 +93,9 @@ export function DaemonGeneralSection() {
   // When set, render the existing daemon onboarding wizard as an overlay to
   // re-bind the local daemon to the current team.
   const [rebinding, setRebinding] = React.useState(false)
+  const [forceReloadOpen, setForceReloadOpen] = React.useState(false)
+  const [forceReloading, setForceReloading] = React.useState(false)
+  const forceReloadInFlightRef = React.useRef(false)
   // Surfaced so the overlay can offer a safe cancel *before* the daemon binding
   // is cleared (status 'mismatch'); once re-init starts there's no going back.
   const onboardingStatus = useDaemonOnboardingStore((s) => s.status)
@@ -766,10 +783,121 @@ export function DaemonGeneralSection() {
         </>
       )}
 
+      {isTauri() && workspacePath?.trim() && (
+        <SettingCard>
+          <div className="space-y-3">
+            <div>
+              <p className="text-[13px] font-semibold">
+                {t('settings.daemonGeneral.forceReloadTitle', '强制重载 Agent 运行时')}
+              </p>
+              <p className="mt-0.5 text-[12px] text-muted-foreground">
+                {t(
+                  'settings.daemonGeneral.forceReloadDesc',
+                  '环境变量等变更一般会在空闲后自动生效。仅在急需时使用强制重载。',
+                )}
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5"
+              disabled={forceReloading}
+              data-testid="daemon-force-reload-runtime"
+              onClick={() => setForceReloadOpen(true)}
+            >
+              {forceReloading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
+              {t('settings.daemonGeneral.forceReloadButton', '强制重载')}
+            </Button>
+          </div>
+        </SettingCard>
+      )}
+
       {isTauri() && (
         <DaemonManualResetCard onResetComplete={() => setRebinding(true)} />
       )}
     </div>
+
+      <AlertDialog
+        open={forceReloadOpen}
+        onOpenChange={(open) => {
+          if (!forceReloadInFlightRef.current) setForceReloadOpen(open)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('settings.daemonGeneral.forceReloadConfirmTitle', '确认强制重载运行时？')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                'settings.daemonGeneral.forceReloadConfirmDesc',
+                '将停止本工作区活跃的 Agent runtime，并重启全局 OpenCode serve。进行中的回复可能中断；之后需再发消息或新建会话才会使用最新环境变量。一般情况下可等待空闲后自动生效。',
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={forceReloading}>
+              {t('common.cancel', 'Cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="daemon-force-reload-confirm"
+              disabled={forceReloading}
+              onClick={(event) => {
+                event.preventDefault()
+                if (forceReloadInFlightRef.current) return
+                forceReloadInFlightRef.current = true
+                void (async () => {
+                  const path = workspacePath?.trim()
+                  if (!path) {
+                    toast.error(t('settings.daemonGeneral.forceReloadNoWorkspace', '未选择工作区'))
+                    forceReloadInFlightRef.current = false
+                    setForceReloadOpen(false)
+                    return
+                  }
+                  setForceReloading(true)
+                  try {
+                    const outcome = await reloadDaemonRuntime(encodeWorkspaceId(path))
+                    setForceReloadOpen(false)
+                    if (!outcome) {
+                      toast.error(t('settings.daemonGeneral.forceReloadFailed', '重载失败'), {
+                        description: t(
+                          'settings.daemonGeneral.forceReloadDaemonUnavailable',
+                          '本地 amuxd 不可用。',
+                        ),
+                      })
+                      return
+                    }
+                    toast.success(t('settings.daemonGeneral.forceReloadDone', '运行时已重载'), {
+                      description: describeEnvReloadOutcome(outcome),
+                    })
+                  } catch (err) {
+                    toast.error(t('settings.daemonGeneral.forceReloadFailed', '重载失败'), {
+                      description: err instanceof Error ? err.message : String(err),
+                    })
+                  } finally {
+                    forceReloadInFlightRef.current = false
+                    setForceReloading(false)
+                  }
+                })()
+              }}
+            >
+              {forceReloading ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  {t('settings.daemonGeneral.forceReloading', '正在重载…')}
+                </>
+              ) : (
+                t('settings.daemonGeneral.forceReloadConfirmAction', '确认重载')
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {rebinding && (
         <div className="fixed inset-0 z-50">

@@ -312,7 +312,7 @@ MQTT 通道是现成的（`crates/teamclu-types/src/mqtt.rs` 的 `actor_notify()
 
 1. team agent 本来就只能在 daemon 做（§8.1）——管理员的机器上不跑那个 agent。
 2. `runtime/team_cloud_config.rs` 已经把「后台 reconcile + 文件缓存 + 失败不缩水 + 离线可用」这套模式跑通了，skills 是第三个 `reconcile_*`，不是新范式。
-3. **`runtime/refresh_watch.rs` 已经 recursive watch `~/.agents/skills` 并归类成 `RefreshChangeKind::Skills`。** 这意味着落盘完成后，正在跑的 session 会自动刷新——自动跟随传导到活着的 agent 是白捡的，不用新写通知链路。
+3. **`runtime/refresh_watch.rs` 已经 recursive watch `~/.agents/skills` 并归类成 `RefreshChangeKind::Skills`。** 落盘后当前会话记 pending，**不** idle auto-apply；需显式 Apply / reload 才刷新当前会话。同时该 workspace 的 OpenCode host 会请求滚动替换：已有 session 继续使用旧 generation，下一次新 session attach 使用新 generation 并重新发现磁盘上的 skills，所以远程/无 UI 也不会永远卡在旧目录。
 
 **代价（本方案唯一的大账）：安装管线要抽成共享 crate。** zip 防穿越解压、frontmatter 回写、lockfile、`permission.skill` 写入现在全在 `apps/desktop/src/commands/{clawhub,team_skills}.rs`，daemon 够不着。`crates/teamclu-types/src/skill_frontmatter.rs` 是这条路的先例。工作量比本设计里所有 UI 加起来都大，排期时不要按「加个定时器」估。
 

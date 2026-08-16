@@ -45,6 +45,11 @@ pnpm tauri:dev              # Full Tauri desktop app
 pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding  # Dev: skip first-run wizards
 pnpm rust:check             # Fast Rust compile check with shared .cargo-target
 pnpm rust:build             # Rust build with shared .cargo-target
+# Always go through these wrappers rather than bare cargo. `binaries/` is fully
+# gitignored, but tauri.conf.json globs binaries/{cursor,claude}-bridge/**/* as
+# bundle resources — on a fresh checkout that glob matches nothing and
+# tauri-build fails before any crate compiles. The wrappers stage the bridge
+# trees for real builds and drop the globs for analysis-only runs.
 pnpm daemon:run             # Run amuxd from apps/daemon
 pnpm ios:run                # Build, install, and launch iOS app on booted Simulator
 
@@ -59,7 +64,8 @@ pnpm ios:build              # Build iOS simulator app
 pnpm lint                   # ESLint (frontend)
 pnpm typecheck              # TypeScript strict
 cargo fmt --check --manifest-path apps/desktop/Cargo.toml
-cargo clippy --manifest-path apps/desktop/Cargo.toml -- -D warnings
+pnpm rust:clippy            # clippy -D warnings; use this over bare `cargo clippy`,
+                            # which fails on a fresh checkout (see rust:check below)
 
 # Test
 pnpm test:unit              # Vitest unit tests

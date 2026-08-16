@@ -1,4 +1,5 @@
 import type {
+  DaemonDomainHostStats,
   DaemonEnvActivationDiagnostics,
   DaemonRuntimeRefresh,
 } from '@/lib/daemon-local-client'
@@ -28,7 +29,7 @@ const CRITICAL_BLOCKER_CODES = new Set([
   'personal_store_uninitialized',
   'refresh_failed',
   'host_env_shadowed',
-  'env_snapshot_conflict',
+  'host_capacity_timeout',
   'unresolved_env_keys',
   'team_secret_missing',
   'missing_expected_env_keys',
@@ -128,6 +129,20 @@ const EMPTY_REFRESH: DaemonRuntimeRefresh = {
   last_error: null,
 }
 
+const EMPTY_HOST_POOL: DaemonDomainHostStats = {
+  current_generation: null,
+  current_lifecycle: null,
+  pending_lifecycle: null,
+  current_revision: null,
+  requested_revision: null,
+  current_routes: 0,
+  draining_generations: 0,
+  draining_routes: 0,
+  idle_age: null,
+  queued_acquisitions: 0,
+  last_error: null,
+}
+
 export interface EnvActivationBlocker {
   code: string
   detail?: string | null
@@ -173,10 +188,20 @@ export function formatEnvActivationBlocker(
         keys: detail ?? '',
         defaultValue: `Host OS environment overrides personal vars for: ${detail ?? ''}`,
       })
-    case 'env_snapshot_conflict':
-      return t('settings.envVars.diag.blockerSnapshotConflict', {
-        workspace: detail ?? '',
-        defaultValue: `Another workspace is using a different environment snapshot: ${detail ?? ''}`,
+    case 'host_generation_starting':
+      return t('settings.envVars.diag.blockerHostGenerationStarting', {
+        detail: detailSuffix,
+        defaultValue: `Workspace runtime generation is starting${detailSuffix}`,
+      })
+    case 'host_capacity_waiting':
+      return t('settings.envVars.diag.blockerHostCapacityWaiting', {
+        detail: detailSuffix,
+        defaultValue: `New sessions are waiting for local runtime capacity${detailSuffix}`,
+      })
+    case 'host_capacity_timeout':
+      return t('settings.envVars.diag.blockerHostCapacityTimeout', {
+        detail: detailSuffix,
+        defaultValue: `Timed out waiting for local runtime capacity${detailSuffix}`,
       })
     case 'unresolved_env_keys':
       return t('settings.envVars.diag.blockerUnresolvedEnvKeys', {
@@ -184,7 +209,7 @@ export function formatEnvActivationBlocker(
         defaultValue: `Variables could not be resolved for runtime injection: ${detail ?? ''}`,
       })
     case 'env_snapshot_pending':
-      return t('settings.envVars.diag.blockerEnvSnapshotPending', 'Resolved environment is not yet active in the global OpenCode host — reload runtime and start a new session')
+      return t('settings.envVars.diag.blockerEnvSnapshotPending', 'Resolved environment is not yet active in this workspace runtime generation')
     case 'alias_collision':
       return t('settings.envVars.diag.blockerAliasCollision', {
         keys: detail ?? '',
@@ -225,6 +250,36 @@ function normalizeBlocker(raw: Partial<EnvActivationBlocker>): EnvActivationBloc
   }
 }
 
+function normalizeHostPool(raw: unknown): DaemonDomainHostStats {
+  if (!raw || typeof raw !== 'object') return { ...EMPTY_HOST_POOL }
+  const wire = raw as Partial<DaemonDomainHostStats> & {
+    currentGeneration?: string | null
+    currentLifecycle?: string | null
+    pendingLifecycle?: string | null
+    currentRevision?: string | null
+    requestedRevision?: string | null
+    currentRoutes?: number
+    drainingGenerations?: number
+    drainingRoutes?: number
+    idleAge?: DaemonDomainHostStats['idle_age']
+    queuedAcquisitions?: number
+    lastError?: string | null
+  }
+  return {
+    current_generation: wire.current_generation ?? wire.currentGeneration ?? null,
+    current_lifecycle: wire.current_lifecycle ?? wire.currentLifecycle ?? null,
+    pending_lifecycle: wire.pending_lifecycle ?? wire.pendingLifecycle ?? null,
+    current_revision: wire.current_revision ?? wire.currentRevision ?? null,
+    requested_revision: wire.requested_revision ?? wire.requestedRevision ?? null,
+    current_routes: wire.current_routes ?? wire.currentRoutes ?? 0,
+    draining_generations: wire.draining_generations ?? wire.drainingGenerations ?? 0,
+    draining_routes: wire.draining_routes ?? wire.drainingRoutes ?? 0,
+    idle_age: wire.idle_age ?? wire.idleAge ?? null,
+    queued_acquisitions: wire.queued_acquisitions ?? wire.queuedAcquisitions ?? 0,
+    last_error: wire.last_error ?? wire.lastError ?? null,
+  }
+}
+
 /** Coerce partial / older daemon responses so UI never crashes on missing fields. */
 export function normalizeDaemonEnvActivationDiagnostics(
   raw: Partial<DaemonEnvActivationDiagnostics> | null | undefined,
@@ -260,6 +315,7 @@ export function normalizeDaemonEnvActivationDiagnostics(
     opencodeServeCachedEnvKeys?: string[]
     missingServedEnvKeys?: string[]
     activeHandleEnvKeys?: string[]
+    hostPool?: unknown
   }
 
   const blockers = (wire.blockers ?? []).map((entry) => {
@@ -268,6 +324,33 @@ export function normalizeDaemonEnvActivationDiagnostics(
     }
     return normalizeBlocker(entry)
   })
+  const hostPool = normalizeHostPool(wire.host_pool ?? wire.hostPool)
+  const hasBlocker = (code: string) => blockers.some((blocker) => blocker.code === code)
+  if (
+    hostPool.pending_lifecycle?.toLowerCase() === 'starting'
+    && !hasBlocker('host_generation_starting')
+  ) {
+    blockers.push({
+      code: 'host_generation_starting',
+      detail: hostPool.requested_revision ? `revision ${hostPool.requested_revision}` : null,
+    })
+  }
+  if (hostPool.queued_acquisitions > 0 && !hasBlocker('host_capacity_waiting')) {
+    blockers.push({
+      code: 'host_capacity_waiting',
+      detail: `${hostPool.queued_acquisitions} queued acquisition(s)`,
+    })
+  }
+  if (
+    hostPool.last_error
+    && /capacity.*(?:timed out|timeout|exhaust(?:ed|ion)?)/i.test(hostPool.last_error)
+    && !hasBlocker('host_capacity_timeout')
+  ) {
+    blockers.push({
+      code: 'host_capacity_timeout',
+      detail: hostPool.last_error,
+    })
+  }
 
   return {
     personal_env_var_count: wire.personal_env_var_count ?? wire.personalEnvVarCount ?? wire.personal_blob_user_var_count ?? wire.personalBlobUserVarCount ?? 0,
@@ -285,6 +368,7 @@ export function normalizeDaemonEnvActivationDiagnostics(
       ...wire.refresh,
       change_kinds: wire.refresh?.change_kinds ?? [],
     },
+    host_pool: hostPool,
     host_env_shadowed_keys: wire.host_env_shadowed_keys ?? wire.hostEnvShadowedKeys ?? [],
     resolved_env_fingerprint: wire.resolved_env_fingerprint ?? wire.resolvedEnvFingerprint ?? null,
     active_env_fingerprint: wire.active_env_fingerprint ?? wire.activeEnvFingerprint ?? null,

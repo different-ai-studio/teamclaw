@@ -20,9 +20,7 @@ import {
 } from "lucide-react";
 
 import { cn } from '@/lib/utils';
-import { TEAM_REPO_DIR } from '@/lib/build-config';
 import { ObsidianIcon } from '@/components/knowledge/ObsidianIcon';
-import { useTeamPermissions } from '@/lib/team-permissions';
 import { useTabsStore } from '@/stores/tabs';
 import { useCurrentTeamStore } from '@/stores/current-team';
 import { useVersionHistoryStore } from '@/stores/version-history';
@@ -266,9 +264,8 @@ export const FileTreeItem = React.memo(function FileTreeItem({
 }: FileTreeItemProps) {
   const { t } = useTranslation();
   const isDirectory = node.type === "directory";
-  const { canEditFiles } = useTeamPermissions()
-  const isTeamFile = node.path.includes(`/${TEAM_REPO_DIR}/`)
-  const isViewerRestricted = isTeamFile && !canEditFiles
+  // Every role gets the full context menu, team files included — file ops are
+  // not role-gated in the tree.
   const isCutTarget = clipboardPaths?.includes(node.path) && isClipboardCut;
   const displayName = compactName || node.name;
   const contextMenuOpenedAtRef = useRef(0);
@@ -427,7 +424,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
     <ContextMenu>
       <ContextMenuTrigger asChild>{rowContent}</ContextMenuTrigger>
       <ContextMenuContent className="w-56">
-        {isDirectory && !isViewerRestricted && (
+        {isDirectory && (
           <>
             <ContextMenuItem onSelect={guardedMenuAction(() => onNewFile(node.path))}>
               <FilePlus className="h-4 w-4" />
@@ -466,14 +463,12 @@ export const FileTreeItem = React.memo(function FileTreeItem({
           {t("fileExplorer.copyFile", "Copy")}
           <ContextMenuShortcut>⌘C</ContextMenuShortcut>
         </ContextMenuItem>
-        {!isViewerRestricted && (
-          <ContextMenuItem onSelect={guardedMenuAction(() => onCut([node.path]))}>
-            <Scissors className="h-4 w-4" />
-            {t("fileExplorer.cutFile", "Cut")}
-            <ContextMenuShortcut>⌘X</ContextMenuShortcut>
-          </ContextMenuItem>
-        )}
-        {!isViewerRestricted && hasClipboard && (
+        <ContextMenuItem onSelect={guardedMenuAction(() => onCut([node.path]))}>
+          <Scissors className="h-4 w-4" />
+          {t("fileExplorer.cutFile", "Cut")}
+          <ContextMenuShortcut>⌘X</ContextMenuShortcut>
+        </ContextMenuItem>
+        {hasClipboard && (
           <ContextMenuItem onSelect={guardedMenuAction(() => onPaste(
             isDirectory ? node.path : node.path.substring(0, node.path.lastIndexOf("/"))
           ))}>
@@ -482,13 +477,11 @@ export const FileTreeItem = React.memo(function FileTreeItem({
             <ContextMenuShortcut>⌘V</ContextMenuShortcut>
           </ContextMenuItem>
         )}
-        {!isViewerRestricted && (
-          <ContextMenuItem onSelect={guardedMenuAction(() => onDuplicate(node.path))}>
-            <CopyPlus className="h-4 w-4" />
-            {t("fileExplorer.duplicate", "Duplicate")}
-            <ContextMenuShortcut>⌘D</ContextMenuShortcut>
-          </ContextMenuItem>
-        )}
+        <ContextMenuItem onSelect={guardedMenuAction(() => onDuplicate(node.path))}>
+          <CopyPlus className="h-4 w-4" />
+          {t("fileExplorer.duplicate", "Duplicate")}
+          <ContextMenuShortcut>⌘D</ContextMenuShortcut>
+        </ContextMenuItem>
         {!isDirectory && (
           <ContextMenuItem
             onSelect={guardedMenuAction(() => openVersionHistory(node.path, t("versionHistory.title", "Version history")))}
@@ -498,23 +491,19 @@ export const FileTreeItem = React.memo(function FileTreeItem({
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />
-        {!isViewerRestricted && (
-          <ContextMenuItem onSelect={guardedMenuAction(() => onRename(node.path))}>
-            <Pencil className="h-4 w-4" />
-            {t("fileExplorer.rename", "Rename")}
-            <ContextMenuShortcut>F2</ContextMenuShortcut>
-          </ContextMenuItem>
-        )}
-        {!isViewerRestricted && (
-          <ContextMenuItem
-            variant="destructive"
-            onSelect={guardedMenuAction(() => onDelete(node.path, isDirectory))}
-          >
-            <Trash2 className="h-4 w-4" />
-            {t("fileExplorer.delete", "Delete")}
-            <ContextMenuShortcut>⌫</ContextMenuShortcut>
-          </ContextMenuItem>
-        )}
+        <ContextMenuItem onSelect={guardedMenuAction(() => onRename(node.path))}>
+          <Pencil className="h-4 w-4" />
+          {t("fileExplorer.rename", "Rename")}
+          <ContextMenuShortcut>F2</ContextMenuShortcut>
+        </ContextMenuItem>
+        <ContextMenuItem
+          variant="destructive"
+          onSelect={guardedMenuAction(() => onDelete(node.path, isDirectory))}
+        >
+          <Trash2 className="h-4 w-4" />
+          {t("fileExplorer.delete", "Delete")}
+          <ContextMenuShortcut>⌫</ContextMenuShortcut>
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={guardedMenuAction(() => onOpenTerminal(terminalPath))}>
           <Terminal className="h-4 w-4" />

@@ -107,6 +107,8 @@ pub struct MockState {
     pub gateway_messages_inserted: Vec<RecordedGatewayMessage>,
     pub external_actors_upserted: Vec<RecordedExternalActor>,
     pub runtime_cursors_updated: Vec<(String, String)>,
+    /// `("{session}:{actor}", model)` pairs passed to `update_participant_model`.
+    pub participant_models_updated: Vec<(String, String)>,
     pub attachments_uploaded: Vec<RecordedAttachment>,
     pub gateway_sessions_ensured: Vec<RecordedGatewayEnsure>,
     /// `(binding, session_id)` pairs passed to `rpc_attach_gateway_session`.
@@ -144,6 +146,7 @@ pub struct MockState {
     /// Per-agent `get_agent_defaults` overrides. Missing entries fall back to
     /// `AgentDefaults::default()` (all `None`).
     pub agent_defaults: HashMap<String, AgentDefaults>,
+    pub get_workspaces_by_team_error: Option<String>,
     /// Per-team `managed_llm_config` overrides. Missing entries fall back to
     /// `ManagedLlmConfig::default()` (i.e. managed LLM disabled).
     pub managed_llm_configs: HashMap<String, ManagedLlmConfig>,
@@ -357,6 +360,13 @@ impl Backend for MockBackend {
 
     async fn get_workspaces_by_team(&self, team_id: &str) -> BackendResult<Vec<WorkspaceRow>> {
         let st = self.state.lock().unwrap();
+        if let Some(message) = &st.get_workspaces_by_team_error {
+            return Err(BackendError::Provider {
+                provider: "mock",
+                code: None,
+                message: message.clone(),
+            });
+        }
         Ok(st
             .workspaces_by_id
             .values()
@@ -417,6 +427,20 @@ impl Backend for MockBackend {
             format!("{session_id}:{actor_id}"),
             last_processed_message_id.to_string(),
         ));
+        Ok(())
+    }
+
+    async fn update_participant_model(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+        model: &str,
+    ) -> BackendResult<()> {
+        self.state
+            .lock()
+            .unwrap()
+            .participant_models_updated
+            .push((format!("{session_id}:{actor_id}"), model.to_string()));
         Ok(())
     }
 

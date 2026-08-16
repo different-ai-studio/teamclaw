@@ -313,6 +313,8 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // File-list clipboard, so the file tree can exchange copies with Finder.
+        .plugin(tauri_plugin_clipboard::init())
         // Restore window size + position across launches. Per-window state is
         // keyed by window label and stored under the OS app-data dir.
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -402,6 +404,8 @@ pub fn run() {
             commands::gateway::list_wecom_bots_status,
             commands::gateway::load_channel_config,
             commands::gateway::save_channel_config,
+            commands::gateway::load_gateway_model,
+            commands::gateway::save_gateway_model,
             commands::gateway::reload_channels,
             commands::gateway::test_seatalk_credentials,
             commands::gateway::qr::start_wechat_qr_login,
@@ -545,7 +549,6 @@ pub fn run() {
             telemetry::commands::telemetry_get_consent,
             telemetry::commands::telemetry_set_consent,
             telemetry::commands::telemetry_track,
-            commands::webview::webview_eval_js,
             commands::webview::webview_create,
             commands::webview::webview_close,
             commands::webview::webview_hide,

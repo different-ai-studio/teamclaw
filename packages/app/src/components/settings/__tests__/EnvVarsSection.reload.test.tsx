@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import React from 'react'
 
 const mockReloadDaemonRuntime = vi.fn()
+const mockNotifyDaemonRuntimePendingChanges = vi.fn()
 const mockSetCatalogEntry = vi.fn()
 const mockEncodeWorkspaceId = vi.fn((path: string) => path)
 const mockInvoke = vi.fn()
@@ -42,12 +43,12 @@ vi.mock('sonner', () => ({
   },
 }))
 
-const mockGetDaemonEnvActivationDiagnostics = vi.fn()
-
 vi.mock('@/lib/daemon-local-client', () => ({
   reloadDaemonRuntime: (...args: unknown[]) => mockReloadDaemonRuntime(...args),
+  notifyDaemonRuntimePendingChanges: (...args: unknown[]) =>
+    mockNotifyDaemonRuntimePendingChanges(...args),
   encodeWorkspaceId: (path: string) => mockEncodeWorkspaceId(path),
-  getDaemonEnvActivationDiagnostics: (...args: unknown[]) => mockGetDaemonEnvActivationDiagnostics(...args),
+  getDaemonEnvActivationDiagnostics: vi.fn(),
 }))
 
 vi.mock('@/stores/workspace', () => ({
@@ -70,14 +71,16 @@ vi.mock('@/components/ui/input', () => ({
 }))
 
 vi.mock('@/components/ui/checkbox', () => ({
-  Checkbox: (props: Record<string, unknown>) => React.createElement('input', { type: 'checkbox', ...props }),
+  Checkbox: (props: Record<string, unknown>) =>
+    React.createElement('input', { type: 'checkbox', ...props }),
 }))
 
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ children, open }: React.PropsWithChildren<{ open?: boolean }>) =>
     open ? React.createElement('div', null, children) : null,
   DialogContent: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
-  DialogDescription: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
+  DialogDescription: ({ children }: React.PropsWithChildren) =>
+    React.createElement('div', null, children),
   DialogFooter: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
   DialogHeader: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
   DialogTitle: ({ children }: React.PropsWithChildren) => React.createElement('div', null, children),
@@ -123,54 +126,14 @@ vi.mock('@/lib/team-permissions', () => ({
 
 import { EnvVarsSection } from '../EnvVarsSection'
 
-describe('EnvVarsSection reload', () => {
+describe('EnvVarsSection save notifies pending reload', () => {
   beforeEach(() => {
     mockReloadDaemonRuntime.mockReset()
+    mockNotifyDaemonRuntimePendingChanges.mockReset()
     mockSetCatalogEntry.mockReset()
     mockInvoke.mockReset()
-    mockGetDaemonEnvActivationDiagnostics.mockReset()
-    mockReloadDaemonRuntime.mockResolvedValue('restart_required')
+    mockNotifyDaemonRuntimePendingChanges.mockResolvedValue(true)
     mockSetCatalogEntry.mockResolvedValue(undefined)
-    mockGetDaemonEnvActivationDiagnostics.mockResolvedValue({
-      personal_env_var_count: 2,
-      personal_blob_user_var_count: 2,
-      personal_blob_readable: true,
-      personal_load_error: null,
-      team_env_var_count: 0,
-      system_env_var_count: 3,
-      opencode_serve_running: false,
-      opencode_serve_cached_env_count: 0,
-      active_runtime_count: 0,
-      workspace_has_active_turn: false,
-      refresh: {
-        status: 'clean',
-        change_kinds: [],
-        recommended_action: 'none',
-        auto_apply_blocked_by_active_runtime: false,
-        last_detected_at: null,
-        last_error: null,
-      },
-      blockers: [] as { code: string; detail?: string | null }[],
-      host_env_shadowed_keys: [],
-      resolved_env_fingerprint: 'same-fingerprint',
-      active_env_fingerprint: 'same-fingerprint',
-      override_keys: [],
-      alias_collision_keys: [],
-      unresolved_env_keys: [],
-      snapshot_conflict_workspace: null,
-      activation_status: 'active',
-      expected_env_keys: [],
-      effective_env_keys: [],
-      missing_expected_keys: [],
-      key_statuses: [],
-      mcp_unresolved_placeholders: [],
-      installed_env_fingerprint: 'same-fingerprint',
-      active_handle_env_fingerprint: null,
-      team_secret_configured: false,
-      opencode_serve_cached_env_keys: [],
-      missing_served_env_keys: [],
-      active_handle_env_keys: [],
-    })
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'team_env_diagnostics') {
         return {
@@ -185,27 +148,20 @@ describe('EnvVarsSection reload', () => {
           secretConfigured: false,
         }
       }
-      if (cmd === 'personal_env_diagnostics') {
-        return {
-          storageDir: 'teamclu',
-          secretsDir: '/home/user/.teamclu/secrets',
-          masterKeyExists: true,
-          blobExists: true,
-          blobReadable: true,
-          blobError: null,
-          storedVarCount: 3,
-          userStoredVarCount: 2,
-          workspaceIndexCount: 2,
-          indexKeysMissingFromBlob: [],
-          blobKeysMissingFromIndex: [],
-          hostShadowedKeys: [],
-        }
-      }
       return true
     })
   })
 
-  it('reloads daemon runtime after saving a personal env var', async () => {
+  it('does not render personal activation diagnostics or manual reload', async () => {
+    render(<EnvVarsSection />)
+    expect(screen.queryByText('个人变量生效诊断')).toBeNull()
+    expect(screen.queryByText('Personal env activation')).toBeNull()
+    expect(screen.queryByRole('button', { name: '重载 Agent 运行时' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Reload agent runtime' })).toBeNull()
+  })
+
+  it('notifies daemon of pending env_vars after saving a personal env var', async () => {
+    const { toast } = await import('sonner')
     const user = userEvent.setup()
     render(<EnvVarsSection />)
 
@@ -221,13 +177,17 @@ describe('EnvVarsSection reload', () => {
         'secret-value',
         { description: undefined },
       )
-      expect(mockReloadDaemonRuntime).toHaveBeenCalledWith('/workspace/demo')
+      expect(mockNotifyDaemonRuntimePendingChanges).toHaveBeenCalledWith('/workspace/demo', [
+        'env_vars',
+      ])
+      expect(mockReloadDaemonRuntime).not.toHaveBeenCalled()
     })
+    expect(toast.success).toHaveBeenCalled()
   })
 
-  it('warns when daemon reload returns null', async () => {
+  it('warns when pending-change notify fails', async () => {
     const { toast } = await import('sonner')
-    mockReloadDaemonRuntime.mockResolvedValue(null)
+    mockNotifyDaemonRuntimePendingChanges.mockResolvedValue(false)
     const user = userEvent.setup()
     render(<EnvVarsSection />)
 
@@ -239,5 +199,7 @@ describe('EnvVarsSection reload', () => {
     await waitFor(() => {
       expect(toast.warning).toHaveBeenCalled()
     })
+    expect(mockReloadDaemonRuntime).not.toHaveBeenCalled()
   })
+
 })

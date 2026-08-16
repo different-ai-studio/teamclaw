@@ -38,7 +38,7 @@ mod cloud_token_file;
 #[path = "collab_runtime_ensure.rs"]
 mod collab_runtime_ensure;
 #[path = "runtime_env.rs"]
-mod runtime_env;
+pub(crate) mod runtime_env;
 // Cron-style prompt-await handling (`handle_prompt_await` + the cron session
 // cache) lives in `server/cron.rs` as a child module so it can reach the
 // server's private fields directly.
@@ -247,6 +247,13 @@ pub(crate) enum SockCommand {
     ChannelSave {
         platform: String,
         config_json: String,
+    },
+    /// Replace `daemon_config.channels.model` — the model every gateway session
+    /// starts on when the chat has not set its own with `/model` — persist to
+    /// team.toml, and reload the channel manager. An empty string clears it,
+    /// restoring the unpinned spawn. One-way (no reply).
+    GatewayModelSave {
+        model: String,
     },
     /// Proactive send request from the `amuxd mcp-server` bridge running
     /// as a child of an ACP agent. `payload` is the raw JSON envelope the
@@ -964,7 +971,20 @@ impl DaemonServer {
             meta.mqtt_connected = mqtt_connected_flag.clone();
             // The HTTP workspace runtime endpoints share this supervisor's
             // refresh coordinator for status + apply-intent semantics.
-            let runtime_supervisor = crate::runtime::RuntimeSupervisor::new(self.agents.clone());
+            let execution_context_assembler = Arc::new(self.execution_context_assembler());
+            let opencode_host_pool = {
+                let manager = self.agents.lock().await;
+                manager.opencode_host_pool().await
+            };
+            let runtime_supervisor = if let Some(pool) = opencode_host_pool.clone() {
+                crate::runtime::RuntimeSupervisor::new_with_workspace_services(
+                    self.agents.clone(),
+                    pool,
+                    execution_context_assembler.clone(),
+                )
+            } else {
+                crate::runtime::RuntimeSupervisor::new(self.agents.clone())
+            };
             supervisor_for_prewarm = Some(runtime_supervisor.clone());
             runtime_supervisor.clone().start_refresh_auto_applier();
             let refresh_coordinator = runtime_supervisor.refresh_coordinator();
@@ -974,10 +994,11 @@ impl DaemonServer {
                 manager.attach_refresh_coordinator(refresh_coordinator.clone());
             }
             let runtime: Arc<dyn crate::http::runtime_adapter::RuntimeAdapter> =
-                crate::http::runtime_adapter::RuntimeManagerAdapter::new(
+                crate::http::runtime_adapter::RuntimeManagerAdapter::new_with_execution_context_assembler(
                     self.agents.clone(),
                     http_cfg.max_event_backlog,
                     Some(refresh_coordinator),
+                    Some(execution_context_assembler.clone()),
                 );
             // Start the refresh watchers with an empty workspace set so the
             // (cloud-dependent) `cloud_workspace_list()` fetch does not delay the
@@ -985,7 +1006,7 @@ impl DaemonServer {
             // bind (see below), and the watcher poll loop reads the registry live.
             let refresh_watch_registry =
                 crate::runtime::refresh::refresh_watch::start_refresh_watchers(
-                    runtime_supervisor.refresh_coordinator(),
+                    runtime_supervisor.clone(),
                     Vec::new(),
                     dirs::home_dir(),
                 );
@@ -995,14 +1016,14 @@ impl DaemonServer {
             > = Some(std::sync::Arc::new(
                 crate::config::OpenCodeCompatStore::new(),
             ));
-            let opencode_settings = {
-                let manager = self.agents.lock().await;
-                manager.opencode_serve_supervisor().await.map(|serve| {
-                    std::sync::Arc::new(
-                        crate::opencode_settings::OpenCodeSettingsService::with_global_serve(serve),
-                    )
-                })
-            };
+            let opencode_settings = opencode_host_pool.map(|pool| {
+                std::sync::Arc::new(
+                    crate::opencode_settings::OpenCodeSettingsService::with_host_pool(
+                        pool,
+                        execution_context_assembler,
+                    ),
+                )
+            });
             match crate::http::spawn(
                 http_cfg,
                 meta,
@@ -1042,14 +1063,11 @@ impl DaemonServer {
         // Spawned here (after the HTTP setup released its `self.agents` lock) so
         // the long-held prewarm lock can't stall the listener bind.
         {
-            // Resolve *real* spawn envs for every linkable workspace up front
+            // Resolve *real* spawn envs for the two most relevant workspaces
             // (writes provider.team, warms the managed-LLM cache, and yields the
-            // exact extra_env the first session will use). The global OpenCode
-            // host activates the first snapshot only; later, different
-            // workspace fingerprints are recorded but cannot overwrite it
-            // during prewarm. A real attach may switch snapshots once the host
-            // has no active routes. Falls back to empty-env when no workspace
-            // exists yet (fresh install).
+            // exact extra_env the first session will use). Each workspace gets
+            // its own current pooled generation. Falls back to empty-env when no
+            // workspace exists yet (fresh install).
             let prewarm_envs = self.resolve_all_prewarm_envs().await;
             let agents = self.agents.clone();
             tokio::spawn(async move {
@@ -1062,12 +1080,13 @@ impl DaemonServer {
                 // spawns take 20s+ each, and re-acquiring the lock between
                 // workspaces lets real session/cron traffic interleave instead
                 // of queueing behind the whole prewarm sweep.
-                for (worktree, extra_env, force_env_override) in prewarm_envs {
+                for (workspace_id, worktree, extra_env, force_env_override) in prewarm_envs {
                     let mut mgr = agents.lock().await;
-                    mgr.prewarm_agent_backend_with_env(
+                    mgr.prewarm_agent_backend_for_workspace(
+                        &workspace_id,
                         extra_env,
                         force_env_override,
-                        Some(worktree.as_str()),
+                        worktree.as_str(),
                     )
                     .await;
                 }
@@ -1127,10 +1146,7 @@ impl DaemonServer {
                     registry
                         .upsert_workspace(
                             crate::runtime::refresh::refresh_watch::WatchedWorkspace {
-                                workspace_id:
-                                    crate::runtime::refresh::refresh_watch::workspace_runtime_id(
-                                        Path::new(&workspace.path),
-                                    ),
+                                workspace_id: workspace.workspace_id,
                                 workspace_path: PathBuf::from(&workspace.path),
                             },
                         )
@@ -1277,6 +1293,13 @@ impl DaemonServer {
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tick.tick().await;
+                    let host_pool = {
+                        let guard = mgr.lock().await;
+                        guard.opencode_host_pool().await
+                    };
+                    if let Some(pool) = host_pool {
+                        pool.evict_idle(std::time::Instant::now()).await;
+                    }
                     let mut guard = mgr.lock().await;
                     let _idle = guard.evict_idle(threshold).await;
                     let _over = guard.evict_over_capacity(max_attachments).await;
@@ -1780,6 +1803,9 @@ impl DaemonServer {
                             Some(SockCommand::ChannelSave { platform, config_json }) => {
                                 self.save_channel_config(&platform, &config_json).await;
                             }
+                            Some(SockCommand::GatewayModelSave { model }) => {
+                                self.save_gateway_model(&model).await;
+                            }
                             Some(SockCommand::McpSend { payload, reply_tx }) => {
                                 let resp = match self.handle_mcp_send(&payload).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
@@ -2231,6 +2257,9 @@ impl DaemonServer {
                             }
                             Some(SockCommand::ChannelSave { platform, config_json }) => {
                                 self.save_channel_config(&platform, &config_json).await;
+                            }
+                            Some(SockCommand::GatewayModelSave { model }) => {
+                                self.save_gateway_model(&model).await;
                             }
                             Some(SockCommand::McpSend { payload, reply_tx }) => {
                                 let resp = match self.handle_mcp_send(&payload).await {
@@ -2941,6 +2970,20 @@ where
                         .send(SockCommand::ChannelSave {
                             platform: platform.trim().to_string(),
                             config_json: config_json.trim().to_string(),
+                        })
+                        .await;
+                }
+                "gateway-model" => {
+                    // Wire format: line 1 = "gateway-model", line 2 = the
+                    // `provider/model` ref (empty line clears the setting).
+                    let mut model = String::new();
+                    if reader.read_line(&mut model).await.is_err() {
+                        warn!("amuxd.sock: gateway-model missing model");
+                        return;
+                    }
+                    let _ = tx
+                        .send(SockCommand::GatewayModelSave {
+                            model: model.trim().to_string(),
                         })
                         .await;
                 }
@@ -3783,16 +3826,11 @@ pub(crate) mod tests {
     #[tokio::test]
     pub(crate) async fn apply_start_runtime_stamps_workspace_id_on_resolve_fail_worktree_fallback()
     {
-        // Mirrors the design decision documented at the resolve-failure
-        // fallback branch in `apply_start_runtime`: when resolve() fails
-        // (cloud unreachable / workspace not yet visible) but the caller
-        // supplied a worktree path, we deliberately keep the client-given
-        // `workspace_id` (a real cloud UUID) rather than discarding it, so
-        // the runtime/session keep the workspace association and self-heal
-        // once the cloud is reachable again. Proof here: resolution fails
-        // (empty `by-ids` response) yet start succeeds using the supplied
-        // worktree, and the spawned runtime carries the supplied
-        // `workspace_id` verbatim.
+        // When resolve() fails (cloud unreachable / workspace not yet visible)
+        // but the caller supplied a worktree path, `apply_start_runtime`
+        // still keeps the client-given `workspace_id` for association metadata.
+        // Execution-context assembly then fails closed: it must not spawn with
+        // bare env just because a worktree path was supplied.
         let srv = MockServer::start().await;
         auth_token_mock(&srv).await;
         Mock::given(method("POST"))
@@ -3803,9 +3841,8 @@ pub(crate) mod tests {
             .mount(&srv)
             .await;
 
-        // An attachment is keyed by its session (ADR-0004), so a spawn needs a
-        // resolvable one before it can reach the workspace fallback this test
-        // is about.
+        // Session lookup must succeed so the failure is at env assembly, not
+        // session validation.
         Mock::given(method("GET"))
             .and(path("/v1/sessions/session-offline"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -3834,27 +3871,240 @@ pub(crate) mod tests {
             )
             .await;
 
-        let outcome = match result {
-            Ok(outcome) => outcome,
-            Err(err) => panic!(
-                "resolve-fail-with-worktree fallback must still start the runtime: {} / {}",
-                err.error_code, err.error_message
+        let err = match result {
+            Ok(_) => panic!(
+                "unresolved workspace with worktree fallback must fail closed at env assembly"
             ),
+            Err(err) => err,
         };
-        assert_ne!(outcome.runtime_id, "");
+        assert_eq!(err.error_code, "ENV_ASSEMBLE_FAILED");
+        assert_eq!(err.failed_stage, "env_setup");
+        assert!(
+            err.error_message.contains("workspace identity resolution failed"),
+            "unexpected error message: {}",
+            err.error_message
+        );
 
         let agents = fixture.server.agents.lock().await;
-        let handle = agents
-            .get_handle(&outcome.runtime_id)
-            .expect("spawned runtime handle must exist");
-        assert_eq!(
-            handle.workspace_id, "ws-cloud-uuid-offline",
-            "runtime must carry the client-supplied cloud UUID even though resolve() failed"
+        assert!(
+            agents.runtime_ids_for_session("session-offline").is_empty(),
+            "env assembly failure must not spawn a runtime with bare env"
         );
-        assert_eq!(
-            handle.worktree, worktree_path,
-            "runtime must run in the caller-supplied worktree, not the (unresolved) cloud path"
+    }
+
+    #[tokio::test]
+    pub(crate) async fn runtime_lifecycle_apply_start_runtime_propagates_workspace_attach_context()
+    {
+        let workspace = TempDir::new().unwrap();
+        let backend = Arc::new(crate::backend::mock::MockBackend::with_identity(
+            "team-test",
+            "agent-actor",
+        ));
+        backend.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            crate::backend::WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-test".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
         );
+        backend.state().sessions.insert(
+            "desktop-session".into(),
+            crate::backend::BackendSessionAndParticipants {
+                session: crate::backend::BackendSessionRow {
+                    id: "desktop-session".into(),
+                    team_id: "team-test".into(),
+                    created_by_actor_id: Some("human-actor".into()),
+                    primary_agent_id: Some("agent-actor".into()),
+                    mode: "chat".into(),
+                    title: "Desktop".into(),
+                    summary: String::new(),
+                    idea_id: None,
+                    created_at: chrono::Utc::now(),
+                },
+                participants: Vec::new(),
+            },
+        );
+        let mut fixture = test_server_with_cloud_api(backend);
+        let captures = {
+            let mut manager = fixture.server.agents.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+
+        fixture
+            .server
+            .apply_start_runtime(
+                amux::AgentType::Opencode,
+                "ws-a",
+                workspace.path().to_string_lossy().as_ref(),
+                "desktop-session",
+                "",
+                None,
+                "",
+            )
+            .await
+            .unwrap_or_else(|error| panic!("desktop spawn failed: {}", error.error_message));
+
+        let captures = captures.lock().unwrap();
+        assert_eq!(captures.len(), 1);
+        assert_eq!(
+            captures[0].domain,
+            crate::runtime::execution_context::IsolationDomainKey::Workspace("ws-a".into())
+        );
+        assert_eq!(captures[0].working_directory, workspace.path());
+        assert_eq!(
+            captures[0].process_env_revision,
+            crate::runtime::execution_context::ProcessEnvRevision::from_bindings(
+                &captures[0].extra_env
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn all_actual_entry_points_propagate_identical_workspace_env_and_revision() {
+        let workspace = TempDir::new().unwrap();
+        let backend = Arc::new(crate::backend::mock::MockBackend::with_identity(
+            "team-test",
+            "actor-config-test",
+        ));
+        backend.state().workspaces_by_id.insert(
+            "ws-a".into(),
+            crate::backend::WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "team-test".into(),
+                path: Some(workspace.path().to_string_lossy().into_owned()),
+                archived: false,
+                agent_id: None,
+            },
+        );
+        backend.state().sessions.insert(
+            "desktop-cross-entry".into(),
+            crate::backend::BackendSessionAndParticipants {
+                session: crate::backend::BackendSessionRow {
+                    id: "desktop-cross-entry".into(),
+                    team_id: "team-test".into(),
+                    created_by_actor_id: Some("human-actor".into()),
+                    primary_agent_id: Some("actor-config-test".into()),
+                    mode: "chat".into(),
+                    title: "Cross entry".into(),
+                    summary: String::new(),
+                    idea_id: None,
+                    created_at: chrono::Utc::now(),
+                },
+                participants: Vec::new(),
+            },
+        );
+
+        let mut fixture = test_server_with_cloud_api(backend.clone());
+        let captures = {
+            let mut manager = fixture.server.agents.lock().await;
+            crate::runtime::test_support::install_capturing_backend(&mut manager)
+        };
+
+        fixture
+            .server
+            .apply_start_runtime(
+                amux::AgentType::Opencode,
+                "ws-a",
+                workspace.path().to_string_lossy().as_ref(),
+                "desktop-cross-entry",
+                "",
+                None,
+                "",
+            )
+            .await
+            .unwrap_or_else(|error| panic!("desktop spawn failed: {}", error.error_message));
+
+        let cron_context = fixture
+            .server
+            .assemble_execution_context(
+                workspace.path().to_string_lossy().as_ref(),
+                None,
+                Some("ws-a"),
+                true,
+                Some(crate::runtime::PermissionPolicy::Full),
+            )
+            .await
+            .unwrap();
+        fixture
+            .server
+            .create_cron_gateway_session_for_propagation_test(cron_context)
+            .await
+            .unwrap();
+
+        let mut stored = make_stored_session(
+            "resume-cross-entry",
+            "resume-session-cross-entry",
+            amux::AgentType::Opencode,
+            "ws-a",
+            1,
+        );
+        stored.worktree = workspace.path().to_string_lossy().into_owned();
+        fixture.server.sessions.upsert(stored);
+        assert!(
+            fixture
+                .server
+                .resume_historical_runtimes_for_session("resume-session-cross-entry", None)
+                .await
+        );
+
+        let http = crate::http::runtime_adapter::RuntimeManagerAdapter::new_with_execution_context_assembler(
+            fixture.server.agents.clone(),
+            16,
+            None,
+            Some(Arc::new(fixture.server.execution_context_assembler())),
+        );
+        http.spawn_runtime_with_resolved_context(
+            uuid::Uuid::new_v4(),
+            amux::AgentType::Opencode,
+            Some("ws-a".into()),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let (gateway, unscoped_gateway) =
+            crate::channels::agent_handle::tests::capture_workspace_and_unscoped_gateway_attaches(
+                backend,
+                workspace.path(),
+            )
+            .await;
+
+        let captures = captures.lock().unwrap().clone();
+        assert_eq!(captures.len(), 4);
+        let desktop = &captures[0];
+        for (entry_point, capture) in [
+            ("cron", &captures[1]),
+            ("resume", &captures[2]),
+            ("http", &captures[3]),
+            ("workspace gateway", &gateway),
+        ] {
+            assert_eq!(
+                capture.extra_env, desktop.extra_env,
+                "{entry_point} env drifted from desktop"
+            );
+            assert_eq!(
+                capture.process_env_revision, desktop.process_env_revision,
+                "{entry_point} revision drifted from desktop"
+            );
+            assert_eq!(
+                capture.domain,
+                crate::runtime::execution_context::IsolationDomainKey::Workspace("ws-a".into()),
+                "{entry_point} must remain workspace scoped"
+            );
+            assert_eq!(capture.working_directory, workspace.path());
+        }
+        assert_eq!(
+            unscoped_gateway.domain,
+            crate::runtime::execution_context::IsolationDomainKey::UnscopedAgent {
+                team_id: "team-test".into(),
+                actor_id: "actor-config-test".into(),
+            }
+        );
+        assert!(unscoped_gateway.extra_env.is_empty());
     }
 
     // ── plan_auto_restart_offline_sessions branch coverage ─────────────────

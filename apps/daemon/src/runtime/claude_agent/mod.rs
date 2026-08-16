@@ -311,6 +311,8 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         available_models,
         initial_model: (!model.is_empty()).then_some(model),
         acp_session_id,
+        host_generation_id: String::new(),
+        route_lease: None,
     })
 }
 
@@ -596,6 +598,8 @@ impl AgentBackend for ClaudeAgentBackend {
         &mut self,
         _agent_type: amux::AgentType,
         _launch: &AgentLaunchConfig,
+        _isolation_domain: crate::runtime::execution_context::IsolationDomainKey,
+        _process_env_revision: crate::runtime::execution_context::ProcessEnvRevision,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
         worktree: String,
@@ -666,30 +670,6 @@ impl AgentBackend for ClaudeAgentBackend {
 
     fn host_count(&self) -> usize {
         self.shared.pool.live_count()
-    }
-
-    /// Only `sdkModel` — what the SDK reports (init / `result.modelUsage`) — may
-    /// teach the device MRU; echoing our own request back would defeat the
-    /// point of this hook.
-    async fn session_model(&mut self, worktree: &str, backend_session_id: &str) -> Option<String> {
-        let session_key = {
-            let routes = self.shared.routes.lock();
-            routes.get(backend_session_id)?.session_key.clone()
-        };
-        let worktree = canonical_dir(worktree);
-        let proc = self.shared.pool.get(&worktree)?;
-        let resp = proc
-            .client
-            .request(
-                "get_session_info",
-                serde_json::json!({ "sessionKey": session_key }),
-            )
-            .await
-            .ok()?;
-        resp.get("sdkModel")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
     }
 
     async fn model_catalog(

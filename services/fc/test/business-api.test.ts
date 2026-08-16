@@ -1059,6 +1059,39 @@ test("POST /v1/sessions/:sessionId/participants returns 400 without actorId", as
   assert.equal(JSON.parse(response.body).error.code, "validation_failed");
 });
 
+test("PATCH /v1/sessions/:sessionId/participants/:actorId/model updates the model", async () => {
+  const repo = fakeRepo();
+  const response = await handleBusinessApiRequest({
+    httpMethod: "PATCH",
+    path: "/v1/sessions/session-1/participants/actor-1/model",
+    headers: { Authorization: "Bearer token" },
+    body: JSON.stringify({ model: "anthropic/claude-sonnet-4-6" }),
+  }, { createRepository: () => repo });
+
+  assert.equal(response.statusCode, 204);
+  assert.deepEqual(repo.calls[0], {
+    method: "updateParticipantModel",
+    sessionId: "session-1",
+    actorId: "actor-1",
+    input: { model: "anthropic/claude-sonnet-4-6" },
+  });
+});
+
+test("PATCH /v1/sessions/:sessionId/participants/:actorId/model returns 400 without model", async () => {
+  // Not nullable on purpose: every entry point pins a model at creation time,
+  // so an empty body is a caller bug, not a request to clear (ADR-0007).
+  const repo = fakeRepo();
+  const response = await handleBusinessApiRequest({
+    httpMethod: "PATCH",
+    path: "/v1/sessions/session-1/participants/actor-1/model",
+    headers: { Authorization: "Bearer token" },
+    body: JSON.stringify({}),
+  }, { createRepository: () => repo });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(repo.calls.length, 0);
+});
+
 test("DELETE /v1/sessions/:sessionId/participants/:actorId removes participant", async () => {
   const repo = fakeRepo();
   const response = await handleBusinessApiRequest({
@@ -1956,6 +1989,7 @@ function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, work
     async listAgentRuntimesForTeam(teamId) { calls.push({ method: "listAgentRuntimesForTeam", teamId }); if (error) throw error; return [{ id: "rt-1", teamId, agentId: "agent-1", sessionId: "session-1", workspaceId: null, backendType: "claude_code", status: "ready", backendSessionId: "bs-1", runtimeId: "rt12abcd", currentModel: "claude-opus-4-7", lastSeenAt: "2026-05-27T01:00:00Z", createdAt: "2026-05-27T00:00:00Z", updatedAt: "2026-05-27T01:00:00Z" }]; },
     async listSessionParticipants(sessionId) { calls.push({ method: "listSessionParticipants", sessionId }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; const s = store.find(s => s.id === sessionId); return { items: s?.participants ?? [] }; },
     async upsertSessionParticipant(sessionId, input) { calls.push({ method: "upsertSessionParticipant", sessionId, input }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; const s = store.find(s => s.id === sessionId); const existing = s?.participants?.find(p => p.actorId === input.actorId); if (existing) { existing.role = input.role ?? existing.role; return existing; } const newP = { sessionId, actorId: input.actorId, role: input.role ?? "member", joinedAt: null }; if (s) s.participants.push(newP); return newP; },
+    async updateParticipantModel(sessionId, actorId, input) { calls.push({ method: "updateParticipantModel", sessionId, actorId, input }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; const s = store.find(s => s.id === sessionId); const p = s?.participants?.find(p => p.actorId === actorId); if (p) p.model = input.model; },
     async removeSessionParticipant(sessionId, actorId) { calls.push({ method: "removeSessionParticipant", sessionId, actorId }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; const s = store.find(s => s.id === sessionId); if (s?.participants) s.participants = s.participants.filter(p => p.actorId !== actorId); },
     async getSessionByAcp(acpSessionId) { calls.push({ method: "getSessionByAcp", acpSessionId }); if (error) throw error; return gatewayBindings[acpSessionId] ?? null; },
     async ensureGatewaySession(input) { calls.push({ method: "ensureGatewaySession", input }); if (error) throw error; const b = input.binding; if (gatewayBindings[b]) return { ...gatewayBindings[b], created: false }; const r = { sessionId: "gw-" + b, gatewaySessionId: b, created: true }; gatewayBindings[b] = r; return r; },

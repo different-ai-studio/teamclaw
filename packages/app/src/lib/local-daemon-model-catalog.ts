@@ -70,7 +70,7 @@ function catalogBackendId(backendType: string | null | undefined): string | null
  * callers are expected to surface it as "needs configuring", not "wait".
  */
 export type LocalDaemonCatalogOutcome =
-  | { status: 'models'; backend: string; models: ModelInfo[]; recentModels: string[] }
+  | { status: 'models'; backend: string; models: ModelInfo[] }
   /** The daemon answered and serves no models for this backend. First install. */
   | { status: 'empty'; backend: string }
   /**
@@ -176,21 +176,7 @@ export async function fetchLocalDaemonCatalog(
         providerName: m.ref.split('/', 1)[0] || group.backend,
       }),
     ),
-    recentModels: (group.recent_models ?? []).filter((id) => !!id?.trim()),
   }
-}
-
-/**
- * First MRU entry the live catalog still offers, mirroring the daemon's
- * `model_mru::first_available`. Empty string when nothing matches.
- */
-export function firstAvailableRecentModel(
-  recentModels: string[] | undefined,
-  available: readonly { id?: string }[],
-): string {
-  if (!recentModels?.length || available.length === 0) return ''
-  const offered = new Set(available.map((m) => m.id?.trim()).filter(Boolean))
-  return recentModels.map((id) => id?.trim()).find((id) => !!id && offered.has(id)) ?? ''
 }
 
 /**
@@ -205,12 +191,6 @@ export function mergeLocalDaemonModels(args: {
   runtimeId: string
   sessionId?: string | null
   models: ModelInfo[]
-  /**
-   * Device MRU, newest first. Seeds `currentModel` when the entry has none, so
-   * the pill shows the model this device last used instead of falling through
-   * to `availableModels[0]`. Ignored when the retain already named a model.
-   */
-  recentModels?: string[]
 }): boolean {
   const daemonActorId = args.daemonActorId.trim()
   const runtimeId = args.runtimeId.trim()
@@ -231,10 +211,10 @@ export function mergeLocalDaemonModels(args: {
     // Same rule the daemon applies to its own MRU (`model_mru::first_available`):
     // a remembered model the catalog no longer offers falls through rather than
     // being shown as current.
-    currentModel:
-      entry.info.currentModel?.trim() ||
-      firstAvailableRecentModel(args.recentModels, args.models) ||
-      '',
+    // No MRU seed any more: the daemon stopped serving one (ADR-0007) and the
+    // client's own history is applied by `selectAgentModel`, which knows the
+    // backend and team this list is keyed by. Seeding here could only guess.
+    currentModel: entry.info.currentModel?.trim() || '',
   })
   store.upsert(
     sessionId ? attachmentKey(daemonActorId, sessionId) : runtimeId,
@@ -262,13 +242,12 @@ export function seedLocalDaemonModelsInBackground(args: {
     try {
       const outcome = await fetchLocalDaemonCatalog(args.workspacePath, args.backendType)
       if (outcome.status !== 'models') return
-      const { models, recentModels } = outcome
+      const { models } = outcome
       const merged = mergeLocalDaemonModels({
         daemonActorId: args.daemonActorId,
         runtimeId: args.runtimeId,
         sessionId: args.sessionId,
         models,
-        recentModels,
       })
       sessionFlowLog('runtime_start.http_catalog.seeded', {
         sessionId: args.sessionId,
@@ -276,7 +255,6 @@ export function seedLocalDaemonModelsInBackground(args: {
         runtimeId: args.runtimeId,
         backendType: args.backendType ?? null,
         modelCount: models.length,
-        recentModelCount: recentModels.length,
         // false = an MQTT retain with models beat us to it, which is fine.
         merged,
       })
