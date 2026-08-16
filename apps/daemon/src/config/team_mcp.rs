@@ -3,8 +3,9 @@
 //!
 //! The file format is unchanged (Cursor `mcpServers`) because the server hands
 //! back exactly that shape — see `docs/architecture/team-mcp-and-env-cloud.md`.
-//! The synced `teamclu-team/.mcp/` directory is no longer synced, but is still
-//! read for machines that already have it; the cloud copy always wins.
+//! The synced `teamclu-team/.mcp/` directory is no longer synced and is only a
+//! fallback before the daemon has a valid cloud cache. Once that cache exists,
+//! it is authoritative — including when it is empty after an uninstall.
 //!
 //! Merged at read time with workspace `opencode.json` entries. On name
 //! collision the workspace layer wins (user local override).
@@ -83,11 +84,9 @@ pub(crate) fn onboarded_team_id() -> Option<String> {
 
 /// Directories holding team MCP definitions, **least** preferred first.
 ///
-/// The cloud cache is last so it wins on a name collision. The legacy synced
-/// `teamclu-team/.mcp/` is still read rather than dropped: `.mcp/` is no longer
-/// synced, so those files can only exist on a machine that already had them —
-/// reading them keeps a pre-migration checkout working, and the ordering means
-/// they can never shadow what the member actually installed.
+/// The legacy synced `teamclu-team/.mcp/` is used only when there is no valid
+/// cloud cache yet. That preserves pre-migration offline checkouts without
+/// allowing a stale legacy file to resurrect a server that this actor removed.
 fn team_mcp_dirs(workspace: &Path) -> Vec<PathBuf> {
     let team_id = onboarded_team_id();
     let legacy = match &team_id {
@@ -141,38 +140,45 @@ pub(crate) fn convert_cursor_server(server: &CursorMcpServer) -> McpServerConfig
 
 /// Scan every team MCP source for `*.json` in Cursor `mcpServers` format.
 ///
-/// Later directories override earlier ones on a name collision — see
-/// [`team_mcp_dirs`] for the ordering and why.
+/// A valid cloud cache is authoritative. Only when it is absent or malformed do
+/// we fall back to the legacy directories for pre-migration offline support.
 pub fn scan_team_mcp(workspace: &Path) -> HashMap<String, McpServerConfig> {
+    if let Some(team_id) = onboarded_team_id() {
+        let mut cloud_servers = HashMap::new();
+        if read_cloud_mcp_file_into(
+            &crate::runtime::team_cloud_config::team_cloud_mcp_file(&team_id),
+            &mut cloud_servers,
+        ) {
+            return cloud_servers;
+        }
+    }
+
     let mut team_servers = HashMap::new();
-    // Legacy first so it can never shadow the cloud file — see `team_mcp_dirs`.
     for mcp_dir in team_mcp_dirs(workspace) {
         scan_team_mcp_dir_into(&mcp_dir, &mut team_servers);
-    }
-    if let Some(team_id) = onboarded_team_id() {
-        read_cloud_mcp_file_into(
-            &crate::runtime::team_cloud_config::team_cloud_mcp_file(&team_id),
-            &mut team_servers,
-        );
     }
     team_servers
 }
 
 /// Read the cloud file in Cursor `{ "mcpServers": … }` shape.
-fn read_cloud_mcp_file_into(path: &Path, out: &mut HashMap<String, McpServerConfig>) {
+/// Returns `true` only when the cache has a valid MCP map, including an empty
+/// one. In that case it replaces rather than augments `out` so a legacy server
+/// cannot survive a successful uninstall.
+fn read_cloud_mcp_file_into(path: &Path, out: &mut HashMap<String, McpServerConfig>) -> bool {
     let Ok(content) = std::fs::read_to_string(path) else {
-        return;
+        return false;
     };
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return;
+        return false;
     };
     let Some(map) = json
         .get("mcpServers")
         .and_then(|v| v.as_object())
         .or_else(|| json.get("mcp").and_then(|v| v.as_object()))
     else {
-        return;
+        return false;
     };
+    out.clear();
     for (name, raw) in map {
         if let Ok(parsed) = serde_json::from_value::<CursorMcpServer>(raw.clone()) {
             out.insert(name.clone(), convert_cursor_server(&parsed));
@@ -180,6 +186,7 @@ fn read_cloud_mcp_file_into(path: &Path, out: &mut HashMap<String, McpServerConf
             out.insert(name.clone(), cfg);
         }
     }
+    true
 }
 
 fn scan_team_mcp_dir_into(mcp_dir: &Path, out: &mut HashMap<String, McpServerConfig>) {
@@ -437,6 +444,26 @@ mod tests {
         assert_eq!(merged.get("shared").unwrap().command, vec!["fresh"]);
         // ...but it does not erase entries the cloud never mentioned.
         assert_eq!(merged.get("legacy-only").unwrap().command, vec!["keep"]);
+    }
+
+    #[test]
+    fn an_empty_cloud_cache_removes_legacy_team_servers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = tmp.path().join("legacy");
+        let cloud = tmp.path().join("mcp.json");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(
+            legacy.join("stale.json"),
+            r#"{"mcpServers":{"stale":{"command":"npx","args":["stale-mcp"]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(&cloud, r#"{"mcpServers":{}}"#).unwrap();
+
+        let mut merged = HashMap::new();
+        scan_team_mcp_dir_into(&legacy, &mut merged);
+        read_cloud_mcp_file_into(&cloud, &mut merged);
+
+        assert!(merged.is_empty());
     }
 
     #[test]
