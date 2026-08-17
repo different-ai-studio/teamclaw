@@ -317,7 +317,15 @@ test("listAllMyTeams lists all teams the caller has an actor in", async () => {
   const rows = await repo.listAllMyTeams();
   const ids = rows.map((r: any) => r.id).sort();
   assert.deepEqual(ids, [t1, t2.id].sort());
-  assert.deepEqual(Object.keys(rows[0]).sort(), ["id", "name", "orgId", "orgName", "slug"]);
+  // Shape parity with supabase-repo.listAllMyTeams — the client maps both
+  // backends through one type, so a key that exists on only one is a bug.
+  // This list had fallen behind twice over: `visibility`/`isMember` were added
+  // without it, and then createdAt/memberCount/ownerName for picker
+  // disambiguation.
+  assert.deepEqual(Object.keys(rows[0]).sort(), [
+    "createdAt", "id", "isMember", "memberCount", "name",
+    "orgId", "orgName", "ownerName", "slug", "visibility",
+  ]);
   assert.equal(rows[0].orgId, null);
   assert.equal(rows[0].orgName, null);
 });

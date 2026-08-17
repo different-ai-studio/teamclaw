@@ -403,6 +403,18 @@ export interface MembershipTeam {
   itemType?: "team" | "org";
   /** Null for an empty-org picker row; otherwise the same value as `id`. */
   teamId?: string | null;
+  /*
+   * The next three exist because a team's name is not unique. Every team an org
+   * creates is named after the org, so a picker can legitimately show several
+   * rows with identical text; these are what a human recognises them apart by.
+   * All null on an empty-org row, which has no team behind it.
+   */
+  /** ISO timestamp the team was created. */
+  createdAt?: string | null;
+  /** Number of member actors (agents excluded). */
+  memberCount?: number | null;
+  /** Display name of the team's owner. */
+  ownerName?: string | null;
 }
 
 export interface TeamInviteResult {

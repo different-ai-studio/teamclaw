@@ -257,7 +257,7 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
 
       // (a) Teams the caller is already an actor in.
       const mineRows = await db
-        .select({ id: teams.id, name: teams.name, slug: teams.slug, oid: teams.oid, visibility: teams.visibility })
+        .select({ id: teams.id, name: teams.name, slug: teams.slug, oid: teams.oid, visibility: teams.visibility, createdAt: teams.createdAt })
         .from(teams)
         .innerJoin(actors, eq(actors.teamId, teams.id))
         .where(eq(actors.userId, userId))
@@ -265,24 +265,55 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
 
       // Dedup by team id (a user could theoretically have >1 actor per team).
       const seen = new Set<string>();
-      const out: Array<{ id: string; name: string; slug: string | null; orgId: string | null; orgName: null; visibility: string; isMember: boolean }> = [];
+      const out: Array<{ id: string; name: string; slug: string | null; orgId: string | null; orgName: null; visibility: string; isMember: boolean; createdAt: string | null; memberCount: number | null; ownerName: string | null }> = [];
       for (const r of mineRows) {
         if (seen.has(r.id)) continue;
         seen.add(r.id);
-        out.push({ id: r.id, name: r.name, slug: r.slug ?? null, orgId: r.oid ?? null, orgName: null, visibility: r.visibility ?? "private", isMember: true });
+        out.push({ id: r.id, name: r.name, slug: r.slug ?? null, orgId: r.oid ?? null, orgName: null, visibility: r.visibility ?? "private", isMember: true, createdAt: iso(r.createdAt), memberCount: null, ownerName: null });
       }
 
       // (b) PUBLIC teams in the shared DEFAULT_ORG the caller can join.
       if (defaultOrgId) {
         const publicRows = await db
-          .select({ id: teams.id, name: teams.name, slug: teams.slug, oid: teams.oid })
+          .select({ id: teams.id, name: teams.name, slug: teams.slug, oid: teams.oid, createdAt: teams.createdAt })
           .from(teams)
           .where(and(eq(teams.oid, defaultOrgId), eq(teams.visibility, "public")))
           .orderBy(asc(teams.createdAt));
         for (const r of publicRows) {
           if (seen.has(r.id)) continue;
           seen.add(r.id);
-          out.push({ id: r.id, name: r.name, slug: r.slug ?? null, orgId: r.oid ?? null, orgName: null, visibility: "public", isMember: false });
+          out.push({ id: r.id, name: r.name, slug: r.slug ?? null, orgId: r.oid ?? null, orgName: null, visibility: "public", isMember: false, createdAt: iso(r.createdAt), memberCount: null, ownerName: null });
+        }
+      }
+
+      // Member count + owner, for the client to disambiguate same-named teams.
+      // Two batched queries rather than per-row lookups: the picker can list
+      // every team a user belongs to, and this runs on every login.
+      const ids = out.map((t) => t.id);
+      if (ids.length > 0) {
+        const counts = await db
+          .select({ teamId: actors.teamId, n: sql<number>`count(*)::int` })
+          .from(actors)
+          .where(and(inArray(actors.teamId, ids), eq(actors.actorType, "member")))
+          .groupBy(actors.teamId);
+        const countByTeam = new Map(counts.map((c) => [c.teamId, Number(c.n)]));
+
+        const owners = await db
+          .select({ teamId: teamMembers.teamId, displayName: actors.displayName, createdAt: actors.createdAt, actorId: actors.id })
+          .from(teamMembers)
+          .innerJoin(actors, eq(actors.id, teamMembers.memberId))
+          .where(and(inArray(teamMembers.teamId, ids), eq(teamMembers.role, "owner")))
+          .orderBy(asc(actors.createdAt), asc(actors.id));
+        // First row wins per team — same "oldest owner actor" tiebreak the
+        // supabase RPC applies, so both backends name the same person.
+        const ownerByTeam = new Map<string, string | null>();
+        for (const o of owners) {
+          if (!ownerByTeam.has(o.teamId)) ownerByTeam.set(o.teamId, o.displayName ?? null);
+        }
+
+        for (const t of out) {
+          t.memberCount = countByTeam.get(t.id) ?? 0;
+          t.ownerName = ownerByTeam.get(t.id) ?? null;
         }
       }
       return out;
