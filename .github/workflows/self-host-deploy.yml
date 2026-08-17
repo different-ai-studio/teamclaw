@@ -269,21 +269,6 @@ jobs:
               [ -n "$pulled" ] || { echo "litellm image pull failed after 5 attempts"; exit 1; }
             fi
 
-            echo "=== pull minio (same reason as litellm) ==="
-            # `up --pull never` fetches nothing, so every image this compose
-            # file adds has to be pulled here or the whole `up` aborts with
-            # "No such image" — which is exactly how the MinIO rollout failed
-            # its first deploy.
-            for svc in minio minio-init; do
-              pulled=""
-              for i in 1 2 3; do
-                if docker compose pull "$svc"; then pulled=yes; break; fi
-                echo "  $svc pull attempt $i failed; retrying in 10s"
-                sleep 10
-              done
-              [ -n "$pulled" ] || { echo "$svc image pull failed after 3 attempts"; exit 1; }
-            done
-
             echo "=== up ==="
             docker compose up -d --pull never --remove-orphans
 
