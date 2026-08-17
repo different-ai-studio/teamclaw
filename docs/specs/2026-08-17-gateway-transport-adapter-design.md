@@ -122,29 +122,66 @@ pub enum Outbound {
 
 ### ConversationPort：渠道能做的全部事情
 
+> **状态：deliver + subscribe 的形状经讨论后推荐改为"服务推、适配器渲染"，见下节。此处保留两版对照，未最终拍板。**
+
+初版（渠道订阅）：
+
 ```rust
+async fn deliver(&self, msg: InboundMessage) -> Result<(), PortError>;
+async fn subscribe(&self, binding: &str) -> Result<ReplyStream, PortError>;
+```
+
+问题在于 `subscribe` 把五个难题分发给了 7 个适配器，每一条都要写 7 遍——正是本设计要消灭的东西：
+
+| 难题 | naive 实现的后果 |
+|---|---|
+| 游标 / 竞态 | subscribe 晚于 deliver → 丢掉这一轮开头的帧 |
+| `broadcast` lag | 慢渲染者 `Lagged`：丢中间帧无所谓，**丢终帧就是气泡永远收不了口** |
+| 哪些事件是我的 | 同一 session 桌面端也可能在提问，需按 turn_id 过滤 |
+| turn 何时结束 | 没有显式结束事件，只能靠超时猜 |
+| 状态提示过滤 | 直接渲染就会把 `[Turn interrupted by user]` 推进企微（`TurnAggregator::is_agent_facing_status_notice` 明确说渠道 UI 不得当回复渲染） |
+
+### 推荐形状：服务推，适配器只渲染
+
+```rust
+// 端口：渠道能做的——没有 subscribe
 #[async_trait]
 pub trait ConversationPort: Send + Sync {
-    /// 一条用户消息。服务侧负责：解析会话 → 落库 → 广播 → 排队 → 起 turn。
-    ///
-    /// **不返回回复**。turn 走 agent 侧的正常通路，产出经 `session/{id}/live`
-    /// 出来；渠道通过 `subscribe` 拿到并渲染。今天 `send_prompt` 返回 String
-    /// 的形状正是网关必须劫走 `event_rx` 的原因。
-    async fn deliver(&self, msg: InboundMessage) -> Result<(), PortError>;
-
-    /// 订阅这个聊天所绑定 session 的产出，用于渲染。与桌面端订阅
-    /// `session/{id}/live` 是同一份数据。
-    async fn subscribe(&self, binding: &str) -> Result<ReplyStream, PortError>;
-
-    /// 一条斜杠命令。服务侧解释语义并返回要渲染的文本。
+    async fn deliver(&self, msg: InboundMessage) -> Result<Delivered, PortError>;
     async fn command(&self, cmd: SlashCommand) -> Result<Option<String>, PortError>;
-
-    /// agent 主动发给这个聊天的东西（MCP send）。服务侧先入库再交回渠道渲染。
     async fn outbound(&self, binding: &str, out: Outbound) -> Result<(), PortError>;
+}
+
+/// deliver 的结果要说清楚发生了什么：落库成功 ≠ 起了一轮。
+pub enum Delivered {
+    TurnStarted { turn_id: String },
+    Queued,                       // 已落库但未起 turn（未 @ agent，silent-queue）
+    Ignored { reason: String },
+}
+
+pub enum Outbound {
+    Thinking { turn_id: String },                          // 占位帧
+    Reply { turn_id: String, text: String, finished: bool },// 累计文本，非增量
+    Attachment(AttachmentRef),
+    Notice(NoticeKind),                                     // 服务侧已本地化
 }
 ```
 
-对照今天的 26 个方法（`ChannelStore` 8 + `AgentHandle` 18），渠道只剩 3 个入口，且**没有一个能改配置、改工作区、改模型**——那些语义搬进了 `command` 背后。
+三个决定及其理由：
+
+1. **累计文本而非增量**：WeCom 靠同 id 覆盖气泡，`send_prompt_streamed` 今天给的也是累计值；增量会逼每个适配器自己维护缓冲。
+2. **`Thinking` 由服务发，不由渠道猜**：`deliver` 成功 ≠ turn 开始。未 @ agent 的消息会被 silent-queue（`messaging.rs:786`），今天网关照样弹"正在思考"然后永远等不到回复。
+3. **`Notice` 类型化且已本地化**：适配器拿不到英文原文，也就不可能误渲染成回复。
+
+服务侧承担的（因此只写一遍）：游标、lag 策略、按 binding 串行与背压（积压只保留最新帧——今天 WeCom `drain_to_latest` 的策略搬进来）、turn 结束映射、状态提示过滤。
+
+### 渠道差异用投递策略表达，不是第二套 API
+
+```rust
+pub enum DeliveryPolicy { Streaming, FinalOnly }
+```
+
+WeCom / Discord / KOOK 用 `Streaming`；**邮件用 `FinalOnly`**——邮件没有"编辑上一封"，中途帧对它是噪音。今天邮件能工作是因为它同步等 `send_prompt` 返回；换成推送模型后这个差异必须显式，否则一轮会发出 5 封邮件。
 
 ### 渠道侧要实现的
 
@@ -227,6 +264,10 @@ WeCom 的流式帧节流、KOOK 的卡片、邮件的 MIME 与引用剥离、各
 5. **撤掉 checkout 后的串行保证**：今天"一个 agent 同时只跑一轮"是 `checkout_turn_for_acp`
    （`event_rx` 只有一份）天然给的。P2.5 撤掉它之后，这个不变量必须由 B 层的排队显式维持，
    否则两条渠道消息会并发进同一个 runtime。这是 P2.5 与 P4 必须同批的原因。
-6. **同步回执**：WeCom 需要先回一个"正在思考"占位帧再覆盖。deliver 不返回回复之后，这个占位
-   由渠道自己在 `deliver` 成功后立即渲染，还是由 B 层在 turn 开始时广播一个 `turn_started`
-   事件——后者对所有客户端一致，但要新增事件类型。
+6. **mid-turn flush 映射成几个气泡**：aggregator 在工具调用处 flush（这些只上 live、不落库，见
+   `TurnAggregator::cloud_persistent`）。WeCom 今天是一个气泡不断长大。继续"一轮一个气泡"更干净，
+   但长回复会有很长时间只见一个滚动气泡；按工具边界断成多条则更像"进度"。未定。
+7. **`Lagged` 的兜底**：终帧若被 broadcast 丢掉，气泡永远收不了口。倾向于终帧不走 broadcast，而是
+   turn 结束时由服务直接调 `render`（那时它已有落库后的权威文本）。
+8. **`outbound` 与 `render` 的边界**：MCP send 走 `outbound`（先入库再渲染），服务自己的 turn 产出
+   直接 `render`。两条最终都落到同一个 `render`，但入库时机不同——必须写死，否则会再长出第二套。
