@@ -21,11 +21,11 @@ export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
       className="overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] dark:border-border dark:bg-card"
     >
       <div className="flex items-center gap-[10px] px-3 py-[10px]">
-        <span className="text-[12px] text-[#8a7a63]">⚡</span>
+        <span className="text-[12px] text-ink-2">⚡</span>
         <span className="text-[13px] font-bold text-[#334155] dark:text-foreground">
           {skillName}
         </span>
-        <span className="rounded-full border border-[#e8dfd1] bg-[#f7f4ed] px-2 py-0.5 text-[11px] text-[#8a7a63]">
+        <span className="rounded-full border border-coral/25 bg-coral-soft/30 px-2 py-0.5 text-[11px] text-ink-2">
           {t("chat.toolCall.skill.title", "Skill")}
         </span>
         <div className="ml-auto">

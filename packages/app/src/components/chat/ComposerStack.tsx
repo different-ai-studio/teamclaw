@@ -159,7 +159,7 @@ function ComposerAgentStrip({
       <div
         className={cn(
           "box-border flex min-h-9 w-full items-center gap-1 px-2 py-[7px] pr-3.5",
-          enlarged && "bg-[#fdf0ed]",
+          enlarged && "bg-coral-soft/20",
         )}
       >
         {canExpand ? (
