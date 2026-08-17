@@ -14,7 +14,20 @@ use super::OpenCodeSettingsError;
 #[async_trait]
 pub trait WorkspaceSettingsContextResolver: Send + Sync {
     async fn resolve_settings_context(&self, workspace: &Path) -> Result<ExecutionContext, String>;
+
+    /// Device-scoped context: no project workspace involved. Backs provider
+    /// OAuth (#742 gave device-level API-key auth this treatment; OAuth
+    /// still required a resolvable workspace identity until this) — OAuth
+    /// state lives under the user's global OpenCode paths regardless of
+    /// which directory the request names, so it only needs *some* running
+    /// `opencode serve` host, not a specific workspace's.
+    async fn resolve_device_settings_context(&self) -> Result<ExecutionContext, String> {
+        Err("device settings context not supported by this resolver".to_string())
+    }
 }
+
+/// Fixture-map key for the device-level client (not a real workspace path).
+const DEVICE_FIXTURE_KEY: &str = "\u{0}device";
 
 /// Provider OAuth / auth-method discovery over the workspace's pooled host.
 pub struct OpenCodeSettingsService {
@@ -54,6 +67,15 @@ impl OpenCodeSettingsService {
             .insert(workspace.to_string_lossy().to_string(), base_url);
     }
 
+    /// Inject a loopback base URL for the device-level client (integration
+    /// tests only) — see [`Self::client_for_device`].
+    pub fn inject_test_device_base_url(&self, base_url: String) {
+        self.test_fixtures
+            .lock()
+            .unwrap()
+            .insert(DEVICE_FIXTURE_KEY.to_string(), base_url);
+    }
+
     pub async fn client_for_workspace(
         &self,
         workspace: &Path,
@@ -74,6 +96,33 @@ impl OpenCodeSettingsService {
             .resolve_settings_context(workspace)
             .await
             .map_err(OpenCodeSettingsError::SpawnFailed)?;
+        Self::client_from_context(pool, context).await
+    }
+
+    /// Client for provider OAuth / config that isn't tied to a project
+    /// workspace — see [`WorkspaceSettingsContextResolver::resolve_device_settings_context`].
+    pub async fn client_for_device(&self) -> Result<OpenCodeSettingsClient, OpenCodeSettingsError> {
+        if let Some(base) = self.test_fixtures.lock().unwrap().get(DEVICE_FIXTURE_KEY).cloned() {
+            return Ok(OpenCodeSettingsClient::new(base, Path::new(DEVICE_FIXTURE_KEY)));
+        }
+
+        let (Some(pool), Some(resolver)) = (&self.pool, &self.context_resolver) else {
+            return Err(OpenCodeSettingsError::SpawnFailed(
+                "opencode settings has no host pool (and no test fixture)".into(),
+            ));
+        };
+
+        let context = resolver
+            .resolve_device_settings_context()
+            .await
+            .map_err(OpenCodeSettingsError::SpawnFailed)?;
+        Self::client_from_context(pool, context).await
+    }
+
+    async fn client_from_context(
+        pool: &OpenCodeHostPool,
+        context: ExecutionContext,
+    ) -> Result<OpenCodeSettingsClient, OpenCodeSettingsError> {
         let revision = ProcessEnvRevision::from_bindings(&context.spawn_env.extra_env);
         let lease = pool
             .acquire(
@@ -85,12 +134,12 @@ impl OpenCodeSettingsService {
             .await
             .map_err(|error| OpenCodeSettingsError::SpawnFailed(error.to_string()))?;
         let client = lease.generation.serve.ensure().await.map_err(|e| {
-            OpenCodeSettingsError::SpawnFailed(format!("ensure workspace opencode serve: {e}"))
+            OpenCodeSettingsError::SpawnFailed(format!("ensure opencode serve: {e}"))
         })?;
         Ok(OpenCodeSettingsClient::with_auth(
             client.base_url().to_string(),
             client.password().to_string(),
-            workspace,
+            &context.working_directory,
             lease,
         ))
     }
@@ -170,6 +219,18 @@ mod pool_aware_tests {
                     team_id: Some("team-a".into()),
                 }),
                 working_directory: workspace.to_path_buf(),
+                spawn_env: crate::runtime::SpawnRuntimeEnv::default(),
+            })
+        }
+
+        async fn resolve_device_settings_context(&self) -> Result<ExecutionContext, String> {
+            Ok(ExecutionContext {
+                isolation_domain: IsolationDomainKey::UnscopedAgent {
+                    team_id: "team-a".into(),
+                    actor_id: "device".into(),
+                },
+                workspace: None,
+                working_directory: std::env::temp_dir(),
                 spawn_env: crate::runtime::SpawnRuntimeEnv::default(),
             })
         }
@@ -267,6 +328,30 @@ mod pool_aware_tests {
 
         drop(client_a);
         assert_eq!(generation_a.route_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn client_for_device_needs_no_workspace_identity() {
+        // The fixture resolver's `resolve_settings_context` only knows about
+        // `root_a`/`root_b`; `client_for_device` never calls it, so this
+        // succeeds without any workspace being resolvable at all.
+        let (service, _a, _b, factory, _pool) = pooled_service();
+
+        let client = service.client_for_device().await.unwrap();
+
+        assert_eq!(client.base_url(), "http://127.0.0.1:41003");
+        assert_eq!(factory.starts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn client_for_device_reuses_the_same_host_across_calls() {
+        let (service, _a, _b, factory, _pool) = pooled_service();
+
+        let first = service.client_for_device().await.unwrap();
+        let second = service.client_for_device().await.unwrap();
+
+        assert_eq!(first.base_url(), second.base_url());
+        assert_eq!(factory.starts.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

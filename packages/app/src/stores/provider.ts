@@ -11,9 +11,9 @@ import {
   deleteDaemonDeviceProviderAuth,
   deleteDaemonProviderAuth,
   getDaemonProviders,
-  getDaemonProviderAuthMethods,
-  postDaemonProviderOAuthAuthorize,
-  postDaemonProviderOAuthCallback,
+  getDaemonDeviceProviderAuthMethods,
+  postDaemonDeviceProviderOAuthAuthorize,
+  postDaemonDeviceProviderOAuthCallback,
   reloadDaemonRuntime,
   type DaemonProviderInfo,
 } from '@/lib/daemon-local-client'
@@ -402,13 +402,11 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   _workspacePath: null,
 
   refreshAuthMethods: async () => {
-    const workspacePath = useWorkspaceStore.getState().workspacePath
-    if (!workspacePath) {
-      set({ authMethods: fallbackProviderAuthMethods() })
-      return
-    }
+    // Device-level (#742's reasoning, extended to OAuth): auth methods are a
+    // property of what's connected to this machine, not of a workspace, so
+    // this must work before any project directory has been resolved.
     try {
-      const methods = await getDaemonProviderAuthMethods(encodeWorkspaceId(workspacePath))
+      const methods = await getDaemonDeviceProviderAuthMethods()
       if (methods) {
         set({
           authMethods: mergeProviderAuthMethods(
@@ -424,15 +422,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   },
 
   connectProviderOAuth: async (providerId, methodIndex) => {
-    const workspacePath = useWorkspaceStore.getState().workspacePath
-    if (!workspacePath) {
-      return { status: 'error' as const, message: 'No workspace selected' }
-    }
-    const result = await postDaemonProviderOAuthAuthorize(
-      encodeWorkspaceId(workspacePath),
-      providerId,
-      methodIndex,
-    )
+    const result = await postDaemonDeviceProviderOAuthAuthorize(providerId, methodIndex)
     if (!result.ok) {
       toast.error('OAuth login failed', { description: result.message })
       return { status: 'error' as const, message: result.message }
@@ -446,14 +436,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   },
 
   completeOAuthCallback: async (providerId, methodIndex, code) => {
-    const workspacePath = useWorkspaceStore.getState().workspacePath
-    if (!workspacePath) return false
-    const result = await postDaemonProviderOAuthCallback(
-      encodeWorkspaceId(workspacePath),
-      providerId,
-      methodIndex,
-      code,
-    )
+    const result = await postDaemonDeviceProviderOAuthCallback(providerId, methodIndex, code)
     if (!result.ok) {
       toast.error('OAuth login failed', { description: result.message })
       return false
@@ -463,7 +446,11 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       newDisconnected.delete(providerId)
       return { _disconnectedIds: newDisconnected }
     })
-    await reloadRuntimeAfterProviderChange(workspacePath)
+    // Only a live workspace has a runtime to reload — same as connectProvider.
+    const workspacePath = useWorkspaceStore.getState().workspacePath
+    if (workspacePath) {
+      await reloadRuntimeAfterProviderChange(workspacePath)
+    }
     await Promise.all([get().refreshProviders(), get().refreshConfiguredProviders()])
     return true
   },

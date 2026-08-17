@@ -1628,32 +1628,27 @@ fn process_and_reply_sync(
     } else {
         String::new()
     };
-    let is_help_slash = slash_lower == "/help" || slash_lower.starts_with("/help ");
-    let is_sessions_slash = slash_lower == "/sessions" || slash_lower.starts_with("/sessions ");
-    let is_session_slash = slash_lower == "/stop"
-        || slash_lower == "/reset"
-        || slash_lower == "/model"
-        || slash_lower.starts_with("/model ");
+    let slash = crate::commands::parse_slash(&slash_lower);
 
-    let locale = {
-        let workspace_path =
-            rt_handle.block_on(async { gateway.workspace_path.read().await.clone() });
-        i18n::get_locale(workspace_path.as_deref().unwrap_or(""))
-    };
+    let locale = i18n::locale();
 
-    if is_help_slash {
-        let help_text = i18n::t(i18n::MsgKey::HelpEmail, locale);
-        let _ = send_reply_sync(config, email, &help_text, access_token)?;
-        return Ok(());
-    }
-    if is_sessions_slash {
-        let _ = send_reply_sync(
-            config,
-            email,
-            &i18n::t(i18n::MsgKey::SessionsCommandUnsupported, locale),
-            access_token,
-        )?;
-        return Ok(());
+    // `/help` and `/skills` need no session, so they answer without opening
+    // one. Everything else dispatches after the session resolve below.
+    if let Some((cmd_name, cmd_arg)) = &slash {
+        if !crate::commands::needs_session(cmd_name) {
+            let replied = rt_handle.block_on(crate::commands::run_slash(
+                cmd_name,
+                cmd_arg.as_deref(),
+                gateway.agent.as_ref(),
+                gateway.store.as_ref(),
+                &String::new(),
+                locale,
+            ));
+            if let Ok(Some(reply_text)) = replied {
+                let _ = send_reply_sync(config, email, &reply_text, access_token)?;
+                return Ok(());
+            }
+        }
     }
 
     // ============ the amuxd agent runtime + ChannelStore path ============
@@ -1692,7 +1687,7 @@ fn process_and_reply_sync(
     let store = gateway.store.clone();
     let agent = gateway.agent.clone();
     let message_content_for_async = message_content.clone();
-    let slash_lower_for_async = slash_lower.clone();
+    let slash_for_async = slash.clone();
 
     let (acp_session_id, session_id, outgoing_reply_text) = rt_handle.block_on(async {
         let external_actor_id = store
@@ -1717,15 +1712,19 @@ fn process_and_reply_sync(
             .await
             .map_err(|e| format!("add_participant: {e}"))?;
 
-        // Slash-command dispatch — /stop /reset /model — against the resolved session.
-        if is_session_slash {
-            let reply_text = crate::commands::dispatch_session_slash_cmd(
-                &agent,
-                &slash_lower_for_async,
+        // Slash-command dispatch against the resolved session.
+        if let Some((cmd_name, cmd_arg)) = &slash_for_async {
+            let reply_text = crate::commands::run_slash(
+                cmd_name,
+                cmd_arg.as_deref(),
+                agent.as_ref(),
+                store.as_ref(),
                 &outcome.acp_session_id,
                 locale,
             )
-            .await;
+            .await
+            .unwrap_or(None)
+            .unwrap_or_else(|| crate::commands::unknown_command_reply(cmd_name, locale));
             return Ok::<_, String>((outcome.acp_session_id, outcome.session_id, reply_text));
         }
 

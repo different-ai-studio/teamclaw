@@ -91,6 +91,7 @@ mod execution_context_tests {
     use super::*;
     use crate::backend::{mock::MockBackend, WorkspaceRow};
     use crate::backend::{ManagedLlmConfig, ManagedLlmModelInfo};
+    use crate::opencode_settings::WorkspaceSettingsContextResolver;
     use crate::runtime::execution_context::ProcessEnvRevision;
     use std::sync::Arc;
 
@@ -110,6 +111,24 @@ mod execution_context_tests {
             actor_id: actor_id.into(),
             actor_name: "Agent A".into(),
         }
+    }
+
+    #[tokio::test]
+    async fn resolve_device_settings_context_needs_no_registered_workspace() {
+        // No workspace was ever registered on this backend — a call through
+        // `assemble`/`resolve_identity_for_path` would fail closed here. The
+        // device-settings path must not go through workspace identity
+        // resolution at all.
+        let backend = Arc::new(MockBackend::default());
+        let assembler = assembler(backend, "team-a", "actor-a");
+
+        let context = assembler.resolve_device_settings_context().await.unwrap();
+
+        assert!(matches!(
+            context.isolation_domain,
+            IsolationDomainKey::UnscopedAgent { .. }
+        ));
+        assert!(context.workspace.is_none());
     }
 
     #[tokio::test]
@@ -608,6 +627,19 @@ impl crate::opencode_settings::WorkspaceSettingsContextResolver for ExecutionCon
         )
         .await
     }
+
+    async fn resolve_device_settings_context(&self) -> Result<ExecutionContext, String> {
+        self.assemble_unscoped_gateway(Some(&device_settings_scratch_directory()))
+            .await
+    }
+}
+
+/// Stable scratch directory for the device-level `opencode serve` host used
+/// by provider OAuth/config that isn't tied to a project workspace. Never
+/// resolved through `WorkspaceResolver` — it just needs to exist so opencode
+/// has somewhere to spawn.
+fn device_settings_scratch_directory() -> std::path::PathBuf {
+    crate::config::layout::cache_dir().join("device-settings")
 }
 
 impl DaemonServer {

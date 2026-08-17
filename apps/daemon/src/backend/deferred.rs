@@ -23,7 +23,8 @@ use async_trait::async_trait;
 use std::sync::{Arc, OnceLock};
 
 use super::records::{
-    BackendSessionAndParticipants, ClaimResult, StoredMessage, WorkspaceRow, WorkspaceUpsert,
+    ActorDirectoryRow, BackendSessionAndParticipants, ClaimResult, StoredMessage, WorkspaceRow,
+    WorkspaceUpsert,
 };
 use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BootstrapMqttOverride, CloudAuthSnapshot,
@@ -314,6 +315,10 @@ impl Backend for DeferredBackend {
             .await
     }
 
+    async fn get_actors_by_ids(&self, ids: &[String]) -> BackendResult<Vec<ActorDirectoryRow>> {
+        self.inner()?.get_actors_by_ids(ids).await
+    }
+
     async fn messages_after_cursor(
         &self,
         session_id: &str,
@@ -431,6 +436,25 @@ impl Backend for DeferredBackend {
     ) -> BackendResult<String> {
         self.inner()?
             .insert_gateway_message_with_attachments(
+                session_id,
+                sender_actor_id,
+                content,
+                external_message_id,
+                attachments,
+            )
+            .await
+    }
+
+    async fn insert_gateway_agent_reply_with_attachments(
+        &self,
+        session_id: &str,
+        sender_actor_id: &str,
+        content: &str,
+        external_message_id: Option<&str>,
+        attachments: serde_json::Value,
+    ) -> BackendResult<String> {
+        self.inner()?
+            .insert_gateway_agent_reply_with_attachments(
                 session_id,
                 sender_actor_id,
                 content,

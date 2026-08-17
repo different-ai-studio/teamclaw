@@ -255,6 +255,14 @@ pub(crate) enum SockCommand {
     GatewayModelSave {
         model: String,
     },
+    /// Replace `daemon_config.locale` — the language every gateway replies in,
+    /// mirroring the desktop app's UI language — persist to daemon.toml, and
+    /// apply it to the running gateways. An empty string clears it, which reads
+    /// back as English. Channels are not reloaded: the language is read per
+    /// reply. One-way (no reply).
+    GatewayLocaleSave {
+        locale: String,
+    },
     /// Proactive send request from the `amuxd mcp-server` bridge running
     /// as a child of an ACP agent. `payload` is the raw JSON envelope the
     /// bridge wrote to the sock; the daemon parses out binding + channel
@@ -1806,6 +1814,9 @@ impl DaemonServer {
                             Some(SockCommand::GatewayModelSave { model }) => {
                                 self.save_gateway_model(&model).await;
                             }
+                            Some(SockCommand::GatewayLocaleSave { locale }) => {
+                                self.save_gateway_locale(&locale);
+                            }
                             Some(SockCommand::McpSend { payload, reply_tx }) => {
                                 let resp = match self.handle_mcp_send(&payload).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
@@ -2260,6 +2271,9 @@ impl DaemonServer {
                             }
                             Some(SockCommand::GatewayModelSave { model }) => {
                                 self.save_gateway_model(&model).await;
+                            }
+                            Some(SockCommand::GatewayLocaleSave { locale }) => {
+                                self.save_gateway_locale(&locale);
                             }
                             Some(SockCommand::McpSend { payload, reply_tx }) => {
                                 let resp = match self.handle_mcp_send(&payload).await {
@@ -2987,6 +3001,20 @@ where
                         })
                         .await;
                 }
+                "gateway-locale" => {
+                    // Wire format: line 1 = "gateway-locale", line 2 = the
+                    // language tag (empty line clears the setting).
+                    let mut locale = String::new();
+                    if reader.read_line(&mut locale).await.is_err() {
+                        warn!("amuxd.sock: gateway-locale missing locale");
+                        return;
+                    }
+                    let _ = tx
+                        .send(SockCommand::GatewayLocaleSave {
+                            locale: locale.trim().to_string(),
+                        })
+                        .await;
+                }
                 "shutdown" => {
                     let _ = tx.send(SockCommand::Shutdown).await;
                 }
@@ -3342,6 +3370,7 @@ pub(crate) mod tests {
             http: None,
             team_share: crate::config::TeamShareConfig::default(),
             log: None,
+            locale: None,
         }
     }
 
@@ -3842,14 +3871,21 @@ pub(crate) mod tests {
             .await;
 
         // Session lookup must succeed so the failure is at env assembly, not
-        // session validation.
+        // session validation. That lookup is two reads: the session row and its
+        // roster, which lives on its own collection.
         Mock::given(method("GET"))
             .and(path("/v1/sessions/session-offline"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "id": "session-offline",
                 "teamId": "team-1",
                 "title": "offline",
-                "participants": [],
+            })))
+            .mount(&srv)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/sessions/session-offline/participants"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [],
             })))
             .mount(&srv)
             .await;

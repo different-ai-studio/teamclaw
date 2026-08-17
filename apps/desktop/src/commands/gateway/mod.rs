@@ -364,13 +364,27 @@ pub fn save_system_prompt(
     teamclu_gateway::sync_teamclu_claude_md(&workspace_path, &prompt)
 }
 
-/// Set the locale in teamclu.json for UI i18n.
+/// Report the app's UI language to amuxd, which is what the gateways reply in.
+///
+/// The language used to be written into the current workspace's teamclu.json,
+/// which is why `/help` in WeCom stayed English no matter what the app was set
+/// to: the gateways live in amuxd and read a workspace of amuxd's own, never the
+/// one the app had open. Language is one app-level preference, so it now lives
+/// in daemon.toml (device-scoped) and is pushed here — on a language change and
+/// on every workspace open, so a daemon that was down for the change still
+/// catches up.
 #[tauri::command]
-pub async fn set_config_locale(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    locale: String,
-) -> Result<(), String> {
-    let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    teamclu_gateway::patch_config_value(&workspace_path, "locale", serde_json::json!(locale))
+pub async fn set_config_locale(locale: String) -> Result<(), String> {
+    #[cfg(windows)]
+    return Err(amuxd_unavailable());
+    #[cfg(unix)]
+    {
+        let mut s =
+            UnixStream::connect(sock_path()).map_err(|e| format!("amuxd not reachable: {e}"))?;
+        // Two newline-terminated tokens, matching the sock's line framing.
+        let payload = format!("gateway-locale\n{}\n", locale.trim().replace('\n', " "));
+        s.write_all(payload.as_bytes())
+            .map_err(|e| format!("write failed: {e}"))?;
+        Ok(())
+    }
 }

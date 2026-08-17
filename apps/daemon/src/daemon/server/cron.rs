@@ -240,10 +240,24 @@ impl DaemonServer {
         self.persist_cron_user_prompt(&team_id, &remote_session_id, parsed.message, &run_model)
             .await;
 
+        // A cron turn needs a reply token for the same reason a chat turn does:
+        // the `send` tool refuses to dispatch without one. A `cron://` binding
+        // resolves to no chat of its own, so this does not hand the job a
+        // default destination — it restores its ability to send to one it names
+        // explicitly, which is how a job delivers its report.
+        let reply_token =
+            crate::channels::reply_token::register(&format!("cron://{}", parsed.session_key));
+        let prompt = format!(
+            "[SYSTEM] Reply token for this run: {reply_token}\n\
+Pass it as `reply_token` to the `send` tool, together with an explicit `target` \
+and `channel`, to deliver a message or file to a chat.\n\n{}",
+            parsed.message
+        );
+
         Ok((
             acp_sid,
             remote_session_id,
-            parsed.message.to_string(),
+            prompt,
             Duration::from_secs(parsed.timeout_secs),
         ))
     }

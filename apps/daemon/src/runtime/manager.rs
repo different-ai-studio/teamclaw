@@ -106,83 +106,6 @@ pub struct CheckedOutTurn {
     pub event_rx: mpsc::Receiver<AcpEventFrame>,
 }
 
-/// Sanitise an arbitrary logical-session-id string into a filename-safe
-/// component. The gateway-minted acp_session_id values that drive the
-/// path here are already hex, but we accept anything and replace
-/// non-alphanumeric chars with `_` so callers can safely include
-/// binding-derived ids without worrying about `/` or `:`.
-fn sanitize_for_filename(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect()
-}
-
-/// Path of the per-session MCP config file emitted before the session is
-/// attached. Filename is keyed by `logical_session_id` (the amuxd-side
-/// session key — for gateway sessions this is the SQL-minted
-/// `acp_session_id` hex) so the same file is reused if the runtime is
-/// re-spawned under the same logical id (e.g. after `/reset`).
-pub fn gateway_mcp_config_path(logical_session_id: &str) -> PathBuf {
-    crate::config::layout::active_state_dir()
-        .join("mcp-configs")
-        .join(format!(
-            "{}.json",
-            sanitize_for_filename(logical_session_id)
-        ))
-}
-
-/// Write the per-session MCP config that points the agent at amuxd's own
-/// `mcp-server` subcommand. The resulting file path is passed to the
-/// opencode HTTP backend, which merges its `mcpServers` entries into the
-/// worktree's `opencode.json` `mcp` map before attaching the session (the
-/// global `opencode serve` has no per-session MCP parameter).
-///
-/// `logical_session_id` is what AmuxdAgentHandle uses as its map key
-/// (gateway → SQL-minted acp_session_id); the MCP server forwards it
-/// back to amuxd in the `mcp-send` envelope so the right channel can
-/// be routed. `binding` is the URI for the gateway chat the session
-/// is bound to — used as the default target for the `send` tool.
-fn write_gateway_mcp_config(
-    logical_session_id: &str,
-    binding: &str,
-) -> crate::error::Result<PathBuf> {
-    let path = gateway_mcp_config_path(logical_session_id);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            crate::error::AmuxError::Agent(format!(
-                "write_gateway_mcp_config: mkdir {}: {e}",
-                parent.display()
-            ))
-        })?;
-    }
-    let amuxd_bin = std::env::current_exe()
-        .map_err(|e| crate::error::AmuxError::Agent(format!("current_exe(): {e}")))?;
-    let sock = DaemonConfig::sock_path();
-    let cfg = serde_json::json!({
-        "mcpServers": {
-            "amuxd-send": {
-                "command": amuxd_bin.to_string_lossy(),
-                "args": [
-                    "mcp-server",
-                    format!("--session-id={}", logical_session_id),
-                    format!("--binding={}", binding),
-                    format!("--sock={}", sock.to_string_lossy()),
-                ],
-            }
-        }
-    });
-    let body = serde_json::to_string_pretty(&cfg).map_err(|e| {
-        crate::error::AmuxError::Agent(format!("write_gateway_mcp_config: serialize: {e}"))
-    })?;
-    std::fs::write(&path, body).map_err(|e| {
-        crate::error::AmuxError::Agent(format!(
-            "write_gateway_mcp_config: write {}: {e}",
-            path.display()
-        ))
-    })?;
-    Ok(path)
-}
-
 /// Translate a legacy gateway-facing short model name ("sonnet", "opus",
 /// "haiku") to a full model id. Returns `None` for unknown short names so
 /// callers can fall through to passing the input verbatim (supports full ids
@@ -1691,25 +1614,13 @@ impl RuntimeManager {
             .as_ref()
             .map(|(provider, model)| resolve_initial_model(agent_type, provider, model));
 
-        // Write the MCP config BEFORE attaching the session so the opencode
-        // backend can merge it into the worktree's opencode.json. The config
-        // mounts amuxd's own `mcp-server` subcommand which exposes the
-        // `send` tool for proactive replies/file uploads back to the
-        // gateway chat. Failures here are non-fatal — we still spawn
-        // the agent (without the send tool) and log a warning so a
-        // misconfigured config dir doesn't block gateway messaging.
-        let mcp_cfg_path = match write_gateway_mcp_config(logical_session_id, binding) {
-            Ok(p) => Some(p),
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    binding,
-                    logical_session_id,
-                    "create_gateway_session: MCP config write failed; agent will spawn without send tool"
-                );
-                None
-            }
-        };
+        // The `send` tool is no longer wired up here. It used to be written to
+        // a per-session MCP config just below, which only the fresh-attach path
+        // forwarded — so the reuse branch further down returned before it was
+        // ever applied and those sessions had no send tool at all. It is now an
+        // inherent per-workspace server (`supervisor::send_mcp_config`) that
+        // takes its destination from the turn's reply token, so it is present
+        // however the session got attached.
 
         // An attachment is keyed by its cloud session, so the gateway must
         // have resolved one before spawning. This used to fall through with
@@ -1751,7 +1662,7 @@ impl RuntimeManager {
                 None,
                 session_id,
                 initial_model,
-                mcp_cfg_path,
+                None,
                 None,
                 ExecutionContext {
                     isolation_domain,

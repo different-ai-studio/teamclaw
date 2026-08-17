@@ -657,7 +657,7 @@ impl WeChatGateway {
     }
 
     async fn handle_incoming_message(&self, sender_id: &str, text: &str) -> Result<(), String> {
-        let locale = i18n::get_locale(&self.workspace_path);
+        let locale = i18n::locale();
         let trimmed = text.trim();
 
         // Forward /answer to pending question (must run before generic slash handler)
@@ -687,21 +687,22 @@ impl WeChatGateway {
         // Handle slash commands. /help and /sessions are answered without
         // resolving a session; /stop, /reset, /model fall through to the
         // session-resolve path below (they need a resolved acp_session_id).
-        let mut is_session_slash = false;
-        let mut slash_lower = String::new();
-        if !trimmed.is_empty() && trimmed.starts_with('/') {
-            let lower = trimmed.to_lowercase();
-            let needs_session = lower == "/stop"
-                || lower == "/reset"
-                || lower == "/model"
-                || lower.starts_with("/model ");
-            if needs_session {
-                is_session_slash = true;
-                slash_lower = lower;
-            } else {
-                let reply = self.handle_slash_command(trimmed, locale).await;
-                let _ = self.send_to_user(sender_id, &reply).await;
-                return Ok(());
+        let slash = crate::commands::parse_slash(trimmed);
+        if let Some((cmd_name, cmd_arg)) = &slash {
+            if !crate::commands::needs_session(cmd_name) {
+                if let Ok(Some(reply_text)) = crate::commands::run_slash(
+                    cmd_name,
+                    cmd_arg.as_deref(),
+                    self.agent.as_ref(),
+                    self.store.as_ref(),
+                    &String::new(),
+                    locale,
+                )
+                .await
+                {
+                    let _ = self.send_to_user(sender_id, &reply_text).await;
+                    return Ok(());
+                }
             }
         }
 
@@ -747,14 +748,18 @@ impl WeChatGateway {
         }
 
         // Slash-command dispatch — /stop /reset /model — against the resolved session.
-        if is_session_slash {
-            let reply_text = crate::commands::dispatch_session_slash_cmd(
-                &self.agent,
-                &slash_lower,
+        if let Some((cmd_name, cmd_arg)) = &slash {
+            let reply_text = crate::commands::run_slash(
+                cmd_name,
+                cmd_arg.as_deref(),
+                self.agent.as_ref(),
+                self.store.as_ref(),
                 &outcome.acp_session_id,
                 locale,
             )
-            .await;
+            .await
+            .unwrap_or(None)
+            .unwrap_or_else(|| crate::commands::unknown_command_reply(cmd_name, locale));
             let _ = self.send_to_user(sender_id, &reply_text).await;
             return Ok(());
         }
@@ -795,19 +800,5 @@ impl WeChatGateway {
         let _ = self.send_to_user(sender_id, &reply_text).await;
 
         Ok(())
-    }
-
-    async fn handle_slash_command(&self, content: &str, locale: i18n::Locale) -> String {
-        let parts: Vec<&str> = content.splitn(2, ' ').collect();
-        let cmd = parts[0].to_lowercase();
-
-        match cmd.as_str() {
-            "/help" => i18n::t(i18n::MsgKey::HelpWechat, locale),
-            // /stop, /reset, /model now route through the session-resolve
-            // path and never reach this branch. /sessions is intentionally
-            // unsupported in v2.
-            "/sessions" => i18n::t(i18n::MsgKey::SessionsCommandUnsupported, locale),
-            _ => i18n::t(i18n::MsgKey::UnknownCommand(&cmd), locale),
-        }
     }
 }

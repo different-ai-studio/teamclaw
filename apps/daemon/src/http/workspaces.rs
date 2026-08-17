@@ -475,6 +475,33 @@ pub async fn get_provider_auth_methods(
     Ok(Json(builtin_provider_auth_methods()))
 }
 
+/// `GET /v1/providers/auth-methods`
+///
+/// Device-level counterpart of [`get_provider_auth_methods`] — no workspace,
+/// same live-merge-with-builtin-fallback behavior. Lets provider connect (OAuth
+/// or API key) work before any project directory has been resolved, same as
+/// the device-level API-key routes (#742).
+pub async fn get_device_provider_auth_methods(
+    principal: Principal,
+    State(state): State<HttpState>,
+) -> Result<Json<ProviderAuthMethodsResponse>, HttpError> {
+    require_scope(&principal, "workspace:read")?;
+    if let Some(settings) = state.opencode_settings.as_ref() {
+        match settings.device_provider_auth_methods().await {
+            Ok(methods) => return Ok(Json(methods)),
+            Err(
+                e @ (OpenCodeSettingsError::OpencodeBinaryMissing(_)
+                | OpenCodeSettingsError::SpawnFailed(_)
+                | OpenCodeSettingsError::StartTimeout),
+            ) => {
+                tracing::warn!(error = %e, "opencode settings unavailable; using builtin auth catalog");
+            }
+            Err(e) => return Err(map_settings_err(e)),
+        }
+    }
+    Ok(Json(builtin_provider_auth_methods()))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ProviderOAuthAuthorizeRequest {
     #[serde(default)]
@@ -541,6 +568,54 @@ pub async fn post_provider_oauth_callback(
         .map_err(map_settings_err)?;
     let outcome = reload_runtime_after_provider_auth(&state, &workspace_id, &wpath).await;
     Ok(apply_ok(outcome))
+}
+
+/// `POST /v1/providers/:provider_id/oauth/authorize`
+///
+/// Device-level counterpart of [`post_provider_oauth_authorize`] — no
+/// workspace. See [`get_device_provider_auth_methods`] for why.
+pub async fn post_device_provider_oauth_authorize(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Path(provider_id): Path<String>,
+    Json(body): Json<ProviderOAuthAuthorizeRequest>,
+) -> Result<Json<ProviderOAuthAuthorizeResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let settings = resolve_opencode_settings(&state)?;
+    let result = settings
+        .device_oauth_authorize(&provider_id, body.method_index, &body.inputs)
+        .await
+        .map_err(map_settings_err)?;
+    Ok(Json(ProviderOAuthAuthorizeResponse {
+        url: result.url,
+        method: result.method,
+        instructions: result.instructions,
+    }))
+}
+
+/// `POST /v1/providers/:provider_id/oauth/callback`
+///
+/// Device-level counterpart of [`post_provider_oauth_callback`]. There is no
+/// specific workspace runtime to reload here (same reasoning as
+/// `put_device_provider_auth`), but any already-running workspace hosts need
+/// to pick up the newly written credentials, so this still requests a host
+/// refresh across them.
+pub async fn post_device_provider_oauth_callback(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Path(provider_id): Path<String>,
+    Json(body): Json<ProviderOAuthCallbackRequest>,
+) -> Result<Json<ApplyResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let settings = resolve_opencode_settings(&state)?;
+    settings
+        .device_oauth_callback(&provider_id, body.method_index, body.code.as_deref())
+        .await
+        .map_err(map_settings_err)?;
+    if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+        supervisor.request_all_workspace_host_refreshes();
+    }
+    Ok(apply_ok(ApplyOutcome::RestartRequired))
 }
 
 /// `DELETE /v1/workspaces/:id/providers/:provider_id/auth`

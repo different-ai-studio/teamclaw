@@ -98,6 +98,9 @@ function mapSessionFull(r: any, participants: any[] = []) {
     hasUnread: false,
     acpSessionId: r.acpSessionId ?? null,
     binding: r.binding ?? null,
+    // See the note in supabase-repo/shared.ts: `binding` says "current",
+    // `gatewayKey` says "which chat" and survives `/new`.
+    gatewayKey: r.gatewayKey ?? null,
     source: r.source ?? "user",
     cronJobId: r.cronJobId ?? null,
     createdAt: iso(r.createdAt)!,

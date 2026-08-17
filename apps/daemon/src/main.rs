@@ -105,7 +105,11 @@ fn main() -> anyhow::Result<()> {
                 let registry = tracing_subscriber::registry()
                     .with(
                         tracing_subscriber::EnvFilter::from_default_env()
-                            .add_directive("amuxd=info".parse().unwrap()),
+                            .add_directive("amuxd=info".parse().unwrap())
+                            // Without its own directive the gateway crate matches
+                            // nothing and every warn! it emits — inbound attachment
+                            // failures included — is discarded before it reaches a file.
+                            .add_directive("teamclu_gateway=info".parse().unwrap()),
                     )
                     .with(
                         tracing_subscriber::fmt::layer()

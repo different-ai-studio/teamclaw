@@ -52,7 +52,26 @@ TARGET="${TARGET:-$(rustc -vV 2>/dev/null | awk '/^host:/{print $2}')}"
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SIDE_EXT=".exe" ;; *) SIDE_EXT="" ;; esac
 SIDECAR_DEST="${ROOT_DIR}/apps/desktop/binaries/amuxd-${TARGET}${SIDE_EXT}"
 
-SRC_BIN="${ROOT_DIR}/target/${PROFILE}/amuxd"
+# Where cargo actually writes. This used to be hardcoded to
+# "${ROOT_DIR}/target", which is wrong the moment CARGO_TARGET_DIR or
+# .cargo/config.toml redirects the build — and this checkout does redirect it.
+# The build then succeeded, this script picked a *five-day-old* binary out of
+# the abandoned target/ directory, and deployed it while printing "deployed
+# amuxd". Ask cargo where it writes instead of assuming.
+resolve_target_dir() {
+  local from_cargo
+  from_cargo="$(cd "${ROOT_DIR}" && cargo metadata --format-version 1 --no-deps 2>/dev/null \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])' 2>/dev/null)"
+  if [[ -n "${from_cargo}" ]]; then
+    printf '%s' "${from_cargo}"
+  elif [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
+    printf '%s' "${CARGO_TARGET_DIR}"
+  else
+    printf '%s' "${ROOT_DIR}/target"
+  fi
+}
+TARGET_DIR="$(resolve_target_dir)"
+SRC_BIN="${TARGET_DIR}/${PROFILE}/amuxd"
 GIT_SHA="$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 GIT_BRANCH="$(git -C "${ROOT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 GIT_DIRTY=""
@@ -63,6 +82,7 @@ say() { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
 # ── 1. build ────────────────────────────────────────────────────────────────
 if [[ "${SKIP_BUILD}" -eq 0 ]]; then
   say "building amuxd (${PROFILE}) from ${GIT_BRANCH}@${GIT_SHA}${GIT_DIRTY}"
+  say "  target dir: ${TARGET_DIR}"
   if [[ "${PROFILE}" == "release" ]]; then
     cargo build -p amuxd --release
   else
@@ -70,6 +90,32 @@ if [[ "${SKIP_BUILD}" -eq 0 ]]; then
   fi
 fi
 [[ -x "${SRC_BIN}" ]] || { echo "error: built binary not found at ${SRC_BIN}" >&2; exit 1; }
+
+# Refuse to ship a binary older than the sources it is supposed to contain.
+#
+# Not "older than this run": an up-to-date rebuild legitimately does nothing and
+# leaves the mtime alone. What is never legitimate is deploying a binary that
+# predates a source edit — which is what both known failure modes look like. A
+# redirected target dir put a five-day-old file here once, and cargo has been
+# seen returning a cached artifact that skipped the bin target entirely. Neither
+# says anything at the call site: the deploy reports success and the change
+# quietly does not take effect.
+if [[ "${SKIP_BUILD}" -eq 0 ]]; then
+  STALE_SRC="$(find "${ROOT_DIR}/apps/daemon" "${ROOT_DIR}/crates" \
+                    -name target -prune -o \
+                    -type f \( -name '*.rs' -o -name 'Cargo.toml' \) \
+                    -newer "${SRC_BIN}" -print -quit 2>/dev/null || true)"
+  if [[ -n "${STALE_SRC}" ]]; then
+    cat >&2 <<EOF
+error: ${SRC_BIN}
+       is older than ${STALE_SRC}
+       so the build did not produce it and deploying would ship stale code.
+       Check that cargo writes to ${TARGET_DIR} (CARGO_TARGET_DIR /
+       .cargo/config.toml), then re-run. To ship this file anyway: --skip-build.
+EOF
+    exit 1
+  fi
+fi
 
 # ── 2. detect platform service manager ──────────────────────────────────────
 OS="$(uname -s)"
@@ -79,6 +125,18 @@ service_running() {
   case "${OS}" in
     Darwin) launchctl print "gui/${UID_NUM}/${LABEL}" >/dev/null 2>&1 ;;
     *)      systemctl --user is-active --quiet amuxd 2>/dev/null ;;
+  esac
+}
+
+# Whether a service *definition* exists at all — distinct from `service_running`,
+# which only says whether it is up right now. This gates the ~/.amuxd/bin
+# install: without a service, that copy is a second amuxd nobody runs, and
+# having two made "which binary am I actually testing?" unanswerable.
+service_installed() {
+  case "${OS}" in
+    Darwin) [[ -f "${PLIST}" ]] ;;
+    Linux)  systemctl --user cat amuxd >/dev/null 2>&1 ;;
+    *)      return 1 ;;
   esac
 }
 
@@ -127,15 +185,26 @@ if [[ "${NO_RELOAD}" -eq 0 && "${WAS_RUNNING}" -eq 1 ]]; then
   for _ in $(seq 1 20); do service_running || break; sleep 0.25; done
 fi
 
-say "installing -> ${DEST_BIN}"
-mkdir -p "$(dirname "${DEST_BIN}")"
-# write to a temp file then mv: atomic, and avoids ETXTBSY on a busy binary
-TMP_BIN="${DEST_BIN}.new.$$"
-cp "${SRC_BIN}" "${TMP_BIN}"
-chmod +x "${TMP_BIN}"
-mv -f "${TMP_BIN}" "${DEST_BIN}"
-printf '%s  %s@%s%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${GIT_BRANCH}" "${GIT_SHA}" "${GIT_DIRTY}" "${PROFILE}" \
-  > "${AMUXD_HOME}/bin/amuxd.deployed"
+# The service binary is only worth writing when something will run it: either a
+# service is already installed, or we are about to install one below (the reload
+# path registers it via `amuxd install-service`, which needs this file). With
+# neither, ~/.amuxd/bin/amuxd is a second copy that nothing launches — and a
+# second copy is how a debugging session ends up testing the wrong binary.
+INSTALLED_BIN=0
+if service_installed || [[ "${NO_RELOAD}" -eq 0 ]]; then
+  say "installing -> ${DEST_BIN}"
+  mkdir -p "$(dirname "${DEST_BIN}")"
+  # write to a temp file then mv: atomic, and avoids ETXTBSY on a busy binary
+  TMP_BIN="${DEST_BIN}.new.$$"
+  cp "${SRC_BIN}" "${TMP_BIN}"
+  chmod +x "${TMP_BIN}"
+  mv -f "${TMP_BIN}" "${DEST_BIN}"
+  printf '%s  %s@%s%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${GIT_BRANCH}" "${GIT_SHA}" "${GIT_DIRTY}" "${PROFILE}" \
+    > "${AMUXD_HOME}/bin/amuxd.deployed"
+  INSTALLED_BIN=1
+else
+  say "no service installed (and --no-reload) — leaving ${DEST_BIN} alone"
+fi
 
 # ── 3b. refresh the desktop-bundled sidecar ─────────────────────────────────
 # ensureAmuxdSidecar (run before `tauri:dev`/`tauri:build`) skips rebuilding
@@ -165,8 +234,12 @@ fi
 # ── 4. report ───────────────────────────────────────────────────────────────
 echo
 say "deployed amuxd  (${GIT_BRANCH}@${GIT_SHA}${GIT_DIRTY}, ${PROFILE})"
-stat -f "  binary : %Sm  %z bytes" -t "%Y-%m-%d %H:%M:%S" "${DEST_BIN}" 2>/dev/null \
-  || stat -c "  binary : %y  %s bytes" "${DEST_BIN}" 2>/dev/null || true
+# Report whichever file this run actually wrote, so the size/mtime printed here
+# is the one that will run — the whole point of the checks above.
+REPORT_BIN="${SRC_BIN}"
+[[ "${INSTALLED_BIN}" -eq 1 ]] && REPORT_BIN="${DEST_BIN}"
+stat -f "  binary : %Sm  %z bytes" -t "%Y-%m-%d %H:%M:%S" "${REPORT_BIN}" 2>/dev/null \
+  || stat -c "  binary : %y  %s bytes" "${REPORT_BIN}" 2>/dev/null || true
 if [[ "${NO_SIDECAR}" -eq 0 && -n "${TARGET}" ]]; then
   echo "  sidecar: ${SIDECAR_DEST}  (onboarding/setup installs this into ~/.amuxd/bin)"
 fi

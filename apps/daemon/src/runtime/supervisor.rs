@@ -149,6 +149,16 @@ fn mutate_inherent_mcp(
         changed = true;
     }
 
+    let send_tool = send_mcp_config()?;
+    let needs_send_tool = mcp_obj
+        .get(SEND_MCP_SERVER_NAME)
+        .map(|existing| existing != &send_tool)
+        .unwrap_or(true);
+    if needs_send_tool {
+        mcp_obj.insert(SEND_MCP_SERVER_NAME.to_string(), send_tool);
+        changed = true;
+    }
+
     if !mcp_obj.contains_key("playwright") {
         mcp_obj.insert(
             "playwright".to_string(),
@@ -257,6 +267,34 @@ pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControl
         );
     }
     Ok(())
+}
+
+/// Name of the gateway `send` bridge in the workspace's `mcp` map.
+const SEND_MCP_SERVER_NAME: &str = "amuxd-send";
+
+/// The gateway `send` bridge, registered per workspace rather than per
+/// session.
+///
+/// It used to be written to a per-session config that only the fresh-attach
+/// path passed along, so a session the desktop (or a resume sweep) had already
+/// attached silently had no send tool. Nothing in the argv is session-specific
+/// any more — `send` takes its destination from the caller's `reply_token` —
+/// so it can live here, next to remote-tools, and be there for every session
+/// on every backend regardless of who attached first. `opencode.json`'s `mcp`
+/// map is the MCP source of truth for all four runtimes, pi included.
+fn send_mcp_config() -> Result<serde_json::Value, WorkspaceControlError> {
+    let amuxd_bin =
+        std::env::current_exe().map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
+    let sock = crate::config::DaemonConfig::sock_path();
+    Ok(serde_json::json!({
+        "type": "local",
+        "enabled": true,
+        "command": [
+            amuxd_bin.to_string_lossy(),
+            "mcp-server",
+            format!("--sock={}", sock.to_string_lossy())
+        ]
+    }))
 }
 
 fn remote_tools_mcp_config() -> Result<serde_json::Value, WorkspaceControlError> {
@@ -1584,6 +1622,67 @@ fn auto_applicable_refresh(state: &WorkspaceRefreshState) -> bool {
                     | RefreshChangeKind::OpencodeJson
             )
         })
+}
+
+#[cfg(test)]
+mod inherent_mcp_tests {
+    use super::*;
+
+    fn inherent_mcp_map(
+        config: &mut serde_json::Value,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let dir = tempfile::tempdir().unwrap();
+        mutate_inherent_mcp(dir.path(), config).unwrap();
+        config
+            .get("mcp")
+            .and_then(|m| m.as_object())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn the_send_bridge_is_registered_for_every_workspace() {
+        // The regression this pins: `send` used to be written to a per-session
+        // config that only a fresh attach applied, so a session the desktop had
+        // already attached had no send tool. Registering it here is what makes
+        // it independent of who attached first — and of which backend runs,
+        // since this map is the MCP source of truth for all of them.
+        let mut config = serde_json::json!({});
+        let mcp = inherent_mcp_map(&mut config);
+        let entry = mcp.get(SEND_MCP_SERVER_NAME).expect("send bridge present");
+        assert_eq!(entry.get("enabled").and_then(|v| v.as_bool()), Some(true));
+        let command: Vec<&str> = entry
+            .get("command")
+            .and_then(|v| v.as_array())
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(command.contains(&"mcp-server"), "got: {command:?}");
+    }
+
+    #[test]
+    fn the_send_bridge_carries_no_session_identity() {
+        // Baking `--session-id` / `--binding` into argv is what forced the
+        // per-session registration in the first place. Destination now comes
+        // from the caller's reply token, so nothing here may be session-scoped.
+        let mut config = serde_json::json!({});
+        let mcp = inherent_mcp_map(&mut config);
+        let command = mcp[SEND_MCP_SERVER_NAME]["command"].to_string();
+        assert!(!command.contains("--session-id"), "got: {command}");
+        assert!(!command.contains("--binding"), "got: {command}");
+    }
+
+    #[test]
+    fn rewriting_an_existing_config_keeps_user_servers() {
+        let mut config = serde_json::json!({
+            "mcp": { "autoui": { "type": "local", "enabled": true, "command": ["npx", "autoui"] } }
+        });
+        let mcp = inherent_mcp_map(&mut config);
+        assert!(mcp.contains_key("autoui"), "user server survived");
+        assert!(mcp.contains_key(SEND_MCP_SERVER_NAME));
+        assert!(mcp.contains_key(REMOTE_TOOLS_MCP_SERVER_NAME));
+    }
 }
 
 #[cfg(test)]

@@ -20,7 +20,6 @@ pub struct DiscordHandler {
     team_id: String,
     primary_agent_actor_id: String,
     agent_owner_actor_ids: Vec<String>,
-    workspace_path: String,
     status_tx: mpsc::Sender<GatewayStatusResponse>,
     bot_user_id: Arc<RwLock<Option<u64>>>,
     /// Tracker for processed message IDs to prevent duplicate processing
@@ -38,7 +37,6 @@ impl DiscordHandler {
         team_id: String,
         primary_agent_actor_id: String,
         agent_owner_actor_ids: Vec<String>,
-        workspace_path: String,
         status_tx: mpsc::Sender<GatewayStatusResponse>,
         pending_questions: Arc<super::PendingQuestionStore>,
     ) -> Self {
@@ -49,7 +47,6 @@ impl DiscordHandler {
             team_id,
             primary_agent_actor_id,
             agent_owner_actor_ids,
-            workspace_path,
             status_tx,
             bot_user_id: Arc::new(RwLock::new(None)),
             processed_messages: Arc::new(RwLock::new(ProcessedMessageTracker::new(
@@ -240,35 +237,29 @@ impl DiscordHandler {
             return;
         }
 
-        let locale = i18n::get_locale(&self.workspace_path);
+        let locale = i18n::locale();
 
-        // /help — early-out: no session resolution needed.
-        if content.eq_ignore_ascii_case("/help") {
-            let _ = msg
-                .reply(&ctx.http, &i18n::t(i18n::MsgKey::HelpDiscord, locale))
-                .await;
-            return;
-        }
-
-        // /sessions is intentionally NOT supported in v2; stub it out with a
-        // clear message so users aren't left hanging.
-        if content.eq_ignore_ascii_case("/sessions")
-            || content.to_lowercase().starts_with("/sessions ")
-        {
-            let _ = msg
-                .reply(
-                    &ctx.http,
-                    &i18n::t(i18n::MsgKey::SessionsCommandUnsupported, locale),
+        // Slash commands run off the one shared table. `/help` and `/skills`
+        // need no session, so they answer here instead of opening one; the rest
+        // fall through to the session-resolve path and dispatch there.
+        let slash = crate::commands::parse_slash(&content);
+        if let Some((cmd_name, cmd_arg)) = &slash {
+            if !crate::commands::needs_session(cmd_name) {
+                if let Ok(Some(reply_text)) = crate::commands::run_slash(
+                    cmd_name,
+                    cmd_arg.as_deref(),
+                    self.agent.as_ref(),
+                    self.store.as_ref(),
+                    &String::new(),
+                    locale,
                 )
-                .await;
-            return;
+                .await
+                {
+                    let _ = msg.reply(&ctx.http, &reply_text).await;
+                    return;
+                }
+            }
         }
-
-        let lower = content.to_lowercase();
-        let is_slash_cmd = lower == "/stop"
-            || lower == "/reset"
-            || lower == "/model"
-            || lower.starts_with("/model ");
 
         // Build the binding URI using application id (the bot's own user id)
         // and the channel id (works for both DMs and guild channels).
@@ -346,15 +337,19 @@ impl DiscordHandler {
             eprintln!("[Discord] add_participant failed: {}", e);
         }
 
-        // Slash-command dispatch — runs against the resolved acp_session_id.
-        if is_slash_cmd {
-            let reply_text = crate::commands::dispatch_session_slash_cmd(
-                &self.agent,
-                &lower,
+        // Slash-command dispatch against the resolved session.
+        if let Some((cmd_name, cmd_arg)) = &slash {
+            let reply_text = crate::commands::run_slash(
+                cmd_name,
+                cmd_arg.as_deref(),
+                self.agent.as_ref(),
+                self.store.as_ref(),
                 &outcome.acp_session_id,
                 locale,
             )
-            .await;
+            .await
+            .unwrap_or(None)
+            .unwrap_or_else(|| crate::commands::unknown_command_reply(cmd_name, locale));
             let _ = msg.reply(&ctx.http, &reply_text).await;
             return;
         }
@@ -475,7 +470,7 @@ impl EventHandler for DiscordHandler {
 
         // Check for /answer command — routes reply to the most recent pending question
         if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&msg.content) {
-            let locale = i18n::get_locale(&self.workspace_path);
+            let locale = i18n::locale();
             if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
                 println!(
                     "[Discord] Question {} answered via /answer: {}",
@@ -608,35 +603,27 @@ impl EventHandler for DiscordHandler {
                 return;
             }
 
-            let locale = i18n::get_locale(&self.workspace_path);
+            let locale = i18n::locale();
 
-            // Build the slash-command synthetic chat content so we can reuse
-            // dispatch_session_slash_cmd. e.g. `/model anthropic/claude-3.5`.
+            // Registered application commands feed the same table as typed
+            // ones: the command name is the command, and its single option (if
+            // any) is the argument. Nothing here knows which commands exist —
+            // that list lives in `commands::parse_meta`.
             let name = command.data.name.as_str();
-            let synthetic = match name {
-                "reset" => Some("/reset".to_string()),
-                "stop" => Some("/stop".to_string()),
-                "model" => {
-                    let arg = command.data.options.iter().find_map(|opt| {
-                        if opt.name == "name" {
-                            match &opt.value {
-                                serenity::all::CommandDataOptionValue::String(s) => Some(s.clone()),
-                                _ => None,
-                            }
-                        } else {
-                            None
-                        }
-                    });
-                    match arg {
-                        None => Some("/model".to_string()),
-                        Some(a) if a.trim().is_empty() => Some("/model".to_string()),
-                        Some(a) => Some(format!("/model {}", a.trim())),
+            let arg = command
+                .data
+                .options
+                .iter()
+                .find_map(|opt| match &opt.value {
+                    serenity::all::CommandDataOptionValue::String(s) => {
+                        let t = s.trim();
+                        (!t.is_empty()).then(|| t.to_string())
                     }
-                }
-                _ => None,
-            };
+                    serenity::all::CommandDataOptionValue::Integer(n) => Some(n.to_string()),
+                    _ => None,
+                });
 
-            let content = if let Some(syn) = synthetic {
+            let content = if crate::commands::needs_session(name) {
                 // For /stop /reset /model we need a resolved acp_session_id.
                 // Build the binding and ensure session exist.
                 let bot_id_value = *self.bot_user_id.read().await;
@@ -699,19 +686,33 @@ impl EventHandler for DiscordHandler {
                     }
                 };
 
-                crate::commands::dispatch_session_slash_cmd(
-                    &self.agent,
-                    &syn.to_lowercase(),
+                crate::commands::run_slash(
+                    name,
+                    arg.as_deref(),
+                    self.agent.as_ref(),
+                    self.store.as_ref(),
                     &outcome.acp_session_id,
                     locale,
                 )
                 .await
+                .unwrap_or(None)
+                .unwrap_or_else(|| {
+                    i18n::t(i18n::MsgKey::UnknownCommand(&format!("/{name}")), locale)
+                })
             } else {
-                match name {
-                    "help" => i18n::t(i18n::MsgKey::HelpDiscord, locale),
-                    "sessions" => i18n::t(i18n::MsgKey::SessionsCommandUnsupported, locale),
-                    other => i18n::t(i18n::MsgKey::UnknownCommand(other), locale),
-                }
+                crate::commands::run_slash(
+                    name,
+                    arg.as_deref(),
+                    self.agent.as_ref(),
+                    self.store.as_ref(),
+                    &String::new(),
+                    locale,
+                )
+                .await
+                .unwrap_or(None)
+                .unwrap_or_else(|| {
+                    i18n::t(i18n::MsgKey::UnknownCommand(&format!("/{name}")), locale)
+                })
             };
 
             // Edit the deferred response with the actual content
@@ -772,7 +773,6 @@ pub struct DiscordGateway {
     pub team_id: String,
     pub primary_agent_actor_id: String,
     pub agent_owner_actor_ids: Vec<String>,
-    workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<GatewayStatusResponse>>,
     /// Track if gateway is currently running
@@ -788,7 +788,6 @@ impl DiscordGateway {
         team_id: String,
         primary_agent_actor_id: String,
         agent_owner_actor_ids: Vec<String>,
-        workspace_path: String,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(DiscordConfig::default())),
@@ -797,7 +796,6 @@ impl DiscordGateway {
             team_id,
             primary_agent_actor_id,
             agent_owner_actor_ids,
-            workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(GatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
@@ -870,7 +868,6 @@ impl DiscordGateway {
             self.team_id.clone(),
             self.primary_agent_actor_id.clone(),
             self.agent_owner_actor_ids.clone(),
-            self.workspace_path.clone(),
             status_tx,
             Arc::clone(&self.pending_questions),
         );
@@ -1006,7 +1003,6 @@ impl Clone for DiscordGateway {
             team_id: self.team_id.clone(),
             primary_agent_actor_id: self.primary_agent_actor_id.clone(),
             agent_owner_actor_ids: self.agent_owner_actor_ids.clone(),
-            workspace_path: self.workspace_path.clone(),
             shutdown_tx: Arc::clone(&self.shutdown_tx),
             status: Arc::clone(&self.status),
             is_running: Arc::clone(&self.is_running),

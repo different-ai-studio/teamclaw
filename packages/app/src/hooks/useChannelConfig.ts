@@ -49,6 +49,8 @@ export interface UseChannelConfigResult<TConfig> {
   isConnecting: boolean
   /** Whether the gateway is running (connected or connecting) */
   isRunning: boolean
+  /** Whether a save started from `handleSave` is still in flight */
+  isSaving: boolean
   /** Save config to the backend */
   handleSave: () => Promise<void>
   /** Start or stop the gateway */
@@ -72,6 +74,7 @@ export function useChannelConfig<TConfig extends object>(
   } = options
 
   const [localConfig, setLocalConfig] = React.useState<TConfig>(defaultConfig)
+  const [isSaving, setIsSaving] = React.useState(false)
 
   // Sync local config with store
   React.useEffect(() => {
@@ -95,16 +98,23 @@ export function useChannelConfig<TConfig extends object>(
     setLocalConfig(prev => ({ ...prev, ...updates }))
   }, [])
 
+  // Saving used to be entirely silent: no toast on success, and the failure
+  // toast could not fire because the stores swallowed their own errors. The
+  // button just sat there either way, so "did that work?" had no answer.
   const handleSave = React.useCallback(async () => {
+    setIsSaving(true)
     try {
       await saveConfig(localConfig)
       if (isRunning) {
         setHasChanges(true)
       }
+      toast.success(i18n.t('settings.channels.saveSuccess', 'Changes saved'))
     } catch (err) {
       toast.error(i18n.t('settings.channels.saveError', 'Failed to save changes'), {
         description: err instanceof Error ? err.message : undefined,
       })
+    } finally {
+      setIsSaving(false)
     }
   }, [localConfig, isRunning, saveConfig, setHasChanges])
 
@@ -133,6 +143,7 @@ export function useChannelConfig<TConfig extends object>(
     updateLocalConfig,
     isConnecting,
     isRunning,
+    isSaving,
     handleSave,
     handleStartStop,
     handleRestart,

@@ -47,6 +47,7 @@ export function SeaTalkChannel() {
     updateLocalConfig,
     isConnecting,
     isRunning,
+    isSaving,
     handleSave,
     handleRestart,
   } = useChannelConfig<SeaTalkConfig>({
@@ -222,8 +223,8 @@ export function SeaTalkChannel() {
         </ul>
       </div>
 
-      <Button className="w-full gap-2" onClick={handleSave} disabled={seatalkIsLoading}>
-        {seatalkIsLoading ? (
+      <Button className="w-full gap-2" onClick={handleSave} disabled={seatalkIsLoading || isSaving}>
+        {seatalkIsLoading || isSaving ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
             {t('settings.channels.saving', 'Saving...')}

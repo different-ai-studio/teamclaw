@@ -3,8 +3,8 @@
 pub mod agent;
 pub mod commands;
 pub use agent::{
-    AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, SessionInfo, TurnOutcome,
-    WorkspaceInfo,
+    AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, ParticipantInfo, SessionInfo,
+    TurnOutcome, WorkspaceInfo,
 };
 
 pub mod binding;
@@ -299,6 +299,10 @@ pub fn parse_model_preference(model_str: &str) -> Option<(String, String)> {
 pub struct OpenCodeJsonConfigWithChannels {
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
+    /// Legacy per-workspace language. Nothing reads it any more — the gateway
+    /// language is device-wide and lives in amuxd's `daemon.toml` (see
+    /// [`i18n::set_locale`]). Declared only so a workspace file written before
+    /// the move round-trips its `locale` key instead of silently losing it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

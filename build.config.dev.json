@@ -5,7 +5,7 @@
     "lockLlmConfig": false
   },
   "app": {
-    "name": "TeamClu Dev",
+    "name": "TeamClu",
     "displayName": "TeamClu Dev",
     "shortName": "teamclu",
     "palette": "default"

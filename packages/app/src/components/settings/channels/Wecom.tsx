@@ -603,6 +603,7 @@ export function WeComChannel() {
     updateLocalConfig,
     isConnecting,
     isRunning,
+    isSaving,
     handleSave,
     handleRestart,
   } = useChannelConfig<WeComConfig>({
@@ -881,9 +882,9 @@ export function WeComChannel() {
         <Button
           className="w-full gap-2"
           onClick={handleSave}
-          disabled={wecomIsLoading}
+          disabled={wecomIsLoading || isSaving}
         >
-          {wecomIsLoading ? (
+          {wecomIsLoading || isSaving ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
               {t('settings.channels.saving', 'Saving...')}

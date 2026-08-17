@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getDaemonProviders: vi.fn(),
-  getDaemonProviderAuthMethods: vi.fn(),
-  postDaemonProviderOAuthAuthorize: vi.fn(),
-  postDaemonProviderOAuthCallback: vi.fn(),
+  getDaemonDeviceProviderAuthMethods: vi.fn(),
+  postDaemonDeviceProviderOAuthAuthorize: vi.fn(),
+  postDaemonDeviceProviderOAuthCallback: vi.fn(),
   reloadDaemonRuntime: vi.fn(),
   workspacePath: '/workspace/demo',
   runtimeById: {} as Record<string, any>,
@@ -45,9 +45,9 @@ const daemonMocks = vi.hoisted(() => ({
 vi.mock('@/lib/daemon-local-client', () => ({
   encodeWorkspaceId: (path: string) => path,
   getDaemonProviders: mocks.getDaemonProviders,
-  getDaemonProviderAuthMethods: mocks.getDaemonProviderAuthMethods,
-  postDaemonProviderOAuthAuthorize: mocks.postDaemonProviderOAuthAuthorize,
-  postDaemonProviderOAuthCallback: mocks.postDaemonProviderOAuthCallback,
+  getDaemonDeviceProviderAuthMethods: mocks.getDaemonDeviceProviderAuthMethods,
+  postDaemonDeviceProviderOAuthAuthorize: mocks.postDaemonDeviceProviderOAuthAuthorize,
+  postDaemonDeviceProviderOAuthCallback: mocks.postDaemonDeviceProviderOAuthCallback,
   reloadDaemonRuntime: mocks.reloadDaemonRuntime,
   putDaemonProviderAuth: vi.fn(),
   deleteDaemonProviderAuth: daemonMocks.deleteDaemonProviderAuth,
@@ -72,13 +72,13 @@ describe('provider store initAll', () => {
     mocks.workspacePath = '/workspace/demo'
     mocks.runtimeById = {}
     mocks.getDaemonProviders.mockReset()
-    mocks.getDaemonProviderAuthMethods.mockReset()
-    mocks.postDaemonProviderOAuthAuthorize.mockReset()
-    mocks.postDaemonProviderOAuthCallback.mockReset()
+    mocks.getDaemonDeviceProviderAuthMethods.mockReset()
+    mocks.postDaemonDeviceProviderOAuthAuthorize.mockReset()
+    mocks.postDaemonDeviceProviderOAuthCallback.mockReset()
     mocks.reloadDaemonRuntime.mockReset()
     mocks.reloadDaemonRuntime.mockResolvedValue('applied_live')
     mocks.getDaemonProviders.mockResolvedValue(null)
-    mocks.getDaemonProviderAuthMethods.mockResolvedValue({
+    mocks.getDaemonDeviceProviderAuthMethods.mockResolvedValue({
       openai: [{ type: 'oauth', label: 'Browser login' }],
     })
     daemonMocks.deleteDaemonProviderAuth.mockReset()
@@ -118,18 +118,18 @@ describe('provider store initAll', () => {
     )
   })
 
-  it('loads OAuth auth methods from daemon HTTP', async () => {
+  it('loads OAuth auth methods from daemon HTTP without a workspace', async () => {
     const { useProviderStore } = await import('../provider')
     await useProviderStore.getState().refreshAuthMethods()
 
-    expect(mocks.getDaemonProviderAuthMethods).toHaveBeenCalledWith('/workspace/demo')
+    expect(mocks.getDaemonDeviceProviderAuthMethods).toHaveBeenCalledWith()
     expect(useProviderStore.getState().authMethods.openai).toEqual([
       { type: 'oauth', label: 'Browser login' },
     ])
   })
 
   it('falls back to built-in OAuth methods when daemon catalog is unavailable', async () => {
-    mocks.getDaemonProviderAuthMethods.mockResolvedValue(null)
+    mocks.getDaemonDeviceProviderAuthMethods.mockResolvedValue(null)
 
     const { useProviderStore } = await import('../provider')
     await useProviderStore.getState().refreshAuthMethods()
@@ -140,7 +140,7 @@ describe('provider store initAll', () => {
   })
 
   it('returns pending OAuth state from daemon authorize response', async () => {
-    mocks.postDaemonProviderOAuthAuthorize.mockResolvedValue({
+    mocks.postDaemonDeviceProviderOAuthAuthorize.mockResolvedValue({
       ok: true,
       url: 'https://auth.example.test/openai',
       method: 'code',
@@ -158,8 +158,24 @@ describe('provider store initAll', () => {
     })
   })
 
+  it('connects via OAuth even with no workspace selected', async () => {
+    mocks.workspacePath = null as unknown as string
+    mocks.postDaemonDeviceProviderOAuthAuthorize.mockResolvedValue({
+      ok: true,
+      url: 'https://auth.example.test/openai',
+      method: 'code',
+      instructions: 'Paste code',
+    })
+
+    const { useProviderStore } = await import('../provider')
+    const result = await useProviderStore.getState().connectProviderOAuth('openai', 0)
+
+    expect(result.status).toBe('pending')
+    expect(mocks.postDaemonDeviceProviderOAuthAuthorize).toHaveBeenCalledWith('openai', 0)
+  })
+
   it('surfaces daemon error when OAuth authorize fails', async () => {
-    mocks.postDaemonProviderOAuthAuthorize.mockResolvedValue({
+    mocks.postDaemonDeviceProviderOAuthAuthorize.mockResolvedValue({
       ok: false,
       status: 503,
       code: 'runtime_unavailable',
@@ -174,7 +190,7 @@ describe('provider store initAll', () => {
   })
 
   it('reloads runtime after successful OAuth callback', async () => {
-    mocks.postDaemonProviderOAuthCallback.mockResolvedValue({ ok: true })
+    mocks.postDaemonDeviceProviderOAuthCallback.mockResolvedValue({ ok: true })
     mocks.reloadDaemonRuntime.mockResolvedValue('reload_required')
 
     const { useProviderStore } = await import('../provider')
@@ -182,6 +198,17 @@ describe('provider store initAll', () => {
 
     expect(ok).toBe(true)
     expect(mocks.reloadDaemonRuntime).toHaveBeenCalledWith('/workspace/demo')
+  })
+
+  it('completes OAuth callback with no workspace, skipping the runtime reload', async () => {
+    mocks.workspacePath = null as unknown as string
+    mocks.postDaemonDeviceProviderOAuthCallback.mockResolvedValue({ ok: true })
+
+    const { useProviderStore } = await import('../provider')
+    const ok = await useProviderStore.getState().completeOAuthCallback('openai', 0, 'code-123')
+
+    expect(ok).toBe(true)
+    expect(mocks.reloadDaemonRuntime).not.toHaveBeenCalled()
   })
 
   it('disconnects via daemon without OpenCode sidecar', async () => {

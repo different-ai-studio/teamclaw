@@ -1761,6 +1761,7 @@
       "startSetup": "开始设置",
       "saveChanges": "保存更改",
       "saving": "保存中...",
+      "saveSuccess": "更改已保存",
       "saveError": "保存更改失败",
       "test": "测试",
       "setup": "设置",

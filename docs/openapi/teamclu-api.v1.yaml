@@ -5519,6 +5519,24 @@ components:
           type:
             - string
             - "null"
+        binding:
+          description: >-
+            For source='gateway', the chat URI this session is *currently* the
+            live one for (e.g. wecom://{corp}/{agent}/single/{userid}). Released
+            to null when /new moves the chat onto a fresh session, so it answers
+            "is this the current session", not "which chat is this".
+          type:
+            - string
+            - "null"
+        gatewayKey:
+          description: >-
+            For source='gateway', the chat this session belongs to for its whole
+            life. Unlike `binding` it is never released, so a session that /new
+            has moved past can still say where it came from — which is what
+            listing a chat's own session history is keyed on.
+          type:
+            - string
+            - "null"
         participantCount:
           description: >-
             Number of participants in the session, counted server-side. It used

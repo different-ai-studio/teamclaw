@@ -74,6 +74,27 @@ pub trait ChannelStore: Send + Sync + 'static {
         attachments: Vec<AttachmentRecord>,
     ) -> Result<String /* message_id */, StoreError>;
 
+    /// Like `record_agent_reply` but with attachments — the agent sending a
+    /// file into the chat.
+    ///
+    /// Distinct from [`Self::record_message_with_attachments`] because the kind
+    /// decides which side of the conversation a row renders on: a file the
+    /// agent produced is not something the user said. The default impl drops
+    /// the attachments and records the text, so a store that has no attachment
+    /// support still shows the message.
+    async fn record_agent_reply_with_attachments(
+        &self,
+        session_id: &str,
+        sender_actor_id: &str,
+        content: &str,
+        external_message_id: Option<&str>,
+        attachments: Vec<AttachmentRecord>,
+    ) -> Result<String /* message_id */, StoreError> {
+        let _ = attachments;
+        self.record_agent_reply(session_id, sender_actor_id, content, external_message_id)
+            .await
+    }
+
     /// Upload bytes to backend attachment storage at `bucket_path`.
     /// Returns the stored object path on success.
     async fn upload_attachment(

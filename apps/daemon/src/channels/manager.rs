@@ -75,6 +75,25 @@ impl ChannelManager {
         }
     }
 
+    /// The session store the channels write through. Exposed so the MCP send
+    /// path can record what it sends: a file the agent pushes to a chat has to
+    /// become a message in that chat's session too, or it exists only in the
+    /// chat app.
+    pub fn store(&self) -> &Arc<dyn ChannelStore> {
+        &self.store
+    }
+
+    /// The actor gateway replies are attributed to.
+    pub fn agent_actor_id(&self) -> &str {
+        &self.primary_agent_actor_id
+    }
+
+    /// The team these channels belong to. Used to build attachment bucket
+    /// paths, which are team-scoped.
+    pub fn team_id(&self) -> &str {
+        &self.team_id
+    }
+
     /// Override the workspace path the gateways will use (e.g. for tests or
     /// when the daemon wants channels to share a specific workspace's state).
     #[allow(dead_code)]
@@ -396,7 +415,6 @@ impl ChannelManager {
             self.team_id.clone(),
             self.primary_agent_actor_id.clone(),
             self.agent_owner_actor_ids.clone(),
-            self.workspace_path.clone(),
         );
         let mut cfg = DiscordConfig {
             enabled: true,
@@ -460,7 +478,6 @@ impl ChannelManager {
             self.team_id.clone(),
             self.primary_agent_actor_id.clone(),
             self.agent_owner_actor_ids.clone(),
-            self.workspace_path.clone(),
         );
         let cfg = FeishuConfig {
             enabled: true,
@@ -556,7 +573,6 @@ impl ChannelManager {
             self.team_id.clone(),
             self.primary_agent_actor_id.clone(),
             self.agent_owner_actor_ids.clone(),
-            self.workspace_path.clone(),
         );
         let cfg = SeaTalkConfig {
             enabled: true,
