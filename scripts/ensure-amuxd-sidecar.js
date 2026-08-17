@@ -4,7 +4,10 @@
 const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-const { installSidecarAtomic } = require("./lib/install-sidecar-atomic");
+const {
+  installSidecarAtomic,
+  installSidecarIfChanged,
+} = require("./lib/install-sidecar-atomic");
 const { sidecarTargetDir } = require("./lib/sidecar-target-dir");
 
 const VERSION_PROBE_TIMEOUT_MS = 5_000;
@@ -114,8 +117,11 @@ function ensureAmuxdSidecar(env, opts) {
     process.exit(1);
   }
   const built = path.join(targetDir, "debug", binName);
-  installSidecarAtomic(built, dest);
-  console.log(`${logPrefix} Installed ${dest}`);
+  if (installSidecarIfChanged(built, dest)) {
+    console.log(`${logPrefix} Installed ${dest}`);
+  } else {
+    console.log(`${logPrefix} amuxd unchanged, kept staged copy`);
+  }
 }
 
 module.exports = {
