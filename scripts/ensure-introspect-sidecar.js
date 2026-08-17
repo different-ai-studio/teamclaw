@@ -4,7 +4,8 @@
 const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-const { installSidecarAtomic } = require("./lib/install-sidecar-atomic");
+const { installSidecarIfChanged } = require("./lib/install-sidecar-atomic");
+const { sidecarTargetDir } = require("./lib/sidecar-target-dir");
 
 const VERSION_PROBE_TIMEOUT_MS = 5_000;
 
@@ -114,7 +115,7 @@ function ensureTeamcluIntrospectSidecar(env, opts) {
     );
   }
   console.log(`${logPrefix} Building teamclu-introspect sidecar...`);
-  const targetDir = env.CARGO_TARGET_DIR || path.join(tauriDir, "target");
+  const targetDir = sidecarTargetDir(env, tauriDir, "teamclu-introspect");
   const result = spawnSync(
     "cargo",
     [
@@ -133,8 +134,11 @@ function ensureTeamcluIntrospectSidecar(env, opts) {
     process.exit(1);
   }
   const built = path.join(targetDir, "debug", binName);
-  installSidecarAtomic(built, dest);
-  console.log(`${logPrefix} Installed ${dest}`);
+  if (installSidecarIfChanged(built, dest)) {
+    console.log(`${logPrefix} Installed ${dest}`);
+  } else {
+    console.log(`${logPrefix} teamclu-introspect unchanged, kept staged copy`);
+  }
 }
 
 module.exports = {

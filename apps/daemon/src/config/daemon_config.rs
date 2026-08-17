@@ -69,6 +69,12 @@ pub struct DaemonConfig {
     /// hand-added `[log]` section instead of silently erasing it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub log: Option<LogConfig>,
+    /// Language the gateways reply in (`"zh-CN"`, `"en"`), mirroring the desktop
+    /// app's UI language. Device-scoped on purpose: language is one app-level
+    /// preference, not a per-team or per-workspace one, so it belongs in
+    /// daemon.toml rather than team.toml. `None` means English.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
 }
 
 /// `[log]` — caps for the daemon's own rotating log file.
@@ -700,6 +706,7 @@ impl DaemonConfig {
             http: Some(HttpConfig::default()),
             team_share: TeamShareConfig::default(),
             log: None,
+            locale: None,
         }
     }
 
@@ -985,6 +992,42 @@ mod tests {
             loaded.actor.id.is_empty(),
             "a loaded config carries no identity until the backend hydrates it"
         );
+    }
+
+    /// The gateway reply language is device-scoped, so it round-trips through
+    /// daemon.toml — not team.toml, and not a workspace's teamclu.json, which is
+    /// where it used to live and where no gateway ever looked.
+    #[test]
+    fn locale_round_trips_through_daemon_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.toml");
+
+        let mut cfg = DaemonConfig::bootstrap();
+        cfg.locale = Some("zh-CN".to_string());
+        cfg.save(&path).unwrap();
+
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("locale = \"zh-CN\""), "{written}");
+        assert_eq!(
+            DaemonConfig::load(&path).unwrap().locale.as_deref(),
+            Some("zh-CN")
+        );
+    }
+
+    /// An existing daemon.toml has no `locale` line; it must keep parsing, and
+    /// the absent setting means English rather than a hard failure.
+    #[test]
+    fn a_config_without_locale_still_parses() {
+        let cfg: DaemonConfig = toml::from_str(
+            r#"
+[actor]
+name = "Mac"
+[mqtt]
+broker_url = ""
+"#,
+        )
+        .unwrap();
+        assert!(cfg.locale.is_none());
     }
 
     /// Interim v2 files (and old fixtures) spell the pointer `team_id`; the

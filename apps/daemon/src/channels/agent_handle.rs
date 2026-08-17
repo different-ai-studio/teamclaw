@@ -23,8 +23,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use teamclu_gateway::{
-    AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, SessionInfo, TurnOutcome,
-    WorkspaceInfo,
+    AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, ParticipantInfo, SessionInfo,
+    TurnOutcome, WorkspaceInfo,
 };
 
 /// How many of a chat's past sessions `/sessions` offers. A long-lived WeCom
@@ -38,6 +38,7 @@ const GATEWAY_SESSION_LIST_LIMIT: u32 = 20;
 const GATEWAY_TURN_TIMEOUT_SECS: u64 = 120;
 
 use crate::backend::Backend;
+use crate::channels::reply_token;
 use crate::proto::amux;
 use crate::runtime::execution_context::{ExecutionContext, IsolationDomainKey, WorkspaceIdentity};
 use crate::runtime::RuntimeManager;
@@ -54,6 +55,10 @@ use crate::runtime::SpawnRuntimeEnv;
 pub struct ResolvedSession {
     real_acp_sid: String,
     binding: String,
+    /// The cloud session this chat's turns run in. Cached here so every turn
+    /// can hand it to the reply token without another backend round trip —
+    /// an outbound send needs it to write the file back into the session.
+    remote_session_id: Option<String>,
     was_primed: bool,
 }
 
@@ -163,6 +168,7 @@ pub struct AmuxdAgentHandle {
 struct ResolveOutcome {
     real_acp_sid: String,
     binding: String,
+    remote_session_id: Option<String>,
     spawned: bool,
 }
 
@@ -367,31 +373,42 @@ impl AmuxdAgentHandle {
     ///
     /// Reads the cached binding first and falls back to the `sessions` row,
     /// because a command usually arrives before the session has ever spawned a
-    /// runtime — at which point nothing is cached yet. An empty result means the
+    /// runtime — at which point nothing is cached yet. `Ok(None)` means the
     /// session is not gateway-bound, which callers treat as "no chat history to
-    /// speak of" rather than an error.
-    async fn binding_for_session(&self, session: &AmuxSessionId) -> Option<String> {
+    /// speak of".
+    ///
+    /// A lookup *failure* is returned as an error rather than folded into
+    /// `None`: the two used to be indistinguishable, so an unreachable backend
+    /// reported itself to the user as an empty session list — the least
+    /// alarming, least true thing it could have said.
+    async fn binding_for_session(
+        &self,
+        session: &AmuxSessionId,
+    ) -> Result<Option<String>, AgentError> {
         let cached = {
             let map = self.logical_to_acp.lock().await;
             map.get(session).map(|s| s.binding.clone())
         };
         if let Some(b) = cached {
             if !b.is_empty() {
-                return Some(b);
+                return Ok(Some(b));
             }
         }
-        self.backend
+        let looked_up = self
+            .backend
             .get_gateway_session_by_acp_id(session)
             .await
-            .ok()
-            .flatten()
+            .map_err(|e| AgentError::Internal(format!("session lookup: {e}")))?;
+        Ok(looked_up
             .and_then(|(_, binding)| binding)
-            .filter(|b| !b.is_empty())
+            .filter(|b| !b.is_empty()))
     }
 
-    /// The WeCom bot this session belongs to, if any.
+    /// The WeCom bot this session belongs to, if any. Picking a per-bot runtime
+    /// config is best-effort, so a failed lookup falls back to the global
+    /// default here rather than failing the caller.
     async fn bot_id_for_session(&self, session: &AmuxSessionId) -> Option<String> {
-        let binding = self.binding_for_session(session).await?;
+        let binding = self.binding_for_session(session).await.ok().flatten()?;
         bot_id_from_binding(&binding).map(str::to_string)
     }
 
@@ -509,18 +526,19 @@ impl AmuxdAgentHandle {
             return Ok(ResolveOutcome {
                 real_acp_sid: existing.real_acp_sid,
                 binding: existing.binding,
+                remote_session_id: existing.remote_session_id,
                 spawned: false,
             });
         }
 
-        // Recover the remote session UUID + binding URI for this logical
-        // session. The UUID is needed so the spawned runtime can carry it
-        // on its handle, which is what daemon::server::target_sessions falls
-        // back to when routing agent envelopes (otherwise gateway-spawned
-        // runtimes — which never get written into the local SessionStore —
-        // appear bound-less and their envelopes get dropped). The binding
-        // feeds the per-session MCP config so `send` defaults to the
-        // originating chat. A missing row is non-fatal; we still spawn so
+        // Recover the remote session UUID + chat URI for this logical session.
+        // The UUID is needed so the spawned runtime can carry it on its handle,
+        // which is what daemon::server::target_sessions falls back to when
+        // routing agent envelopes (otherwise gateway-spawned runtimes — which
+        // never get written into the local SessionStore — appear bound-less and
+        // their envelopes get dropped). The chat URI identifies which
+        // conversation this runtime belongs to, and is what the turn's reply
+        // token is minted from. A missing row is non-fatal; we still spawn so
         // basic prompt/reply works.
         let (remote_session_id, binding) = match self
             .backend
@@ -599,11 +617,13 @@ impl AmuxdAgentHandle {
             .or_insert_with(|| ResolvedSession {
                 real_acp_sid: real.clone(),
                 binding: binding.clone(),
+                remote_session_id: remote_session_id.clone(),
                 was_primed: false,
             });
         let outcome = ResolveOutcome {
             real_acp_sid: entry.real_acp_sid.clone(),
             binding: entry.binding.clone(),
+            remote_session_id: entry.remote_session_id.clone(),
             spawned: true,
         };
         Ok(outcome)
@@ -651,7 +671,8 @@ pub fn bot_id_from_binding(binding: &str) -> Option<&str> {
 
 /// Build the first-turn prompt for a freshly-spawned gateway session: the
 /// per-bot persona (if any), then the standard send-tool note, then the
-/// user's message. Subsequent turns use `[sender] text` only.
+/// user's message. Subsequent turns use `[sender] text` plus the reply-token
+/// line from [`reply_channel_note`].
 pub fn build_first_turn_prompt(
     channel: &str,
     bot_system_prompt: Option<&str>,
@@ -665,9 +686,23 @@ pub fn build_first_turn_prompt(
     format!(
         "{persona}[SYSTEM] You are connected to a {channel} chat via amuxd. To send a follow-up \
 message or upload a file back to this chat without waiting for the user to ask, call the `send` \
-MCP tool (server name `amuxd-send`). `target` and `channel` default to the current session's \
-bound chat, so a simple `send(message=\"…\")` or `send(file_path=\"/tmp/report.pdf\")` is enough.\n\n\
+MCP tool (server name `amuxd-send`) with the reply token below.\n\n\
 [{sender_display}] {text}"
+    )
+}
+
+/// The line that carries the chat's reply token into a turn.
+///
+/// Repeated on *every* turn rather than only the first: the token is what
+/// gives `send` a destination, and a model that has to reach back many turns
+/// for it will sooner or later reach for something else. Repeating a derived
+/// (hence unchanging) value costs a line and removes that failure mode.
+fn reply_channel_note(token: &str) -> String {
+    format!(
+        "[SYSTEM] Reply token for this chat: {token}\n\
+Pass it as `reply_token` to send a message or file back here, e.g. \
+`send(reply_token=\"{token}\", file_path=\"/tmp/report.pdf\")`. Without it the \
+`send` tool has no destination."
     )
 }
 
@@ -753,7 +788,7 @@ impl AmuxdAgentHandle {
         // caller may have already primed the session — `already_primed`
         // settles the race so we never double-prime.
         let needs_preamble = outcome.spawned && !self.already_primed(session).await;
-        let prompt = if needs_preamble {
+        let body = if needs_preamble {
             let channel = channel_name_from_binding(&outcome.binding);
             let bot_prompt = {
                 let configs = self.bot_configs.lock().await;
@@ -764,6 +799,19 @@ impl AmuxdAgentHandle {
             build_first_turn_prompt(channel, bot_prompt.as_deref(), sender_display, text)
         } else {
             format!("[{sender_display}] {text}")
+        };
+
+        // Registering here rather than at spawn is what makes the send tool
+        // survive a reused attachment: this runs on every turn, including the
+        // ones whose session was attached by somebody else.
+        let prompt = if outcome.binding.is_empty() {
+            body
+        } else {
+            let token = reply_token::register_with_session(
+                &outcome.binding,
+                outcome.remote_session_id.as_deref(),
+            );
+            format!("{}\n\n{body}", reply_channel_note(&token))
         };
 
         if needs_preamble {
@@ -1232,6 +1280,66 @@ impl AgentHandle for AmuxdAgentHandle {
         Ok(skills)
     }
 
+    /// The roster of the cloud session this chat is bound to.
+    ///
+    /// `session` is the logical/acp id the gateway holds; the participant rows
+    /// hang off the cloud `sessions` row, so it is resolved through the gateway
+    /// index first. A chat with no cloud row yet (nothing sent) has no roster,
+    /// which reads as an empty list rather than an error.
+    ///
+    /// Names come from the actor directory: `session_participants` stores only
+    /// actor ids. An id the directory does not return still lists — under its
+    /// id, so a roster never silently drops a seat.
+    async fn list_participants(
+        &self,
+        session: &AmuxSessionId,
+    ) -> Result<Vec<ParticipantInfo>, AgentError> {
+        let Some((remote_session_id, _binding)) = self
+            .backend
+            .get_gateway_session_by_acp_id(session)
+            .await
+            .map_err(|e| AgentError::Internal(format!("session lookup: {e}")))?
+        else {
+            return Ok(Vec::new());
+        };
+
+        let seated = self
+            .backend
+            .fetch_session_with_participants(&remote_session_id)
+            .await
+            .map_err(|e| AgentError::Internal(format!("fetch participants: {e}")))?;
+        if seated.participants.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids: Vec<String> = seated
+            .participants
+            .iter()
+            .map(|p| p.actor_id.clone())
+            .collect();
+        // A directory outage costs names, not the roster: fall back to ids.
+        let directory = self
+            .backend
+            .get_actors_by_ids(&ids)
+            .await
+            .unwrap_or_default();
+
+        Ok(seated
+            .participants
+            .iter()
+            .map(|p| {
+                let row = directory.iter().find(|a| a.id == p.actor_id);
+                ParticipantInfo {
+                    actor_id: p.actor_id.clone(),
+                    display_name: row
+                        .and_then(|a| a.display_name.clone())
+                        .filter(|n| !n.trim().is_empty()),
+                    kind: row.and_then(|a| a.kind.clone()),
+                }
+            })
+            .collect())
+    }
+
     async fn send_slash_command(
         &self,
         session: &AmuxSessionId,
@@ -1259,7 +1367,7 @@ impl AgentHandle for AmuxdAgentHandle {
         &self,
         active_session: &AmuxSessionId,
     ) -> Result<Vec<SessionInfo>, AgentError> {
-        let Some(binding) = self.binding_for_session(active_session).await else {
+        let Some(binding) = self.binding_for_session(active_session).await? else {
             return Ok(Vec::new());
         };
         let rows = self
@@ -1292,7 +1400,7 @@ impl AgentHandle for AmuxdAgentHandle {
         active_session: &AmuxSessionId,
         target_session_id: &str,
     ) -> Result<bool, AgentError> {
-        let Some(binding) = self.binding_for_session(active_session).await else {
+        let Some(binding) = self.binding_for_session(active_session).await? else {
             return Ok(false);
         };
         // Stop whatever the outgoing session is doing: its turn would otherwise
@@ -2084,6 +2192,7 @@ pub(crate) mod tests {
             ResolvedSession {
                 real_acp_sid: "dead-acp-uuid".to_string(),
                 binding: "wecom://botA/botA/single/u".to_string(),
+                remote_session_id: None,
                 was_primed: true,
             },
         );
@@ -2231,6 +2340,122 @@ pub(crate) mod tests {
         assert_eq!(out[0].title, "WeCom DM: LiangLiang");
         assert!(!out[1].is_current);
         assert!(handle.logical_to_acp.lock().await.is_empty());
+    }
+
+    /// Seat `actors` (id, display_name, kind) in the cloud session `seed_chat`
+    /// points `acp` at, and register them in the actor directory.
+    fn seed_participants(backend: &Arc<MockBackend>, actors: &[(&str, &str, &str)]) {
+        use crate::backend::{
+            ActorDirectoryRow, BackendParticipantRow, BackendSessionAndParticipants,
+            BackendSessionRow,
+        };
+        let now = chrono::Utc::now();
+        let mut st = backend.state();
+        st.sessions.insert(
+            "session-row".to_string(),
+            BackendSessionAndParticipants {
+                session: BackendSessionRow {
+                    id: "session-row".to_string(),
+                    team_id: "team-mock".to_string(),
+                    created_by_actor_id: None,
+                    primary_agent_id: None,
+                    mode: "collab".to_string(),
+                    title: "WeCom DM: LiangLiang".to_string(),
+                    summary: String::new(),
+                    idea_id: None,
+                    created_at: now,
+                },
+                participants: actors
+                    .iter()
+                    .map(|(id, _, _)| BackendParticipantRow {
+                        session_id: "session-row".to_string(),
+                        actor_id: id.to_string(),
+                        role: None,
+                        joined_at: now,
+                    })
+                    .collect(),
+            },
+        );
+        for (id, name, kind) in actors {
+            st.actors_by_id.insert(
+                id.to_string(),
+                ActorDirectoryRow {
+                    id: id.to_string(),
+                    display_name: Some(name.to_string()),
+                    kind: Some(kind.to_string()),
+                },
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn list_participants_names_every_seat_from_the_directory() {
+        let backend = Arc::new(MockBackend::default());
+        seed_chat(&backend, "acp-live", "wecom://bot-1/user/liang", vec![]);
+        seed_participants(
+            &backend,
+            &[
+                ("actor-liang", "LiangLiang", "member"),
+                ("actor-mac", "Mac-mini-3", "agent"),
+            ],
+        );
+        let handle = make_handle_with_backend(backend);
+
+        let out = handle
+            .list_participants(&AmuxSessionId::from("acp-live"))
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].display_name.as_deref(), Some("LiangLiang"));
+        assert_eq!(out[0].kind.as_deref(), Some("member"));
+        assert_eq!(out[1].display_name.as_deref(), Some("Mac-mini-3"));
+        assert_eq!(out[1].kind.as_deref(), Some("agent"));
+    }
+
+    #[tokio::test]
+    async fn list_participants_keeps_a_seat_the_directory_cannot_name() {
+        // Dropping the row would under-report who is in the chat, which is the
+        // one thing this command must not do. The id is a poor label but a
+        // truthful one.
+        let backend = Arc::new(MockBackend::default());
+        seed_chat(&backend, "acp-live", "wecom://bot-1/user/liang", vec![]);
+        seed_participants(&backend, &[("actor-known", "LiangLiang", "member")]);
+        {
+            let mut st = backend.state();
+            let seated = st.sessions.get_mut("session-row").unwrap();
+            seated
+                .participants
+                .push(crate::backend::BackendParticipantRow {
+                    session_id: "session-row".to_string(),
+                    actor_id: "actor-missing".to_string(),
+                    role: None,
+                    joined_at: chrono::Utc::now(),
+                });
+        }
+        let handle = make_handle_with_backend(backend);
+
+        let out = handle
+            .list_participants(&AmuxSessionId::from("acp-live"))
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 2);
+        // The seat survives; only its labels are missing, and the id it is
+        // rendered from is still carried.
+        assert_eq!(out[1].actor_id, "actor-missing");
+        assert!(out[1].display_name.is_none());
+        assert!(out[1].kind.is_none());
+    }
+
+    #[tokio::test]
+    async fn list_participants_is_empty_for_a_chat_with_no_cloud_session() {
+        // Nothing has been sent yet, so there is no session row to have a
+        // roster. `/participant` says "no one here", not an error.
+        let handle = make_handle();
+        let out = handle
+            .list_participants(&AmuxSessionId::from("acp-unbound"))
+            .await
+            .unwrap();
+        assert!(out.is_empty());
     }
 
     #[tokio::test]

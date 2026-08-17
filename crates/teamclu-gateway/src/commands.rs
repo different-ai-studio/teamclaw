@@ -1,88 +1,6 @@
 use crate::agent::{AgentError, AgentHandle, AmuxSessionId, ModelInfo, SessionInfo};
 use crate::channel_store::ChannelStore;
-use std::sync::Arc;
-
-/// Handle a session-scoped slash command (`/stop`, `/reset`, `/model`,
-/// `/model <provider>/<model>`) and return the human-readable reply string.
-///
-/// Shared by the Discord, Feishu, and Kook gateways, which previously each
-/// carried a byte-identical copy of this dispatcher. Callers are expected to
-/// have already lowercased the content and filtered to known session commands;
-/// an unrecognized input falls through to an "Unknown command" reply.
-pub async fn dispatch_session_slash_cmd(
-    agent: &Arc<dyn AgentHandle>,
-    lower_content: &str,
-    acp_session_id: &str,
-) -> String {
-    let session = acp_session_id.to_string();
-    if lower_content == "/stop" {
-        return match agent.cancel(&session).await {
-            Ok(_) => "⏹ Stopped current turn.".to_string(),
-            Err(e) => format!("⚠️ Could not stop: {e}"),
-        };
-    }
-    if lower_content == "/reset" {
-        return match agent.reset_session(&session).await {
-            Ok(_) => "🔄 Session reset. Next message starts fresh.".to_string(),
-            Err(e) => format!("⚠️ Could not reset: {e}"),
-        };
-    }
-    if lower_content == "/model" {
-        return match agent.list_models(&session).await {
-            Ok(models) => {
-                if models.is_empty() {
-                    "No models available.".to_string()
-                } else {
-                    let current = agent.current_model(&session).await.ok().flatten();
-                    let shown = models.len().min(MODEL_LIST_LIMIT);
-                    let body = models
-                        .iter()
-                        .take(shown)
-                        .map(|m| {
-                            let id = format!("{}/{}", m.provider, m.model);
-                            let mark = if current.as_deref() == Some(id.as_str()) {
-                                " ← current"
-                            } else {
-                                ""
-                            };
-                            format!("• `{id}` — {}{mark}", m.display_name)
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let more = if models.len() > shown {
-                        format!("\n• … and {} more", models.len() - shown)
-                    } else {
-                        String::new()
-                    };
-                    format!("Available models:\n{body}{more}\n\nUsage: `/model <provider>/<model>`")
-                }
-            }
-            Err(e) => format!("⚠️ Could not list models: {e}"),
-        };
-    }
-    if let Some(arg) = lower_content.strip_prefix("/model ") {
-        let arg = arg.trim();
-        let (provider, model) = match arg.split_once('/') {
-            Some((p, m)) => (p.to_string(), m.to_string()),
-            // Bare name — resolve against the live catalog instead of
-            // assuming anthropic, which is wrong for any other backend.
-            None => match resolve_bare_model(agent.as_ref(), &session, arg).await {
-                Ok(Ok(pair)) => pair,
-                Ok(Err(msg)) => return msg,
-                Err(e) => return format!("⚠️ Could not switch model: {e}"),
-            },
-        };
-        let (provider, model) = (provider.as_str(), model.as_str());
-        return match agent.set_model(&session, provider, model).await {
-            Ok(_) => format!(
-                "✅ Switched to `{provider}/{model}`. **Note: conversation context was cleared.**"
-            ),
-            Err(e) => format!("⚠️ Could not switch model: {e}"),
-        };
-    }
-    // Caller should have filtered this out.
-    format!("Unknown command: {lower_content}")
-}
+use crate::i18n::{self, Locale, MsgKey};
 
 // ── parse_slash ──────────────────────────────────────────────────────────────
 
@@ -118,7 +36,9 @@ enum MetaCommand {
     Sessions(Option<String>),
     Workspace(Option<String>),
     Skills,
+    Participants,
     New,
+    Reset,
     Stop,
     Ctx(String),
 }
@@ -133,6 +53,13 @@ fn parse_meta(name: &str, arg: Option<&str>) -> Option<MetaCommand> {
         // learned the old name.
         "workspace" | "workspaces" => Some(MetaCommand::Workspace(arg.map(str::to_string))),
         "skills" => Some(MetaCommand::Skills),
+        // Both spellings for the same reason `/workspaces` is kept: whichever
+        // one the user reaches for should work, not just the one in /help.
+        "participant" | "participants" => Some(MetaCommand::Participants),
+        // `/reset` drops the runtime context but keeps the session: same chat,
+        // same history, agent starts fresh. `/new` is the one that moves the
+        // chat to a different session.
+        "reset" => Some(MetaCommand::Reset),
         // `/clear` is gone rather than aliased: it named the wrong operation.
         // Nothing is cleared — the old session keeps every message, it just
         // stops being this chat's current one, and `/sessions <n>` can go back
@@ -147,17 +74,6 @@ fn parse_meta(name: &str, arg: Option<&str>) -> Option<MetaCommand> {
     }
 }
 
-const GATEWAY_HELP: &str = "\
-Gateway commands:
-/help - Show this help
-/model [name] - List or switch models
-/sessions [n] - List this chat's sessions, or continue #n
-/workspace [n] - List workspaces, or make #n this bot's default
-/skills - List workspace skills
-/new - Start a new session (the current one stays in /sessions)
-/stop - Stop current processing
-/ctx <text> - Inject context without reply";
-
 /// What a session shows up as in a `/sessions` listing. Titles are generated
 /// from the chat itself ("WeCom DM: LiangLiang", plus a detach timestamp on
 /// older generations), so an empty one means the row was written by something
@@ -168,6 +84,17 @@ fn session_label(s: &SessionInfo) -> String {
     } else {
         s.title.clone()
     }
+}
+
+/// The leading segment of an actor UUID — enough to distinguish two unnamed
+/// seats in the same roster without pasting 36 characters into a chat bubble.
+fn short_actor_id(actor_id: &str) -> &str {
+    let end = actor_id
+        .char_indices()
+        .nth(8)
+        .map(|(i, _)| i)
+        .unwrap_or(actor_id.len());
+    &actor_id[..end]
 }
 
 /// How many catalog entries a `/model` listing shows. A real backend catalog
@@ -183,6 +110,7 @@ pub(crate) async fn resolve_bare_model<A>(
     agent: &A,
     session: &AmuxSessionId,
     name: &str,
+    locale: Locale,
 ) -> Result<Result<(String, String), String>, AgentError>
 where
     A: AgentHandle + Send + Sync + ?Sized,
@@ -191,21 +119,76 @@ where
     let matches: Vec<&ModelInfo> = models.iter().filter(|m| m.model == name).collect();
     Ok(match matches.as_slice() {
         [one] => Ok((one.provider.clone(), one.model.clone())),
-        [] => Err(format!(
-            "Unknown model: {name}. Use /model to list what this workspace offers, \
-             or give the full id: /model <provider>/<model>."
-        )),
-        many => Err(format!(
-            "Ambiguous model: {name} is offered by {}. Use the full id: /model <provider>/{name}.",
-            many.iter()
-                .map(|m| m.provider.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
+        [] => Err(i18n::t(MsgKey::ModelNotFoundInWorkspace(name), locale)),
+        many => Err(i18n::t(
+            MsgKey::ModelAmbiguous(
+                name,
+                &many
+                    .iter()
+                    .map(|m| m.provider.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
+            locale,
         )),
     })
 }
 
 // ── dispatch ─────────────────────────────────────────────────────────────────
+
+/// Whether a slash command has to run inside a resolved session.
+///
+/// Only two do not: `/help` renders from a static table plus the agent's
+/// built-in command list (which is session-independent), and `/skills` reads
+/// the workspace directory. Everything else — every meta-command and every
+/// agent-advertised command such as `/compact` — talks to a session, so the
+/// channel must resolve one before dispatching.
+///
+/// Unknown names count as needing a session on purpose: whether `/foo` is an
+/// agent command is only knowable once there is a session to ask. Answering
+/// "unknown command" from the session-less path is what made `/compact` reply
+/// "unknown command" in WeCom — `send_slash_command` was handed an empty
+/// session id and failed.
+pub fn needs_session(name: &str) -> bool {
+    !matches!(name, "help" | "skills")
+}
+
+/// What to say when nothing recognised the command — the same sentence in
+/// every channel, rather than six copies of this `format!`.
+pub fn unknown_command_reply(name: &str, locale: Locale) -> String {
+    i18n::t(MsgKey::UnknownCommand(&format!("/{name}")), locale)
+}
+
+/// [`dispatch`], with the reply handed back instead of pushed through a
+/// callback.
+///
+/// `Ok(None)` means the name was not a command anyone here knows — the caller
+/// decides whether that is an "unknown command" reply or a plain message.
+/// Channels want a value they can `send()`, and the callback form forced each
+/// one to build the same `Arc<Mutex<Option<String>>>` shuttle around it.
+pub async fn run_slash<A, S>(
+    name: &str,
+    arg: Option<&str>,
+    agent: &A,
+    store: &S,
+    session: &AmuxSessionId,
+    locale: Locale,
+) -> Result<Option<String>, AgentError>
+where
+    A: AgentHandle + Send + Sync + ?Sized,
+    S: ChannelStore + Send + Sync + ?Sized,
+{
+    let captured: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    let handled = dispatch(name, arg, agent, store, session, locale, |r| {
+        *captured.lock().unwrap() = Some(r);
+    })
+    .await?;
+    Ok(if handled {
+        captured.into_inner().unwrap()
+    } else {
+        None
+    })
+}
 
 /// Dispatch a slash command. Two-layer priority:
 /// 1. agent-advertised commands (advertised via `available_commands`) take priority.
@@ -219,6 +202,7 @@ pub async fn dispatch<A, S>(
     agent: &A,
     _store: &S,
     session: &AmuxSessionId,
+    locale: Locale,
     reply: impl Fn(String) + Send,
 ) -> Result<bool, AgentError>
 where
@@ -235,7 +219,7 @@ where
 
     // 2. Gateway meta-commands: /ctx needs its arg check before parse_meta.
     if name == "ctx" && arg.map(|a| a.is_empty()).unwrap_or(true) {
-        reply("Usage: /ctx <text>".to_string());
+        reply(i18n::t(MsgKey::CtxUsage, locale));
         return Ok(true);
     }
 
@@ -245,9 +229,9 @@ where
 
     let response = match meta {
         MetaCommand::Help => {
-            let mut text = GATEWAY_HELP.to_string();
+            let mut text = i18n::t(MsgKey::GatewayMetaHelpStatic, locale);
             if !agent_cmds.is_empty() {
-                text.push_str("\n\nAgent commands:");
+                text.push_str(&i18n::t(MsgKey::AgentCommandsHeader, locale));
                 for cmd in &agent_cmds {
                     match &cmd.input_hint {
                         Some(hint) => text
@@ -264,12 +248,13 @@ where
             let current = agent.current_model(session).await?;
             if models.is_empty() {
                 match current {
-                    Some(cur) => format!("Current model: {cur}\n(Model catalog unavailable.)"),
-                    None => "No models available.".to_string(),
+                    Some(cur) => i18n::t(MsgKey::CurrentModelCatalogUnavailable(&cur), locale),
+                    None => i18n::t(MsgKey::NoModelsAvailable, locale),
                 }
             } else {
                 let shown = models.len().min(MODEL_LIST_LIMIT);
                 let mut listed_current = false;
+                let marker = i18n::t(MsgKey::CurrentMarkerParen, locale);
                 let lines: Vec<String> = models
                     .iter()
                     .take(shown)
@@ -277,7 +262,7 @@ where
                         let id = format!("{}/{}", m.provider, m.model);
                         if current.as_deref() == Some(id.as_str()) {
                             listed_current = true;
-                            format!("* {id} (current)")
+                            format!("* {id}{marker}")
                         } else {
                             format!("  {id}")
                         }
@@ -288,13 +273,17 @@ where
                 // absent from the catalog entirely (provider logged out, model
                 // retired) — either way it still has to be reported.
                 if let (Some(cur), false) = (current.as_deref(), listed_current) {
-                    text.push_str(&format!("Current model: {cur}\n\n"));
+                    text.push_str(&i18n::t(MsgKey::CurrentModelHeader(cur), locale));
                 }
-                text.push_str(&format!("Models:\n{}", lines.join("\n")));
+                text.push_str(&i18n::t(MsgKey::ModelsListHeader, locale));
+                text.push_str(&lines.join("\n"));
                 if models.len() > shown {
-                    text.push_str(&format!("\n  … and {} more", models.len() - shown));
+                    text.push_str(&i18n::t(
+                        MsgKey::ModelsMoreIndented(models.len() - shown),
+                        locale,
+                    ));
                 }
-                text.push_str("\n\nUsage: /model <provider>/<model>");
+                text.push_str(&i18n::t(MsgKey::ModelUsageLine, locale));
                 text
             }
         }
@@ -304,7 +293,7 @@ where
                 // A bare name is resolved against the live catalog. It used to
                 // be assumed to be anthropic's, which is wrong on any device
                 // whose backend runs some other provider.
-                None => match resolve_bare_model(agent, session, &name_arg).await? {
+                None => match resolve_bare_model(agent, session, &name_arg, locale).await? {
                     Ok(pair) => pair,
                     Err(msg) => {
                         reply(msg);
@@ -313,29 +302,36 @@ where
                 },
             };
             agent.set_model(session, &provider, &model).await?;
-            format!("Model set: {}/{}", provider, model)
+            i18n::t(MsgKey::ModelSetConfirm(&provider, &model), locale)
         }
 
         MetaCommand::Sessions(None) => {
             let sessions = agent.list_sessions(session).await?;
             if sessions.is_empty() {
-                "No sessions.".to_string()
+                i18n::t(MsgKey::NoSessions, locale)
             } else {
                 // Numbered and titled, so the reply is usable as the input for
                 // the next command. It used to print raw ACP hex ids, which
                 // name nothing a chat user can recognise and cannot be typed
                 // back in.
+                let marker_text = i18n::t(MsgKey::CurrentMarkerParen, locale);
                 let lines: Vec<String> = sessions
                     .iter()
                     .enumerate()
                     .map(|(i, s)| {
-                        let marker = if s.is_current { " (current)" } else { "" };
+                        let marker = if s.is_current {
+                            marker_text.as_str()
+                        } else {
+                            ""
+                        };
                         format!("{}. {}{}", i + 1, session_label(s), marker)
                     })
                     .collect();
                 format!(
-                    "Sessions:\n{}\n\nUsage: /sessions <number> — continue that conversation",
-                    lines.join("\n")
+                    "{}{}{}",
+                    i18n::t(MsgKey::SessionsListHeader, locale),
+                    lines.join("\n"),
+                    i18n::t(MsgKey::SessionsUsageLine, locale)
                 )
             }
         }
@@ -348,10 +344,7 @@ where
                 Ok(n) => match n.checked_sub(1).and_then(|i| sessions.get(i)) {
                     Some(s) => s.session_id.clone(),
                     None => {
-                        reply(format!(
-                            "No session #{n}. Use /sessions to list them ({} available).",
-                            sessions.len()
-                        ));
+                        reply(i18n::t(MsgKey::NoSessionNumber(n, sessions.len()), locale));
                         return Ok(true);
                     }
                 },
@@ -361,39 +354,44 @@ where
                 .iter()
                 .any(|s| s.session_id == target && s.is_current);
             if already_current {
-                "Already in this session.".to_string()
+                i18n::t(MsgKey::AlreadyInSession, locale)
             } else if agent.switch_session(session, &target).await? {
                 let title = sessions
                     .iter()
                     .find(|s| s.session_id == target)
                     .map(session_label)
                     .unwrap_or_else(|| target.clone());
-                format!("Switched to: {title}\nThe next message continues that conversation.")
+                i18n::t(MsgKey::SwitchedToSessionMeta(&title), locale)
             } else {
-                "Cannot switch to that session — it is not one of this chat's. \
-                 Use /sessions to list them."
-                    .to_string()
+                i18n::t(MsgKey::CannotSwitchSession, locale)
             }
         }
 
         MetaCommand::Workspace(None) => {
             let workspaces = agent.list_workspaces(session).await?;
             if workspaces.is_empty() {
-                "No workspaces.".to_string()
+                i18n::t(MsgKey::NoWorkspaces, locale)
             } else {
                 // Numbered so the reply doubles as the input for the next
                 // command: a chat user should not have to retype a UUID.
+                let marker_text = i18n::t(MsgKey::CurrentMarkerParen, locale);
                 let lines: Vec<String> = workspaces
                     .iter()
                     .enumerate()
                     .map(|(i, w)| {
-                        let marker = if w.is_current { " (current)" } else { "" };
+                        let marker = if w.is_current {
+                            marker_text.as_str()
+                        } else {
+                            ""
+                        };
                         format!("{}. {}{}", i + 1, w.display_name, marker)
                     })
                     .collect();
                 format!(
-                    "Workspaces:\n{}\n\nUsage: /workspace <number> — set this bot's default",
-                    lines.join("\n")
+                    "{}{}{}",
+                    i18n::t(MsgKey::WorkspacesListHeader, locale),
+                    lines.join("\n"),
+                    i18n::t(MsgKey::WorkspacesUsageLine, locale)
                 )
             }
         }
@@ -407,9 +405,9 @@ where
                     match n.checked_sub(1).and_then(|i| workspaces.get(i)) {
                         Some(w) => w.workspace_id.clone(),
                         None => {
-                            reply(format!(
-                                "No workspace #{n}. Use /workspace to list them ({} available).",
-                                workspaces.len()
+                            reply(i18n::t(
+                                MsgKey::NoWorkspaceNumber(n, workspaces.len()),
+                                locale,
                             ));
                             return Ok(true);
                         }
@@ -418,19 +416,59 @@ where
                 Err(_) => arg.to_string(),
             };
             agent.set_workspace(session, &ws_id).await?;
-            format!("Default workspace set: {ws_id}")
+            i18n::t(MsgKey::DefaultWorkspaceSet(&ws_id), locale)
         }
 
         MetaCommand::Skills => {
             let skills = agent.list_skills(session).await?;
             if skills.is_empty() {
-                "No workspace skills found.".to_string()
+                i18n::t(MsgKey::NoSkillsFound, locale)
             } else {
                 let lines: Vec<String> = skills
                     .iter()
                     .map(|(name, desc)| format!("/{} - {}", name, desc))
                     .collect();
-                format!("Skills:\n{}", lines.join("\n"))
+                format!(
+                    "{}{}",
+                    i18n::t(MsgKey::SkillsListHeader, locale),
+                    lines.join("\n")
+                )
+            }
+        }
+
+        MetaCommand::Participants => {
+            let participants = agent.list_participants(session).await?;
+            if participants.is_empty() {
+                i18n::t(MsgKey::NoParticipants, locale)
+            } else {
+                // Not numbered: nothing takes a participant number as input, and
+                // a numbered list invites `/participant 2` to mean something.
+                let lines: Vec<String> = participants
+                    .iter()
+                    .map(|p| match (&p.display_name, &p.kind) {
+                        (Some(name), Some(kind)) => format!(
+                            "- {} ({})",
+                            name,
+                            i18n::t(MsgKey::ParticipantKind(kind), locale)
+                        ),
+                        (Some(name), None) => format!("- {name}"),
+                        // No name to show. A bare UUID in a chat bubble is
+                        // noise, so say what it is and keep just enough of the
+                        // id to tell two of them apart.
+                        (None, _) => format!(
+                            "- {}",
+                            i18n::t(
+                                MsgKey::UnnamedParticipant(short_actor_id(&p.actor_id)),
+                                locale
+                            )
+                        ),
+                    })
+                    .collect();
+                format!(
+                    "{}{}",
+                    i18n::t(MsgKey::ParticipantsListHeader, locale),
+                    lines.join("\n")
+                )
             }
         }
 
@@ -441,26 +479,27 @@ where
             // conversation there is a lie the user only discovers when the agent
             // keeps its memory.
             if agent.start_new_session(session).await? {
-                "Started a new session. The next message begins a fresh conversation \
-                 (/sessions to go back to this one)."
-                    .to_string()
+                i18n::t(MsgKey::NewSessionStarted, locale)
             } else {
-                "Could not start a new session — this chat is still on the same one. \
-                 The agent's context was cleared, but its history is unchanged."
-                    .to_string()
+                i18n::t(MsgKey::NewSessionNotDetached, locale)
             }
         }
 
+        MetaCommand::Reset => match agent.reset_session(session).await {
+            Ok(_) => i18n::t(MsgKey::SessionResetShort, locale),
+            Err(e) => i18n::t(MsgKey::CouldNotReset(&e.to_string()), locale),
+        },
+
         MetaCommand::Stop => match agent.cancel(session).await {
-            Ok(_) => "Stopped.".to_string(),
-            Err(AgentError::NotFound(_)) => "Nothing running.".to_string(),
-            Err(AgentError::Send(ref _e)) => "Nothing running.".to_string(),
+            Ok(_) => i18n::t(MsgKey::MetaStopped, locale),
+            Err(AgentError::NotFound(_)) => i18n::t(MsgKey::NothingRunning, locale),
+            Err(AgentError::Send(ref _e)) => i18n::t(MsgKey::NothingRunning, locale),
             Err(e) => return Err(e),
         },
 
         MetaCommand::Ctx(text) => {
             agent.inject_context(session, "user", &text).await?;
-            "Context injected.".to_string()
+            i18n::t(MsgKey::ContextInjected, locale)
         }
     };
 
@@ -474,7 +513,8 @@ where
 mod tests {
     use super::*;
     use crate::agent::{
-        AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, TurnOutcome, WorkspaceInfo,
+        AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, ParticipantInfo,
+        TurnOutcome, WorkspaceInfo,
     };
     use crate::channel_store::{AttachmentRecord, ChannelStore, EnsureSessionOutcome, StoreError};
     use async_trait::async_trait;
@@ -575,6 +615,7 @@ mod tests {
         /// model a backend that cannot detach.
         new_session_detaches: bool,
         switched_to: Mutex<Option<String>>,
+        participants: Vec<ParticipantInfo>,
     }
 
     impl MockAgent {
@@ -588,6 +629,7 @@ mod tests {
                 new_session_called: Mutex::new(false),
                 new_session_detaches: true,
                 switched_to: Mutex::new(None),
+                participants: vec![],
             }
         }
 
@@ -601,12 +643,20 @@ mod tests {
                 new_session_called: Mutex::new(false),
                 new_session_detaches: true,
                 switched_to: Mutex::new(None),
+                participants: vec![],
             }
         }
 
         fn with_current_model(model: &str) -> Self {
             Self {
                 current_model: Some(model.to_string()),
+                ..Self::new()
+            }
+        }
+
+        fn with_participants(participants: Vec<ParticipantInfo>) -> Self {
+            Self {
+                participants,
                 ..Self::new()
             }
         }
@@ -647,6 +697,13 @@ mod tests {
 
         async fn cancel(&self, _session: &AmuxSessionId) -> Result<(), AgentError> {
             Ok(())
+        }
+
+        async fn list_participants(
+            &self,
+            _session: &AmuxSessionId,
+        ) -> Result<Vec<ParticipantInfo>, AgentError> {
+            Ok(self.participants.clone())
         }
 
         async fn reset_session(&self, _session: &AmuxSessionId) -> Result<(), AgentError> {
@@ -788,7 +845,7 @@ mod tests {
         let store = MockStore;
         let session = "test-session".to_string();
         let reply_capture: Mutex<Option<String>> = Mutex::new(None);
-        let result = dispatch(name, arg, agent, &store, &session, |s| {
+        let result = dispatch(name, arg, agent, &store, &session, Locale::En, |s| {
             *reply_capture.lock().unwrap() = Some(s);
         })
         .await;
@@ -864,6 +921,137 @@ mod tests {
         // /agents was dropped: opencode is the only backend, so it always
         // listed exactly one entry.
         assert!(!text.contains("/agents"), "got {text}");
+    }
+
+    #[tokio::test]
+    async fn help_follows_zh_cn_locale() {
+        // The bug this guards: /help used to always reply in English
+        // regardless of the workspace's configured locale, because this
+        // dispatcher (unlike i18n.rs's per-gateway /help) never took a
+        // locale parameter at all.
+        let agent = MockAgent::new();
+        let store = MockStore;
+        let session = "test-session".to_string();
+        let reply_capture: Mutex<Option<String>> = Mutex::new(None);
+        dispatch("help", None, &agent, &store, &session, Locale::ZhCN, |s| {
+            *reply_capture.lock().unwrap() = Some(s)
+        })
+        .await
+        .unwrap();
+        let text = reply_capture.into_inner().unwrap().unwrap();
+        assert!(text.contains("网关命令"), "got {text}");
+        assert!(text.contains("/model"), "got {text}");
+        assert!(!text.contains("Gateway commands"), "got {text}");
+    }
+
+    #[tokio::test]
+    async fn participant_lists_everyone_with_their_kind() {
+        let agent = MockAgent::with_participants(vec![
+            ParticipantInfo {
+                actor_id: "actor-liang".into(),
+                display_name: Some("LiangLiang".into()),
+                kind: Some("member".into()),
+            },
+            ParticipantInfo {
+                actor_id: "actor-mac".into(),
+                display_name: Some("Mac-mini-3".into()),
+                kind: Some("agent".into()),
+            },
+        ]);
+        let (result, reply) = run_dispatch(&agent, "participant", None).await;
+        assert!(result.unwrap());
+        let text = reply.unwrap();
+        assert!(text.contains("LiangLiang (member)"), "got {text}");
+        assert!(text.contains("Mac-mini-3 (agent)"), "got {text}");
+    }
+
+    #[tokio::test]
+    async fn participants_is_accepted_as_an_alias() {
+        let agent = MockAgent::with_participants(vec![ParticipantInfo {
+            actor_id: "actor-liang".into(),
+            display_name: Some("LiangLiang".into()),
+            kind: Some("member".into()),
+        }]);
+        let (result, reply) = run_dispatch(&agent, "participants", None).await;
+        assert!(result.unwrap());
+        assert!(reply.unwrap().contains("LiangLiang"));
+    }
+
+    #[tokio::test]
+    async fn participant_reports_an_empty_roster_rather_than_a_bare_header() {
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "participant", None).await;
+        assert!(result.unwrap());
+        let text = reply.unwrap();
+        assert!(text.contains("No one is in this chat yet"), "got {text}");
+    }
+
+    #[tokio::test]
+    async fn participant_labels_an_unknown_actor_kind_with_its_raw_name() {
+        // A kind this build predates must still list — the roster's whole job
+        // is to be complete, so an unmapped label beats a missing seat.
+        let agent = MockAgent::with_participants(vec![ParticipantInfo {
+            actor_id: "actor-svc".into(),
+            display_name: Some("Somebody".into()),
+            kind: Some("service".into()),
+        }]);
+        let (_, reply) = run_dispatch(&agent, "participant", None).await;
+        assert!(reply.unwrap().contains("Somebody (service)"));
+    }
+
+    #[tokio::test]
+    async fn participant_shows_a_placeholder_for_a_seat_the_directory_cannot_name() {
+        // Observed on real data: a participant row outliving its actor, which
+        // the directory then returns nothing for. The seat must still list, but
+        // pasting a 36-char UUID into a chat bubble is not a name.
+        let agent = MockAgent::with_participants(vec![ParticipantInfo {
+            actor_id: "ab1d7bb7-4f21-45bb-87cc-ad2857256fbe".into(),
+            display_name: None,
+            kind: None,
+        }]);
+        let (_, reply) = run_dispatch(&agent, "participant", None).await;
+        let text = reply.unwrap();
+        assert!(
+            text.contains("unnamed participant (ab1d7bb7)"),
+            "got {text}"
+        );
+        assert!(
+            !text.contains("ab1d7bb7-4f21"),
+            "the full uuid must not reach the chat: {text}"
+        );
+    }
+
+    #[test]
+    fn short_actor_id_survives_an_id_shorter_than_the_cut() {
+        assert_eq!(short_actor_id("ab1d7bb7-4f21-45bb"), "ab1d7bb7");
+        assert_eq!(short_actor_id("abc"), "abc");
+        assert_eq!(short_actor_id(""), "");
+    }
+
+    #[tokio::test]
+    async fn participant_follows_zh_cn_locale() {
+        let agent = MockAgent::with_participants(vec![ParticipantInfo {
+            actor_id: "actor-mac".into(),
+            display_name: Some("Mac-mini-3".into()),
+            kind: Some("agent".into()),
+        }]);
+        let store = MockStore;
+        let session = "test-session".to_string();
+        let reply_capture: Mutex<Option<String>> = Mutex::new(None);
+        dispatch(
+            "participant",
+            None,
+            &agent,
+            &store,
+            &session,
+            Locale::ZhCN,
+            |s| *reply_capture.lock().unwrap() = Some(s),
+        )
+        .await
+        .unwrap();
+        let text = reply_capture.into_inner().unwrap().unwrap();
+        assert!(text.contains("本会话成员"), "got {text}");
+        assert!(text.contains("Mac-mini-3 (Agent)"), "got {text}");
     }
 
     #[tokio::test]
@@ -1130,64 +1318,76 @@ mod tests {
         assert!(!*agent.new_session_called.lock().unwrap());
     }
 
-    // ── dispatch_session_slash_cmd (shared by Discord/Feishu/Kook) ────────────
+    // ── the legacy per-channel commands, now served by the same table ────────
+    //
+    // Discord/Feishu/Kook/SeaTalk/WeChat/Email used to reach these through a
+    // second dispatcher with its own rendering and its own command list. These
+    // pin that the one remaining path still answers all three.
 
-    fn shared_agent() -> Arc<dyn AgentHandle> {
-        Arc::new(MockAgent::new())
+    async fn shared_reply(
+        agent: &MockAgent,
+        name: &str,
+        arg: Option<&str>,
+        locale: Locale,
+    ) -> String {
+        run_slash(name, arg, agent, &MockStore, &"s1".to_string(), locale)
+            .await
+            .unwrap()
+            .expect("command should be handled")
     }
 
     #[tokio::test]
-    async fn session_slash_stop_and_reset() {
-        let agent = shared_agent();
-        assert_eq!(
-            dispatch_session_slash_cmd(&agent, "/stop", "s1").await,
-            "⏹ Stopped current turn."
-        );
-        assert_eq!(
-            dispatch_session_slash_cmd(&agent, "/reset", "s1").await,
-            "🔄 Session reset. Next message starts fresh."
-        );
+    async fn stop_and_reset_answer_from_the_shared_table() {
+        let agent = MockAgent::new();
+        assert!(shared_reply(&agent, "stop", None, Locale::En)
+            .await
+            .contains("Stopped"));
+        assert!(shared_reply(&agent, "reset", None, Locale::En)
+            .await
+            .contains("reset"));
+        assert!(*agent.reset_called.lock().unwrap());
     }
 
     #[tokio::test]
-    async fn session_slash_model_lists_available() {
-        let agent = shared_agent();
-        let reply = dispatch_session_slash_cmd(&agent, "/model", "s1").await;
-        assert!(reply.starts_with("Available models:"));
-        assert!(reply.contains("`anthropic/claude-3-5-sonnet`"));
-        assert!(reply.contains("`openai/gpt-4o`"));
-        assert!(reply.contains("Usage: `/model <provider>/<model>`"));
+    async fn stop_and_reset_follow_zh_cn_locale() {
+        let agent = MockAgent::new();
+        assert!(shared_reply(&agent, "stop", None, Locale::ZhCN)
+            .await
+            .contains("停止"));
+        assert!(shared_reply(&agent, "reset", None, Locale::ZhCN)
+            .await
+            .contains("重置"));
     }
 
     #[tokio::test]
-    async fn session_slash_model_switch_parses_provider_and_model() {
-        let agent = shared_agent();
-        assert_eq!(
-            dispatch_session_slash_cmd(&agent, "/model openai/gpt-4o", "s1").await,
-            "✅ Switched to `openai/gpt-4o`. **Note: conversation context was cleared.**"
-        );
-        // No slash → resolved against the live catalog, not assumed anthropic.
-        assert_eq!(
-            dispatch_session_slash_cmd(&agent, "/model gpt-4o", "s1").await,
-            "✅ Switched to `openai/gpt-4o`. **Note: conversation context was cleared.**"
-        );
+    async fn model_switch_parses_provider_and_model() {
+        let agent = MockAgent::new();
+        let reply = shared_reply(&agent, "model", Some("openai/gpt-4o"), Locale::En).await;
+        assert!(reply.contains("openai/gpt-4o"), "got {reply}");
     }
 
     #[tokio::test]
-    async fn session_slash_bare_model_not_in_catalog_is_rejected() {
-        let agent = shared_agent();
+    async fn bare_model_not_in_catalog_is_rejected() {
         // "haiku" used to be silently rewritten to anthropic/haiku and handed
         // to a backend that never offered it.
-        let reply = dispatch_session_slash_cmd(&agent, "/model haiku", "s1").await;
+        let agent = MockAgent::new();
+        let reply = shared_reply(&agent, "model", Some("haiku"), Locale::En).await;
         assert!(reply.starts_with("Unknown model: haiku"), "got {reply}");
     }
 
     #[tokio::test]
-    async fn session_slash_unknown_falls_through() {
-        let agent = shared_agent();
-        assert_eq!(
-            dispatch_session_slash_cmd(&agent, "/bogus", "s1").await,
-            "Unknown command: /bogus"
-        );
+    async fn an_unknown_command_is_reported_as_unhandled() {
+        let agent = MockAgent::new();
+        let out = run_slash(
+            "bogus",
+            None,
+            &agent,
+            &MockStore,
+            &"s1".to_string(),
+            Locale::En,
+        )
+        .await
+        .unwrap();
+        assert!(out.is_none(), "the caller decides how to phrase this");
     }
 }

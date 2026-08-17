@@ -1,0 +1,34 @@
+# Workspace-wide cargo settings.
+#
+# Purpose: keep a bare `cargo build/check` from producing a different fingerprint
+# than the same build launched through the pnpm wrappers (`pnpm rust:check`,
+# `pnpm tauri:dev`, ...). scripts/rust-build-env.js injects a handful of env vars
+# before invoking cargo; build scripts that declare `rerun-if-env-changed` for
+# them then rebuild whenever the two entry points alternate. Measured cost of one
+# such alternation in this workspace: 5m56s (zstd / rusqlite / tauri-plugin-mcp
+# and everything downstream of them).
+#
+# Only vars that are safe on EVERY platform and in CI belong here. `[env]`
+# defaults to force = false, so an explicit value in the environment still wins.
+
+[env]
+# Set by scripts/rust-build-env.js for every wrapper-driven build. Inert off
+# macOS, so declaring it unconditionally is safe.
+CMAKE_OSX_DEPLOYMENT_TARGET = "10.15"
+
+# Deliberately NOT declared here:
+#
+#   BUILD_ENV
+#     scripts/lib/resolve-build-env.js defaults it to "dev" locally but returns
+#     undefined under CI on purpose — build.config.dev.json is checked in, so a
+#     CI default would deep-merge the dev backend over a release build's config.
+#     That shipped once (v0.2.24-beta.1 pointed at api.teamclu-dev.ucar.cc).
+#     A bare cargo run therefore still flips this and rebuilds teamclu_lib.
+#
+#   BINDGEN_EXTRA_CLANG_ARGS
+#     rust-build-env.js derives it from the HOST arch (aarch64-apple-darwin);
+#     pinning that here would be wrong for Windows / Linux / x86_64 builds.
+#
+#   RUSTC_WRAPPER / [build] rustc-wrapper = "sccache"
+#     cargo hard-errors when the wrapper binary is missing, and sccache is not
+#     installed on every machine that builds this repo.

@@ -17,6 +17,7 @@ const LIVE_EVENT_WARN_BYTES: usize = 512 * 1024;
 /// HTTP test tree doesn't need `teamclu`.
 pub use crate::http::live_events::LiveTeeEvent;
 
+#[derive(Clone)]
 pub struct LivePublisher {
     client: Arc<dyn MessagePublisher>,
     topics: Topics,

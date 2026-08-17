@@ -54,8 +54,8 @@ pub mod deferred;
 
 pub mod records;
 pub use records::{
-    BackendParticipantRow, BackendSessionAndParticipants, BackendSessionRow, ClaimResult,
-    GatewaySessionRow, StoredMessage, WorkspaceRow, WorkspaceUpsert,
+    ActorDirectoryRow, BackendParticipantRow, BackendSessionAndParticipants, BackendSessionRow,
+    ClaimResult, GatewaySessionRow, StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 
 /// MQTT settings delivered by `/v1/config/bootstrap`. The full broker URL
@@ -464,6 +464,14 @@ pub trait Backend: Send + Sync {
         session_id: &str,
     ) -> BackendResult<BackendSessionAndParticipants>;
 
+    /// Resolve actor UUIDs to their directory entries (name + actor type).
+    ///
+    /// Default impl returns nothing so a backend with no directory surface
+    /// degrades to an unnamed roster instead of failing the caller.
+    async fn get_actors_by_ids(&self, _ids: &[String]) -> BackendResult<Vec<ActorDirectoryRow>> {
+        Ok(Vec::new())
+    }
+
     /// Messages for `session_id` ordered ascending, with optional exclusive
     /// cursor — messages at or before `after_id` are dropped.
     async fn messages_after_cursor(
@@ -504,8 +512,15 @@ pub trait Backend: Send + Sync {
         display_name: &str,
     ) -> BackendResult<String>;
 
-    /// Look up `(sessions.id, binding)` for a gateway session by its
+    /// Look up `(sessions.id, chat URI)` for a gateway session by its
     /// SQL-minted `acp_session_id`. Returns `None` when no row matches.
+    ///
+    /// The chat URI is the row's `gateway_key` — the conversation the session
+    /// belongs to for its whole life — falling back to `binding` on a server
+    /// that predates the field. Deliberately not `binding` alone: that is
+    /// released when `/new` moves the chat onto a fresh session, so asking a
+    /// superseded session which chat it came from answered "none", and the
+    /// caller reported the chat as having no history at all.
     async fn get_gateway_session_by_acp_id(
         &self,
         acp_session_id: &str,
@@ -589,6 +604,20 @@ pub trait Backend: Send + Sync {
 
     /// Same as `insert_gateway_message`, with an `attachments` JSON array.
     async fn insert_gateway_message_with_attachments(
+        &self,
+        session_id: &str,
+        sender_actor_id: &str,
+        content: &str,
+        external_message_id: Option<&str>,
+        attachments: serde_json::Value,
+    ) -> BackendResult<String>;
+
+    /// Same as `insert_gateway_agent_reply`, with an `attachments` JSON array.
+    ///
+    /// Separate from the message variant because the kind is what decides which
+    /// side of the conversation a row renders on: a file the agent sent is not
+    /// something the user said.
+    async fn insert_gateway_agent_reply_with_attachments(
         &self,
         session_id: &str,
         sender_actor_id: &str,

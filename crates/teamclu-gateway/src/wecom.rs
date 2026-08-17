@@ -336,7 +336,11 @@ fn human_readable_size(bytes: usize) -> String {
     }
 }
 
-fn resolve_mime(bytes: &[u8], filename_hint: Option<&str>) -> String {
+/// Best-effort MIME for a file: trust the extension, fall back to magic
+/// bytes, then to a generic binary. Public because the daemon's outbound
+/// send path records attachments too, and both directions must label the
+/// same file the same way.
+pub fn resolve_mime(bytes: &[u8], filename_hint: Option<&str>) -> String {
     filename_hint
         .and_then(detect_mime_from_filename)
         .or_else(|| detect_mime_from_magic(bytes))
@@ -553,6 +557,92 @@ use crate::{ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
 type PendingResponses =
     Arc<tokio::sync::Mutex<std::collections::HashMap<String, oneshot::Sender<serde_json::Value>>>>;
 
+/// Minimum spacing between two frames of the same streamed reply. See
+/// [`StreamPacer`] for why frames cannot simply be fired as fast as the agent
+/// produces text.
+const STREAM_FRAME_MIN_GAP: std::time::Duration = std::time::Duration::from_millis(900);
+
+/// How long to wait for WeCom's verdict on the frame the user is left with.
+const TERMINAL_FRAME_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Paces the frames of one streamed reply.
+///
+/// Every frame of a turn rewrites the *same* bubble, and WeCom applies those
+/// rewrites under optimistic concurrency: two landing close together come back
+/// as errcode 6000 (数据版本冲突, "possible simultaneous modification by
+/// multiple callers, retry later") and the losing rewrite is dropped. The agent
+/// side sends an update the moment a segment flushes — deliberately, so text
+/// appears promptly — which on a long answer means several frames within
+/// milliseconds. Spacing them here keeps that behaviour for every other channel
+/// while staying inside what WeCom will accept.
+#[derive(Clone)]
+struct StreamPacer {
+    req_id: String,
+    stream_id: String,
+    ws_sink: WsSink,
+    last_frame_at: Arc<tokio::sync::Mutex<Option<std::time::Instant>>>,
+}
+
+impl StreamPacer {
+    fn new(req_id: &str, stream_id: &str, ws_sink: &WsSink) -> Self {
+        Self {
+            req_id: req_id.to_string(),
+            stream_id: stream_id.to_string(),
+            ws_sink: ws_sink.clone(),
+            last_frame_at: Arc::new(tokio::sync::Mutex::new(None)),
+        }
+    }
+
+    /// Send one frame, waiting out the remainder of the gap since the previous
+    /// one. The lock is deliberately held across the wait: it is what serializes
+    /// the progressive-update task against the terminal frame.
+    async fn send(&self, content: &str, finish: bool) -> Result<(), String> {
+        let mut last = self.last_frame_at.lock().await;
+        if let Some(prev) = *last {
+            let since = prev.elapsed();
+            if since < STREAM_FRAME_MIN_GAP {
+                tokio::time::sleep(STREAM_FRAME_MIN_GAP - since).await;
+            }
+        }
+        let result = WeComGateway::send_stream_chunk_static(
+            &self.req_id,
+            &self.stream_id,
+            content,
+            finish,
+            &self.ws_sink,
+        )
+        .await;
+        *last = Some(std::time::Instant::now());
+        result
+    }
+}
+
+/// Collapse a burst of queued progressive updates down to the newest one.
+///
+/// Each update carries the whole reply so far, so the ones in between are pure
+/// overdraw — and every extra rewrite is another chance for WeCom to reject one
+/// as a version conflict.
+fn drain_to_latest(first: String, rx: &mut mpsc::Receiver<String>) -> String {
+    let mut latest = first;
+    while let Ok(newer) = rx.try_recv() {
+        latest = newer;
+    }
+    latest
+}
+
+/// WeCom reports a frame's status at the top level on some commands and inside
+/// `body` on others; either one saying "not zero" means the frame was rejected.
+fn ack_errcode(ack: &serde_json::Value) -> i64 {
+    ack.get("errcode")
+        .and_then(|c| c.as_i64())
+        .or_else(|| {
+            ack.get("body")
+                .and_then(|b| b.get("errcode"))
+                .and_then(|c| c.as_i64())
+        })
+        .unwrap_or(0)
+}
+
 #[derive(Clone)]
 pub struct WeComGateway {
     config: Arc<RwLock<WeComConfig>>,
@@ -604,6 +694,11 @@ struct WeComMsgCallback {
     image: Option<serde_json::Value>,
     #[serde(default)]
     file: Option<serde_json::Value>,
+    /// An attachment sent together with a caption arrives as one `mixed`
+    /// message; the parts live in `mixed.msg_item[]`, each with its own
+    /// `msgtype` and body.
+    #[serde(default)]
+    mixed: Option<serde_json::Value>,
     /// Quoted/referenced message when user replies to a message
     #[serde(default)]
     quote: Option<serde_json::Value>,
@@ -613,6 +708,124 @@ struct WeComMsgCallback {
 struct WeComFrom {
     #[serde(default)]
     userid: String,
+}
+
+/// One inbound media reference lifted off a callback, before it is downloaded
+/// and decrypted.
+#[derive(Debug, Clone, PartialEq)]
+struct PendingMedia {
+    url: String,
+    aeskey: Option<String>,
+    filename_hint: Option<String>,
+}
+
+fn json_str(v: &serde_json::Value, key: &str) -> Option<String> {
+    v.get(key).and_then(|x| x.as_str()).map(|s| s.to_string())
+}
+
+/// Pull the media reference out of an `image` body. WeCom has shipped the URL
+/// under three different names, so all three are accepted.
+fn image_media(image: &serde_json::Value) -> Option<PendingMedia> {
+    let url = json_str(image, "url")
+        .or_else(|| json_str(image, "img_url"))
+        .or_else(|| json_str(image, "pic_url"))?;
+    Some(PendingMedia {
+        url,
+        aeskey: json_str(image, "aeskey"),
+        filename_hint: None,
+    })
+}
+
+/// Pull the media reference out of a `file` body. Files carry a filename,
+/// which `resolve_mime` needs to tell e.g. xlsx from a bare ZIP.
+fn file_media(file: &serde_json::Value) -> Option<PendingMedia> {
+    Some(PendingMedia {
+        url: json_str(file, "url")?,
+        aeskey: json_str(file, "aeskey"),
+        filename_hint: json_str(file, "filename"),
+    })
+}
+
+/// Split a callback into its text and its media references.
+///
+/// An image or file sent *with* a caption arrives as a single `mixed` message
+/// whose parts sit in `mixed.msg_item[]` in send order; sent alone it arrives
+/// under its own top-level `msgtype`. Returns `None` for message types we
+/// don't handle at all, which the caller drops.
+fn extract_message_parts(msg: &WeComMsgCallback) -> Option<(String, Vec<PendingMedia>)> {
+    let mut text = String::new();
+    let mut media: Vec<PendingMedia> = Vec::new();
+
+    match msg.msgtype.as_str() {
+        "text" => {
+            text = msg
+                .text
+                .as_ref()
+                .and_then(|t| json_str(t, "content"))
+                .unwrap_or_default();
+        }
+        "voice" => {
+            text = msg
+                .voice
+                .as_ref()
+                .and_then(|v| json_str(v, "content"))
+                .unwrap_or_default();
+        }
+        "image" => {
+            println!("[WeCom] Image message body: {:?}", msg.image);
+            match msg.image.as_ref().and_then(image_media) {
+                Some(m) => media.push(m),
+                None => println!("[WeCom] Image message has no URL field"),
+            }
+        }
+        "file" => {
+            println!("[WeCom] File message body: {:?}", msg.file);
+            match msg.file.as_ref().and_then(file_media) {
+                Some(m) => media.push(m),
+                None => println!("[WeCom] File message has no URL field"),
+            }
+        }
+        "mixed" => {
+            let items = msg
+                .mixed
+                .as_ref()
+                .and_then(|m| m.get("msg_item"))
+                .and_then(|i| i.as_array());
+            match items {
+                Some(items) => {
+                    for item in items {
+                        match item.get("msgtype").and_then(|v| v.as_str()).unwrap_or("") {
+                            "text" => {
+                                let part = item
+                                    .get("text")
+                                    .and_then(|t| json_str(t, "content"))
+                                    .unwrap_or_default();
+                                if !part.is_empty() {
+                                    if !text.is_empty() {
+                                        text.push('\n');
+                                    }
+                                    text.push_str(&part);
+                                }
+                            }
+                            "image" => match item.get("image").and_then(image_media) {
+                                Some(m) => media.push(m),
+                                None => println!("[WeCom] Mixed image item has no URL field"),
+                            },
+                            "file" => match item.get("file").and_then(file_media) {
+                                Some(m) => media.push(m),
+                                None => println!("[WeCom] Mixed file item has no URL field"),
+                            },
+                            other => println!("[WeCom] Ignoring mixed item of type: {}", other),
+                        }
+                    }
+                }
+                None => println!("[WeCom] Mixed message has no msg_item array"),
+            }
+        }
+        _ => return None,
+    }
+
+    Some((text, media))
 }
 
 /// Metadata stored when a template card is sent for a question,
@@ -1048,87 +1261,12 @@ impl WeComGateway {
             return;
         }
 
-        // Extract content based on msgtype
-        // WeCom puts content in type-specific fields: text.content, voice.content, image.url, etc.
-        let mut text_content = String::new();
-        let mut image_url: Option<String> = None;
-        let mut filename_hint: Option<String> = None;
-        let mut media_aeskey: Option<String> = None;
-
-        match msg.msgtype.as_str() {
-            "text" => {
-                text_content = msg
-                    .text
-                    .as_ref()
-                    .and_then(|t| t.get("content"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-            }
-            "voice" => {
-                text_content = msg
-                    .voice
-                    .as_ref()
-                    .and_then(|v| v.get("content"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-            }
-            "image" => {
-                println!("[WeCom] Image message body: {:?}", msg.image);
-                image_url = msg
-                    .image
-                    .as_ref()
-                    .and_then(|i| {
-                        // Try "url" first, then "img_url", then "pic_url"
-                        i.get("url")
-                            .or_else(|| i.get("img_url"))
-                            .or_else(|| i.get("pic_url"))
-                    })
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                if image_url.is_none() {
-                    println!("[WeCom] Image message has no URL field");
-                    return;
-                }
-                // Extract per-message AES key for encrypted images
-                media_aeskey = msg
-                    .image
-                    .as_ref()
-                    .and_then(|i| i.get("aeskey"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-            }
-            "file" => {
-                println!("[WeCom] File message body: {:?}", msg.file);
-                let file_url = msg
-                    .file
-                    .as_ref()
-                    .and_then(|f| f.get("url"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                if file_url.is_none() {
-                    println!("[WeCom] File message has no URL field");
-                    return;
-                }
-                // Extract filename for MIME detection fallback
-                filename_hint = msg
-                    .file
-                    .as_ref()
-                    .and_then(|f| f.get("filename"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                // Extract per-message AES key for encrypted files
-                media_aeskey = msg
-                    .file
-                    .as_ref()
-                    .and_then(|f| f.get("aeskey"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                // Treat file like image — download and send as data URL
-                image_url = file_url;
-            }
-            _ => {
+        // Extract content based on msgtype. WeCom puts content in type-specific
+        // fields (text.content, voice.content, image.url, …) and bundles an
+        // attachment sent with a caption into a single `mixed` message.
+        let (mut text_content, pending_media) = match extract_message_parts(&msg) {
+            Some(parts) => parts,
+            None => {
                 println!("[WeCom] Unsupported message type: {}", msg.msgtype);
                 return;
             }
@@ -1185,20 +1323,34 @@ impl WeComGateway {
             mime: String,
         }
         let mut inbound_files: Vec<InboundFile> = Vec::new();
-        if let Some(url) = image_url.as_deref() {
-            let aeskey = media_aeskey.as_deref().unwrap_or("");
-            match download_and_decrypt_wecom_media(url, aeskey, filename_hint.as_deref()).await {
+        // Why the sender hears about these: a media item that never decodes
+        // used to drop the whole message on the floor with no reply at all.
+        let mut media_errors: Vec<String> = Vec::new();
+        for (idx, media) in pending_media.iter().enumerate() {
+            let aeskey = media.aeskey.as_deref().unwrap_or("");
+            match download_and_decrypt_wecom_media(
+                &media.url,
+                aeskey,
+                media.filename_hint.as_deref(),
+            )
+            .await
+            {
                 Ok((bytes, detected_mime)) => {
                     if bytes.len() > 50 * 1024 * 1024 {
-                        tracing::warn!(
-                            "WeCom file too large ({} bytes); skipping attachment",
+                        eprintln!(
+                            "[WeCom] file too large ({} bytes); skipping attachment",
                             bytes.len()
                         );
+                        media_errors.push(format!("file too large ({} bytes)", bytes.len()));
                     } else {
-                        let filename = filename_hint.clone().unwrap_or_else(|| {
+                        let filename = media.filename_hint.clone().unwrap_or_else(|| {
+                            // Index included because one `mixed` message can carry
+                            // several images: a millisecond timestamp alone would
+                            // collide and they'd overwrite each other in the cache.
                             format!(
-                                "wecom-{}.{}",
+                                "wecom-{}-{}.{}",
                                 chrono::Utc::now().timestamp_millis(),
+                                idx,
                                 mime_to_ext(&detected_mime)
                             )
                         });
@@ -1209,7 +1361,13 @@ impl WeComGateway {
                         });
                     }
                 }
-                Err(e) => tracing::warn!("WeCom file decrypt failed: {e}"),
+                // stdout, not tracing: this is where every other WeCom
+                // diagnostic goes, so a failed image is findable next to the
+                // callback that carried it.
+                Err(e) => {
+                    eprintln!("[WeCom] media fetch/decrypt failed: {e}");
+                    media_errors.push(e);
+                }
             }
         }
 
@@ -1217,6 +1375,19 @@ impl WeComGateway {
         // see the files. Only drop the event when there's no text AND no
         // files we successfully decoded.
         if text_content.trim().is_empty() && inbound_files.is_empty() {
+            if !media_errors.is_empty() {
+                let locale = i18n::locale();
+                let _ = self
+                    .send_reply(
+                        &req_id,
+                        &i18n::t(
+                            i18n::MsgKey::AttachmentFailed(&media_errors.join("; ")),
+                            locale,
+                        ),
+                        &ws_sink,
+                    )
+                    .await;
+            }
             return;
         }
 
@@ -1252,7 +1423,7 @@ impl WeComGateway {
         // Check for /answer command — routes reply to the most recent pending question
         if let Some(answer_text) = super::PendingQuestionStore::parse_answer_command(&text_content)
         {
-            let locale = i18n::get_locale(&self.workspace_path);
+            let locale = i18n::locale();
             if let Some(qid) = self.pending_questions.try_answer(answer_text).await {
                 println!(
                     "[WeCom] Question {} answered via /answer: {}",
@@ -1283,22 +1454,16 @@ impl WeComGateway {
         let trimmed_early = text_content.trim();
         if !trimmed_early.is_empty() && trimmed_early.starts_with('/') {
             if let Some((cmd_name, _)) = commands::parse_slash(trimmed_early) {
-                let needs_session = matches!(
-                    cmd_name.as_str(),
-                    "stop"
-                        | "reset"
-                        | "model"
-                        | "sessions"
-                        | "workspace"
-                        | "workspaces"
-                        | "new"
-                        | "ctx"
-                );
-                if !needs_session {
+                // One rule for every channel, in commands.rs — this used to be
+                // a hand-kept list that omitted agent commands, so `/compact`
+                // was dispatched with an empty session id and came back
+                // "unknown command".
+                if !commands::needs_session(&cmd_name) {
                     // /help or any agent-advertised command that doesn't need a session
                     // is handled generically; unknown commands also land here.
                     // We have no session yet, so pass a placeholder session id.
                     use std::sync::{Arc as SArc, Mutex};
+                    let locale = i18n::locale();
                     let reply_cell: SArc<Mutex<Option<String>>> = SArc::new(Mutex::new(None));
                     let reply_cell_clone = reply_cell.clone();
                     let handled = commands::dispatch(
@@ -1307,6 +1472,7 @@ impl WeComGateway {
                         self.agent.as_ref(),
                         self.store.as_ref(),
                         &String::new(),
+                        locale,
                         move |r| {
                             *reply_cell_clone.lock().unwrap() = Some(r);
                         },
@@ -1319,7 +1485,6 @@ impl WeComGateway {
                             let _ = self.send_reply(&req_id, &text, &ws_sink).await;
                         }
                     } else {
-                        let locale = i18n::get_locale(&self.workspace_path);
                         let _ = self
                             .send_reply(
                                 &req_id,
@@ -1434,6 +1599,7 @@ impl WeComGateway {
         // /workspace, /new, /stop, /ctx).
         if let Some((cmd_name, cmd_arg)) = commands::parse_slash(text_content.trim()) {
             use std::sync::{Arc as SArc, Mutex};
+            let locale = i18n::locale();
             let reply_cell: SArc<Mutex<Option<String>>> = SArc::new(Mutex::new(None));
             let reply_cell_clone = reply_cell.clone();
             let handled = commands::dispatch(
@@ -1442,6 +1608,7 @@ impl WeComGateway {
                 self.agent.as_ref(),
                 self.store.as_ref(),
                 &outcome.acp_session_id,
+                locale,
                 move |r| {
                     *reply_cell_clone.lock().unwrap() = Some(r);
                 },
@@ -1454,7 +1621,6 @@ impl WeComGateway {
                     let _ = self.send_reply(&req_id, &text, &ws_sink).await;
                 }
             } else {
-                let locale = i18n::get_locale(&self.workspace_path);
                 let _ = self
                     .send_reply(
                         &req_id,
@@ -1557,76 +1723,29 @@ impl WeComGateway {
                 prompt_text.push_str(&format!("- {}\n", p));
             }
         }
+        // Partial failure: the turn goes ahead on what did arrive, but the agent
+        // is told what didn't so it can say so instead of ignoring it.
+        if !media_errors.is_empty() {
+            prompt_text.push_str(&format!(
+                "\n[{} attachment(s) the user sent could not be retrieved: {}]\n",
+                media_errors.len(),
+                media_errors.join("; ")
+            ));
+        }
 
-        // Show an immediate placeholder so the sender doesn't see "no reply"
-        // while the agent thinks. WeCom's stream msgtype lets us replace the
-        // bubble's content by re-sending the same `id` — first chunk goes
-        // out with finish=false, the final reply re-uses the same id with
-        // finish=true so the placeholder is overwritten in place.
-        let stream_id = uuid::Uuid::new_v4().to_string();
-        let _ = self
-            .send_stream_chunk(&req_id, &stream_id, "💭 正在思考…", false, &ws_sink)
-            .await;
-
-        // Progressive rendering: `send_prompt_streamed` pushes the cumulative
-        // reply text as the agent produces it, and each update overwrites the
-        // same bubble. Runs on its own task so the turn is never blocked by a
-        // slow WebSocket write; dropping `update_tx` (when the turn returns)
-        // closes the channel and ends the task.
-        let (update_tx, mut update_rx) = mpsc::channel::<String>(32);
-        let stream_task = {
-            let req_id = req_id.clone();
-            let stream_id = stream_id.clone();
-            let ws_sink = ws_sink.clone();
-            tokio::spawn(async move {
-                while let Some(text) = update_rx.recv().await {
-                    if let Err(e) =
-                        Self::send_stream_chunk_static(&req_id, &stream_id, &text, false, &ws_sink)
-                            .await
-                    {
-                        eprintln!("[WeCom] Stream update failed: {}", e);
-                        break;
-                    }
-                }
-            })
-        };
-
-        // Drive a single agent turn through amuxd — runs in parallel with the
-        // attachment uploads spawned above.
-        let reply_result = self
-            .agent
-            .send_prompt_streamed(
-                &outcome.acp_session_id,
-                &sender_display_name,
-                &prompt_text,
-                update_tx,
-            )
-            .await;
-
-        // Drain pending updates before the final frame: a `finish=false`
-        // chunk landing after `finish=true` would re-open the bubble and
-        // leave stale text in it.
-        let _ = stream_task.await;
-
-        let reply = match reply_result {
-            Ok(r) => r,
-            Err(e) => {
-                let _ = self
-                    .send_stream_chunk(
-                        &req_id,
-                        &stream_id,
-                        &format!("Error: {}", e),
-                        true,
-                        &ws_sink,
-                    )
-                    .await;
-                return;
-            }
-        };
-
-        // Collect upload results. Upload failure falls back to a metadata-only
-        // record pointing at the local cache so the agent's reply still has
-        // context, even though Tauri clients won't be able to download.
+        // Persist the inbound message BEFORE the turn, not after it.
+        //
+        // This used to sit below `send_prompt_streamed`, so the user's own
+        // message did not exist anywhere until the agent had finished — a turn
+        // that takes three minutes left every other client (the desktop, iOS)
+        // showing nothing at all for three minutes, then both rows at once.
+        // The cost is that a message carrying attachments now waits for their
+        // upload before the turn starts; a text-only message (the common case)
+        // has no handles to await and starts immediately.
+        //
+        // Upload failure falls back to a metadata-only record pointing at the
+        // local cache so the agent's reply still has context, even though Tauri
+        // clients won't be able to download.
         let mut attachments: Vec<AttachmentRecord> = Vec::new();
         // Rendering fragments for the stored user-message content, using the
         // same placeholder conventions the desktop client's own upload path
@@ -1692,6 +1811,60 @@ impl WeComGateway {
             );
         }
 
+        // Show an immediate placeholder so the sender doesn't see "no reply"
+        // while the agent thinks. WeCom's stream msgtype lets us replace the
+        // bubble's content by re-sending the same `id` — first chunk goes
+        // out with finish=false, the final reply re-uses the same id with
+        // finish=true so the placeholder is overwritten in place.
+        let stream_id = uuid::Uuid::new_v4().to_string();
+        let pacer = StreamPacer::new(&req_id, &stream_id, &ws_sink);
+        let _ = pacer.send("💭 正在思考…", false).await;
+
+        // Progressive rendering: `send_prompt_streamed` pushes the cumulative
+        // reply text as the agent produces it, and each update overwrites the
+        // same bubble. Runs on its own task so the turn is never blocked by a
+        // slow WebSocket write; dropping `update_tx` (when the turn returns)
+        // closes the channel and ends the task.
+        let (update_tx, mut update_rx) = mpsc::channel::<String>(32);
+        let stream_task = {
+            let pacer = pacer.clone();
+            tokio::spawn(async move {
+                while let Some(text) = update_rx.recv().await {
+                    let latest = drain_to_latest(text, &mut update_rx);
+                    if let Err(e) = pacer.send(&latest, false).await {
+                        eprintln!("[WeCom] Stream update failed: {}", e);
+                        break;
+                    }
+                }
+            })
+        };
+
+        // Drive a single agent turn through amuxd — runs in parallel with the
+        // attachment uploads spawned above.
+        let reply_result = self
+            .agent
+            .send_prompt_streamed(
+                &outcome.acp_session_id,
+                &sender_display_name,
+                &prompt_text,
+                update_tx,
+            )
+            .await;
+
+        // Drain pending updates before the final frame: a `finish=false`
+        // chunk landing after `finish=true` would re-open the bubble and
+        // leave stale text in it.
+        let _ = stream_task.await;
+
+        let reply = match reply_result {
+            Ok(r) => r,
+            Err(e) => {
+                self.send_terminal_frame(&pacer, &format!("Error: {}", e), &ws_sink)
+                    .await;
+                return;
+            }
+        };
+
         if let Err(e) = self
             .store
             .record_agent_reply(
@@ -1716,9 +1889,64 @@ impl WeComGateway {
             reply.reply_text.clone()
         };
 
-        let _ = self
-            .send_stream_chunk(&req_id, &stream_id, &final_text, true, &ws_sink)
+        self.send_terminal_frame(&pacer, &final_text, &ws_sink)
             .await;
+    }
+
+    /// Deliver the frame the user is left with, and confirm it actually landed.
+    ///
+    /// WeCom acks every `aibot_respond_msg` on the message's req_id, and a
+    /// rewrite that loses a race against another write to the same bubble comes
+    /// back as errcode 6000 — the frame is silently dropped. Unchecked, that
+    /// leaves the sender looking at "💭 正在思考…" forever while the agent's
+    /// answer is already recorded everywhere else. The documented remedy is to
+    /// retry; a fresh stream id (a new bubble, so a different resource) is the
+    /// last resort.
+    ///
+    /// Frames of a turn all share one req_id, so a straggling ack for an
+    /// earlier progressive frame could in principle be matched here. Pacing
+    /// makes that unlikely, and the cost is at worst one redundant rewrite with
+    /// identical content.
+    async fn send_terminal_frame(&self, pacer: &StreamPacer, text: &str, ws_sink: &WsSink) {
+        let req_id = pacer.req_id.clone();
+        for attempt in 1..=3 {
+            let (tx, rx) = oneshot::channel();
+            self.pending_responses
+                .lock()
+                .await
+                .insert(req_id.clone(), tx);
+
+            if let Err(e) = pacer.send(text, true).await {
+                eprintln!("[WeCom] Final reply send failed: {}", e);
+                self.pending_responses.lock().await.remove(&req_id);
+                return;
+            }
+
+            match tokio::time::timeout(TERMINAL_FRAME_ACK_TIMEOUT, rx).await {
+                Ok(Ok(ack)) => {
+                    let errcode = ack_errcode(&ack);
+                    if errcode == 0 {
+                        return;
+                    }
+                    eprintln!(
+                        "[WeCom] Final reply rejected (code={}), attempt {}/3",
+                        errcode, attempt
+                    );
+                }
+                // No verdict in time, or the waiter was dropped. The socket
+                // accepted the frame and that is the only evidence available,
+                // so treat it as delivered rather than duplicating the reply.
+                _ => {
+                    self.pending_responses.lock().await.remove(&req_id);
+                    return;
+                }
+            }
+        }
+
+        eprintln!("[WeCom] Final reply still rejected; retrying in a fresh bubble");
+        if let Err(e) = self.send_reply(&req_id, text, ws_sink).await {
+            eprintln!("[WeCom] Final reply fallback failed: {}", e);
+        }
     }
 
     async fn mark_message_processed(&self, msg_id: &str) -> bool {
@@ -1730,7 +1958,7 @@ impl WeComGateway {
     async fn handle_enter_chat(&self, req_id: &str, ws_sink: &WsSink) {
         use futures_util::SinkExt;
 
-        let locale = i18n::get_locale(&self.workspace_path);
+        let locale = i18n::locale();
         let welcome = serde_json::json!({
             "cmd": "aibot_respond_welcome_msg",
             "headers": { "req_id": req_id },
@@ -2616,5 +2844,166 @@ mod mime_tests {
     fn ext_from_filename_non_alphanumeric_extension_returns_none() {
         // Defends against weird extensions that could break filename construction.
         assert_eq!(ext_from_filename("foo.tar/gz"), None);
+    }
+}
+
+#[cfg(test)]
+mod message_parts_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn callback(body: serde_json::Value) -> WeComMsgCallback {
+        serde_json::from_value(body).expect("callback deserializes")
+    }
+
+    #[test]
+    fn mixed_carries_both_the_image_and_its_caption() {
+        // Verbatim shape of a real callback: sending a picture with a caption
+        // produces one `mixed` message, not an image message plus a text one.
+        let msg = callback(json!({
+            "msgid": "886f61f00519e05f33d53a7558b1e1d5",
+            "chattype": "single",
+            "msgtype": "mixed",
+            "mixed": { "msg_item": [
+                { "msgtype": "image", "image": {
+                    "url": "https://ww-aibot-img.example/7674552250407683094?sign=x",
+                    "aeskey": "Bu9DZx23TKmJ5h3ypCH0vYTMHWcIOU40rm0RyZxb4Lc"
+                }},
+                { "msgtype": "text", "text": { "content": "你能收到图片吗？" }}
+            ]}
+        }));
+
+        let (text, media) = extract_message_parts(&msg).expect("mixed is handled");
+        assert_eq!(text, "你能收到图片吗？");
+        assert_eq!(
+            media,
+            vec![PendingMedia {
+                url: "https://ww-aibot-img.example/7674552250407683094?sign=x".into(),
+                aeskey: Some("Bu9DZx23TKmJ5h3ypCH0vYTMHWcIOU40rm0RyZxb4Lc".into()),
+                filename_hint: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn mixed_keeps_every_attachment_and_joins_the_text() {
+        let msg = callback(json!({
+            "msgtype": "mixed",
+            "mixed": { "msg_item": [
+                { "msgtype": "text", "text": { "content": "first" }},
+                { "msgtype": "image", "image": { "url": "https://x/1", "aeskey": "k1" }},
+                { "msgtype": "file", "file": {
+                    "url": "https://x/2", "aeskey": "k2", "filename": "report.xlsx"
+                }},
+                { "msgtype": "text", "text": { "content": "second" }}
+            ]}
+        }));
+
+        let (text, media) = extract_message_parts(&msg).expect("mixed is handled");
+        assert_eq!(text, "first\nsecond");
+        assert_eq!(media.len(), 2);
+        assert_eq!(media[1].filename_hint.as_deref(), Some("report.xlsx"));
+    }
+
+    #[test]
+    fn mixed_of_unknown_items_only_yields_nothing_but_is_still_handled() {
+        // Handled (not `None`) so the caller's empty-message drop applies rather
+        // than the "unsupported type" path.
+        let msg = callback(json!({
+            "msgtype": "mixed",
+            "mixed": { "msg_item": [{ "msgtype": "voice", "voice": { "content": "hi" }}] }
+        }));
+
+        let (text, media) = extract_message_parts(&msg).expect("mixed is handled");
+        assert!(text.is_empty());
+        assert!(media.is_empty());
+    }
+
+    #[test]
+    fn bare_image_still_yields_one_media_item() {
+        let msg = callback(json!({
+            "msgtype": "image",
+            "image": { "url": "https://x/1", "aeskey": "k1" }
+        }));
+
+        let (text, media) = extract_message_parts(&msg).expect("image is handled");
+        assert!(text.is_empty());
+        assert_eq!(media.len(), 1);
+        assert_eq!(media[0].aeskey.as_deref(), Some("k1"));
+    }
+
+    #[test]
+    fn image_url_falls_back_to_legacy_field_names() {
+        let msg = callback(json!({ "msgtype": "image", "image": { "pic_url": "https://x/1" }}));
+        let (_, media) = extract_message_parts(&msg).expect("image is handled");
+        assert_eq!(media[0].url, "https://x/1");
+        assert_eq!(media[0].aeskey, None);
+    }
+
+    #[test]
+    fn image_without_any_url_yields_no_media() {
+        let msg = callback(json!({ "msgtype": "image", "image": { "aeskey": "k1" }}));
+        let (_, media) = extract_message_parts(&msg).expect("image is handled");
+        assert!(media.is_empty());
+    }
+
+    #[test]
+    fn text_and_voice_map_to_their_content() {
+        let text_msg = callback(json!({ "msgtype": "text", "text": { "content": "hello" }}));
+        assert_eq!(extract_message_parts(&text_msg).unwrap().0, "hello");
+
+        let voice_msg = callback(json!({ "msgtype": "voice", "voice": { "content": "spoken" }}));
+        assert_eq!(extract_message_parts(&voice_msg).unwrap().0, "spoken");
+    }
+
+    #[test]
+    fn genuinely_unknown_msgtype_is_rejected() {
+        let msg = callback(json!({ "msgtype": "video", "video": { "url": "https://x/1" }}));
+        assert!(extract_message_parts(&msg).is_none());
+    }
+}
+
+#[cfg(test)]
+mod stream_frame_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn a_burst_of_updates_collapses_to_the_newest() {
+        let (tx, mut rx) = mpsc::channel::<String>(8);
+        for text in ["He", "Hell", "Hello wo", "Hello world"] {
+            tx.send(text.to_string()).await.unwrap();
+        }
+        let first = rx.recv().await.unwrap();
+        assert_eq!(drain_to_latest(first, &mut rx), "Hello world");
+    }
+
+    #[tokio::test]
+    async fn a_lone_update_survives_unchanged() {
+        let (tx, mut rx) = mpsc::channel::<String>(8);
+        tx.send("only".to_string()).await.unwrap();
+        let first = rx.recv().await.unwrap();
+        assert_eq!(drain_to_latest(first, &mut rx), "only");
+    }
+
+    #[test]
+    fn version_conflict_ack_is_read_as_a_rejection() {
+        // The shape WeCom actually sent when the reply went missing.
+        let ack = json!({
+            "errcode": 6000,
+            "errmsg": "more than one callers at the same time, data version conflict. please retry later"
+        });
+        assert_eq!(ack_errcode(&ack), 6000);
+    }
+
+    #[test]
+    fn rejection_nested_under_body_is_found_too() {
+        assert_eq!(ack_errcode(&json!({ "body": { "errcode": 45033 }})), 45033);
+    }
+
+    #[test]
+    fn a_clean_ack_reads_as_success() {
+        assert_eq!(ack_errcode(&json!({ "errcode": 0, "body": {}})), 0);
+        assert_eq!(ack_errcode(&json!({ "body": { "msgid": "x" }})), 0);
     }
 }

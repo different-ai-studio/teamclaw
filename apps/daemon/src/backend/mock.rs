@@ -23,9 +23,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use async_trait::async_trait;
 
 use crate::backend::{
-    AgentDefaults, Backend, BackendError, BackendResult, BackendSessionAndParticipants,
-    BootstrapMqttOverride, ClaimResult, GatewaySessionRow, ManagedLlmConfig, ShareModeConfig,
-    StoredMessage, WorkspaceRow, WorkspaceUpsert,
+    ActorDirectoryRow, AgentDefaults, Backend, BackendError, BackendResult,
+    BackendSessionAndParticipants, BootstrapMqttOverride, ClaimResult, GatewaySessionRow,
+    ManagedLlmConfig, ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +50,8 @@ pub struct RecordedGatewayMessage {
     pub content: String,
     pub external_id: Option<String>,
     pub attachments: serde_json::Value,
+    /// `text` or `agent_reply` — which side of the conversation this row is.
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,6 +135,8 @@ pub struct MockState {
     /// — lets `get_workspaces_by_ids` resolve ids seeded via `upsert_workspace`
     /// without a separate seeding step.
     pub workspaces_by_id: HashMap<String, WorkspaceRow>,
+    /// actor_id → directory entry, as `get_actors_by_ids` resolves them.
+    pub actors_by_id: HashMap<String, ActorDirectoryRow>,
     /// (session_id, actor_id) → catch-up cursor, as the participant row holds it.
     pub session_cursors: HashMap<(String, String), String>,
     /// (session_id, actor_id) → workspace, same source.
@@ -397,6 +401,16 @@ impl Backend for MockBackend {
             })
     }
 
+    async fn get_actors_by_ids(&self, ids: &[String]) -> BackendResult<Vec<ActorDirectoryRow>> {
+        let st = self.state.lock().unwrap();
+        // Unseeded ids are simply absent, matching the real directory: it
+        // returns the rows it knows and says nothing about the rest.
+        Ok(ids
+            .iter()
+            .filter_map(|id| st.actors_by_id.get(id).cloned())
+            .collect())
+    }
+
     async fn messages_after_cursor(
         &self,
         session_id: &str,
@@ -576,6 +590,28 @@ impl Backend for MockBackend {
             content: content.to_string(),
             external_id: external_message_id.map(str::to_string),
             attachments,
+            kind: "text".to_string(),
+        });
+        Ok(id)
+    }
+
+    async fn insert_gateway_agent_reply_with_attachments(
+        &self,
+        session_id: &str,
+        sender_actor_id: &str,
+        content: &str,
+        external_message_id: Option<&str>,
+        attachments: serde_json::Value,
+    ) -> BackendResult<String> {
+        let mut st = self.state.lock().unwrap();
+        let id = format!("mock-msg-{}", st.gateway_messages_inserted.len() + 1);
+        st.gateway_messages_inserted.push(RecordedGatewayMessage {
+            session_id: session_id.to_string(),
+            sender_actor_id: sender_actor_id.to_string(),
+            content: content.to_string(),
+            external_id: external_message_id.map(str::to_string),
+            attachments,
+            kind: "agent_reply".to_string(),
         });
         Ok(id)
     }

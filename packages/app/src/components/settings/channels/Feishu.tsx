@@ -525,6 +525,7 @@ export function FeishuChannel() {
     updateLocalConfig: updateFeishuLocalConfig,
     isConnecting: feishuIsConnecting,
     isRunning: feishuIsRunning,
+    isSaving: feishuIsSaving,
     handleSave: handleFeishuSave,
     handleRestart: handleFeishuRestart,
   } = useChannelConfig<FeishuConfig>({
@@ -754,9 +755,9 @@ export function FeishuChannel() {
         <Button
           className="w-full gap-2"
           onClick={handleFeishuSave}
-          disabled={feishuIsLoading}
+          disabled={feishuIsLoading || feishuIsSaving}
         >
-          {feishuIsLoading ? (
+          {feishuIsLoading || feishuIsSaving ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
               {t('settings.channels.saving', 'Saving...')}

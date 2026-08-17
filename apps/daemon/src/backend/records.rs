@@ -109,6 +109,21 @@ pub struct BackendSessionAndParticipants {
     pub participants: Vec<BackendParticipantRow>,
 }
 
+/// A directory entry for one actor, as `POST /v1/actors/by-ids` returns it.
+///
+/// Only the two fields a roster needs: `session_participants` stores actor ids
+/// and nothing else, so naming a participant means asking the directory who
+/// that id is.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ActorDirectoryRow {
+    pub id: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// `actors.actor_type`: `member`, `agent`, `external`.
+    #[serde(default)]
+    pub kind: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

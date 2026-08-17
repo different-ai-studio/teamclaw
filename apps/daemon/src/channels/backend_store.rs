@@ -9,9 +9,66 @@ use std::sync::Arc;
 use teamclu_gateway::{AttachmentRecord, ChannelStore, EnsureSessionOutcome, StoreError};
 
 use crate::backend::Backend;
+use crate::channels::live_notify::GatewayLiveNotifier;
+use crate::proto::teamclu::MessageKind;
 
 pub struct AmuxdChannelStore {
     pub client: Arc<dyn Backend>,
+    /// Broadcasts what this store writes on `session/{id}/live`. `None` in
+    /// tests and before onboarding; a message written without it is still
+    /// persisted, just not pushed — which is exactly the behaviour this field
+    /// exists to end.
+    pub live: Option<GatewayLiveNotifier>,
+}
+
+impl AmuxdChannelStore {
+    /// `mention_actor_ids` for a message the gateway has already answered:
+    /// deliberately empty.
+    ///
+    /// Naming the daemon's agent here is what would make the loopback copy
+    /// engage a second turn. The reply is already on its way back to the chat,
+    /// so nothing downstream needs to be told to answer it.
+    const NO_MENTIONS: &'static str = r#"{"mention_actor_ids":[]}"#;
+
+    async fn announce(
+        &self,
+        session_id: &str,
+        message_id: &str,
+        sender_actor_id: &str,
+        kind: MessageKind,
+        content: &str,
+    ) {
+        if let Some(live) = &self.live {
+            live.message_created(
+                session_id,
+                message_id,
+                sender_actor_id,
+                kind,
+                content,
+                Self::NO_MENTIONS,
+            )
+            .await;
+        }
+    }
+}
+
+/// The `messages.attachments` JSONB shape, shared by both directions so an
+/// inbound and an outbound attachment are stored identically.
+fn attachment_json(attachments: Vec<AttachmentRecord>) -> serde_json::Value {
+    serde_json::Value::Array(
+        attachments
+            .into_iter()
+            .map(|a| {
+                serde_json::json!({
+                    "filename": a.filename,
+                    "mime": a.mime,
+                    "size": a.size,
+                    "bucket_path": a.bucket_path,
+                    "local_path": a.local_path,
+                })
+            })
+            .collect(),
+    )
 }
 
 #[async_trait]
@@ -64,10 +121,20 @@ impl ChannelStore for AmuxdChannelStore {
         content: &str,
         external_message_id: Option<&str>,
     ) -> Result<String, StoreError> {
-        self.client
+        let message_id = self
+            .client
             .insert_gateway_message(session_id, sender_actor_id, content, external_message_id)
             .await
-            .map_err(|e| StoreError::Backend(e.to_string()))
+            .map_err(|e| StoreError::Backend(e.to_string()))?;
+        self.announce(
+            session_id,
+            &message_id,
+            sender_actor_id,
+            MessageKind::Text,
+            content,
+        )
+        .await;
+        Ok(message_id)
     }
 
     async fn record_agent_reply(
@@ -77,10 +144,20 @@ impl ChannelStore for AmuxdChannelStore {
         content: &str,
         external_message_id: Option<&str>,
     ) -> Result<String, StoreError> {
-        self.client
+        let message_id = self
+            .client
             .insert_gateway_agent_reply(session_id, sender_actor_id, content, external_message_id)
             .await
-            .map_err(|e| StoreError::Backend(e.to_string()))
+            .map_err(|e| StoreError::Backend(e.to_string()))?;
+        self.announce(
+            session_id,
+            &message_id,
+            sender_actor_id,
+            MessageKind::AgentReply,
+            content,
+        )
+        .await;
+        Ok(message_id)
     }
 
     async fn record_message_with_attachments(
@@ -91,29 +168,56 @@ impl ChannelStore for AmuxdChannelStore {
         external_message_id: Option<&str>,
         attachments: Vec<AttachmentRecord>,
     ) -> Result<String, StoreError> {
-        let json_attachments: Vec<serde_json::Value> = attachments
-            .into_iter()
-            .map(|a| {
-                serde_json::json!({
-                    "filename": a.filename,
-                    "mime": a.mime,
-                    "size": a.size,
-                    "bucket_path": a.bucket_path,
-                    "local_path": a.local_path,
-                })
-            })
-            .collect();
-
-        self.client
+        let message_id = self
+            .client
             .insert_gateway_message_with_attachments(
                 session_id,
                 sender_actor_id,
                 content,
                 external_message_id,
-                serde_json::Value::Array(json_attachments),
+                attachment_json(attachments),
             )
             .await
-            .map_err(|e| StoreError::Backend(e.to_string()))
+            .map_err(|e| StoreError::Backend(e.to_string()))?;
+        self.announce(
+            session_id,
+            &message_id,
+            sender_actor_id,
+            MessageKind::Text,
+            content,
+        )
+        .await;
+        Ok(message_id)
+    }
+
+    async fn record_agent_reply_with_attachments(
+        &self,
+        session_id: &str,
+        sender_actor_id: &str,
+        content: &str,
+        external_message_id: Option<&str>,
+        attachments: Vec<AttachmentRecord>,
+    ) -> Result<String, StoreError> {
+        let message_id = self
+            .client
+            .insert_gateway_agent_reply_with_attachments(
+                session_id,
+                sender_actor_id,
+                content,
+                external_message_id,
+                attachment_json(attachments),
+            )
+            .await
+            .map_err(|e| StoreError::Backend(e.to_string()))?;
+        self.announce(
+            session_id,
+            &message_id,
+            sender_actor_id,
+            MessageKind::AgentReply,
+            content,
+        )
+        .await;
+        Ok(message_id)
     }
 
     async fn upload_attachment(
@@ -150,7 +254,15 @@ mod tests {
     fn store() -> (AmuxdChannelStore, MockBackend) {
         let mock = MockBackend::with_identity("team-x", "agent-x");
         let backend: Arc<dyn Backend> = Arc::new(mock.clone());
-        (AmuxdChannelStore { client: backend }, mock)
+        // No notifier: these tests assert what reaches the backend, and a
+        // live publish needs an MQTT client they deliberately do not have.
+        (
+            AmuxdChannelStore {
+                client: backend,
+                live: None,
+            },
+            mock,
+        )
     }
 
     #[tokio::test]
@@ -241,5 +353,64 @@ mod tests {
         assert_eq!(snap.attachments_uploaded.len(), 1);
         assert_eq!(snap.attachments_uploaded[0].bytes, vec![1, 2, 3, 4]);
         assert_eq!(snap.attachments_uploaded[0].mime, "image/png");
+    }
+
+    #[tokio::test]
+    async fn an_agent_sent_attachment_is_recorded_as_a_reply_not_a_user_message() {
+        // The kind decides which side of the conversation the row renders on.
+        // Recorded as `text`, a file the agent sent showed up in the desktop as
+        // if the user had sent it.
+        let (store, mock) = store();
+        store
+            .record_agent_reply_with_attachments(
+                "sess-1",
+                "agent-1",
+                "[Attachment: poem.md]",
+                None,
+                vec![AttachmentRecord {
+                    filename: "poem.md".into(),
+                    mime: "text/markdown".into(),
+                    size: 12,
+                    bucket_path: "team/sess-1/uuid-poem.md".into(),
+                    local_path: Some("/tmp/poem.md".into()),
+                }],
+            )
+            .await
+            .unwrap();
+
+        let st = mock.state();
+        let row = st.gateway_messages_inserted.last().unwrap();
+        assert_eq!(row.kind, "agent_reply");
+        assert_eq!(row.attachments[0]["filename"], "poem.md");
+        assert_eq!(
+            row.attachments[0]["bucket_path"],
+            "team/sess-1/uuid-poem.md"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_inbound_attachment_is_still_recorded_as_a_user_message() {
+        let (store, mock) = store();
+        store
+            .record_message_with_attachments(
+                "sess-1",
+                "external-1",
+                "look at this",
+                Some("ext-1"),
+                vec![AttachmentRecord {
+                    filename: "photo.png".into(),
+                    mime: "image/png".into(),
+                    size: 3,
+                    bucket_path: "team/sess-1/uuid-photo.png".into(),
+                    local_path: None,
+                }],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            mock.state().gateway_messages_inserted.last().unwrap().kind,
+            "text"
+        );
     }
 }

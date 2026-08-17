@@ -10,94 +10,13 @@ const {
   ensureAgentBridgeBundles,
   extractTargetFromArgv,
 } = require("./ensure-agent-bridge-bundles");
+const { applyDevSkipFlags } = require("./lib/dev-flags");
 const { platform } = process;
 
 let args = process.argv.slice(2);
 const isWindows = platform === "win32";
 const sub = args[0];
 const bridgeTarget = extractTargetFromArgv(args);
-
-/**
- * Strip desktop-dev-only flags and expose them via env before sidecars / tauri run.
- *
- * Usage:
- *   pnpm tauri:dev -- --skip-setup
- *   pnpm tauri:dev -- --skip-daemon-onboarding
- *   pnpm tauri:dev -- --force-amuxd
- *   pnpm tauri:dev -- --force-introspect
- *   pnpm tauri:dev:daemon
- *   pnpm tauri:dev:introspect
- *
- * Aliases: --skip-onboarding → --skip-daemon-onboarding
- *          --rebuild-daemon / --rebuild-amuxd → --force-amuxd
- *          --rebuild-introspect → --force-introspect
- * Env fallbacks: TEAMCLU_SKIP_SETUP=1, TEAMCLU_SKIP_DAEMON_ONBOARDING=1,
- *                TEAMCLU_FORCE_AMUXD_SIDECAR=1,
- *                TEAMCLU_FORCE_INTROSPECT_SIDECAR=1
- */
-function applyDevSkipFlags(argv, env) {
-  if (argv[0] !== "dev") {
-    return argv;
-  }
-
-  let skipSetup =
-    env.TEAMCLU_SKIP_SETUP === "1" || env.VITE_TEAMCLU_SKIP_SETUP === "true";
-  let skipDaemonOnboarding =
-    env.TEAMCLU_SKIP_DAEMON_ONBOARDING === "1" ||
-    env.VITE_TEAMCLU_SKIP_DAEMON_ONBOARDING === "true";
-  let forceAmuxd =
-    env.TEAMCLU_FORCE_AMUXD_SIDECAR === "1" ||
-    env.TEAMCLU_FORCE_AMUXD_SIDECAR === "true";
-  let forceIntrospect =
-    env.TEAMCLU_FORCE_INTROSPECT_SIDECAR === "1" ||
-    env.TEAMCLU_FORCE_INTROSPECT_SIDECAR === "true";
-
-  const filtered = [];
-  for (const arg of argv) {
-    if (arg === "--skip-setup") {
-      skipSetup = true;
-      continue;
-    }
-    if (arg === "--skip-daemon-onboarding" || arg === "--skip-onboarding") {
-      skipDaemonOnboarding = true;
-      continue;
-    }
-    if (
-      arg === "--force-amuxd" ||
-      arg === "--rebuild-daemon" ||
-      arg === "--rebuild-amuxd"
-    ) {
-      forceAmuxd = true;
-      continue;
-    }
-    if (arg === "--force-introspect" || arg === "--rebuild-introspect") {
-      forceIntrospect = true;
-      continue;
-    }
-    filtered.push(arg);
-  }
-
-  if (skipSetup) {
-    env.VITE_TEAMCLU_SKIP_SETUP = "true";
-  }
-  if (skipDaemonOnboarding) {
-    env.VITE_TEAMCLU_SKIP_DAEMON_ONBOARDING = "true";
-  }
-  if (forceAmuxd) {
-    env.TEAMCLU_FORCE_AMUXD_SIDECAR = "1";
-  }
-  if (forceIntrospect) {
-    env.TEAMCLU_FORCE_INTROSPECT_SIDECAR = "1";
-  }
-
-  if (skipSetup || skipDaemonOnboarding || forceAmuxd || forceIntrospect) {
-    console.log(
-      `[tauri-cli] dev flags: setup_skip=${skipSetup}, daemon_onboarding_skip=${skipDaemonOnboarding}, force_amuxd=${forceAmuxd}, force_introspect=${forceIntrospect}`,
-    );
-  }
-
-  return filtered;
-}
 
 // On Windows, dev/build must use --no-default-features to avoid wmi/windows-core conflict (p2p/iroh).
 // Strip any --features p2p so the broken dependency is not pulled in.

@@ -135,7 +135,7 @@ export function mapApp(r: any) {
 }
 
 export const SESSION_FULL_COLUMNS =
-  "id, team_id, title, mode, idea_id, primary_agent_id, created_by_actor_id, summary, last_message_preview, last_message_at, acp_session_id, binding, source, cron_job_id, created_at, updated_at";
+  "id, team_id, title, mode, idea_id, primary_agent_id, created_by_actor_id, summary, last_message_preview, last_message_at, acp_session_id, binding, gateway_key, source, cron_job_id, created_at, updated_at";
 
 export const ACTOR_DIRECTORY_COLUMNS =
   "id, team_id, actor_type, user_id, invited_by_actor_id, display_name, avatar_url, team_role, member_status, agent_status, agent_types, default_agent_type, default_workspace_id, agent_visibility, owner_member_id, last_active_at, created_at, updated_at, user_email, user_phone";
@@ -155,6 +155,12 @@ export function mapSessionFull(row) {
     hasUnread: false,
     acpSessionId: row?.acp_session_id ?? null,
     binding: row?.binding ?? null,
+    // The chat a session belongs to for its whole life. `binding` is released
+    // when `/new` moves the chat on, so it answers "is this the current one",
+    // not "which chat is this". Without the distinction a detached session
+    // cannot say where it came from, and `/sessions` asked from one listed
+    // nothing at all.
+    gatewayKey: row?.gateway_key ?? null,
     source: row?.source ?? "user",
     cronJobId: row?.cron_job_id ?? null,
     createdAt: row?.created_at ?? null,

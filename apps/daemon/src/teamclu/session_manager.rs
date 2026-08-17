@@ -15,6 +15,58 @@ use uuid::Uuid;
 
 const RECENT_EVENT_CACHE_LIMIT: usize = 512;
 
+/// The "已经处理过这条" gate, shared by everything that can introduce a message
+/// into a session.
+///
+/// It used to be two plain fields on `SessionManager`, reachable only from the
+/// daemon's own loop. The gateway writes messages too, and it has to close this
+/// gate before broadcasting them — otherwise its own `message.created` arrives
+/// back through `route_session_message`, matches the agent mention, and runs
+/// the turn a second time.
+#[derive(Clone, Default)]
+pub struct MessageDedup {
+    inner: Arc<std::sync::Mutex<DedupState>>,
+}
+
+#[derive(Default)]
+struct DedupState {
+    keys: HashSet<String>,
+    order: VecDeque<String>,
+}
+
+impl MessageDedup {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// `true` when this is the first claim — i.e. the caller should process
+    /// (or, for a publisher, that nothing else has published it yet).
+    pub fn claim_message(&self, session_id: &str, message_id: &str) -> bool {
+        if message_id.is_empty() {
+            return true;
+        }
+        self.claim_key(format!("message:{session_id}:{message_id}"))
+    }
+
+    fn claim_key(&self, key: String) -> bool {
+        if key.is_empty() {
+            return true;
+        }
+        let mut st = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if st.keys.contains(&key) {
+            return false;
+        }
+        st.keys.insert(key.clone());
+        st.order.push_back(key);
+        while st.order.len() > RECENT_EVENT_CACHE_LIMIT {
+            if let Some(oldest) = st.order.pop_front() {
+                st.keys.remove(&oldest);
+            }
+        }
+        true
+    }
+}
+
 pub struct SessionManager {
     topics: Topics,
     client: Arc<dyn MessagePublisher>,
@@ -28,8 +80,7 @@ pub struct SessionManager {
     config_actor_id: String,
     team_id: String,
     actor_id: Option<String>,
-    recent_event_keys: HashSet<String>,
-    recent_event_order: VecDeque<String>,
+    recent_events: MessageDedup,
     subscribed_live_sessions: BTreeSet<String>,
     #[cfg(test)]
     skip_live_subscription_io: bool,
@@ -72,12 +123,26 @@ impl SessionManager {
             config_actor_id: config_actor_id.to_string(),
             team_id: team_id.to_string(),
             actor_id,
-            recent_event_keys: HashSet::new(),
-            recent_event_order: VecDeque::new(),
+            recent_events: MessageDedup::new(),
             subscribed_live_sessions: BTreeSet::new(),
             #[cfg(test)]
             skip_live_subscription_io: false,
         })
+    }
+
+    /// A clone of the live publisher, for code outside `SessionManager` that
+    /// has to broadcast on `session/{id}/live` — the gateway store, which
+    /// writes messages the daemon itself never routed.
+    pub fn live_publisher_handle(&self) -> LivePublisher {
+        self.live_publisher.clone()
+    }
+
+    /// The shared "already handled this message" gate. A publisher outside the
+    /// daemon loop has to be able to claim an id *before* publishing, or the
+    /// loopback copy of its own message comes back through
+    /// `route_session_message` and starts a second turn.
+    pub fn message_dedup(&self) -> MessageDedup {
+        self.recent_events.clone()
     }
 
     /// Mirror every session/live publish into the local fast-path broadcast
@@ -1480,23 +1545,7 @@ impl SessionManager {
     }
 
     fn record_recent_event(&mut self, key: String) -> bool {
-        if key.is_empty() {
-            return true;
-        }
-        if self.recent_event_keys.contains(&key) {
-            return false;
-        }
-
-        self.recent_event_keys.insert(key.clone());
-        self.recent_event_order.push_back(key);
-
-        while self.recent_event_order.len() > RECENT_EVENT_CACHE_LIMIT {
-            if let Some(oldest) = self.recent_event_order.pop_front() {
-                self.recent_event_keys.remove(&oldest);
-            }
-        }
-
-        true
+        self.recent_events.claim_key(key)
     }
 
     fn membership_refresh_targets(
@@ -2166,5 +2215,25 @@ mod tests {
         assert_eq!(msg.content, "final answer");
         let proto = MessageStore::to_proto(msg);
         assert_eq!(proto.reply_to_message_id, "user-parent-1");
+    }
+
+    #[test]
+    fn message_dedup_is_shared_between_clones() {
+        // The gateway holds a clone and claims ids on it; the daemon loop must
+        // see those claims, or it runs the turn a second time off its own
+        // loopback.
+        let a = MessageDedup::new();
+        let b = a.clone();
+        assert!(a.claim_message("s1", "m1"));
+        assert!(!b.claim_message("s1", "m1"));
+        assert!(b.claim_message("s1", "m2"));
+    }
+
+    #[test]
+    fn message_dedup_lets_an_empty_id_through() {
+        // No id means nothing to dedup on; refusing would drop the message.
+        let d = MessageDedup::new();
+        assert!(d.claim_message("s1", ""));
+        assert!(d.claim_message("s1", ""));
     }
 }

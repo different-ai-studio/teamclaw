@@ -50,13 +50,17 @@ export function createWechatActions(set: ChannelsSet) {
     },
 
     saveWechatConfig: async (config: WeChatConfig) => {
+      set({ wechatIsLoading: true, error: null })
       try {
         await saveChannelConfig('wechat', config)
         await reloadChannels()
-        set({ wechat: config, wechatHasChanges: false, error: null })
+        set({ wechat: config, wechatHasChanges: false, wechatIsLoading: false, error: null })
       } catch (e) {
         console.error('[WeChat] Failed to save config:', e)
-        set({ error: describe(e) })
+        set({ error: describe(e), wechatIsLoading: false })
+        // Rethrow for the same reason as WeCom: `error` is never rendered, so a
+        // silent catch here made a failed save look like a successful one.
+        throw new Error(describe(e), { cause: e })
       }
     },
 

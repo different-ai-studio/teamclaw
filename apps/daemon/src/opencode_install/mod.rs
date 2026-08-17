@@ -180,27 +180,45 @@ struct MirrorManifest {
 /// every error path just means "use upstream instead".
 pub fn mirror_latest_version() -> Option<String> {
     let url = format!("{}/latest.json", MIRROR_BASE.trim_end_matches('/'));
+    // Every failure below used to collapse into a bare `.ok()?`, so a mirror
+    // that had been unreachable for weeks looked identical to one that was
+    // fine: `latest: null`, no output anywhere. That is what made the settings
+    // row offer "Update" forever on an already-current install. Downgrading to
+    // upstream is still the right behaviour — it just has to say so.
     let manifest: MirrorManifest = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
+        .map_err(|e| eprintln!("[opencode] mirror runtime: {e}"))
         .ok()?
         .block_on(async {
             let client = reqwest::Client::builder()
                 .timeout(MANIFEST_TIMEOUT)
                 .build()
+                .map_err(|e| eprintln!("[opencode] mirror client: {e}"))
                 .ok()?;
             let resp = client
                 .get(&url)
                 .send()
                 .await
+                .map_err(|e| eprintln!("[opencode] mirror unreachable ({url}): {e}"))
                 .ok()?
                 .error_for_status()
+                .map_err(|e| eprintln!("[opencode] mirror status ({url}): {e}"))
                 .ok()?;
-            resp.json::<MirrorManifest>().await.ok()
+            resp.json::<MirrorManifest>()
+                .await
+                .map_err(|e| eprintln!("[opencode] mirror manifest parse ({url}): {e}"))
+                .ok()
         })?;
     let version = manifest.version.trim().trim_start_matches('v').to_string();
     // A manifest we can't parse as a version is a broken mirror, not a hint.
-    parse_semver(&version).map(|_| version)
+    match parse_semver(&version) {
+        Some(_) => Some(version),
+        None => {
+            eprintln!("[opencode] mirror returned unparseable version {version:?} ({url})");
+            None
+        }
+    }
 }
 
 /// Blocking download of `url` into memory. Builds its own current-thread tokio

@@ -657,7 +657,7 @@ impl WeChatGateway {
     }
 
     async fn handle_incoming_message(&self, sender_id: &str, text: &str) -> Result<(), String> {
-        let locale = i18n::get_locale(&self.workspace_path);
+        let locale = i18n::locale();
         let trimmed = text.trim();
 
         // Forward /answer to pending question (must run before generic slash handler)
@@ -687,21 +687,22 @@ impl WeChatGateway {
         // Handle slash commands. /help and /sessions are answered without
         // resolving a session; /stop, /reset, /model fall through to the
         // session-resolve path below (they need a resolved acp_session_id).
-        let mut is_session_slash = false;
-        let mut slash_lower = String::new();
-        if !trimmed.is_empty() && trimmed.starts_with('/') {
-            let lower = trimmed.to_lowercase();
-            let needs_session = lower == "/stop"
-                || lower == "/reset"
-                || lower == "/model"
-                || lower.starts_with("/model ");
-            if needs_session {
-                is_session_slash = true;
-                slash_lower = lower;
-            } else {
-                let reply = self.handle_slash_command(trimmed, locale).await;
-                let _ = self.send_to_user(sender_id, &reply).await;
-                return Ok(());
+        let slash = crate::commands::parse_slash(trimmed);
+        if let Some((cmd_name, cmd_arg)) = &slash {
+            if !crate::commands::needs_session(cmd_name) {
+                if let Ok(Some(reply_text)) = crate::commands::run_slash(
+                    cmd_name,
+                    cmd_arg.as_deref(),
+                    self.agent.as_ref(),
+                    self.store.as_ref(),
+                    &String::new(),
+                    locale,
+                )
+                .await
+                {
+                    let _ = self.send_to_user(sender_id, &reply_text).await;
+                    return Ok(());
+                }
             }
         }
 
@@ -747,10 +748,18 @@ impl WeChatGateway {
         }
 
         // Slash-command dispatch — /stop /reset /model — against the resolved session.
-        if is_session_slash {
-            let reply_text = self
-                .dispatch_session_slash_cmd(&slash_lower, &outcome.acp_session_id)
-                .await;
+        if let Some((cmd_name, cmd_arg)) = &slash {
+            let reply_text = crate::commands::run_slash(
+                cmd_name,
+                cmd_arg.as_deref(),
+                self.agent.as_ref(),
+                self.store.as_ref(),
+                &outcome.acp_session_id,
+                locale,
+            )
+            .await
+            .unwrap_or(None)
+            .unwrap_or_else(|| crate::commands::unknown_command_reply(cmd_name, locale));
             let _ = self.send_to_user(sender_id, &reply_text).await;
             return Ok(());
         }
@@ -791,100 +800,5 @@ impl WeChatGateway {
         let _ = self.send_to_user(sender_id, &reply_text).await;
 
         Ok(())
-    }
-
-    async fn handle_slash_command(&self, content: &str, locale: i18n::Locale) -> String {
-        let parts: Vec<&str> = content.splitn(2, ' ').collect();
-        let cmd = parts[0].to_lowercase();
-
-        match cmd.as_str() {
-            "/help" => i18n::t(i18n::MsgKey::HelpWechat, locale),
-            // /stop, /reset, /model now route through the session-resolve
-            // path and never reach this branch. /sessions is intentionally
-            // unsupported in v2.
-            "/sessions" => "This command is not supported in v2 yet.".to_string(),
-            _ => i18n::t(i18n::MsgKey::UnknownCommand(&cmd), locale),
-        }
-    }
-
-    /// Dispatch /stop, /reset, /model against a resolved agent session id.
-    async fn dispatch_session_slash_cmd(
-        &self,
-        lower_content: &str,
-        acp_session_id: &str,
-    ) -> String {
-        let session = acp_session_id.to_string();
-        if lower_content == "/stop" {
-            return match self.agent.cancel(&session).await {
-                Ok(_) => "⏹ Stopped current turn.".to_string(),
-                Err(e) => format!("⚠️ Could not stop: {e}"),
-            };
-        }
-        if lower_content == "/reset" {
-            return match self.agent.reset_session(&session).await {
-                Ok(_) => "🔄 Session reset. Next message starts fresh.".to_string(),
-                Err(e) => format!("⚠️ Could not reset: {e}"),
-            };
-        }
-        if lower_content == "/model" {
-            return match self.agent.list_models(&session).await {
-                Ok(models) => {
-                    if models.is_empty() {
-                        "No models available.".to_string()
-                    } else {
-                        let current = self.agent.current_model(&session).await.ok().flatten();
-                        let shown = models.len().min(crate::commands::MODEL_LIST_LIMIT);
-                        let body = models
-                            .iter()
-                            .take(shown)
-                            .map(|m| {
-                                let id = format!("{}/{}", m.provider, m.model);
-                                let mark = if current.as_deref() == Some(id.as_str()) {
-                                    " ← current"
-                                } else {
-                                    ""
-                                };
-                                format!("• `{id}` — {}{mark}", m.display_name)
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        let more = if models.len() > shown {
-                            format!("\n• … and {} more", models.len() - shown)
-                        } else {
-                            String::new()
-                        };
-                        format!(
-                            "Available models:\n{body}{more}\n\nUsage: `/model <provider>/<model>`"
-                        )
-                    }
-                }
-                Err(e) => format!("⚠️ Could not list models: {e}"),
-            };
-        }
-        if let Some(arg) = lower_content.strip_prefix("/model ") {
-            let arg = arg.trim();
-            let (provider, model) = match arg.split_once('/') {
-                Some((p, m)) => (p.to_string(), m.to_string()),
-                // Bare name — resolve against the live catalog instead of
-                // assuming anthropic, which is wrong for any other backend.
-                None => {
-                    match crate::commands::resolve_bare_model(self.agent.as_ref(), &session, arg)
-                        .await
-                    {
-                        Ok(Ok(pair)) => pair,
-                        Ok(Err(msg)) => return msg,
-                        Err(e) => return format!("⚠️ Could not switch model: {e}"),
-                    }
-                }
-            };
-            let (provider, model) = (provider.as_str(), model.as_str());
-            return match self.agent.set_model(&session, provider, model).await {
-                Ok(_) => format!(
-                    "✅ Switched to `{provider}/{model}`. **Note: conversation context was cleared.**"
-                ),
-                Err(e) => format!("⚠️ Could not switch model: {e}"),
-            };
-        }
-        format!("Unknown command: {lower_content}")
     }
 }

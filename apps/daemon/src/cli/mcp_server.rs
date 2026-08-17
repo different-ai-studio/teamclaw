@@ -111,16 +111,18 @@ pub fn run(session_id: &str, binding: &str, sock_path: &Path) -> anyhow::Result<
 fn tool_definition_send() -> Value {
     json!({
         "name": "send",
-        "description": "Send a text message and/or file to a chat target on a gateway channel (WeCom, Feishu, Discord, Kook, WeChat). \
-    By default, sends to the current session's bound chat — provide `target` only to override. \
+        "description": "Send a text message and/or file to the gateway chat (WeCom, Feishu, Discord, Kook, WeChat) you are talking to. \
+    Requires `reply_token`, which the chat's prompt gives you; it selects the destination. \
     Use this when you've generated a file or want to send a follow-up message without waiting for the user to ask.",
         "inputSchema": {
             "type": "object",
+            "required": ["reply_token"],
             "properties": {
-                "message":   { "type": "string", "description": "Text body (optional if file_path provided)" },
-                "file_path": { "type": "string", "description": "Absolute path to a file to upload as attachment" },
-                "target":    { "type": "string", "description": "Override target ('user:<id>' or 'chat:<id>'). Defaults to current session." },
-                "channel":   { "type": "string", "description": "Override channel (wecom/feishu/discord/kook/wechat). Defaults to current session." }
+                "reply_token": { "type": "string", "description": "Reply token from this chat's prompt. Identifies the destination chat." },
+                "message":     { "type": "string", "description": "Text body (optional if file_path provided)" },
+                "file_path":   { "type": "string", "description": "Absolute path to a file to upload as attachment" },
+                "target":      { "type": "string", "description": "Override target ('user:<id>' or 'chat:<id>') within the token's channel." },
+                "channel":     { "type": "string", "description": "Override channel (wecom/feishu/discord/kook/wechat)." }
             }
         }
     })
@@ -161,11 +163,24 @@ fn handle_tool_call(
     if message.map(|s| s.is_empty()).unwrap_or(true) && file_path.is_none() {
         return Err("at least one of 'message' or 'file_path' is required".to_string());
     }
+    let reply_token = args
+        .get("reply_token")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if reply_token.is_empty() {
+        return Err(
+            "'reply_token' is required — use the reply token from this chat's prompt".to_string(),
+        );
+    }
 
+    // `session_id` / `binding` are whatever argv carried, kept only so a
+    // worktree config written by an older build still identifies itself in the
+    // daemon log. Routing comes from `reply_token`.
     let mut payload = json!({
         "cmd": "mcp-send",
         "session_id": session_id,
         "binding": binding,
+        "reply_token": reply_token,
     });
     if let Some(m) = message {
         payload["message"] = json!(m);

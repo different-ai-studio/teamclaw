@@ -9,7 +9,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
 use crate::seatalk_config::{SeaTalkConfig, SeaTalkGatewayStatus, SeaTalkGatewayStatusResponse};
 use crate::{
-    AgentHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES,
+    i18n, AgentHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES,
 };
 
 const SEATALK_API_BASE: &str = "https://openapi.seatalk.io";
@@ -247,8 +247,6 @@ struct HandlerContext {
     team_id: String,
     primary_agent_actor_id: String,
     agent_owner_actor_ids: Vec<String>,
-    #[allow(dead_code)]
-    workspace_path: String,
     client: Arc<SeaTalkClient>,
     processed_events: Arc<RwLock<ProcessedMessageTracker>>,
 }
@@ -260,7 +258,6 @@ pub struct SeaTalkGateway {
     pub team_id: String,
     pub primary_agent_actor_id: String,
     pub agent_owner_actor_ids: Vec<String>,
-    workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<SeaTalkGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
@@ -274,7 +271,6 @@ impl SeaTalkGateway {
         team_id: String,
         primary_agent_actor_id: String,
         agent_owner_actor_ids: Vec<String>,
-        workspace_path: String,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(SeaTalkConfig::default())),
@@ -283,7 +279,6 @@ impl SeaTalkGateway {
             team_id,
             primary_agent_actor_id,
             agent_owner_actor_ids,
-            workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(SeaTalkGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
@@ -393,7 +388,6 @@ impl SeaTalkGateway {
             team_id: self.team_id.clone(),
             primary_agent_actor_id: self.primary_agent_actor_id.clone(),
             agent_owner_actor_ids: self.agent_owner_actor_ids.clone(),
-            workspace_path: self.workspace_path.clone(),
             client,
             processed_events: Arc::clone(&self.processed_events),
         };
@@ -838,23 +832,22 @@ async fn process_inbound(
         .add_participant(&outcome.session_id, &external_actor_id)
         .await;
 
-    let lower = text.to_lowercase();
-    let is_session_slash =
-        lower == "/stop" || lower == "/reset" || lower == "/model" || lower.starts_with("/model ");
-
-    if is_session_slash {
-        let reply_text =
-            crate::commands::dispatch_session_slash_cmd(&ctx.agent, &lower, &outcome.acp_session_id)
-                .await;
-        return send_reply(
-            ctx,
-            is_dm,
-            reply_target,
-            group_id,
-            thread_id,
-            &reply_text,
+    // Every slash command goes through the one shared table — SeaTalk used to
+    // recognise only /stop /reset /model and had no /help at all.
+    if let Some((cmd_name, cmd_arg)) = crate::commands::parse_slash(text) {
+        let locale = i18n::locale();
+        let reply_text = crate::commands::run_slash(
+            &cmd_name,
+            cmd_arg.as_deref(),
+            ctx.agent.as_ref(),
+            ctx.store.as_ref(),
+            &outcome.acp_session_id,
+            locale,
         )
-        .await;
+        .await
+        .unwrap_or(None)
+        .unwrap_or_else(|| crate::commands::unknown_command_reply(&cmd_name, locale));
+        return send_reply(ctx, is_dm, reply_target, group_id, thread_id, &reply_text).await;
     }
 
     let _ = ctx
@@ -1069,7 +1062,6 @@ impl Clone for SeaTalkGateway {
             team_id: self.team_id.clone(),
             primary_agent_actor_id: self.primary_agent_actor_id.clone(),
             agent_owner_actor_ids: self.agent_owner_actor_ids.clone(),
-            workspace_path: self.workspace_path.clone(),
             shutdown_tx: Arc::clone(&self.shutdown_tx),
             status: Arc::clone(&self.status),
             is_running: Arc::clone(&self.is_running),

@@ -18,6 +18,11 @@ impl DaemonServer {
             return None;
         };
 
+        // Gateway reply language: device-wide, from daemon.toml. Applied here so
+        // a restart (and every channel reload) picks up whatever the desktop app
+        // last reported; live changes come in over `gateway-locale`.
+        apply_gateway_locale(cfg.locale.as_deref());
+
         // The daemon's own actor_id (persisted in backend.toml during `init`)
         // is the agent participant the gateway-port channels speak as. Admin
         // owners are looked up from agent_member_access so they appear in
@@ -161,8 +166,21 @@ impl DaemonServer {
             bot_configs: Arc::new(AsyncMutex::new(bot_configs)),
             daemon_config_path: crate::config::DaemonConfig::default_path(),
         });
+        // Everything this store writes gets announced on `session/{id}/live`.
+        // Without it a gateway conversation exists only in the cloud table, and
+        // clients find out about it the next time they happen to refetch.
+        let live = self.teamclu.as_ref().map(|tc| {
+            crate::channels::live_notify::GatewayLiveNotifier::new(
+                tc.live_publisher_handle(),
+                tc.message_dedup(),
+            )
+        });
+        if live.is_none() {
+            warn!("channels: no teamclu client yet; gateway messages will not broadcast live");
+        }
         let store: Arc<dyn ChannelStore> = Arc::new(AmuxdChannelStore {
             client: self.backend.clone(),
+            live,
         });
 
         let mgr = ChannelManager::new(
@@ -298,18 +316,24 @@ impl DaemonServer {
     }
 
     /// Handle a `mcp-send` JSON envelope from the `amuxd mcp-server` bridge.
-    /// Parses the binding URI (e.g. `wecom://{corp}/{agent}/{kind}/{id}`) to
-    /// derive the default channel + target, applies any explicit overrides,
-    /// then routes the send through `ChannelManager::dispatch_send`. Returns
-    /// a JSON-friendly success/error value (the listener serializes it).
+    /// Resolves the caller's reply token to a chat binding, parses that
+    /// binding (e.g. `wecom://{corp}/{agent}/{kind}/{id}`) into the default
+    /// channel + target, applies any explicit overrides, then routes the send
+    /// through `ChannelManager::dispatch_send`. Returns a JSON-friendly
+    /// success/error value (the listener serializes it).
+    ///
+    /// The token is the whole authorization story. The tool is registered
+    /// per workspace now, so every session in that workspace can see it —
+    /// including desktop conversations that were never bound to a chat. Those
+    /// have no token, so they resolve to no target and cannot send, and an
+    /// explicit `target` does not rescue them: overrides are only honoured
+    /// once a token has established which chat the caller belongs to.
     pub(crate) async fn handle_mcp_send(
         &self,
         payload: &serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
-        let binding = payload
-            .get("binding")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("mcp-send: missing 'binding'"))?;
+        let binding_owned = binding_from_reply_token(payload)?;
+        let binding = binding_owned.as_str();
         let message = payload.get("message").and_then(|v| v.as_str());
         let file_path = payload.get("file_path").and_then(|v| v.as_str());
         let target_override = payload.get("target_override").and_then(|v| v.as_str());
@@ -355,6 +379,12 @@ impl DaemonServer {
         mgr.dispatch_send(channel, target, message, file_path)
             .await?;
 
+        // The chat now has the file; the session must get it too. Without this
+        // an agent-sent attachment lived only in WeCom — the desktop showed the
+        // reply text and no file, because nothing had ever written one.
+        self.record_outbound_send(mgr, payload, message, file_path)
+            .await;
+
         // `dispatch_send` returned Ok, so the channel adapter confirmed the
         // send. Echo the resolved binding/target so the caller's ACK can be
         // matched against the originating chat rather than trusting a bare
@@ -366,6 +396,108 @@ impl DaemonServer {
             "message_sent": message.map(|s| !s.is_empty()).unwrap_or(false),
             "file_sent": file_path.is_some(),
         }))
+    }
+
+    /// Mirror an outbound `send` into the session it was sent from.
+    ///
+    /// Best-effort by design: the message has already reached the chat, so a
+    /// failure here must not turn a delivered send into a reported error. It
+    /// only costs the desktop its copy, which is what a warn is for.
+    async fn record_outbound_send(
+        &self,
+        mgr: &ChannelManager,
+        payload: &serde_json::Value,
+        message: Option<&str>,
+        file_path: Option<&str>,
+    ) {
+        let Some(session_id) = payload
+            .get("reply_token")
+            .and_then(|v| v.as_str())
+            .and_then(crate::channels::reply_token::session_for)
+        else {
+            // Pre-dates this turn's token, or a cron binding that has no cloud
+            // session. Nothing to attach the record to.
+            return;
+        };
+
+        let store = mgr.store();
+        let sender = mgr.agent_actor_id().to_string();
+        let caption = message.unwrap_or("").trim().to_string();
+
+        let Some(path) = file_path else {
+            // A text-only proactive send. The gateway records its own replies,
+            // but a `send` with no file is a message the session has not seen.
+            if caption.is_empty() {
+                return;
+            }
+            if let Err(e) = store
+                .record_agent_reply(&session_id, &sender, &caption, None)
+                .await
+            {
+                warn!(session_id, error = %e, "mcp-send: recording the sent text failed");
+            }
+            return;
+        };
+
+        let bytes = match tokio::fs::read(path).await {
+            Ok(b) => b,
+            Err(e) => {
+                warn!(path, error = %e, "mcp-send: re-reading the sent file failed");
+                return;
+            }
+        };
+        let filename = std::path::Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+            .to_string();
+        let mime = teamclu_gateway::wecom::resolve_mime(&bytes, Some(&filename));
+        let size = bytes.len();
+        // Same team/session-scoped layout the inbound path uses, so both
+        // directions land in one place.
+        let bucket_path = format!(
+            "{}/{}/{}-{}",
+            mgr.team_id(),
+            session_id,
+            uuid::Uuid::new_v4(),
+            filename
+        );
+        let uploaded = store
+            .upload_attachment(&bucket_path, bytes, &mime)
+            .await
+            .is_ok();
+        if !uploaded {
+            warn!(
+                session_id,
+                filename, "mcp-send: attachment upload failed; recording it without a download"
+            );
+        }
+
+        let content = if caption.is_empty() {
+            format!("[Attachment: {filename}]")
+        } else {
+            format!("{caption}\n[Attachment: {filename}]")
+        };
+        if let Err(e) = store
+            .record_agent_reply_with_attachments(
+                &session_id,
+                &sender,
+                &content,
+                None,
+                vec![teamclu_gateway::AttachmentRecord {
+                    filename,
+                    mime,
+                    size,
+                    // Empty means "no download available" — same convention the
+                    // inbound path uses when its upload fails.
+                    bucket_path: if uploaded { bucket_path } else { String::new() },
+                    local_path: Some(path.to_string()),
+                }],
+            )
+            .await
+        {
+            warn!(session_id, error = %e, "mcp-send: recording the sent attachment failed");
+        }
     }
 
     // `handle_prompt_await` (cron-style ACP turn) lives in `server/cron.rs`.
@@ -463,6 +595,32 @@ impl DaemonServer {
         self.reload_channels().await;
     }
 
+    /// Persist the device-wide gateway reply language (`locale` in daemon.toml)
+    /// and apply it to the running gateways.
+    ///
+    /// Unlike the model, this does **not** reload channels: the language is read
+    /// per reply, so a live update is enough and a WeCom reconnect for a UI
+    /// language toggle would be a needless disconnect. An empty string clears
+    /// the setting, which reads back as English.
+    pub(crate) fn save_gateway_locale(&mut self, locale: &str) {
+        let trimmed = locale.trim();
+        self.config.locale = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        apply_gateway_locale(self.config.locale.as_deref());
+
+        if let Err(e) = self
+            .config
+            .save(&crate::config::DaemonConfig::default_path())
+        {
+            error!("gateway-locale: failed to persist daemon.toml: {e:?}");
+            return;
+        }
+        info!(locale = trimmed, "gateway-locale: persisted and applied");
+    }
+
     /// Tear down any running channels. Idempotent — safe to call when
     /// `channel_mgr` is `None`.
     pub(crate) async fn shutdown_channels(&mut self) {
@@ -490,6 +648,18 @@ impl DaemonServer {
         }
         let _ = std::fs::remove_file(crate::config::DaemonConfig::http_port_path());
     }
+}
+
+/// Push the configured language into the gateway crate's device-wide locale.
+///
+/// `None` (and any tag we do not translate) means English — the same fallback
+/// `Locale::parse_or_default` applies, kept in one place so the daemon never
+/// invents its own notion of "unset".
+fn apply_gateway_locale(locale: Option<&str>) {
+    let resolved = locale
+        .map(teamclu_gateway::i18n::Locale::parse_or_default)
+        .unwrap_or(teamclu_gateway::i18n::Locale::En);
+    teamclu_gateway::i18n::set_locale(resolved);
 }
 
 /// Detect placeholder / half-resolved send targets that must never reach a
@@ -594,6 +764,90 @@ mod gateway_model_tests {
             split_gateway_model(Some("anthropic/")),
             Some((String::new(), "anthropic".into()))
         );
+    }
+}
+
+/// The chat a `mcp-send` envelope is allowed to reach.
+///
+/// The token is the whole authorization story, which is why an envelope
+/// without one is rejected before anything else is even parsed. `send` is
+/// registered per workspace now, so every session there can see the tool —
+/// including desktop conversations that were never bound to a chat. Those have
+/// no token, so they have no destination, and an explicit `target` does not
+/// rescue them: overrides only narrow within a chat a token already proved the
+/// caller belongs to.
+fn binding_from_reply_token(payload: &serde_json::Value) -> anyhow::Result<String> {
+    let reply_token = payload
+        .get("reply_token")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if reply_token.is_empty() {
+        anyhow::bail!(
+            "mcp-send: missing 'reply_token' — pass the reply token from this chat's prompt; \
+             a session that is not bound to a chat cannot send"
+        );
+    }
+    crate::channels::reply_token::binding_for(reply_token).ok_or_else(|| {
+        anyhow::anyhow!(
+            "mcp-send: unknown 'reply_token' — use the token from the most recent \
+             message in this chat"
+        )
+    })
+}
+
+#[cfg(test)]
+mod reply_token_gate_tests {
+    use super::binding_from_reply_token;
+    use crate::channels::reply_token;
+    use serde_json::json;
+
+    #[test]
+    fn a_registered_token_resolves_to_its_chat() {
+        let binding = "wecom://bot/bot/single/gate-ok";
+        let token = reply_token::register(binding);
+        let resolved = binding_from_reply_token(&json!({ "reply_token": token })).unwrap();
+        assert_eq!(resolved, binding);
+    }
+
+    #[test]
+    fn no_token_is_refused() {
+        let err = binding_from_reply_token(&json!({}))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("reply_token"), "got: {err}");
+        // Blank and whitespace are the same as absent — a model that echoed an
+        // empty placeholder must not fall through to some default chat.
+        assert!(binding_from_reply_token(&json!({ "reply_token": "" })).is_err());
+        assert!(binding_from_reply_token(&json!({ "reply_token": "   " })).is_err());
+    }
+
+    #[test]
+    fn an_unknown_token_is_refused() {
+        assert!(binding_from_reply_token(&json!({ "reply_token": "not-a-real-token" })).is_err());
+    }
+
+    #[test]
+    fn an_explicit_target_does_not_substitute_for_a_token() {
+        // The decision this encodes: a session with no chat of its own cannot
+        // address one by naming it. Overrides narrow, they do not authorize.
+        let err = binding_from_reply_token(&json!({
+            "target_override": "user:someone-else",
+            "channel_override": "wecom",
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("reply_token"), "got: {err}");
+    }
+
+    #[test]
+    fn a_stale_binding_field_is_ignored() {
+        // An older worktree config still passes `binding` in argv. Honouring it
+        // would reopen the hole the token closes.
+        assert!(binding_from_reply_token(&json!({
+            "binding": "wecom://bot/bot/single/someone-else",
+        }))
+        .is_err());
     }
 }
 

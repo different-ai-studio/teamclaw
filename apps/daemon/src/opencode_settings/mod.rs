@@ -146,4 +146,40 @@ impl OpenCodeSettingsService {
         let client = self.client_for_workspace(workspace).await?;
         client.fetch_connected_provider_ids().await
     }
+
+    /// Device-level counterparts of the above (no workspace) — see
+    /// [`pool::WorkspaceSettingsContextResolver::resolve_device_settings_context`].
+    /// Provider OAuth state lives under the user's global OpenCode paths
+    /// regardless of directory, so connecting a provider should not require
+    /// a project workspace to already exist and resolve, any more than the
+    /// device-level API-key path (#742) does.
+    pub async fn device_provider_auth_methods(
+        &self,
+    ) -> Result<ProviderAuthMethodsResponse, OpenCodeSettingsError> {
+        let client = self.client_for_device().await?;
+        let live = client.fetch_provider_auth_methods().await?;
+        Ok(merge_live_provider_auth_methods(live))
+    }
+
+    pub async fn device_oauth_authorize(
+        &self,
+        provider_id: &str,
+        method_index: u32,
+        inputs: &std::collections::HashMap<String, String>,
+    ) -> Result<OAuthAuthorizeResult, OpenCodeSettingsError> {
+        let client = self.client_for_device().await?;
+        client
+            .oauth_authorize(provider_id, method_index, inputs)
+            .await
+    }
+
+    pub async fn device_oauth_callback(
+        &self,
+        provider_id: &str,
+        method_index: u32,
+        code: Option<&str>,
+    ) -> Result<(), OpenCodeSettingsError> {
+        let client = self.client_for_device().await?;
+        client.oauth_callback(provider_id, method_index, code).await
+    }
 }

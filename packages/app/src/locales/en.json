@@ -1773,6 +1773,7 @@
       "startSetup": "Start Setup",
       "saveChanges": "Save Changes",
       "saving": "Saving...",
+      "saveSuccess": "Changes saved",
       "saveError": "Failed to save changes",
       "test": "Test",
       "setup": "Setup",

@@ -400,7 +400,6 @@ pub struct FeishuGateway {
     pub team_id: String,
     pub primary_agent_actor_id: String,
     pub agent_owner_actor_ids: Vec<String>,
-    workspace_path: String,
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<FeishuGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
@@ -413,7 +412,6 @@ impl FeishuGateway {
         team_id: String,
         primary_agent_actor_id: String,
         agent_owner_actor_ids: Vec<String>,
-        workspace_path: String,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(FeishuConfig::default())),
@@ -422,7 +420,6 @@ impl FeishuGateway {
             team_id,
             primary_agent_actor_id,
             agent_owner_actor_ids,
-            workspace_path,
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(FeishuGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
@@ -472,7 +469,6 @@ impl FeishuGateway {
         let team_id = self.team_id.clone();
         let primary_agent_actor_id = self.primary_agent_actor_id.clone();
         let agent_owner_actor_ids = self.agent_owner_actor_ids.clone();
-        let workspace_path = self.workspace_path.clone();
 
         tokio::spawn(async move {
             let result = run_feishu_gateway(
@@ -484,7 +480,6 @@ impl FeishuGateway {
                 primary_agent_actor_id,
                 agent_owner_actor_ids,
                 shutdown_rx,
-                workspace_path,
             )
             .await;
 
@@ -561,7 +556,6 @@ impl Clone for FeishuGateway {
             team_id: self.team_id.clone(),
             primary_agent_actor_id: self.primary_agent_actor_id.clone(),
             agent_owner_actor_ids: self.agent_owner_actor_ids.clone(),
-            workspace_path: self.workspace_path.clone(),
             shutdown_tx: Arc::clone(&self.shutdown_tx),
             status: Arc::clone(&self.status),
             is_running: Arc::clone(&self.is_running),
@@ -629,7 +623,6 @@ struct HandlerContext {
     agent_owner_actor_ids: Vec<String>,
     app_id: String,
     app_secret: String,
-    workspace_path: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -642,7 +635,6 @@ async fn run_feishu_gateway(
     primary_agent_actor_id: String,
     agent_owner_actor_ids: Vec<String>,
     mut shutdown_rx: oneshot::Receiver<()>,
-    workspace_path: String,
 ) -> Result<(), String> {
     let cfg = config.read().await.clone();
     let token_manager = TokenManager::new(&cfg.app_id, &cfg.app_secret);
@@ -659,7 +651,6 @@ async fn run_feishu_gateway(
         agent_owner_actor_ids,
         app_id: cfg.app_id.clone(),
         app_secret: cfg.app_secret.clone(),
-        workspace_path,
     };
 
     let processed_messages: Arc<RwLock<ProcessedMessageTracker>> = Arc::new(RwLock::new(
@@ -1077,27 +1068,31 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
         }
     }
 
-    let _locale = i18n::get_locale(&ctx.workspace_path);
+    let locale = i18n::locale();
 
-    // /sessions is intentionally NOT supported in v2.
-    let lower = clean_text.to_lowercase();
-    if clean_text.eq_ignore_ascii_case("/sessions") || lower.starts_with("/sessions ") {
-        if let Ok(token) = token_manager.get_tenant_token().await {
-            let _ = reply_feishu_message(
-                &token,
-                &message_id,
-                "This command is not supported in v2 yet.",
+    // Slash commands run off the one shared table. `/help` and `/skills` need
+    // no session, so they answer here rather than opening one; everything else
+    // falls through to the session-resolve path below and dispatches there.
+    let slash = crate::commands::parse_slash(&clean_text);
+    if let Some((cmd_name, cmd_arg)) = &slash {
+        if !crate::commands::needs_session(cmd_name) {
+            if let Ok(Some(reply_text)) = crate::commands::run_slash(
+                cmd_name,
+                cmd_arg.as_deref(),
+                ctx.agent.as_ref(),
+                ctx.store.as_ref(),
+                &String::new(),
+                locale,
             )
-            .await;
+            .await
+            {
+                if let Ok(token) = token_manager.get_tenant_token().await {
+                    let _ = reply_feishu_message(&token, &message_id, &reply_text).await;
+                }
+                return;
+            }
         }
-        return;
     }
-
-    // /stop /reset /model fall through to the session-resolve path below
-    // (they require a resolved acp_session_id). Dispatch happens after
-    // ensure_session.
-    let is_session_slash =
-        lower == "/stop" || lower == "/reset" || lower == "/model" || lower.starts_with("/model ");
 
     // Build the binding URI: feishu://{app_id}/{chat_id}
     let binding = crate::binding::feishu(&ctx.app_id, &chat_id);
@@ -1167,14 +1162,19 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
         eprintln!("[Feishu] add_participant failed: {}", e);
     }
 
-    // Slash-command dispatch — /stop /reset /model — against the resolved session.
-    if is_session_slash {
-        let reply_text = crate::commands::dispatch_session_slash_cmd(
-            &ctx.agent,
-            &lower,
+    // Slash-command dispatch against the resolved session.
+    if let Some((cmd_name, cmd_arg)) = &slash {
+        let reply_text = crate::commands::run_slash(
+            cmd_name,
+            cmd_arg.as_deref(),
+            ctx.agent.as_ref(),
+            ctx.store.as_ref(),
             &outcome.acp_session_id,
+            locale,
         )
-        .await;
+        .await
+        .unwrap_or(None)
+        .unwrap_or_else(|| crate::commands::unknown_command_reply(cmd_name, locale));
         if let Ok(token) = token_manager.get_tenant_token().await {
             let _ = reply_feishu_message(&token, &message_id, &reply_text).await;
         }

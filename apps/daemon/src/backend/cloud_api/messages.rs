@@ -191,6 +191,10 @@ impl CloudApiBackend {
         Ok(message.id)
     }
 
+    /// `kind` decides which side of the conversation this lands on: `text` is
+    /// what a person sent, `agent_reply` what the agent did. A file the agent
+    /// pushed to a chat used to be inserted as `text` and therefore rendered as
+    /// if the user had sent it.
     pub(super) async fn insert_gateway_message_with_attachments_impl(
         &self,
         session_id: &str,
@@ -198,6 +202,7 @@ impl CloudApiBackend {
         content: &str,
         external_message_id: Option<&str>,
         attachments: Value,
+        kind: &str,
     ) -> BackendResult<String> {
         let (id, metadata) = gateway_message_id_and_metadata(
             session_id,
@@ -212,7 +217,7 @@ impl CloudApiBackend {
                     team_id: &self.cfg.team_id,
                     sender_actor_id,
                     content,
-                    kind: "text",
+                    kind,
                     metadata,
                     turn_id: None,
                     reply_to_message_id: None,

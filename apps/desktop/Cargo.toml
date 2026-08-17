@@ -7,7 +7,13 @@ edition = "2021"
 
 [lib]
 name = "teamclu_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# rlib only. `staticlib` and `cdylib` come from the Tauri v2 scaffold and exist
+# solely for `tauri ios|android init`, which this project has never run — there
+# is no apps/desktop/gen/apple or gen/android, and nothing in the repo links
+# libteamclu_lib.a / .dylib (the iOS app is Swift-side AMUXCore, not this crate).
+# Keeping them made rustc codegen the largest crate in the workspace three times
+# on every build. Restore this list if tauri mobile is ever initialised.
+crate-type = ["rlib"]
 
 [features]
 default = []

@@ -887,31 +887,29 @@ impl KookGateway {
             return Ok(());
         }
 
-        let locale = i18n::get_locale(&self.workspace_path);
+        let locale = i18n::locale();
 
-        // /help — early-out: no session resolution needed.
-        if content.eq_ignore_ascii_case("/help") {
-            let _ = self
-                .send_reply(msg, &i18n::t(i18n::MsgKey::HelpKook, locale))
-                .await;
-            return Ok(());
+        // Slash commands run off the one shared table. `/help` and `/skills`
+        // need no session, so they answer here instead of opening one; the rest
+        // fall through to the session-resolve path and dispatch there.
+        let slash = crate::commands::parse_slash(&content);
+        if let Some((cmd_name, cmd_arg)) = &slash {
+            if !crate::commands::needs_session(cmd_name) {
+                if let Ok(Some(reply_text)) = crate::commands::run_slash(
+                    cmd_name,
+                    cmd_arg.as_deref(),
+                    self.agent.as_ref(),
+                    self.store.as_ref(),
+                    &String::new(),
+                    locale,
+                )
+                .await
+                {
+                    let _ = self.send_reply(msg, &reply_text).await;
+                    return Ok(());
+                }
+            }
         }
-
-        // /sessions is intentionally NOT supported in v2.
-        let lower = content.to_lowercase();
-        if content.eq_ignore_ascii_case("/sessions") || lower.starts_with("/sessions ") {
-            let _ = self
-                .send_reply(msg, "This command is not supported in v2 yet.")
-                .await;
-            return Ok(());
-        }
-
-        // /stop /reset /model fall through to the session-resolve path; they
-        // need a resolved acp_session_id. Dispatch happens after ensure_session.
-        let is_session_slash = lower == "/stop"
-            || lower == "/reset"
-            || lower == "/model"
-            || lower.starts_with("/model ");
 
         // Build the binding URI. For DMs the scope is "dm"; for guild channels
         // the scope is the guild id.
@@ -989,14 +987,19 @@ impl KookGateway {
             eprintln!("[KOOK] add_participant failed: {}", e);
         }
 
-        // Slash-command dispatch — /stop /reset /model — against the resolved session.
-        if is_session_slash {
-            let reply_text = crate::commands::dispatch_session_slash_cmd(
-                &self.agent,
-                &lower,
+        // Slash-command dispatch against the resolved session.
+        if let Some((cmd_name, cmd_arg)) = &slash {
+            let reply_text = crate::commands::run_slash(
+                cmd_name,
+                cmd_arg.as_deref(),
+                self.agent.as_ref(),
+                self.store.as_ref(),
                 &outcome.acp_session_id,
+                locale,
             )
-            .await;
+            .await
+            .unwrap_or(None)
+            .unwrap_or_else(|| crate::commands::unknown_command_reply(cmd_name, locale));
             let _ = self.send_reply(msg, &reply_text).await;
             return Ok(());
         }

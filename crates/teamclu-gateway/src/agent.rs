@@ -52,6 +52,27 @@ pub struct WorkspaceInfo {
     pub is_current: bool,
 }
 
+/// Someone seated in the current session, as `/participant` lists them.
+///
+/// Both descriptive fields are optional because the seat itself is the fact:
+/// `session_participants` stores actor ids, and the directory that names them
+/// can come back short — a deleted actor leaves a live participant row behind.
+/// Such a seat still lists (under a placeholder built by the caller's locale),
+/// because a roster that quietly drops rows is worse than one that admits it
+/// does not recognise someone.
+#[derive(Debug, Clone)]
+pub struct ParticipantInfo {
+    /// The actor id, which is always known — the only identifier a nameless
+    /// seat has left.
+    pub actor_id: String,
+    pub display_name: Option<String>,
+    /// The `actors.actor_type` this participant is: `member`, `agent`, or
+    /// `external` (a chat identity the gateway minted for someone who has no
+    /// TeamClu account). Carried as a string rather than an enum so a kind this
+    /// build has not heard of still lists, labelled by its raw name.
+    pub kind: Option<String>,
+}
+
 /// Abstraction over amuxd's in-process agent runtime. Channels call this
 /// instead of POSTing to opencode's HTTP server.
 #[async_trait]
@@ -220,6 +241,19 @@ pub trait AgentHandle: Send + Sync + 'static {
         &self,
         session: &AmuxSessionId,
     ) -> Result<Vec<(String, String)>, AgentError>;
+
+    /// Everyone seated in this session — the people and agents a message here
+    /// reaches. Used by `/participant`.
+    ///
+    /// The default impl answers "nobody listed" so a handle with no participant
+    /// store (tests, a channel whose sessions are not cloud-backed) degrades to
+    /// an empty roster instead of failing the command.
+    async fn list_participants(
+        &self,
+        _session: &AmuxSessionId,
+    ) -> Result<Vec<ParticipantInfo>, AgentError> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

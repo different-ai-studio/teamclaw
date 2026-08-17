@@ -198,14 +198,16 @@ pub enum TeamSecretsAction {
 
 #[derive(Args, Debug)]
 pub struct McpServerArgs {
-    /// AMUX session_id this MCP server is bound to. Defaulted tool calls
-    /// will route messages back to this session's gateway chat.
-    #[arg(long)]
+    /// Deprecated, ignored. The server is registered once per workspace now,
+    /// so it has no session of its own; `send` takes its destination from the
+    /// caller's `reply_token`. Still accepted because a worktree config
+    /// written by an older build passes it, and clap would otherwise abort.
+    #[arg(long, default_value = "")]
     pub session_id: String,
-    /// Binding URI (e.g. `wecom://{corp_id}/{agent_id}/single/{userid}`).
-    /// Determines the default channel + target for the `send` tool when
-    /// the agent omits explicit overrides.
-    #[arg(long)]
+    /// Deprecated, ignored — see `session_id`. Routing used to come from this
+    /// binding URI; it now comes from `reply_token`, which is what lets a
+    /// session that somebody else attached still reply.
+    #[arg(long, default_value = "")]
     pub binding: String,
     /// Override path to `amuxd.sock`. Defaults to
     /// `DaemonConfig::sock_path()` (`~/.amuxd/amuxd.sock`).

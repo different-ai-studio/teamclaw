@@ -54,13 +54,18 @@ export function createWecomActions(set: ChannelsSet) {
     },
 
     saveWecomConfig: async (config: WeComConfig) => {
+      set({ wecomIsLoading: true, error: null })
       try {
         await saveChannelConfig('wecom', config)
         await reloadChannels()
-        set({ wecom: config, wecomHasChanges: false, error: null })
+        set({ wecom: config, wecomHasChanges: false, wecomIsLoading: false, error: null })
       } catch (e) {
         console.error('[WeCom] Failed to save config:', e)
-        set({ error: describe(e) })
+        set({ error: describe(e), wecomIsLoading: false })
+        // Rethrow so the caller can say so. `error` is not rendered anywhere in
+        // the channel settings, so swallowing it here left a failed save
+        // indistinguishable from a successful one — the button just sat there.
+        throw new Error(describe(e), { cause: e })
       }
     },
 

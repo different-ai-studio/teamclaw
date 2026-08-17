@@ -1,10 +1,11 @@
-use crate::read_config;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Supported locales
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum Locale {
-    En,
-    ZhCN,
+    En = 0,
+    ZhCN = 1,
 }
 
 impl Locale {
@@ -16,13 +17,31 @@ impl Locale {
     }
 }
 
-/// Read locale from teamclu.json config, defaulting to En
-pub fn get_locale(workspace_path: &str) -> Locale {
-    read_config(workspace_path)
-        .ok()
-        .and_then(|c| c.locale)
-        .map(|s| Locale::parse_or_default(&s))
-        .unwrap_or(Locale::En)
+/// The language every gateway replies in — one device-wide value, mirroring the
+/// app's UI language.
+///
+/// It used to be read per message out of the conversation workspace's
+/// `<workspace>/.teamclu/teamclu.json`, which quietly guaranteed English: the gateways run
+/// inside amuxd and were handed the daemon's own state directory, never the
+/// workspace whose language the user had actually set. Language is an app-level
+/// preference anyway — one setting, not one per workspace — so it lives here and
+/// the daemon pushes it in from `daemon.toml` (see `set_locale`).
+static GLOBAL_LOCALE: AtomicU8 = AtomicU8::new(Locale::En as u8);
+
+/// Set the device-wide gateway reply language. Called by amuxd at startup and
+/// whenever the desktop app reports a language change; takes effect on the next
+/// reply, with no channel restart.
+pub fn set_locale(locale: Locale) {
+    GLOBAL_LOCALE.store(locale as u8, Ordering::Relaxed);
+}
+
+/// The current gateway reply language (`Locale::En` until something sets it).
+pub fn locale() -> Locale {
+    if GLOBAL_LOCALE.load(Ordering::Relaxed) == Locale::ZhCN as u8 {
+        Locale::ZhCN
+    } else {
+        Locale::En
+    }
 }
 
 /// All translatable message keys
@@ -83,29 +102,73 @@ pub enum MsgKey<'a> {
     GatewayShuttingDown,
     MessageCouldNotBeProcessed,
 
+    // === Inbound attachments ===
+    AttachmentFailed(&'a str),
+
     // === Error fallback ===
     ModelEmptyResponse,
 
     // === Unknown command ===
     UnknownCommand(&'a str),
 
+    // === Gateway meta-commands (commands.rs: /help, /model, /sessions,
+    // /workspace, /skills, /new, /stop, /ctx) ===
+    GatewayMetaHelpStatic,
+    AgentCommandsHeader,
+    CtxUsage,
+    NoModelsAvailable,
+    CurrentModelCatalogUnavailable(&'a str),
+    CurrentModelHeader(&'a str),
+    ModelsListHeader,
+    ModelsMoreIndented(usize),
+    ModelUsageLine,
+    CurrentMarkerParen,
+    ModelSetConfirm(&'a str, &'a str),
+    NoSessions,
+    SessionsListHeader,
+    SessionsUsageLine,
+    NoSessionNumber(usize, usize),
+    AlreadyInSession,
+    SwitchedToSessionMeta(&'a str),
+    CannotSwitchSession,
+    NoWorkspaces,
+    WorkspacesListHeader,
+    WorkspacesUsageLine,
+    NoWorkspaceNumber(usize, usize),
+    DefaultWorkspaceSet(&'a str),
+    NoSkillsFound,
+    SkillsListHeader,
+    NoParticipants,
+    ParticipantsListHeader,
+    /// Label for an `actors.actor_type`. Unknown kinds fall through as-is, so a
+    /// participant whose type this build predates still lists.
+    ParticipantKind(&'a str),
+    /// A seat the actor directory could not name, carrying the head of its
+    /// actor id so two of them stay distinguishable.
+    UnnamedParticipant(&'a str),
+    NewSessionStarted,
+    NewSessionNotDetached,
+    MetaStopped,
+    NothingRunning,
+    ContextInjected,
+
+    // === /reset ===
+    SessionResetShort,
+    CouldNotReset(&'a str),
+
+    // === resolve_bare_model (commands.rs) ===
+    ModelNotFoundInWorkspace(&'a str),
+    ModelAmbiguous(&'a str, &'a str),
+
+    // === misc shared across gateways ===
+
     // === /help per-gateway ===
-    HelpWechat,
-    HelpWecom,
-    HelpDiscord,
-    HelpKook,
 
     // === WeCom welcome ===
     WecomWelcome,
-
     // === Discord specific ===
-    LoadingSessions,
 
     // === KOOK card-specific ===
-    KookCardHeaderModels,
-    KookCardCurrentModel(&'a str, bool),
-    KookCardHeaderHelp,
-    KookCardHelpUsage,
 }
 
 /// Return the translated string for a given key and locale
@@ -249,6 +312,10 @@ pub fn t(key: MsgKey, locale: Locale) -> String {
         (MessageCouldNotBeProcessed, En) => "Your message could not be processed. Please resend.".into(),
         (MessageCouldNotBeProcessed, ZhCN) => "消息处理失败，请重新发送。".into(),
 
+        // === Inbound attachments ===
+        (AttachmentFailed(e), En) => format!("I couldn't retrieve the attachment you sent ({}). Please send it again.", e),
+        (AttachmentFailed(e), ZhCN) => format!("你发来的附件没能取到（{}），请再发一次。", e),
+
         // === Error fallback ===
         (ModelEmptyResponse, En) => "The model returned no text content. Please try again or rephrase.".into(),
         (ModelEmptyResponse, ZhCN) => "模型未返回文字内容，请稍后重试或换种说法。".into(),
@@ -257,88 +324,206 @@ pub fn t(key: MsgKey, locale: Locale) -> String {
         (UnknownCommand(cmd), En) => format!("Unknown command: {}\nType /help for available commands.", cmd),
         (UnknownCommand(cmd), ZhCN) => format!("未知命令: {}\n输入 /help 查看可用命令。", cmd),
 
-        // === /help per-gateway ===
-        (HelpWechat, En) => "Available commands:\n\
+        // === Gateway meta-commands (commands.rs) ===
+        (GatewayMetaHelpStatic, En) => "\
+            Gateway commands:\n\
             /help - Show this help\n\
             /model [name] - List or switch models\n\
-            /sessions [id] - List or bind sessions\n\
-            /reset - Start new session\n\
+            /sessions [n] - List this chat's sessions, or continue #n\n\
+            /workspace [n] - List workspaces, or make #n this bot's default\n\
+            /skills - List workspace skills\n\
+            /participant - List everyone in this chat\n\
+            /new - Start a new session (the current one stays in /sessions)\n\
+            /reset - Clear the agent's context, staying in this session\n\
             /stop - Stop current processing\n\
-            /answer - Reply to an AI clarification (see bot message)".into(),
-        (HelpWechat, ZhCN) => "可用命令:\n\
-            /help - 显示帮助\n\
+            /ctx <text> - Inject context without reply".into(),
+        (GatewayMetaHelpStatic, ZhCN) => "\
+            网关命令:\n\
+            /help - 显示本帮助\n\
             /model [名称] - 查看或切换模型\n\
-            /sessions [编号] - 查看或绑定会话\n\
-            /reset - 开始新会话\n\
+            /sessions [编号] - 查看本聊天的会话列表，或切换到第 n 个\n\
+            /workspace [编号] - 查看工作区列表，或将第 n 个设为此机器人的默认工作区\n\
+            /skills - 查看工作区技能列表\n\
+            /participant - 查看本会话的所有成员\n\
+            /new - 开始新会话（当前会话仍保留在 /sessions 中）\n\
+            /reset - 清空 Agent 上下文，但留在当前会话\n\
             /stop - 停止当前处理\n\
-            /answer - 回复 AI 的澄清问题（见机器人消息）".into(),
+            /ctx <文本> - 注入上下文但不回复".into(),
 
-        (HelpWecom, En) => "Available commands:\n\
-            /help - Show this help\n\
-            /model [name] - List or switch models\n\
-            /sessions [id] - List or bind sessions\n\
-            /reset - Start new session\n\
-            /stop - Stop current processing".into(),
-        (HelpWecom, ZhCN) => "可用命令:\n\
-            /help - 显示帮助\n\
-            /model [名称] - 查看或切换模型\n\
-            /sessions [编号] - 查看或绑定会话\n\
-            /reset - 开始新会话\n\
-            /stop - 停止当前处理".into(),
+        (AgentCommandsHeader, En) => "\n\nAgent commands:".into(),
+        (AgentCommandsHeader, ZhCN) => "\n\nAgent 命令:".into(),
 
-        (HelpDiscord, En) => "**TeamClu Bot Commands**\n\n\
-            /reset - Reset the current chat session\n\
-            /model - View current model or switch models\n\
-            /sessions - List or switch sessions\n\
-            /stop - Stop the current processing\n\
-            /help - Show this help message\n\n\
-            **How to use:**\n\
-            • In DMs: Just send a message to start chatting\n\
-            • In channels: Mention the bot or reply to its messages\n\n\
-            You can also send images along with your messages!".into(),
-        (HelpDiscord, ZhCN) => "**TeamClu 机器人命令**\n\n\
-            /reset - 重置当前聊天会话\n\
-            /model - 查看或切换模型\n\
-            /sessions - 查看或切换会话\n\
-            /stop - 停止当前处理\n\
-            /help - 显示帮助\n\n\
-            **使用方法:**\n\
-            • 私聊: 直接发消息开始对话\n\
-            • 频道: @机器人 或回复机器人消息\n\n\
-            你也可以在消息中附带图片！".into(),
+        (CtxUsage, En) => "Usage: /ctx <text>".into(),
+        (CtxUsage, ZhCN) => "用法: /ctx <文本>".into(),
 
-        (HelpKook, En) => "/reset - Reset the current chat session\n\
-            /model - View current model or switch models\n\
-            /sessions - List or switch sessions\n\
-            /stop - Stop the current processing\n\
-            /help - Show this help message".into(),
-        (HelpKook, ZhCN) => "/reset - 重置当前聊天会话\n\
-            /model - 查看或切换模型\n\
-            /sessions - 查看或切换会话\n\
-            /stop - 停止当前处理\n\
-            /help - 显示帮助".into(),
+        (NoModelsAvailable, En) => "No models available.".into(),
+        (NoModelsAvailable, ZhCN) => "暂无可用模型。".into(),
+
+        (CurrentModelCatalogUnavailable(m), En) => format!("Current model: {}\n(Model catalog unavailable.)", m),
+        (CurrentModelCatalogUnavailable(m), ZhCN) => format!("当前模型: {}\n（模型列表不可用。）", m),
+
+        (CurrentModelHeader(m), En) => format!("Current model: {}\n\n", m),
+        (CurrentModelHeader(m), ZhCN) => format!("当前模型: {}\n\n", m),
+
+        (ModelsListHeader, En) => "Models:\n".into(),
+        (ModelsListHeader, ZhCN) => "模型列表:\n".into(),
+
+        (ModelsMoreIndented(n), En) => format!("\n  … and {} more", n),
+        (ModelsMoreIndented(n), ZhCN) => format!("\n  ……以及另外 {} 个", n),
+
+        (ModelUsageLine, En) => "\n\nUsage: /model <provider>/<model>".into(),
+        (ModelUsageLine, ZhCN) => "\n\n用法: /model <provider>/<model>".into(),
+
+        (CurrentMarkerParen, En) => " (current)".into(),
+        (CurrentMarkerParen, ZhCN) => "（当前）".into(),
+
+        (ModelSetConfirm(p, m), En) => format!("Model set: {}/{}", p, m),
+        (ModelSetConfirm(p, m), ZhCN) => format!("已设置模型: {}/{}", p, m),
+
+        (NoSessions, En) => "No sessions.".into(),
+        (NoSessions, ZhCN) => "暂无会话。".into(),
+
+        (SessionsListHeader, En) => "Sessions:\n".into(),
+        (SessionsListHeader, ZhCN) => "会话列表:\n".into(),
+
+        (SessionsUsageLine, En) => "\n\nUsage: /sessions <number> — continue that conversation".into(),
+        (SessionsUsageLine, ZhCN) => "\n\n用法: /sessions <编号> — 继续该会话".into(),
+
+        (NoSessionNumber(n, total), En) => format!("No session #{}. Use /sessions to list them ({} available).", n, total),
+        (NoSessionNumber(n, total), ZhCN) => format!("没有第 #{} 个会话。使用 /sessions 查看列表（共 {} 个）。", n, total),
+
+        (AlreadyInSession, En) => "Already in this session.".into(),
+        (AlreadyInSession, ZhCN) => "已经在此会话中。".into(),
+
+        (SwitchedToSessionMeta(title), En) => format!("Switched to: {}\nThe next message continues that conversation.", title),
+        (SwitchedToSessionMeta(title), ZhCN) => format!("已切换到: {}\n下一条消息将继续该会话。", title),
+
+        (CannotSwitchSession, En) => "Cannot switch to that session — it is not one of this chat's. Use /sessions to list them.".into(),
+        (CannotSwitchSession, ZhCN) => "无法切换到该会话——它不属于本聊天。使用 /sessions 查看列表。".into(),
+
+        (NoWorkspaces, En) => "No workspaces.".into(),
+        (NoWorkspaces, ZhCN) => "暂无工作区。".into(),
+
+        (WorkspacesListHeader, En) => "Workspaces:\n".into(),
+        (WorkspacesListHeader, ZhCN) => "工作区列表:\n".into(),
+
+        (WorkspacesUsageLine, En) => "\n\nUsage: /workspace <number> — set this bot's default".into(),
+        (WorkspacesUsageLine, ZhCN) => "\n\n用法: /workspace <编号> — 设为此机器人的默认工作区".into(),
+
+        (NoWorkspaceNumber(n, total), En) => format!("No workspace #{}. Use /workspace to list them ({} available).", n, total),
+        (NoWorkspaceNumber(n, total), ZhCN) => format!("没有第 #{} 个工作区。使用 /workspace 查看列表（共 {} 个）。", n, total),
+
+        (DefaultWorkspaceSet(id), En) => format!("Default workspace set: {}", id),
+        (DefaultWorkspaceSet(id), ZhCN) => format!("已设置默认工作区: {}", id),
+
+        (NoSkillsFound, En) => "No workspace skills found.".into(),
+        (NoSkillsFound, ZhCN) => "未找到工作区技能。".into(),
+
+        (SkillsListHeader, En) => "Skills:\n".into(),
+        (SkillsListHeader, ZhCN) => "技能列表:\n".into(),
+
+        (NoParticipants, En) => "No one is in this chat yet.".into(),
+        (NoParticipants, ZhCN) => "本会话暂无成员。".into(),
+
+        (ParticipantsListHeader, En) => "In this chat:\n".into(),
+        (ParticipantsListHeader, ZhCN) => "本会话成员:\n".into(),
+
+        // The actor vocabulary the product uses: "member" and "agent" are the
+        // two actor types a person meets, "external" is a chat identity with no
+        // TeamClu account behind it.
+        (ParticipantKind("member"), En) => "member".into(),
+        (ParticipantKind("member"), ZhCN) => "成员".into(),
+        (ParticipantKind("agent"), En) => "agent".into(),
+        (ParticipantKind("agent"), ZhCN) => "Agent".into(),
+        (ParticipantKind("external"), En) => "external".into(),
+        (ParticipantKind("external"), ZhCN) => "外部".into(),
+        (ParticipantKind(other), _) => other.to_string(),
+
+        (UnnamedParticipant(short_id), En) => format!("unnamed participant ({})", short_id),
+        (UnnamedParticipant(short_id), ZhCN) => format!("未知成员（{}）", short_id),
+
+        (NewSessionStarted, En) => "Started a new session. The next message begins a fresh conversation (/sessions to go back to this one).".into(),
+        (NewSessionStarted, ZhCN) => "已开始新会话。下一条消息将开始全新对话（可用 /sessions 返回原会话）。".into(),
+
+        (NewSessionNotDetached, En) => "Could not start a new session — this chat is still on the same one. The agent's context was cleared, but its history is unchanged.".into(),
+        (NewSessionNotDetached, ZhCN) => "无法开始新会话——本聊天仍在原会话中。Agent 上下文已清空，但历史记录未变。".into(),
+
+        (MetaStopped, En) => "Stopped.".into(),
+        (MetaStopped, ZhCN) => "已停止。".into(),
+
+        (NothingRunning, En) => "Nothing running.".into(),
+        (NothingRunning, ZhCN) => "当前没有正在运行的任务。".into(),
+
+        (ContextInjected, En) => "Context injected.".into(),
+        (ContextInjected, ZhCN) => "已注入上下文。".into(),
+
+        // === Shared session-slash dispatcher ===
+
+
+        (SessionResetShort, En) => "🔄 Session reset. Next message starts fresh.".into(),
+        (SessionResetShort, ZhCN) => "🔄 会话已重置。下一条消息将开始新对话。".into(),
+
+        (CouldNotReset(e), En) => format!("⚠️ Could not reset: {}", e),
+        (CouldNotReset(e), ZhCN) => format!("⚠️ 无法重置: {}", e),
+
+
+
+
+
+
+
+
+        // === resolve_bare_model ===
+        (ModelNotFoundInWorkspace(name), En) => format!("Unknown model: {}. Use /model to list what this workspace offers, or give the full id: /model <provider>/<model>.", name),
+        (ModelNotFoundInWorkspace(name), ZhCN) => format!("未知模型: {}。使用 /model 查看本工作区提供的模型，或给出完整 id: /model <provider>/<model>。", name),
+
+        (ModelAmbiguous(name, providers), En) => format!("Ambiguous model: {} is offered by {}. Use the full id: /model <provider>/{}.", name, providers, name),
+        (ModelAmbiguous(name, providers), ZhCN) => format!("模型不明确: {} 由以下提供方提供: {}。请使用完整 id: /model <provider>/{}。", name, providers, name),
+
+        // === misc shared ===
+
+
+        // === /help per-gateway ===
+
+
+
 
         // === WeCom welcome ===
         (WecomWelcome, En) => "Hello! I'm an AI assistant. Send me a message to start a conversation, or type /help for available commands.".into(),
         (WecomWelcome, ZhCN) => "你好！我是 AI 助手。直接发消息给我开始对话，发送 /help 查看可用命令。".into(),
 
         // === Discord specific ===
-        (LoadingSessions, En) => "Loading sessions...".into(),
-        (LoadingSessions, ZhCN) => "正在加载会话...".into(),
 
         // === KOOK card-specific ===
-        (KookCardHeaderModels, En) => "Available Models".into(),
-        (KookCardHeaderModels, ZhCN) => "可用模型".into(),
 
-        (KookCardCurrentModel(model, true), En) => format!("**Current Model:** {} (custom)", model),
-        (KookCardCurrentModel(model, true), ZhCN) => format!("**当前模型:** {} (自定义)", model),
-        (KookCardCurrentModel(model, false), En) => format!("**Current Model:** {} (default)", model),
-        (KookCardCurrentModel(model, false), ZhCN) => format!("**当前模型:** {} (默认)", model),
 
-        (KookCardHeaderHelp, En) => "TeamClu Bot Commands".into(),
-        (KookCardHeaderHelp, ZhCN) => "TeamClu 机器人命令".into(),
 
-        (KookCardHelpUsage, En) => "In DMs: Just send a message to start chatting. In channels: Send messages directly.".into(),
-        (KookCardHelpUsage, ZhCN) => "私聊: 直接发消息开始对话。频道: 直接发送消息即可。".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn locale_defaults_to_english_and_follows_set_locale() {
+        // The daemon pushes this in from daemon.toml; until it does, replies are
+        // English rather than whatever the last workspace happened to say.
+        assert_eq!(locale(), Locale::En);
+
+        set_locale(Locale::ZhCN);
+        assert_eq!(locale(), Locale::ZhCN);
+        assert_eq!(t(MsgKey::NoSessions, locale()), "暂无会话。");
+
+        set_locale(Locale::En);
+        assert_eq!(locale(), Locale::En);
+    }
+
+    #[test]
+    fn unknown_language_tags_fall_back_to_english() {
+        assert_eq!(Locale::parse_or_default("zh-CN"), Locale::ZhCN);
+        assert_eq!(Locale::parse_or_default("zh"), Locale::ZhCN);
+        assert_eq!(Locale::parse_or_default("ja-JP"), Locale::En);
+        assert_eq!(Locale::parse_or_default(""), Locale::En);
     }
 }

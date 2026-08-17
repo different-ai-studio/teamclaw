@@ -1085,6 +1085,48 @@ impl Backend for CloudApiBackend {
             .collect())
     }
 
+    async fn get_actors_by_ids(
+        &self,
+        ids: &[String],
+    ) -> BackendResult<Vec<super::records::ActorDirectoryRow>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        #[derive(serde::Serialize)]
+        struct Body<'a> {
+            #[serde(rename = "actorIds")]
+            actor_ids: &'a [String],
+            #[serde(rename = "teamId")]
+            team_id: &'a str,
+        }
+        #[derive(serde::Deserialize)]
+        struct Item {
+            id: String,
+            #[serde(rename = "displayName", default)]
+            display_name: Option<String>,
+            // The directory calls the actor_type column `kind`.
+            #[serde(default)]
+            kind: Option<String>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            items: Vec<Item>,
+        }
+        let body = Body {
+            actor_ids: ids,
+            team_id: &self.cfg.team_id,
+        };
+        let r: Resp = self.post("/v1/actors/by-ids", &body, None).await?;
+        Ok(r.items
+            .into_iter()
+            .map(|item| super::records::ActorDirectoryRow {
+                id: item.id,
+                display_name: item.display_name,
+                kind: item.kind,
+            })
+            .collect())
+    }
+
     async fn fetch_session_with_participants(
         &self,
         session_id: &str,
@@ -1113,14 +1155,29 @@ impl Backend for CloudApiBackend {
             idea_id: Option<String>,
             #[serde(rename = "createdAt")]
             created_at: Option<DateTime<Utc>>,
+        }
+        #[derive(serde::Deserialize)]
+        struct CloudParticipants {
             #[serde(default)]
-            participants: Vec<CloudParticipant>,
+            items: Vec<CloudParticipant>,
         }
         // teamId is required on session reads: it is what resolves the caller's
         // actor (one actor row per user per team) and scopes the row server-side.
         let s: CloudSession = self
             .get(&format!(
                 "/v1/sessions/{session_id}?teamId={}",
+                self.cfg.team_id
+            ))
+            .await?;
+        // Participants come from their own endpoint. The session read does not
+        // carry them — it never has — and this used to deserialize that absence
+        // through a `#[serde(default)]` into an empty roster, so `/participant`
+        // answered "no members" for a chat whose members were sitting in the
+        // table all along. Reading the collection that actually exists makes a
+        // real failure surface as an error instead of an empty list.
+        let roster: CloudParticipants = self
+            .get(&format!(
+                "/v1/sessions/{session_id}/participants?teamId={}",
                 self.cfg.team_id
             ))
             .await?;
@@ -1136,8 +1193,8 @@ impl Backend for CloudApiBackend {
             idea_id: s.idea_id,
             created_at: s.created_at.unwrap_or_else(Utc::now),
         };
-        let participants = s
-            .participants
+        let participants = roster
+            .items
             .into_iter()
             .map(|p| BackendParticipantRow {
                 session_id: session_id_str.clone(),
@@ -1244,12 +1301,24 @@ impl Backend for CloudApiBackend {
             session_id: String,
             #[serde(rename = "gatewaySessionId")]
             gateway_session_id: Option<String>,
+            // The chat this session belongs to for its whole life. `binding` /
+            // `gatewaySessionId` is released when `/new` moves the chat on, so
+            // it is absent exactly when someone asks a superseded session which
+            // chat it came from. Older servers omit the field entirely; the
+            // fallback below keeps those working.
+            #[serde(rename = "gatewayKey", default)]
+            gateway_key: Option<String>,
         }
         match self
             .get::<Resp>(&format!("/v1/sessions/by-acp/{acp_session_id}"))
             .await
         {
-            Ok(r) => Ok(Some((r.session_id, r.gateway_session_id))),
+            Ok(r) => Ok(Some((
+                r.session_id,
+                r.gateway_key
+                    .filter(|k| !k.is_empty())
+                    .or(r.gateway_session_id),
+            ))),
             Err(BackendError::NotFound(_)) => Ok(None),
             Err(e) => Err(e),
         }
@@ -1422,6 +1491,26 @@ impl Backend for CloudApiBackend {
             content,
             external_message_id,
             attachments,
+            "text",
+        )
+        .await
+    }
+
+    async fn insert_gateway_agent_reply_with_attachments(
+        &self,
+        session_id: &str,
+        sender_actor_id: &str,
+        content: &str,
+        external_message_id: Option<&str>,
+        attachments: serde_json::Value,
+    ) -> BackendResult<String> {
+        self.insert_gateway_message_with_attachments_impl(
+            session_id,
+            sender_actor_id,
+            content,
+            external_message_id,
+            attachments,
+            "agent_reply",
         )
         .await
     }
@@ -1909,8 +1998,14 @@ mod tests {
                 "id": "session-1",
                 "teamId": "team-1",
                 "title": "t13",
-                "mode": "collab",
-                "participants": []
+                "mode": "collab"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/sessions/session-1/participants"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": []
             })))
             .mount(&server)
             .await;
@@ -2434,9 +2529,42 @@ mod tests {
             .get_gateway_session_by_acp_id("acp-1")
             .await
             .unwrap();
+        // No `gatewayKey` in the response: a server that predates the field
+        // still has to resolve, so the live binding stands in for it.
         assert_eq!(
             result,
             Some(("session-1".to_string(), Some("gw-1".to_string())))
+        );
+    }
+
+    #[tokio::test]
+    async fn get_gateway_session_by_acp_id_prefers_the_chat_over_the_live_binding() {
+        // The regression: `/new` releases `binding`, so a superseded session
+        // reported no chat and `/sessions` answered "no sessions" for a
+        // conversation whose history was sitting right there. `gatewayKey`
+        // outlives the switch, so it is what identifies the chat.
+        let server = MockServer::start().await;
+        mount_refresh(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/v1/sessions/by-acp/acp-detached"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "sessionId": "session-old",
+                "gatewaySessionId": null,
+                "gatewayKey": "wecom://bot/bot/single/liang"
+            })))
+            .mount(&server)
+            .await;
+        let backend = CloudApiBackend::new(config(&server));
+        let result = backend
+            .get_gateway_session_by_acp_id("acp-detached")
+            .await
+            .unwrap();
+        assert_eq!(
+            result,
+            Some((
+                "session-old".to_string(),
+                Some("wecom://bot/bot/single/liang".to_string())
+            ))
         );
     }
 
@@ -2458,10 +2586,11 @@ mod tests {
             .unwrap();
     }
 
-    #[tokio::test]
-    async fn fetch_session_with_participants_maps_response() {
-        let server = MockServer::start().await;
-        mount_refresh(&server).await;
+    /// The session read carries no roster — the real API never put one there.
+    /// This mock says so verbatim, because the previous version invented a
+    /// `participants` array on this response and so proved only that serde can
+    /// read a field the server does not send.
+    async fn mount_session_detail_without_participants(server: &MockServer) {
         Mock::given(method("GET"))
             .and(path("/v1/sessions/session-1"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -2470,8 +2599,21 @@ mod tests {
                 "title": "Daily",
                 "mode": "solo",
                 "ideaId": null,
-                "createdAt": "2026-01-01T00:00:00Z",
-                "participants": [
+                "createdAt": "2026-01-01T00:00:00Z"
+            })))
+            .mount(server)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn fetch_session_with_participants_reads_the_participants_endpoint() {
+        let server = MockServer::start().await;
+        mount_refresh(&server).await;
+        mount_session_detail_without_participants(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/v1/sessions/session-1/participants"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [
                     { "actorId": "actor-1", "role": "admin", "joinedAt": "2026-01-01T00:00:00Z" }
                 ]
             })))
@@ -2485,6 +2627,25 @@ mod tests {
         assert_eq!(result.session.id, "session-1");
         assert_eq!(result.participants.len(), 1);
         assert_eq!(result.participants[0].actor_id, "actor-1");
+    }
+
+    #[tokio::test]
+    async fn a_failing_roster_read_is_an_error_not_an_empty_roster() {
+        // The regression: an unreadable roster used to arrive as "no members",
+        // so `/participant` told the user their chat was empty.
+        let server = MockServer::start().await;
+        mount_refresh(&server).await;
+        mount_session_detail_without_participants(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/v1/sessions/session-1/participants"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        let backend = CloudApiBackend::new(config(&server));
+        assert!(backend
+            .fetch_session_with_participants("session-1")
+            .await
+            .is_err());
     }
 
     #[tokio::test]

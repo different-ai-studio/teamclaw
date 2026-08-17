@@ -110,6 +110,30 @@ function createRustBuildEnv(baseEnv = process.env, scriptDir = __dirname) {
     env.RUSTC_WRAPPER = "sccache";
   }
 
+  // Talk to the sccache server over a Unix socket instead of TCP 127.0.0.1:4226.
+  //
+  // Every rustc invocation opens (and closes) one connection to the server, and
+  // each closed socket sits in TIME_WAIT. A full build of this workspace burns
+  // through the whole macOS ephemeral range (49152-65535, 16k ports) faster than
+  // it drains — measured 15,950 sockets in TIME_WAIT, 3,221 of them on 4226 —
+  // after which connect() returns EADDRNOTAVAIL and the build does not merely
+  // slow down, it FAILS:
+  //
+  //   sccache: error: Can't assign requested address (os error 49)
+  //   error: could not compile `tokio-util` (lib)
+  //
+  // A Unix socket uses no ephemeral port at all. Left to CI's own setup, which
+  // manages its sccache separately.
+  if (
+    env.RUSTC_WRAPPER === "sccache" &&
+    !env.SCCACHE_SERVER_UDS &&
+    process.platform !== "win32" &&
+    !baseEnv.CI
+  ) {
+    // Keep it short: macOS caps sun_path at 104 bytes.
+    env.SCCACHE_SERVER_UDS = `/tmp/sccache-${process.getuid?.() ?? 0}.sock`;
+  }
+
   if (process.platform === "darwin" && process.arch === "arm64" && !env.BINDGEN_EXTRA_CLANG_ARGS) {
     env.BINDGEN_EXTRA_CLANG_ARGS = "--target=aarch64-apple-darwin";
   }
