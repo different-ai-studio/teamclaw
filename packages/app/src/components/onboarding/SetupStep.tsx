@@ -129,7 +129,7 @@ function DependencyRow({ req, installing }: { req: RequirementStatus; installing
  *
  * - `developer` sees both runtimes with their install state and the optional
  *   git row (missing git is surfaced but never blocks).
- * - `guided` gets pi preselected and no dependency detail at all; if a runtime
+ * - `guided` gets OpenCode preselected and no dependency detail at all; if a runtime
  *   is already installed we offer to reuse it rather than download another.
  *
  * amuxd installs silently in both, since there is no meaningful choice to make
@@ -140,7 +140,7 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
   const { requirements, agentRuntimes, installing, errors, loaded, listRequirements, listAgentRuntimes, install } =
     useSetupStore()
   const setRuntime = useOnboardingStore((s) => s.setRuntime)
-  const [selected, setSelected] = React.useState<DaemonLocalAgent>('pi')
+  const [selected, setSelected] = React.useState<DaemonLocalAgent>('opencode')
 
   React.useEffect(() => {
     void listAgentRuntimes()
@@ -158,20 +158,20 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
     [agentRuntimes],
   )
 
-  // Guided is always pi, installed if absent.
+  // Guided is always OpenCode, installed if absent.
   //
   // It used to adopt whichever runtime happened to be on the machine ("a working
   // install beats a fresh download"), which made the outcome depend on the
-  // machine's history: anyone who had ever installed OpenCode silently got
-  // OpenCode. The guided path promises no choices, so it has to land somewhere
-  // predictable — and pi is the one this app installs and drives end to end.
+  // machine's history: anyone who had ever installed Pi silently got Pi. The
+  // guided path promises no choices, so it has to land somewhere predictable —
+  // and OpenCode is the one this app installs and drives end to end.
   React.useEffect(() => {
     if (role !== 'guided') return
-    setSelected('pi')
+    setSelected('opencode')
     // Mirror into the store right away rather than waiting for Continue — the
     // next step branches on this value, and leaving it stale until the last
     // moment is one more window for the two to disagree.
-    setRuntime('pi')
+    setRuntime('opencode')
   }, [role, setRuntime])
 
   const amuxd = requirements.find((r) => r.id === 'amuxd')
@@ -183,17 +183,17 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
     void install('amuxd', { minDurationMs: AMUXD_AUTO_INSTALL_MIN_MS })
   }, [loaded, amuxdMissing, install])
 
-  // Same treatment for pi on the guided path: promising "no choices" and then
+  // Same treatment for OpenCode on the guided path: promising "no choices" and then
   // stopping at a runtime the user has to install by hand is the same dead end
   // twice over — they were never offered the choice that would have avoided it.
-  const pi = agentRuntimes.find((r) => r.id === 'pi')
-  const piMissing = role === 'guided' && !!pi && !usable(pi)
-  const piTriggered = React.useRef(false)
+  const opencode = agentRuntimes.find((r) => r.id === 'opencode')
+  const opencodeMissing = role === 'guided' && !!opencode && !usable(opencode)
+  const opencodeTriggered = React.useRef(false)
   React.useEffect(() => {
-    if (!piMissing || piTriggered.current) return
-    piTriggered.current = true
-    void install('pi')
-  }, [piMissing, install])
+    if (!opencodeMissing || opencodeTriggered.current) return
+    opencodeTriggered.current = true
+    void install('opencode')
+  }, [opencodeMissing, install])
 
   const selectedRuntime = agentRuntimes.find((r) => r.id === selected)
   const runtimeReady = usable(selectedRuntime)
@@ -207,7 +207,7 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
    * other moving part, so the whole window reads as hung. Anything that greys
    * the button out while the machine is still working spins.
    */
-  const busy = !!installing || amuxdMissing || piMissing || (!runtimeReady && visibleRuntimes.length > 0)
+  const busy = !!installing || amuxdMissing || opencodeMissing || (!runtimeReady && visibleRuntimes.length > 0)
 
   const pick = (id: DaemonLocalAgent) => {
     setSelected(id)
@@ -270,13 +270,13 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
           </div>
         ) : (
           selectedRuntime && (
-            // `|| piMissing` covers the gap between "we know it is missing" and
+            // `|| opencodeMissing` covers the gap between "we know it is missing" and
             // "the install effect has fired": without it the row sits on a red
             // "not found" for a beat, which reads as a failure rather than as
             // the work this screen just promised.
             <DependencyRow
               req={selectedRuntime}
-              installing={installing === selectedRuntime.id || piMissing}
+              installing={installing === selectedRuntime.id || opencodeMissing}
             />
           )
         )}
