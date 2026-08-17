@@ -127,23 +127,4 @@ final class CloudAPIAppOnboardingStoreTests: XCTestCase {
         }
     }
 
-    func testSignInAnonymouslyStoresAnonymousSession() async throws {
-        let captured = LockedBox<URLRequest>()
-        let send: CloudAPISend = { req in
-            captured.set(req)
-            return (goTrueJSON(accessToken: "ANON", isAnonymous: true, email: nil, identities: []).data(using: .utf8)!,
-                    response(req.url!))
-        }
-        let store = CloudAPIAppOnboardingStore(configuration: config(), storage: InMemorySessionStorage(), send: send)
-
-        try await store.signInAnonymously()
-
-        XCTAssertEqual(captured.get()?.url?.absoluteString, "https://cloud.example/v1/auth/signin-anonymous")
-        let anon = await store.isAnonymous()
-        XCTAssertTrue(anon)
-        let email = await store.currentUserEmail()
-        XCTAssertNil(email)
-        let token = try await store.accessToken()
-        XCTAssertEqual(token, "ANON")
-    }
 }

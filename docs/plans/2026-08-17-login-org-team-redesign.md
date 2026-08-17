@@ -1,6 +1,7 @@
 # 登录后 org / 团队重设计 Implementation Plan
 
-> **For agentic workers:** 按本文件实现。禁止扩 scope。所有设计问题已闭环，无未决项 —— 遇到本文件没写的选择，先问，不要自己定。
+> **For agentic workers:** 已实现完毕（分支 `feat/login-org-team-redesign`）。本文件保留为
+> 设计与决策记录；下面标注 ⟨实现差异⟩ 的地方是动手时与计划不同的部分，以代码为准。
 
 **Goal:** 干掉「所有新用户挤进一个共享 org、各自建一个同名团队」这套逻辑。新用户自建 org（名字取自本人）+ 一个与 org 同名的 public 默认团队；已属于某 org 的人加入该 org 的 public 团队而不是再造一个；是否允许自助注册由部署级开关决定；匿名 / 快捷试用整个删除。
 
@@ -91,7 +92,14 @@
 - 建团时显式 `visibility = 'public'`（`create_team` 从不设它，列默认 `private`）
 - 绕不过 `create_team` 的 first-team-only 守卫（`20260618000000_...sql:45-48`）。**把 `create_team` 的 insert 块抽成内部函数**，两边共用，不要复制粘贴
 
-⚠️ `services/supabase/tests/027_org_default_team_selection.sql:48` 断言 `bootstrap does not silently join an existing org team`，本改动使其失效 —— 改断言，不是改代码。
+⟨实现差异⟩ 函数最终叫 `amux.ensure_org_public_team`，不是 `ensure_org_default_team` ——
+baseline 里已经有一个同名 `(uuid, text) -> uuid` 的遗留函数（`app.*` schema 时代，只插一行
+teams，无调用点），返回类型不同会直接建不出来。遗留那个原样留着，删它属于另一件事。
+
+⟨实现差异⟩ 计划担心的 `027_org_default_team_selection.sql:48`「bootstrap 不静默加入」**没有失效**：
+`bootstrap_current_org_team` 在这方面语义未变，加入行为落在新函数 `ensure_org_public_team` 里。
+027 连同 002/028/029/031/032 全部照常通过（已在线上 schema 上 begin/rollback 实跑验证）。
+新增 `033_org_public_default_team.sql` 覆盖新路径，8 条断言全绿。
 
 ### CS-3: `DEFAULT_ORG_ID` 收窄
 
@@ -174,3 +182,26 @@
 `CS-1` →（`CS-3` ∥ `CS-4`）→ `CS-2` → `CS-5` → `CS-6` → `CS-7`；`CS-8` 全程独立并行。
 
 `CS-1` 单独即可独立上线并验证流程（新用户团队不再叫 "TeamClaw Public"），适合作为第一刀。
+
+
+---
+
+## 实现记录（2026-08-17）
+
+全部九个 change set 已实现并验证，分支 `feat/login-org-team-redesign`。
+
+**验证结果**
+- 四个 migration + 新 pgTAP：在线上 schema 上以 `begin; … rollback;` 实跑通过
+- 既有 pgTAP 002 / 027 / 028 / 029 / 031 / 032：全绿，无回归
+- FC：`tsc -p tsconfig.json`（镜像用的那份配置）通过；测试失败集与基线**逐条一致**（94 条，全部是需要活库的集成用例），净增 1 条通过用例
+- 前端：`pnpm typecheck` 通过，`pnpm test:unit` 445 文件 / 2864 用例全绿，`pnpm lint` 0 error
+- Expo：`tsc --noEmit` 通过，93 文件 / 572 用例全绿
+- iOS：AMUXCore `swift test` 224 用例全绿；AMUXUI 与 AMUX app target 均 `xcodebuild` 成功
+- OpenAPI：`redocly lint` 与基线同为 1 error / 7 warning（均为既有问题）
+
+**未做（有意）**
+- 存量数据一律不动：线上 103 个匿名用户及其团队、默认 org 里 55 个私有团队、117 个叫
+  'Personal' 的 org，全部保持原样。migration 只改机制不改数据
+- baseline 里的遗留 `ensure_org_default_team` 未删
+- `listDiscoverableTeams` 的 repository 方法保留（路由已摘除），删它要连带动 pg-repo 与
+  repository-contract，不在本次范围

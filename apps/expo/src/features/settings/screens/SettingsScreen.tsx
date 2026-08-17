@@ -37,7 +37,6 @@ export type SettingsScreenProps = {
   avatarUrl?: string | null;
   /** Signed-in member's actor id, shown as the footer caption for support. */
   currentActorId?: string | null;
-  isAnonymous?: boolean;
   isSigningOut?: boolean;
   notificationsEnabled?: boolean;
   onClose: () => void;
@@ -47,7 +46,6 @@ export type SettingsScreenProps = {
   onOpenWorkspaces?: () => void;
   onSignOut?: () => void;
   onToggleNotifications?: (enabled: boolean) => void;
-  onUpgrade?: () => void;
   team: SettingsTeam | null;
   teamDetails?: SettingsTeamDetails | null;
   teamDetailsError?: string | null;
@@ -121,7 +119,6 @@ export function SettingsScreen({
   connectedAgentsError,
   currentActorId,
   displayName,
-  isAnonymous = false,
   isLoadingConnectedAgents = false,
   isSavingTeamDefaultAgent = false,
   isSigningOut = false,
@@ -136,7 +133,6 @@ export function SettingsScreen({
   onShareAgentToTeam,
   onSignOut,
   onToggleNotifications,
-  onUpgrade,
   team,
   teamAgents,
   teamDefaultAgentError,
@@ -194,30 +190,6 @@ export function SettingsScreen({
           ) : null}
         </Pressable>
 
-        {isAnonymous && onUpgrade ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={onUpgrade}
-            style={({ pressed }) => [
-              styles.upgradeBanner,
-              pressed ? styles.upgradeBannerPressed : null,
-            ]}
-          >
-            <Ionicons
-              color={hai.cinnabar}
-              name="shield-checkmark-outline"
-              size={22}
-            />
-            <View style={styles.upgradeBody}>
-              <Text style={styles.upgradeTitle}>Upgrade your account</Text>
-              <Text style={styles.upgradeHelper}>
-                You're signed in anonymously. Attach email, Apple, or Google so
-                you don't lose this workspace.
-              </Text>
-            </View>
-            <Ionicons color={colors.slate} name="chevron-forward" size={16} />
-          </Pressable>
-        ) : null}
 
         {connectedAgents ? (
           <View style={styles.section}>

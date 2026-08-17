@@ -15,7 +15,6 @@ export default function CreateTeamRoute() {
   return (
     <CreateTeamScreen
       errorMessage={state.errorMessage}
-      isAnonymous={state.isAnonymous}
       isBusy={state.isBusy}
       onCreateTeam={controller.createTeam}
       onSignOut={controller.signOut}

@@ -68,7 +68,10 @@ GOTRUE_JWT_DEFAULT_GROUP_NAME=authenticated
 GOTRUE_JWT_EXP=3600
 GOTRUE_EXTERNAL_EMAIL_ENABLED=true
 GOTRUE_MAILER_AUTOCONFIRM=true
-GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED=true
+# Anonymous sign-in is gone from the product. DISABLE_SIGNUP stays false on
+# purpose — invitees need to create an account before they can claim an invite;
+# invite-only is the Cloud API's `allowNewOrg` flag instead.
+GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED=false
 GOTRUE_DISABLE_SIGNUP=false
 GOTRUE_EXTERNAL_PHONE_ENABLED=false
 GOTRUE_SMTP_HOST=localhost

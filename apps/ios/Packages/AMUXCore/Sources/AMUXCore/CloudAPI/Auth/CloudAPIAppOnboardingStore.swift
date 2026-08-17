@@ -206,12 +206,6 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
         try await store(g)
     }
 
-    public func signInAnonymously() async throws {
-        await ensureStarted()
-        let g: GoTrueSession = try await auth.post("/v1/auth/signin-anonymous", body: EmptyBody())
-        try await store(g)
-    }
-
     /// Establish a session from a `refresh_token` (e.g. one returned by an
     /// agent / member-reinvite claim). Hits the camelCase `/v1/auth/refresh`.
     public func setSession(refreshToken: String) async throws {
@@ -239,127 +233,6 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
             try? await auth.postVoid("/v1/auth/signout", body: EmptyBody(), bearer: token)
         }
         await sessionStore.clear()
-    }
-
-    // MARK: - Anonymous → permanent account upgrade
-
-    /// Re-raise an "identifier already belongs to another account" GoTrue
-    /// rejection as a typed `UpgradeOutcome` so the coordinator/UI can offer a
-    /// "sign in to that account instead" path. Other errors pass through.
-    private func mapUpgradeCollision<T>(phone: Bool, _ work: () async throws -> T) async throws -> T {
-        do {
-            return try await work()
-        } catch {
-            if AuthErrorClassifier.isIdentifierAlreadyInUse(error) {
-                throw phone ? UpgradeOutcome.phoneAlreadyInUse : UpgradeOutcome.emailAlreadyInUse
-            }
-            throw error
-        }
-    }
-
-    public func upgradeWithPassword(email: String, password: String) async throws {
-        await ensureStarted()
-        let token = try await sessionStore.accessToken()
-        let g: GoTrueSession = try await mapUpgradeCollision(phone: false) {
-            try await auth.patch(
-                "/v1/auth/user",
-                body: PasswordCredentials(email: email, password: password),
-                bearer: token
-            )
-        }
-        // PATCH /auth/v1/user returns the updated user, not necessarily a new
-        // session. Only adopt it when it actually carries fresh tokens;
-        // otherwise the existing session (same user_id) remains valid.
-        if g.accessToken != nil {
-            try await store(g)
-        }
-    }
-
-    public func sendUpgradeEmailOTP(email: String) async throws {
-        await ensureStarted()
-        // GoTrue email_change: PATCH the user's email with the current bearer.
-        // This emails a verification code (the {{ .Token }} → 6-digit template)
-        // without minting a new user, so the upgrade keeps the same user_id.
-        let token = try await sessionStore.accessToken()
-        // PATCH returns the (still-anonymous) user; we don't adopt it here —
-        // the session only changes after the code is verified.
-        let _: GoTrueSession = try await mapUpgradeCollision(phone: false) {
-            try await auth.patch(
-                "/v1/auth/user",
-                body: EmailUpdate(email: email),
-                bearer: token
-            )
-        }
-    }
-
-    public func verifyUpgradeEmailOTP(email: String, token: String) async throws {
-        await ensureStarted()
-        let bearer = try await sessionStore.accessToken()
-        let g: GoTrueSession = try await auth.post(
-            "/v1/auth/verify-otp",
-            body: VerifyOTPRequest(email: email, token: token, type: "email_change"),
-            bearer: bearer
-        )
-        // verify-otp for email_change returns the updated session; adopt it
-        // when present so the (now non-anonymous) tokens replace the old ones.
-        if g.accessToken != nil {
-            try await store(g)
-        }
-    }
-
-    public func sendUpgradePhoneOTP(phone: String) async throws {
-        await ensureStarted()
-        // partner-aligned: send OUR OWN SMS code (not GoTrue phone_change), the same
-        // channel phone login uses. Binding happens in verifyUpgradePhoneOTP via
-        // /v1/account/bind-phone. See
-        // docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md.
-        try await auth.postVoid(
-            "/v1/auth/phone/send-code",
-            body: PhoneSendCodeRequest(phone: phone, captchaVerify: Self.captchaPlaceholder)
-        )
-    }
-
-    public func verifyUpgradePhoneOTP(phone: String, token: String) async throws {
-        await ensureStarted()
-        let bearer = try await sessionStore.accessToken()
-        // Bind the phone to the current account + write public.users in the default
-        // org (so phone login later resolves to THIS user — no duplicate). bind
-        // also flips is_anonymous=false server-side.
-        let _: BindPhoneResponse = try await auth.post(
-            "/v1/account/bind-phone",
-            body: BindPhoneRequest(phone: phone, code: token),
-            bearer: bearer
-        )
-        // The current JWT still says is_anonymous=true; refresh to pick up the
-        // upgraded (non-anonymous) token and persist it as non-anonymous.
-        if let cur = await sessionStore.currentSession() {
-            let r: RefreshResult = try await auth.post(
-                "/v1/auth/refresh",
-                body: RefreshRequest(refreshToken: cur.refreshToken)
-            )
-            await sessionStore.setSession(
-                StoredSession(
-                    accessToken: r.accessToken,
-                    refreshToken: r.refreshToken,
-                    expiresAt: Date(timeIntervalSince1970: TimeInterval(r.expiresAt)),
-                    isAnonymous: false,
-                    email: cur.email
-                )
-            )
-        }
-    }
-
-    public func upgradeWithAppleCredential(idToken: String, nonce: String) async throws {
-        await ensureStarted()
-        // Forwarding the bearer makes GoTrue link the Apple identity to the
-        // current (anonymous) user instead of minting a new one.
-        let token = try await sessionStore.accessToken()
-        let g: GoTrueSession = try await auth.post(
-            "/v1/auth/signin-idtoken",
-            body: IdTokenRequest(provider: "apple", idToken: idToken, nonce: nonce),
-            bearer: token
-        )
-        try await store(g)
     }
 
     // MARK: - Google OAuth (PKCE)
@@ -457,13 +330,13 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
         )
     }
 
-    public func bootstrapTeam(deviceId: String?) async throws -> CreatedTeam {
+    public func bootstrapTeam() async throws -> CreatedTeam {
         await ensureStarted()
         // Same shape as createTeam: the endpoint returns only the team row, so
         // activation remains the source of the team-scoped actor id (and moves
         // the session into the team's org).
         let team: CloudTeam = try await api.post(
-            "/v1/teams/bootstrap", body: BootstrapTeamRequest(deviceId: deviceId)
+            "/v1/teams/bootstrap", body: BootstrapTeamRequest()
         )
         let result = try await switchActiveTeam(teamID: team.id)
         try await setSession(refreshToken: result.refreshToken)
@@ -708,11 +581,10 @@ private struct CreateTeamRequest: Encodable, Sendable {
     let name: String
 }
 
-/// Nil `deviceId` is omitted from the body by the synthesized encoder, which is
-/// exactly the "no reuse" signal the endpoint expects.
-private struct BootstrapTeamRequest: Encodable, Sendable {
-    let deviceId: String?
-}
+/// The endpoint takes no input any more — the server resolves the org and its
+/// default team from the caller's identity alone. Kept as an explicit empty
+/// body so the POST still sends `{}` rather than nothing.
+private struct BootstrapTeamRequest: Encodable, Sendable {}
 
 private struct ClaimInviteRequest: Encodable, Sendable {
     let token: String

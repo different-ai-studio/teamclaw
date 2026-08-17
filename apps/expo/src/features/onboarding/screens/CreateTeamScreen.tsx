@@ -16,7 +16,6 @@ import { colors, spacing, typography } from "../../../ui/theme";
 
 type CreateTeamScreenProps = {
   errorMessage: string | null;
-  isAnonymous: boolean;
   isBusy: boolean;
   onCreateTeam: (name: string) => Promise<void>;
   onSignOut: () => Promise<void>;
@@ -24,7 +23,6 @@ type CreateTeamScreenProps = {
 
 export function CreateTeamScreen({
   errorMessage,
-  isAnonymous,
   isBusy,
   onCreateTeam,
   onSignOut,
@@ -97,11 +95,10 @@ export function CreateTeamScreen({
         </AppCard>
 
         <AppCard compact style={styles.noteCard}>
-          <Text style={styles.noteTitle}>{isAnonymous ? "Guest session" : "Signed-in account"}</Text>
+          <Text style={styles.noteTitle}>Signed-in account</Text>
           <Text style={styles.noteBody}>
-            {isAnonymous
-              ? "This workspace will be attached to your current guest session until you upgrade it."
-              : "Your account is ready. This step creates the first shared space for your team."}
+            Your account is ready. This step creates the first shared space for
+            your team.
           </Text>
         </AppCard>
 

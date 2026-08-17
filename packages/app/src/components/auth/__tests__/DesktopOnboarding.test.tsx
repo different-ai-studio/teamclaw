@@ -1,5 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const { authState, hasConfig, saveServerConfig, reload, cloudApiUrlOverride, setCloudApiUrlOverrideMock, probeCloudApi } = vi.hoisted(() => ({
   authState: {

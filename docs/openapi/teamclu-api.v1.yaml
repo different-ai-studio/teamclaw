@@ -75,24 +75,12 @@ paths:
           required: false
           description: |
             `all` returns the cross-org team picker source: the caller's teams
-            across every org, unioned with PUBLIC teams the caller may join
-            (each carrying `isMember`). `discoverable` returns the public-only
-            subset and is safe for an anonymous browsing session. Omitted
-            returns only teams in the caller's current org that they are an
-            actor in.
+            across every org, unioned with PUBLIC teams in those orgs that the
+            caller may join (each carrying `isMember`). Omitted returns only
+            teams in the caller's current org that they are an actor in.
           schema:
             type: string
-            enum: [all, discoverable]
-        - name: includeEmptyOrgs
-          in: query
-          required: false
-          description: >-
-            Only with `scope=all`: include organization picker rows for orgs
-            that do not yet have a team. Such a row has `itemType: org` and
-            `teamId: null`; select it with `POST /v1/teams/bootstrap` and its
-            `orgId` to initialize the org-named team.
-          schema:
-            type: boolean
+            enum: [all]
       responses:
         "200":
           description: Current user's teams.
@@ -182,11 +170,19 @@ paths:
   /v1/teams/bootstrap:
     post:
       operationId: bootstrapTeam
-      summary: Bootstrap the first team in the current organization
+      summary: Resolve the caller's org and enter its default team
       description: >-
-        Creates an owner team named after the current organization (or the
-        explicit empty picker `orgId`) and creates its member actor atomically.
-        It never joins an existing team implicitly.
+        Login onboarding, in one transaction. Resolves the caller's
+        organization — minting one named after them (nickname, else the OAuth
+        full name, else the email local part) when they belong to none — and
+        returns that org's PUBLIC default team, creating it with the org's name
+        on first use. An org that already has a public team yields that team
+        with the caller enrolled as a member; it never creates a second one.
+
+        Deployments that turn self-registration off answer `403
+        registration_disabled` for a caller with no organization. Sign-in
+        itself still succeeds, so an invitee can authenticate and then claim
+        their invite.
       tags: [Teams]
       requestBody:
         required: false
@@ -196,24 +192,12 @@ paths:
               type: object
               properties:
                 displayName:
-                  type: [string, "null"]
-                orgId:
-                  description: "Organization selected from an `itemType: org` picker row."
-                  type: [string, "null"]
-                  format: uuid
-                deviceId:
                   description: >-
-                    Guests only: the calling device's stable id. An anonymous
-                    caller that names its device gets back the team that
-                    device's previous guest already had, instead of a new one
-                    per quick-trial sign-in — every `signInAnonymously()` mints
-                    a fresh auth user, so without this the teams pile up in the
-                    shared default org and nothing collects them. Ignored for
-                    signed-in callers. Housekeeping, NOT a security boundary:
-                    the id lives in the client's own storage, so clearing app
-                    data or switching devices simply yields a fresh team. Omit
-                    it to opt out of reuse; never send a shared placeholder, as
-                    that would hand unrelated devices the same team.
+                    Best-effort human name for the caller's member actor only.
+                    It never names the org or the team — the server resolves
+                    those from the account, because this value prefers the OS
+                    account name, which on a fleet-imaged machine is not the
+                    user.
                   type: [string, "null"]
       responses:
         "200":
@@ -223,6 +207,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/Team"
         "403":
+          description: >-
+            `registration_disabled` — self-registration is off on this
+            deployment and the caller has no organization to enter.
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
@@ -4519,20 +4506,6 @@ paths:
         "204":
           description: Saved
         "400":
-          $ref: "#/components/responses/Error"
-  /v1/auth/signin-anonymous:
-    post:
-      operationId: signInAnonymous
-      summary: Proxy to Supabase GoTrue anonymous signup
-      tags: [Auth]
-      security: []
-      responses:
-        "200":
-          description: GoTrue session payload
-          content:
-            application/json:
-              schema: { type: object }
-        "422":
           $ref: "#/components/responses/Error"
   /v1/auth/signin-otp:
     post:

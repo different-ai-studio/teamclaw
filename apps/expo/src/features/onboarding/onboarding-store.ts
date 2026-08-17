@@ -113,21 +113,6 @@ export function createOnboardingController(
     }
   };
 
-  const signInAnonymously = async () => {
-    const token = beginOperation();
-    dispatchIfCurrent(token, { type: "beginBusy" });
-
-    try {
-      await api.signInAnonymously();
-      await bootstrap(token);
-    } catch (error) {
-      if (!(error instanceof BootstrapFailureError)) {
-        finishWithError(token, toErrorMessage(error));
-      }
-      throw (error instanceof BootstrapFailureError ? error.cause : error);
-    }
-  };
-
   const requestOtp = async (email: string) => {
     const token = beginOperation();
     dispatchIfCurrent(token, { type: "beginBusy" });
@@ -372,7 +357,6 @@ export function createOnboardingController(
     },
     bootstrap,
     selectTeam,
-    signInAnonymously,
     requestOtp,
     verifyOtp,
     signInWithPassword,
