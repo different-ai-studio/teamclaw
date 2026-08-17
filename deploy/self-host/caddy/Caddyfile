@@ -54,6 +54,18 @@
 	reverse_proxy emqx:8083
 }
 
+# Blob storage (MinIO) for team files. The daemon transfers bytes here directly
+# against a presigned URL, so this name must be the one FC signs for (ENDPOINT)
+# — SigV4 covers the Host header and a mismatch fails every upload.
+#
+# S3_DOMAIN falls back to s3.localhost (internal CA, no ACME) on a box that has
+# not enabled MinIO. It must never be empty: Caddy reads a nameless block as
+# global configuration and refuses to start.
+{$CADDY_SITE_SCHEME}{$S3_DOMAIN} {
+	{$CADDY_SITE_TLS}
+	reverse_proxy minio:9000
+}
+
 {$CADDY_SITE_SCHEME}{$STUDIO_DOMAIN} {
 	{$CADDY_SITE_TLS}
 	reverse_proxy studio:3000

@@ -269,6 +269,23 @@ jobs:
               [ -n "$pulled" ] || { echo "litellm image pull failed after 5 attempts"; exit 1; }
             fi
 
+            # `up --pull never` fetches nothing, so any image this compose file
+            # adds must be pulled here or the whole `up` aborts with "No such
+            # image". Guarded by the service list, which only names services
+            # whose profile is active — a box that never enabled MinIO skips it.
+            if docker compose config --services | grep -qx minio; then
+              echo "=== pull minio (up --pull never will not fetch it) ==="
+              for svc in minio minio-init; do
+                pulled=""
+                for i in 1 2 3; do
+                  if docker compose pull "$svc"; then pulled=yes; break; fi
+                  echo "  $svc pull attempt $i failed; retrying in 10s"
+                  sleep 10
+                done
+                [ -n "$pulled" ] || { echo "$svc image pull failed after 3 attempts"; exit 1; }
+              done
+            fi
+
             echo "=== up ==="
             docker compose up -d --pull never --remove-orphans
 
