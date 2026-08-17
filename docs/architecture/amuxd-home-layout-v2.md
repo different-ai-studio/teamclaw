@@ -110,6 +110,7 @@ daemon.toml  device-id  teams/  run/  logs/  cache/
             ├── secret.key             # 本团队主密钥，0600
             ├── secrets.enc            # 团队密钥 + channels 凭证
             ├── cloud-token            # 0600，注入为 TC_ACCESS_TOKEN_FILE
+            ├── opencode.json          # 当前团队的 OpenCode provider 配置，注入为 OPENCODE_CONFIG
             ├── members.toml           # 成员 / pending invite 缓存
             ├── runtimes.toml          # 本机 runtime 索引（§4.4）
             ├── cursor-permissions.json

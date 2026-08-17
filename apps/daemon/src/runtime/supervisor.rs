@@ -237,7 +237,7 @@ pub fn materialize_opencode_for_prepare(
 ///
 /// Cloud `provider.team` materialization and secret resolution run in
 /// [`teamclu_runtime_env::assemble_runtime_env`] via
-/// [`teamclu_runtime_env::sync_team_provider_on_disk`].
+/// [`teamclu_runtime_env::sync_global_team_provider`].
 pub fn materialize_inherent_mcp_for_spawn(
     workspace_path: &Path,
 ) -> Result<(), WorkspaceControlError> {

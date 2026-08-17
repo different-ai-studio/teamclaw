@@ -2,11 +2,10 @@
 //! the HTTP provider snapshot.
 //!
 //! Team `provider.team` rows are materialized through
-//! [`teamclu_runtime_env::sync_team_provider_on_disk`]:
+//! [`teamclu_runtime_env::sync_global_team_provider`]:
 //! - **Spawn** — [`teamclu_runtime_env::assemble_runtime_env`] with
 //!   [`teamclu_runtime_env::SecretResolveScope::FullConfig`]
-//! - **Provider reads** — [`ManagedLlmResolver::reconcile_workspace`] with
-//!   [`teamclu_runtime_env::SecretResolveScope::ProviderApiKeysOnly`]
+//! - **Provider reads** — [`ManagedLlmResolver::reconcile_global`]
 //!
 //! Before reconcile existed, `provider.team` was written only at spawn time, so an
 //! admin's model-list change never reached a member until the next runtime spawn
@@ -18,7 +17,6 @@
 //! most one request per team per [`MANAGED_LLM_TTL`].
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -120,26 +118,20 @@ impl ManagedLlmResolver {
         }
     }
 
-    /// Re-materialize `provider.team` via [`teamclu_runtime_env::sync_team_provider_on_disk`].
+    /// Re-materialize the active team's `provider.team`.
     ///
     /// Safe to call on every provider read: the cloud fetch is TTL-throttled and
-    /// [`sync_team_provider_on_disk`] only writes when the entry actually differs,
+    /// [`sync_global_team_provider`] only writes when the entry actually differs,
     /// so a steady state performs no writes and does not churn the refresh watcher.
     /// A `Unknown` resolution (no fresh cloud answer) leaves the file untouched.
-    pub async fn reconcile_workspace(&self, workspace: &Path, team_id: &str) {
+    pub async fn reconcile_global(&self, team_id: &str) {
         let state = self.resolve(team_id).await;
         let secrets = teamclu_runtime_env::secrets_for_team_provider(self.backend.actor_id());
-        if let Err(e) = teamclu_runtime_env::sync_team_provider_on_disk(
-            workspace,
-            &state,
-            &secrets,
-            teamclu_runtime_env::SecretResolveScope::ProviderApiKeysOnly,
-        ) {
+        if let Err(e) = teamclu_runtime_env::sync_global_team_provider(&state, &secrets) {
             tracing::warn!(
                 team_id,
-                workspace = %workspace.display(),
                 error = %e,
-                "team provider sync failed during managed LLM reconcile"
+                "global team provider sync failed during managed LLM reconcile"
             );
         }
     }
@@ -170,6 +162,30 @@ mod tests {
     use crate::backend::mock::MockBackend;
     use crate::backend::{ManagedLlmConfig, ManagedLlmModelInfo};
 
+    static AMUXD_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct AmuxdHomeGuard(Option<String>);
+
+    impl AmuxdHomeGuard {
+        fn set(path: &std::path::Path) -> Self {
+            let previous = std::env::var(teamclu_runtime_env::AMUXD_HOME_ENV).ok();
+            // SAFETY: test-only and protected by AMUXD_HOME_LOCK.
+            unsafe { std::env::set_var(teamclu_runtime_env::AMUXD_HOME_ENV, path) };
+            Self(previous)
+        }
+    }
+
+    impl Drop for AmuxdHomeGuard {
+        fn drop(&mut self) {
+            match &self.0 {
+                Some(value) => unsafe {
+                    std::env::set_var(teamclu_runtime_env::AMUXD_HOME_ENV, value)
+                },
+                None => unsafe { std::env::remove_var(teamclu_runtime_env::AMUXD_HOME_ENV) },
+            }
+        }
+    }
+
     fn config_with_models(models: &[&str]) -> ManagedLlmConfig {
         ManagedLlmConfig {
             enabled: true,
@@ -185,8 +201,30 @@ mod tests {
         }
     }
 
-    fn team_model_ids(workspace: &Path) -> Vec<String> {
-        let raw = std::fs::read_to_string(workspace.join("opencode.json")).unwrap();
+    fn isolated_global_config() -> (
+        std::sync::MutexGuard<'static, ()>,
+        tempfile::TempDir,
+        AmuxdHomeGuard,
+    ) {
+        let lock = AMUXD_HOME_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempfile::TempDir::new().unwrap();
+        let home = AmuxdHomeGuard::set(dir.path());
+        std::fs::write(
+            dir.path().join("daemon.toml"),
+            "active_team = \"team-test\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("teams/team-test/state")).unwrap();
+        (lock, dir, home)
+    }
+
+    fn team_model_ids() -> Vec<String> {
+        let raw = std::fs::read_to_string(
+            teamclu_runtime_env::opencode_config::global_opencode_config_path(),
+        )
+        .unwrap();
         let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
         let mut ids: Vec<String> = json["provider"]["team"]["models"]
             .as_object()
@@ -201,7 +239,7 @@ mod tests {
     /// env. Reconciling has to replace the list on disk, not union into it.
     #[tokio::test]
     async fn reconcile_replaces_the_team_model_list_from_cloud() {
-        let workspace = tempfile::TempDir::new().unwrap();
+        let (_lock, _global, _home) = isolated_global_config();
         let mock = MockBackend::with_identity("team-x", "actor-x");
         mock.state()
             .managed_llm_configs
@@ -209,13 +247,8 @@ mod tests {
         let backend: Arc<dyn Backend> = Arc::new(mock.clone());
         let resolver = ManagedLlmResolver::new(backend);
 
-        resolver
-            .reconcile_workspace(workspace.path(), "team-x")
-            .await;
-        assert_eq!(
-            team_model_ids(workspace.path()),
-            vec!["model-a".to_string()]
-        );
+        resolver.reconcile_global("team-x").await;
+        assert_eq!(team_model_ids(), vec!["model-a".to_string()]);
 
         // Admin swaps the team onto a new set. The TTL cache would otherwise
         // hold the old answer, so drop it the way a 60s expiry would.
@@ -225,11 +258,9 @@ mod tests {
         );
         resolver.cache.lock().await.clear();
 
-        resolver
-            .reconcile_workspace(workspace.path(), "team-x")
-            .await;
+        resolver.reconcile_global("team-x").await;
         assert_eq!(
-            team_model_ids(workspace.path()),
+            team_model_ids(),
             vec!["model-b".to_string(), "model-c".to_string()],
             "the dropped model must not survive the reconcile"
         );
@@ -260,8 +291,11 @@ mod tests {
         }
     }
 
-    fn team_api_key(workspace: &Path) -> String {
-        let raw = std::fs::read_to_string(workspace.join("opencode.json")).unwrap();
+    fn team_api_key() -> String {
+        let raw = std::fs::read_to_string(
+            teamclu_runtime_env::opencode_config::global_opencode_config_path(),
+        )
+        .unwrap();
         let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
         json["provider"]["team"]["options"]["apiKey"]
             .as_str()
@@ -273,10 +307,10 @@ mod tests {
     /// `${tc_api_key}` placeholder (wake / refresh regression).
     #[tokio::test]
     async fn reconcile_preserves_resolved_team_api_key() {
-        let workspace = tempfile::TempDir::new().unwrap();
+        let (_lock, _global, _home) = isolated_global_config();
         let resolved_key = "sk-tc-actor-x";
         std::fs::write(
-            workspace.path().join("opencode.json"),
+            teamclu_runtime_env::opencode_config::global_opencode_config_path(),
             serde_json::to_string_pretty(&serde_json::json!({
                 "provider": {
                     "team": {
@@ -301,17 +335,15 @@ mod tests {
         let backend: Arc<dyn Backend> = Arc::new(mock);
         let resolver = ManagedLlmResolver::new(backend);
 
-        resolver
-            .reconcile_workspace(workspace.path(), "team-x")
-            .await;
-        assert_eq!(team_api_key(workspace.path()), resolved_key);
+        resolver.reconcile_global("team-x").await;
+        assert_eq!(team_api_key(), resolved_key);
     }
 
     #[tokio::test]
     async fn reconcile_resolves_tc_api_key_placeholder() {
-        let workspace = tempfile::TempDir::new().unwrap();
+        let (_lock, _global, _home) = isolated_global_config();
         std::fs::write(
-            workspace.path().join("opencode.json"),
+            teamclu_runtime_env::opencode_config::global_opencode_config_path(),
             serde_json::to_string_pretty(&serde_json::json!({
                 "provider": {
                     "team": {
@@ -331,18 +363,16 @@ mod tests {
         let backend: Arc<dyn Backend> = Arc::new(mock);
         let resolver = ManagedLlmResolver::new(backend);
 
-        resolver
-            .reconcile_workspace(workspace.path(), "team-x")
-            .await;
-        assert_eq!(team_api_key(workspace.path()), "sk-tc-actor-x");
+        resolver.reconcile_global("team-x").await;
+        assert_eq!(team_api_key(), "sk-tc-actor-x");
     }
 
     /// A cloud blip must not strip a working `provider.team`.
     #[tokio::test]
     async fn unknown_state_leaves_disk_untouched() {
-        let workspace = tempfile::TempDir::new().unwrap();
+        let (_lock, _global, _home) = isolated_global_config();
         std::fs::write(
-            workspace.path().join("opencode.json"),
+            teamclu_runtime_env::opencode_config::global_opencode_config_path(),
             serde_json::to_string_pretty(&serde_json::json!({
                 "provider": { "team": { "models": { "model-a": { "name": "Model A" } } } }
             }))
@@ -351,18 +381,10 @@ mod tests {
         .unwrap();
 
         // MockBackend with no seeded config resolves to Disabled, not Unknown,
-        // so drive the untouched path through `sync_team_provider_on_disk` directly.
-        teamclu_runtime_env::sync_team_provider_on_disk(
-            workspace.path(),
-            &ManagedLlmState::Unknown,
-            &HashMap::new(),
-            teamclu_runtime_env::SecretResolveScope::ProviderApiKeysOnly,
-        )
-        .unwrap();
+        // so drive the untouched global path through the sync helper directly.
+        teamclu_runtime_env::sync_global_team_provider(&ManagedLlmState::Unknown, &HashMap::new())
+            .unwrap();
 
-        assert_eq!(
-            team_model_ids(workspace.path()),
-            vec!["model-a".to_string()]
-        );
+        assert_eq!(team_model_ids(), vec!["model-a".to_string()]);
     }
 }

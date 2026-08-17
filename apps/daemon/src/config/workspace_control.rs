@@ -506,8 +506,8 @@ impl OpenCodeCompatStore {
         serde_json::from_str(&content).map_err(|e| WorkspaceControlError::Parse(e.to_string()))
     }
 
-    /// The daemon-owned global config (`~/.amuxd/opencode.json`), which is where
-    /// user-configured providers now live (#742). Missing file reads as empty.
+    /// The daemon-owned active-team config (`~/.amuxd/teams/<team>/state/opencode.json`),
+    /// which is where user-configured providers now live (#742). Missing file reads as empty.
     fn read_global_opencode_json() -> Result<OpencodeJson, WorkspaceControlError> {
         let value = teamclu_runtime_env::opencode_config::OpencodeConfigStore::load_global()
             .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
@@ -530,7 +530,7 @@ impl OpenCodeCompatStore {
         Ok(merged)
     }
 
-    /// Write one provider entry into the global config, leaving every other key
+    /// Write one provider entry into the active-team config, leaving every other key
     /// in that file untouched.
     fn put_global_provider(
         provider_id: &str,
@@ -559,7 +559,7 @@ impl OpenCodeCompatStore {
         .map_err(|e| WorkspaceControlError::Io(e.to_string()))
     }
 
-    /// Remove a provider entry from the global config. Returns without error
+    /// Remove a provider entry from the active-team config. Returns without error
     /// when the file or the entry is absent.
     fn remove_global_provider(provider_id: &str) -> Result<(), WorkspaceControlError> {
         teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply_global(|cfg| {
@@ -778,7 +778,7 @@ impl WorkspaceControlStore for OpenCodeCompatStore {
         let _lock = self.write_lock.lock().unwrap();
         // Seed from the merged view so a pre-#742 workspace entry is carried
         // forward (base URL, model list) rather than silently reset when the
-        // user re-saves it into the global config.
+        // user re-saves it into the active-team config.
         let seed = Self::merged_provider_entries(&wpath)?
             .get(provider_id)
             .cloned();
@@ -1119,10 +1119,10 @@ mod tests {
         OpenCodeCompatStore::new()
     }
 
-    /// Point the device-level global config (#742) at a throwaway home.
+    /// Point the active-team config (#742) at a throwaway home.
     ///
     /// Without this, provider tests read and write the developer's real
-    /// `~/.amuxd/opencode.json` — they would leak into each other and their
+    /// active team's `state/opencode.json` — they would leak into each other and their
     /// results would depend on whatever that machine happens to have
     /// configured. The inner guard holds `TEST_HOME_LOCK`, so these tests also
     /// serialize against every other test that moves `HOME` / `AMUXD_HOME` /
@@ -1390,7 +1390,10 @@ mod tests {
             !dir.path().join("opencode.json").exists(),
             "provider auth must not create a workspace opencode.json"
         );
-        let global = std::fs::read_to_string(home.path().join("opencode.json")).unwrap();
+        let global = std::fs::read_to_string(
+            teamclu_runtime_env::opencode_config::global_opencode_config_path(),
+        )
+        .unwrap();
         assert!(global.contains("sk-secret"));
     }
 

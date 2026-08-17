@@ -285,11 +285,11 @@ pub async fn get_providers(
 ) -> Result<Json<Vec<ProviderInfo>>, HttpError> {
     require_scope(&principal, "workspace:read")?;
     let store = resolve_store(&state)?;
-    // `provider.team` is synced from the team's cloud LLM config via
-    // `sync_team_provider_on_disk` before this handler reads straight off disk.
+    // The active team's `provider.team` is synced from the team's cloud LLM
+    // config before this handler reads the merged workspace/global provider view.
     // Without that step, an admin's model-list change would only reach this member
     // at their next runtime spawn — app restarts included.
-    reconcile_team_provider(&state, &workspace_id).await;
+    reconcile_team_provider(&state).await;
     let mut providers = store
         .get_providers(&workspace_id)
         .map_err(map_control_err)?;
@@ -309,13 +309,13 @@ pub async fn get_providers(
     Ok(Json(providers))
 }
 
-/// Re-materialize `provider.team` via [`teamclu_runtime_env::sync_team_provider_on_disk`], best-effort.
+/// Re-materialize the active team's `provider.team`, best-effort.
 ///
 /// Silently no-ops when the daemon has no managed-LLM resolver (focused tests),
 /// no cloud backend, no team, or an unresolvable workspace path — in each case
 /// there is nothing authoritative to reconcile against, and the caller should
 /// still serve whatever is on disk rather than fail the read.
-async fn reconcile_team_provider(state: &HttpState, workspace_id: &str) {
+async fn reconcile_team_provider(state: &HttpState) {
     let Some(managed_llm) = state.managed_llm.as_ref() else {
         return;
     };
@@ -326,20 +326,13 @@ async fn reconcile_team_provider(state: &HttpState, workspace_id: &str) {
     if team_id.trim().is_empty() {
         return;
     }
-    let Ok(wpath) = workspace_path_or_404(workspace_id).await else {
-        return;
-    };
-    let config_path = wpath.join("opencode.json");
+    let config_path = teamclu_runtime_env::opencode_config::global_opencode_config_path();
     let before = std::fs::read(&config_path).ok();
-    managed_llm
-        .reconcile_workspace(&wpath, team_id.trim())
-        .await;
+    managed_llm.reconcile_global(team_id.trim()).await;
     let after = std::fs::read(config_path).ok();
     if before != after {
         if let Some(supervisor) = state.runtime_supervisor.as_ref() {
-            supervisor
-                .request_workspace_host_refresh(workspace_id, &wpath)
-                .await;
+            supervisor.request_all_workspace_host_refreshes();
         }
     }
 }

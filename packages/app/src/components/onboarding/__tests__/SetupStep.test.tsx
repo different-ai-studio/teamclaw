@@ -61,31 +61,31 @@ describe('SetupStep', () => {
 
   // The guided path promises no choices, so it has to land somewhere
   // predictable. Adopting whatever was already installed made the outcome depend
-  // on the machine's history: anyone who had ever installed OpenCode got it.
-  it('always lands on pi for the guided path, even with another runtime installed', async () => {
+  // on the machine's history: anyone who had ever installed Pi got it.
+  it('always lands on OpenCode for the guided path, even with another runtime installed', async () => {
     seed({
       agentRuntimes: [
         req('opencode', { title: 'OpenCode' }),
-        req('pi', { title: 'Pi', present: false, version: null }),
+        req('pi', { title: 'Pi' }),
       ],
     })
     render(<SetupStep role="guided" onDone={() => {}} />)
-    await vi.waitFor(() => expect(useOnboardingStore.getState().runtime).toBe('pi'))
+    await vi.waitFor(() => expect(useOnboardingStore.getState().runtime).toBe('opencode'))
   })
 
-  // Landing on pi and then stopping at "install it yourself" would be the same
+  // Landing on OpenCode and then stopping at "install it yourself" would be the same
   // dead end the guided path exists to avoid.
-  it('installs pi itself when the guided path finds it missing', async () => {
+  it('installs OpenCode itself when the guided path finds it missing', async () => {
     const install = vi.fn(async () => {})
     seed({
       agentRuntimes: [
-        req('opencode', { title: 'OpenCode' }),
-        req('pi', { title: 'Pi', present: false, version: null }),
+        req('opencode', { title: 'OpenCode', present: false, version: null }),
+        req('pi', { title: 'Pi' }),
       ],
       install,
     })
     render(<SetupStep role="guided" onDone={() => {}} />)
-    await vi.waitFor(() => expect(install).toHaveBeenCalledWith('pi'))
+    await vi.waitFor(() => expect(install).toHaveBeenCalledWith('opencode'))
   })
 
   // Nothing on the guided screen is user-initiated, so a failed auto-install has
@@ -93,10 +93,10 @@ describe('SetupStep', () => {
   it('surfaces a runtime install failure on the guided path', () => {
     seed({
       agentRuntimes: [req('opencode', { title: 'OpenCode' }), req('pi', { title: 'Pi' })],
-      errors: { pi: 'pi install boom' },
+      errors: { opencode: 'opencode install boom' },
     })
     render(<SetupStep role="guided" onDone={() => {}} />)
-    expect(screen.getByText('pi install boom')).toBeInTheDocument()
+    expect(screen.getByText('opencode install boom')).toBeInTheDocument()
   })
 
   it('blocks continuing until amuxd is present', () => {

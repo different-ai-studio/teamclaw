@@ -323,8 +323,7 @@ mod execution_context_tests {
         ));
         std::fs::create_dir_all(&scratch).unwrap();
         let backend = Arc::new(MockBackend::default());
-        backend.state().get_workspaces_by_team_error =
-            Some("workspace backend unavailable".into());
+        backend.state().get_workspaces_by_team_error = Some("workspace backend unavailable".into());
         let assembler = assembler(backend, "team-a", "actor-a");
 
         let result = assembler
@@ -648,8 +647,7 @@ impl DaemonServer {
     /// workspace: `(workspace_id, worktree_path, extra_env, force_env_override)`.
     ///
     /// Reusing `assemble_spawn_runtime_env_for_worktree` here is deliberate: it
-    /// (a) syncs `provider.team` into each workspace's `opencode.json` (via
-    /// `sync_team_provider_on_disk`) so the prewarmed host advertises the team
+    /// (a) syncs `provider.team` into the active team's `opencode.json` so the prewarmed host advertises the team
     /// model list, (b) warms the `managed_llm_cache` so the first real session
     /// skips the cloud round-trip, and (c) yields the exact `extra_env` the first
     /// `attach_session` will use, so the prewarmed host's `env_fingerprint`
@@ -769,7 +767,7 @@ impl DaemonServer {
             .map(|p| p.to_string_lossy().into_owned());
 
         // Suppress immediately before sync disk writes (inherent MCP, then
-        // provider.team + secret resolve via sync_team_provider_on_disk). Callers
+        // global provider.team sync + workspace secret resolve). Callers
         // must not rely on a suppress issued before the awaits above.
         self.suppress_internal_opencode_writes(worktree);
         crate::runtime::supervisor::materialize_inherent_mcp_for_spawn(Path::new(worktree))

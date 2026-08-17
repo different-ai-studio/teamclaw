@@ -42,13 +42,16 @@ pub use resolved_env::{
     ResolvedEnvSnapshot, UnresolvedEnv, UnresolvedReason,
 };
 pub use team_provider::{
-    managed_llm_provider_from_disk_team, read_disk_team_provider, stabilize_managed_llm_for_spawn,
-    team_provider_env_payload, ManagedLlmModel, ManagedLlmProvider, ManagedLlmState,
+    managed_llm_provider_from_disk_team, read_global_team_provider,
+    stabilize_managed_llm_for_spawn, team_provider_env_payload, ManagedLlmModel,
+    ManagedLlmProvider, ManagedLlmState,
 };
 pub use team_provider_sync::{
-    sync_team_provider_on_disk, SecretResolveScope, TeamProviderSyncResult,
+    resolve_workspace_runtime_config, sync_global_team_provider, SecretResolveScope,
+    TeamProviderSyncResult,
 };
 
+pub use amuxd_layout::{active_team as active_amuxd_team, team_state_dir as amuxd_team_state_dir};
 pub use storage_namespace::{
     amuxd_home_for_brand, amuxd_home_from_env, brand_home_dir, brand_short_name_from_env,
     is_official_brand, resolve_amuxd_dir_name, resolve_storage_dir_name,
@@ -99,9 +102,9 @@ pub fn assemble_runtime_env(
 
     let personal = personal_secrets::load_personal_env()?;
     let resolved_env = resolved_env::resolve_runtime_env(personal, team_env, system);
-    let sync = sync_team_provider_on_disk(
+    sync_global_team_provider(managed_llm, &resolved_env.bindings)?;
+    let sync = resolve_workspace_runtime_config(
         workspace,
-        managed_llm,
         &resolved_env.bindings,
         SecretResolveScope::FullConfig,
     )?;
@@ -119,6 +122,14 @@ mod tests {
 
     #[test]
     fn assemble_runtime_env_materializes_team_provider_on_spawn() {
+        let _lock = crate::test_util::home_env_lock();
+        let global_dir = tempfile::tempdir().unwrap();
+        let _amuxd_home = crate::test_util::AmuxdHomeGuard::set(global_dir.path());
+        std::fs::write(
+            global_dir.path().join("daemon.toml"),
+            "active_team = \"team-test\"\n",
+        )
+        .unwrap();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("opencode.json"), "{}").unwrap();
 
@@ -148,9 +159,16 @@ mod tests {
             Some("sk-tc-spawn-actor")
         );
 
-        let raw = std::fs::read_to_string(dir.path().join("opencode.json")).unwrap();
+        let raw = std::fs::read_to_string(
+            global_dir
+                .path()
+                .join("teams/team-test/state/opencode.json"),
+        )
+        .unwrap();
         assert!(raw.contains("sk-tc-spawn-actor"));
         assert!(raw.contains("model-a"));
-        assert!(bundle.opencode_json_original.is_some());
+        let workspace_raw = std::fs::read_to_string(dir.path().join("opencode.json")).unwrap();
+        assert!(!workspace_raw.contains("\"team\""));
+        assert!(bundle.opencode_json_original.is_none());
     }
 }
