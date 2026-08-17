@@ -20,5 +20,13 @@ opt-level = "s"
 strip = "debuginfo"
 debug = 1
 
+[profile.dev]
+# Full DWARF on a workspace this size produced a 231MB debug binary, and link
+# time scales with it — that was the bulk of every dev rebuild. Line tables keep
+# what we actually read (file:line in panic backtraces and Sentry frames) and
+# drop what we don't (variable inspection under lldb). Switch back to `true` if
+# you need to step through code in a debugger.
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 0
