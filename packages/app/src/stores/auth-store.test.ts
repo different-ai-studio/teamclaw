@@ -17,14 +17,11 @@ const authMock = {
   verifyPhoneOtpResult: vi.fn(),
   loginWithPhoneUser: vi.fn(),
   signOut: vi.fn(),
-  signInAnonymously: vi.fn(),
   signInWithPassword: vi.fn(),
   claimInvite: vi.fn(),
   listPendingInvites: vi.fn(),
   acceptPendingInvite: vi.fn(),
   declinePendingInvite: vi.fn(),
-  sendUpgradeEmailOtp: vi.fn(),
-  verifyUpgradeEmailOtp: vi.fn(),
   adoptSession: vi.fn(),
 };
 const backendMock = {
@@ -53,13 +50,6 @@ function storeSessionLike(userId: string) {
   };
 }
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
 
 vi.mock("@/lib/backend", () => ({
   getBackend: () => backendMock,
@@ -93,9 +83,6 @@ beforeEach(() => {
 // `isAnonymous` — camelCase — is what mapSession actually produces. This fixture
 // used to say `is_anonymous`, matching the production code's equally wrong
 // guess, so the suite passed while every anonymous guard in the app was dead.
-function anonSessionLike(userId: string) {
-  return { ...storeSessionLike(userId), user: { id: userId, email: null, isAnonymous: true } };
-}
 
 describe("auth-store", () => {
   it("hydrate populates session from backend auth", async () => {
@@ -257,25 +244,7 @@ describe("auth-store", () => {
     expect(useAuthStore.getState().otpPhone).toBeNull();
   });
 
-  it("signInAnonymously sets the returned session", async () => {
-    authMock.signInAnonymously.mockResolvedValueOnce({ user: { id: "anon-1" } });
 
-    const ok = await useAuthStore.getState().signInAnonymously();
-
-    expect(ok).toBe(true);
-    expect(useAuthStore.getState().session?.user.id).toBe("anon-1");
-    expect(useAuthStore.getState().errorMessage).toBeNull();
-  });
-
-  it("signInAnonymously returns a config error without calling Supabase when config is missing", async () => {
-    backendConfig.hasConfig = false;
-
-    const ok = await useAuthStore.getState().signInAnonymously();
-
-    expect(ok).toBe(false);
-    expect(authMock.signInAnonymously).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().errorMessage).toMatch(/Supabase config missing/);
-  });
 
   it("signInWithPassword stores the returned session", async () => {
     authMock.signInWithPassword.mockResolvedValueOnce(storeSessionLike("password-1"));
@@ -307,15 +276,6 @@ describe("auth-store", () => {
     expect(useAuthStore.getState().pendingInviteToken).toBe("tok-2");
   });
 
-  it("claimPendingInvite is a no-op for an anonymous session (keeps the token)", async () => {
-    useAuthStore.setState({ session: anonSessionLike("anon-2"), pendingInviteToken: "tok-2" });
-
-    const result = await useAuthStore.getState().claimPendingInvite();
-
-    expect(result).toBeNull();
-    expect(authMock.claimInvite).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().pendingInviteToken).toBe("tok-2");
-  });
 
   it("claimPendingInvite drops a token the server permanently rejects", async () => {
     // 400 validation_failed is what `claim_team_invite` raising 'invite already
@@ -377,16 +337,6 @@ describe("auth-store", () => {
     matchedVia: "email" as const,
   };
 
-  it("refreshPendingInvites skips the round-trip for an anonymous session", async () => {
-    // An anonymous user has no verified email/phone, so there is nothing the
-    // server could match — the request would always come back empty.
-    useAuthStore.setState({ session: anonSessionLike("anon-7"), pendingInvites: [pendingInvite] });
-
-    await useAuthStore.getState().refreshPendingInvites();
-
-    expect(authMock.listPendingInvites).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().pendingInvites).toEqual([]);
-  });
 
   it("refreshPendingInvites stores matched invites for a real session", async () => {
     authMock.listPendingInvites.mockResolvedValueOnce([pendingInvite]);
@@ -455,53 +405,8 @@ describe("auth-store", () => {
     expect(useAuthStore.getState().pendingInvites).toEqual([]);
   });
 
-  it("sendUpgradeEmailOtp does not flip the global loading flag (AuthGate would tear down the app)", async () => {
-    // Authenticated, app mounted: session present, global loading already false.
-    useAuthStore.setState({ session: storeSessionLike("anon-up"), loading: false, upgradeEmail: null });
-    const pending = deferred<void>();
-    authMock.sendUpgradeEmailOtp.mockReturnValueOnce(pending.promise);
 
-    const resultPromise = useAuthStore.getState().sendUpgradeEmailOtp("taken@example.com");
 
-    // While in-flight the global `loading` must stay false so AuthGate keeps the
-    // app (and the upgrade dialog) mounted; the dedicated flag tracks progress.
-    expect(useAuthStore.getState().loading).toBe(false);
-    expect(useAuthStore.getState().upgradeLoading).toBe(true);
-
-    pending.resolve();
-    await resultPromise;
-    expect(useAuthStore.getState().upgradeLoading).toBe(false);
-  });
-
-  it("sendUpgradeEmailOtp surfaces the error without disturbing global loading on failure", async () => {
-    useAuthStore.setState({ session: storeSessionLike("anon-up"), loading: false, upgradeEmail: null });
-    authMock.sendUpgradeEmailOtp.mockRejectedValueOnce(
-      new Error("A user with this email address has already been registered"),
-    );
-
-    const ok = await useAuthStore.getState().sendUpgradeEmailOtp("taken@example.com");
-
-    expect(ok).toBe(false);
-    expect(useAuthStore.getState().loading).toBe(false);
-    expect(useAuthStore.getState().upgradeLoading).toBe(false);
-    expect(useAuthStore.getState().errorMessage).toMatch(/already been registered/);
-    expect(useAuthStore.getState().upgradeEmail).toBeNull();
-  });
-
-  it("verifyUpgradeEmailOtp does not flip the global loading flag while verifying", async () => {
-    useAuthStore.setState({ session: storeSessionLike("anon-up"), loading: false, upgradeEmail: "taken@example.com" });
-    const pending = deferred<{ user: { id: string } }>();
-    authMock.verifyUpgradeEmailOtp.mockReturnValueOnce(pending.promise);
-
-    const resultPromise = useAuthStore.getState().verifyUpgradeEmailOtp("123456");
-
-    expect(useAuthStore.getState().loading).toBe(false);
-    expect(useAuthStore.getState().upgradeLoading).toBe(true);
-
-    pending.resolve({ user: { id: "anon-up" } });
-    await resultPromise;
-    expect(useAuthStore.getState().upgradeLoading).toBe(false);
-  });
 
   it("claimPendingInvite keeps the token for retry when the claim fails", async () => {
     authMock.claimInvite.mockRejectedValueOnce(new Error("Invite expired"));

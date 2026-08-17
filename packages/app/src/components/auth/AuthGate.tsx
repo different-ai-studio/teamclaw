@@ -23,11 +23,8 @@ import { humanizeFcError } from "@/lib/fc-error";
 import { markStartup } from "@/lib/startup-perf";
 import { TeamPicker } from "./TeamPicker";
 import { PendingInvitesDialog } from "@/components/auth/PendingInvitesDialog";
-import { GuestTeamDiscovery } from "@/components/auth/GuestTeamDiscovery";
-import { getDesktopDeviceIdOrNull } from "@/lib/backend/cloud-api/device-id";
-import { isChromeExtension } from "@/lib/platform";
 import { extensionTeamOnboarding } from "@/lib/build-config";
-import { ExtensionNoTeamScreen } from "./ExtensionNoTeamScreen";
+import { NoTeamScreen } from "./NoTeamScreen";
 import type { MembershipTeam } from "@/lib/backend";
 
 /** A one-option "choice" is noise: single-locale builds skip the language step
@@ -41,17 +38,12 @@ interface AuthGateProps {
 type BootstrapState = "idle" | "checking" | "ready" | "no_team" | "error";
 
 function memberTeams(teams: MembershipTeam[]): MembershipTeam[] {
-  return teams.filter((team) => team.itemType !== "org" && team.isMember !== false);
+  return teams.filter((team) => team.isMember !== false);
 }
 
-/** True when the user must explicitly pick (multi-team, joinable public, or empty org). */
+/** True when the user must explicitly pick: several teams, or a joinable public one. */
 function needsTeamPicker(teams: MembershipTeam[]): boolean {
-  const members = memberTeams(teams);
-  return (
-    members.length > 1 ||
-    teams.some((team) => team.isMember === false) ||
-    teams.some((team) => team.itemType === "org")
-  );
+  return memberTeams(teams).length > 1 || teams.some((team) => team.isMember === false);
 }
 
 function pickAutoRestoreTarget(
@@ -131,8 +123,6 @@ export function AuthGate({ children }: AuthGateProps) {
   // before team-bootstrap can overwrite the cache, so the picker can badge it
   // "Last used". Null on a genuinely-first login (no history).
   const [lastUsedTeamId, setLastUsedTeamId] = useState<string | null>(null);
-  const extensionRequiresInvitation =
-    isChromeExtension() && !extensionTeamOnboarding.autoCreateTeam;
   // Team discovery must not race a link invite claim. The claim enters the
   // invited team and clears the token asynchronously; keeping the promise in
   // a ref lets the bootstrap effect await the exact in-flight operation even
@@ -167,7 +157,7 @@ export function AuthGate({ children }: AuthGateProps) {
     let cancelled = false;
     void (async () => {
       try {
-        const teams = await getBackend().teams.listAllMyTeams({ includeEmptyOrgs: true });
+        const teams = await getBackend().teams.listAllMyTeams();
         if (!cancelled) setMyTeams(teams);
       } catch (e) {
         console.warn("[AuthGate] listAllMyTeams failed", e);
@@ -241,7 +231,7 @@ export function AuthGate({ children }: AuthGateProps) {
   // claimed-successfully.
   const inviteClaimAttempted = useRef<string | null>(null);
   useEffect(() => {
-    if (!session || session.user?.isAnonymous) return;
+    if (!session) return;
     if (!pendingInviteToken) return;
     if (inviteClaimAttempted.current === pendingInviteToken) return;
     inviteClaimAttempted.current = pendingInviteToken;
@@ -266,14 +256,13 @@ export function AuthGate({ children }: AuthGateProps) {
   // a link. Skipped while a token claim is queued — that invite is the one the
   // user actually acted on, and joining it may satisfy the pending list anyway.
   useEffect(() => {
-    if (!session || session.user?.isAnonymous) return;
+    if (!session) return;
     if (pendingInviteToken) return;
-    // The invite-only extension path performs this lookup as part of the
-    // blocking team resolution below. Existing-team users still refresh once
-    // bootstrap reaches ready so their normal in-app dialog keeps working.
-    if (extensionRequiresInvitation && bootstrap !== "ready") return;
+    // A caller with no team blocks on the server's answer first (403 →
+    // "no_team"), and the no-team screen runs this lookup itself. Existing-team
+    // users refresh once bootstrap reaches ready so the in-app dialog works.
     void useAuthStore.getState().refreshPendingInvites();
-  }, [session, pendingInviteToken, bootstrap, extensionRequiresInvitation]);
+  }, [session, pendingInviteToken]);
 
   // After auth, resolve the full team chooser before entering a team. Only an
   // empty result may create a team; it uses the dedicated atomic bootstrap RPC.
@@ -291,11 +280,6 @@ export function AuthGate({ children }: AuthGateProps) {
       setRetrying(false);
       return;
     }
-    // Quick trial: a guest DOES get a team — one throwaway team of its own in
-    // the shared default org, so the product is usable before signing up. It
-    // still never joins someone else's team (the server refuses), so a guest
-    // cannot appear in another team's member list. A pending member-invite
-    // token remains persisted until real sign-in.
     // An invite claim has precedence over normal discovery. claimPendingInvite
     // enters the invited team and clears this token on success. Only wait while
     // the claim is still unattempted: a failed claim keeps its token for a
@@ -315,7 +299,6 @@ export function AuthGate({ children }: AuthGateProps) {
 
     void (async () => {
       let teamSet = false;
-      let teamAssignmentRequired = false;
       let bootErr: unknown = null;
       try {
         const pendingClaim = pendingInviteToken ? inviteClaimPromise.current : null;
@@ -334,40 +317,24 @@ export function AuthGate({ children }: AuthGateProps) {
             return;
           }
         }
-        const allTeams = await getBackend().teams.listAllMyTeams({ includeEmptyOrgs: true });
+        const allTeams = await getBackend().teams.listAllMyTeams();
         markStartup("team-list:end");
-        // This build policy is extension-only. Public joinable teams and empty
-        // org rows are not memberships and must not accidentally bypass the
-        // invite-only gate or offer a hidden team-creation path.
-        if (extensionRequiresInvitation && memberTeams(allTeams).length === 0) {
-          setMyTeams([]);
-          await useAuthStore.getState().refreshPendingInvites();
-          teamAssignmentRequired = true;
-        } else if (allTeams.length > 0) {
+        if (allTeams.length > 0) {
           // Do not auto-select the first row: the chooser makes the org then
           // team decision explicit, including public teams that need joining.
           setMyTeams(allTeams);
           teamSet = true;
         } else {
-          // First-team onboarding: let the server seed the names from the
-          // caller's org. The team adopts the org's name, and the owner actor
-          // adopts the account's nickname (saas-mono mirror). We only fall back
-          // to a client-resolved display name (OS full name / email prefix) so a
-          // nickname-less account doesn't land as a synthesized handle; the
-          // server still prefers the nickname when present.
-          const displayName = await resolveDefaultDisplayName(session?.user?.email);
-          // Guests pass the per-install id so a second quick trial on this
-          // machine lands back in the team the first one made, rather than
-          // leaving another abandoned team in the shared org.
+          // Login onboarding. The server resolves the org — minting one named
+          // after the caller when they have none — and returns that org's
+          // public default team, creating it on first use.
           //
-          // Deliberately the null-returning variant: the plain one falls back
-          // to a shared "desktop-unknown" literal, and every install that hit
-          // that fallback would be handed the SAME guest team. A null just
-          // means no reuse — one extra team beats strangers sharing one.
-          const created = await getBackend().teams.bootstrapTeam({
-            displayName,
-            deviceId: session.user?.isAnonymous ? getDesktopDeviceIdOrNull() : null,
-          });
+          // `displayName` seeds the OWNER ACTOR only, never the org or team
+          // name: it resolves OS-account-name first, which on a fleet-imaged
+          // machine is the IT admin. The server names the org from the account
+          // (nickname → OAuth full name → email local part).
+          const displayName = await resolveDefaultDisplayName(session?.user?.email);
+          const created = await getBackend().teams.bootstrapTeam({ displayName });
           if (created?.id) {
             await useCurrentTeamStore.getState().setActiveTeam({
               id: created.id,
@@ -380,10 +347,23 @@ export function AuthGate({ children }: AuthGateProps) {
             teamSet = true;
             console.log("[AuthGate] auto-created team", created.name);
           } else {
-            bootErr = new Error("create_team returned no team id");
+            bootErr = new Error("bootstrap returned no team id");
           }
         }
       } catch (err) {
+        // The deployment has self-registration off and this caller has no org
+        // to fall back on. Not an error state: it is the waiting-for-invite
+        // state, and the screen below offers exactly the two ways out (accept a
+        // pending invite, or sign in as someone else).
+        if (err instanceof CloudApiError && err.status === 403) {
+          setMyTeams([]);
+          await useAuthStore.getState().refreshPendingInvites();
+          markStartup("team-bootstrap:end");
+          setRetrying(false);
+          setBootstrapError(null);
+          setBootstrap("no_team");
+          return;
+        }
         if (err instanceof CloudApiError && err.status === 401) {
           try {
             await refreshSession();
@@ -405,9 +385,6 @@ export function AuthGate({ children }: AuthGateProps) {
       if (teamSet) {
         setBootstrapError(null);
         setBootstrap("ready");
-      } else if (teamAssignmentRequired) {
-        setBootstrapError(null);
-        setBootstrap("no_team");
       } else {
         // No current team means the app can't continue — daemon onboarding,
         // sessions and the actor directory are all team-scoped. Surface the
@@ -417,7 +394,7 @@ export function AuthGate({ children }: AuthGateProps) {
         setBootstrap("error");
       }
     })();
-  }, [loading, session, bootstrapNonce, pendingInviteToken, extensionRequiresInvitation, signOut]);
+  }, [loading, session, bootstrapNonce, pendingInviteToken, signOut]);
 
   const retryBootstrap = () => {
     // Re-arm the per-user ref guard and bump the nonce so the bootstrap effect
@@ -539,7 +516,7 @@ export function AuthGate({ children }: AuthGateProps) {
     removeStartupSkeleton();
     return (
       <>
-        <ExtensionNoTeamScreen
+        <NoTeamScreen
           messages={extensionTeamOnboarding.noTeamMessage}
           checking={checkingNoTeamInvites}
           onRetry={retryNoTeamInvites}
@@ -569,14 +546,6 @@ export function AuthGate({ children }: AuthGateProps) {
   // the team server-side, adopts the org-switched JWT, switches current team,
   // and refreshes the daemon) — so the daemon gate below then evaluates against
   // the chosen team and triggers re-onboard on mismatch.
-  // A guest with no team of its own has nothing to render but the public-team
-  // browser. Once quick-trial has seeded one, fall through to the normal shell
-  // — otherwise the trial dead-ends on the screen it just succeeded past.
-  if (session?.user?.isAnonymous && !teamChosen) {
-    removeStartupSkeleton();
-    return <GuestTeamDiscovery onSignIn={() => void signOut()} />;
-  }
-
   if (session && !teamChosen) {
     if (myTeams === null) {
       return null; // Still loading the team list — keep the skeleton.

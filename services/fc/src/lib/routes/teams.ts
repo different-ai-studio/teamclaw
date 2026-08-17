@@ -4,16 +4,15 @@ import { optionalBearerToken } from "../http-utils.js";
 export function registerTeams(router) {
   router.get("/v1/teams", async (ctx) => {
     // scope=all lists the caller's teams plus joinable public teams across all
-    // orgs; discoverable is the public-only subset used by anonymous browsing.
-    // Omitted preserves the active-org member listing.
+    // orgs. Omitted preserves the active-org member listing.
+    //
+    // `includeEmptyOrgs` is gone: an org without a team now gets one on the
+    // caller's first login (see bootstrap_login_team), so there is no such row
+    // to render and no client-driven "initialize this org" step. `discoverable`
+    // is gone with anonymous browsing.
     const scope = ctx.query?.get?.("scope") ?? null;
     if (scope === "all") {
-      const includeEmptyOrgs = ctx.query?.get?.("includeEmptyOrgs") === "true";
-      const items = await ctx.repository.listAllMyTeams({ includeEmptyOrgs });
-      return { body: { items, nextCursor: null } };
-    }
-    if (scope === "discoverable") {
-      const items = await ctx.repository.listDiscoverableTeams();
+      const items = await ctx.repository.listAllMyTeams();
       return { body: { items, nextCursor: null } };
     }
     const items = await ctx.repository.listTeams({ limit: 50 });
@@ -63,17 +62,18 @@ export function registerTeams(router) {
     };
   });
 
-  // The login bootstrap is deliberately separate from explicit team creation:
-  // it never adopts an arbitrary existing org team. It creates one team named
-  // after the authenticated caller's current org and its owner actor atomically.
+  // The login bootstrap is deliberately separate from explicit team creation.
+  // It resolves the caller's org (minting one named after them when they have
+  // none) and returns that org's public default team, creating it on first use.
+  //
+  // `orgId` and `deviceId` used to be accepted here and are both gone:
+  // `orgId` drove the empty-org picker row, which no longer exists now that an
+  // org without a team gets one automatically; `deviceId` was the guest-team
+  // reuse key, and the anonymous path has been removed entirely.
   router.post("/v1/teams/bootstrap", async (ctx) => {
     const body = ctx.json;
     const team = await ctx.repository.bootstrapTeam({
       displayName: optionalStringOrNull(body.displayName, "displayName"),
-      orgId: optionalStringOrNull(body.orgId, "orgId"),
-      // Guests only: reuse the team this device's last guest got instead of
-      // stacking up a new one per quick-trial click.
-      deviceId: optionalStringOrNull(body.deviceId, "deviceId"),
     });
     return { body: team };
   });

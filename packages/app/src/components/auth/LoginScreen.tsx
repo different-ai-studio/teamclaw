@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
-import { appDisplayName, extensionTeamOnboarding } from "@/lib/build-config";
+import { appDisplayName } from "@/lib/build-config";
 import { useFeatures } from "@/lib/remote-features";
 import { hasBackendConfig } from "@/lib/backend";
 import { getEffectiveServerConfigSync } from "@/lib/server-config";
@@ -9,7 +9,7 @@ import { useAppVersion } from "@/lib/version";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isTauri } from "@/lib/utils";
-import { capabilities, isChromeExtension } from "@/lib/platform";
+import { capabilities } from "@/lib/platform";
 import { GoogleIcon, WechatIcon } from "./oauth-icons";
 import { WebSsoOverlay } from "./WebSsoOverlay";
 import type { OAuthProvider } from "@/lib/auth";
@@ -132,7 +132,6 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
     sendOtp,
     verifyOtp,
     resetOtp,
-    signInAnonymously,
     signInWithPassword,
     sendPhoneOtp,
     verifyPhoneOtp,
@@ -151,7 +150,6 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
   const passwordEnabled = auth.password;
   const appVersion = useAppVersion();
   const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl;
-  const showAnonymousTrial = !isChromeExtension() || extensionTeamOnboarding.autoCreateTeam;
   const onSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     await sendOtp(email);
@@ -182,9 +180,6 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
     resetOtp();
   };
 
-  const onQuickTrial = async () => {
-    await signInAnonymously();
-  };
   const cardClassName = embedded
     ? "w-full space-y-5 rounded-[16px] border border-border bg-paper p-5"
     : "w-full max-w-sm space-y-5 rounded-2xl border border-border bg-paper p-7";
@@ -425,18 +420,6 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
               ? method === "password" ? t("auth.signingIn", "Signing in…") : t("auth.sending", "Sending…")
               : method === "password" ? t("auth.signIn", "Sign in") : t("auth.sendCode", "Send code")}
           </Button>
-          {showAnonymousTrial && (
-            <button
-              type="button"
-              onClick={() => void onQuickTrial()}
-              disabled={serverConfigRequired || loading}
-              className="block w-full text-center text-[12px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-            >
-              {loading
-                ? t("auth.onboarding.startingTrial", "Preparing…")
-                : t("auth.onboarding.quickTrial", "Try anonymously")}
-            </button>
-          )}
           <OAuthButtons />
         </form>
       )}

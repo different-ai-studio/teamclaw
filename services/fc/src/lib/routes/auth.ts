@@ -10,9 +10,16 @@ export function registerAuth(router) {
     return { body: out };
   });
 
-  router.post("/v1/auth/signin-anonymous", { auth: "none" }, async (ctx) => {
-    const out = await ctx.repository.signInAnonymous();
-    return { body: out };
+  // Anonymous / quick-trial sign-in has been removed from the product. Kept as
+  // an explicit 410 rather than deleted so already-installed clients get a
+  // legible answer instead of a 404 that reads like a routing bug. GoTrue's own
+  // ENABLE_ANONYMOUS_USERS is off as well — this route is the polite half.
+  router.post("/v1/auth/signin-anonymous", { auth: "none" }, async () => {
+    throw new ApiError(
+      410,
+      "anonymous_signin_removed",
+      "anonymous sign-in is no longer supported; sign in with an account or use an invite link",
+    );
   });
 
   // Phone verification-code login, aligned with the partner SaaS (synthetic email +

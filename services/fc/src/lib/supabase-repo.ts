@@ -4,17 +4,27 @@ import { verifyTrustedExternalJwt } from "./trusted-external-jwt.js";
 import { ApiError } from "./http-utils.js";
 import { DEFAULT_LIST_LIMIT, DEFAULT_MESSAGE_LIST_LIMIT } from "./routing-utils.js";
 
+import { resolveFeatures } from "./routes/config.js";
+
 /**
- * Device ids that are not identities. Clients emit these when they cannot read
- * their own storage; treating one as a reuse key would collapse every such
- * install onto a single guest team.
+ * Self-registration switch, resolved per request from the deployment's feature
+ * profile. Unset means allowed — every deployment behaves as it does today
+ * until someone turns it off. See FeatureFlags.allowNewOrg for why this gates
+ * "mint an org" rather than "create a team", and why it is FC-only.
  */
-const SHARED_DEVICE_ID_PLACEHOLDERS = new Set([
-  "desktop-unknown",
-  "ios-unknown",
-  "unknown",
-  "",
-]);
+function newOrgAllowed(): boolean {
+  return resolveFeatures().allowNewOrg !== false;
+}
+
+function assertNewOrgAllowed(): void {
+  if (!newOrgAllowed()) {
+    throw new ApiError(
+      403,
+      "registration_disabled",
+      "self-registration is disabled on this deployment",
+    );
+  }
+}
 
 import { isLegalStatusTransition } from "./pg-repo/app-status.js";
 // Shared with the pg-repo twin on purpose — see the "Team MCP / env helpers"
@@ -455,14 +465,13 @@ export function createSupabaseBusinessRepository(options) {
     // picker). The `list_all_my_teams` function lives in the `amux` schema and is
     // SECURITY DEFINER (it bypasses teams_org_guard). The default client schema
     // here is `amux`, so it resolves via a plain `.rpc(...)` like create_team etc.
-    async listAllMyTeams({ includeEmptyOrgs = false } = {}) {
+    async listAllMyTeams() {
       // Cross-org team picker source: member teams plus every public team the
-      // caller may join. The legacy argument remains for RPC signature
-      // compatibility during rollout.
-      const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
+      // caller may join. `p_default_org_id` survives only in the RPC signature
+      // — the function body has never read it, and FC no longer supplies it.
       const { data, error } = await supabase.rpc("list_teams_for_picker", {
-        p_default_org_id: defaultOrgId,
-        p_include_empty_orgs: includeEmptyOrgs,
+        p_default_org_id: null,
+        p_include_empty_orgs: false,
       });
       if (error) throw error;
       return (data ?? []).map((r: any) => ({
@@ -473,7 +482,6 @@ export function createSupabaseBusinessRepository(options) {
         orgName: r.org_name ?? null,
         visibility: r.visibility ?? "private",
         isMember: r.is_member !== false,
-        itemType: r.item_type === "org" ? "org" : "team",
         teamId: r.team_id ?? null,
         // Disambiguation for teams that share a name (an org's teams are all
         // named after the org). Null on an empty-org row, which has no team.
@@ -502,10 +510,11 @@ export function createSupabaseBusinessRepository(options) {
     // plain 'member' actor (idempotent if already joined) and rejects anything
     // that is not public.
     async joinPublicTeam(teamId) {
-      const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
+      // `p_default_org_id` is vestigial (the function body never read it). The
+      // org check now happens inside the RPC against amux.current_org_id().
       const { data, error } = await supabase.rpc("join_public_team", {
         p_team_id: teamId,
-        p_default_org_id: defaultOrgId,
+        p_default_org_id: null,
       });
       if (error) {
         const code = error?.code || "";
@@ -543,19 +552,20 @@ export function createSupabaseBusinessRepository(options) {
     async createTeam(input) {
       // Explicit creation. Login onboarding calls bootstrapTeam below instead;
       // this path never silently joins an existing organization team.
-      const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
-      // Resolve a fallback org to STAMP on a newly created team when the token
-      // carries no org. Same order as before: JWT app_metadata.org_id →
-      // DEFAULT_ORG_ID → lazily provisioned personal org. The RPC prefers the
-      // authoritative token org and only uses this fallback when that is null.
+      //
+      // Org resolution is JWT app_metadata.org_id → lazily provisioned personal
+      // org. DEFAULT_ORG_ID is deliberately NOT in this chain any more: it used
+      // to drop every org-less signup into one shared tenant, which is exactly
+      // the behaviour this redesign removes. It now serves phone-auth only.
       const { data: caller, error: callerErr } = await getCurrentUser();
       if (callerErr || !caller?.user?.id) {
         throw new ApiError(401, "missing_auth", "authenticated user required");
       }
       let fallbackOrg: string | null =
         (caller.user.app_metadata as any)?.org_id ?? null;
-      if (!fallbackOrg) fallbackOrg = defaultOrgId;
       if (!fallbackOrg) {
+        // Same switch as the bootstrap path: minting an org IS self-registration.
+        assertNewOrgAllowed();
         const { data: provisioned, error: orgErr } =
           await supabase.rpc("ensure_personal_org");
         if (orgErr) throw orgErr;
@@ -579,54 +589,38 @@ export function createSupabaseBusinessRepository(options) {
       });
     },
 
+    // Login onboarding. The whole decision — which org, create one or not,
+    // create the org's default team or join it — lives in a single SQL
+    // orchestrator so it happens in one transaction; letting FC read the org
+    // first and then pick an RPC would add a round trip and a race window.
+    //
+    //   no org        → mint one (named after the caller) + its public default team
+    //   shared tenant → today's path (own private team); see p_shared_org below
+    //   real org      → ensure the org's public default team, join it
     async bootstrapTeam(input) {
       const { data: caller, error: callerErr } = await getCurrentUser();
       if (callerErr || !caller?.user?.id) {
         throw new ApiError(401, "missing_auth", "authenticated user required");
       }
-      // Anonymous users DO get a team. The product wants a try-before-signup
-      // path: one throwaway team per anonymous user inside the shared
-      // DEFAULT_ORG, upgradable later by attaching an email identity to the
-      // same auth user (which keeps the team). Joining someone else's public
-      // team is still refused — see join_public_team, which stays guarded so a
-      // guest can never appear in another team's member list.
-      const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
-      let fallbackOrg: string | null = (caller.user.app_metadata as any)?.org_id ?? defaultOrgId;
-      if (!fallbackOrg) {
-        const { data: provisioned, error: orgErr } = await supabase.rpc("ensure_personal_org");
-        if (orgErr) throw orgErr;
-        fallbackOrg = (provisioned as string | null) ?? null;
+      const { data, error } = await supabase.rpc("bootstrap_login_team", {
+        // FC-layer enforcement, deliberately. See FeatureFlags.allowNewOrg.
+        p_allow_new_org: newOrgAllowed(),
+        // The partner tenant is frozen on the old behaviour: phone-auth stamps
+        // this org, and without the exclusion belayo's phone users would all be
+        // funnelled into one shared default team.
+        p_shared_org: process.env.DEFAULT_ORG_ID || null,
+        p_display_name: input?.displayName ?? null,
+      });
+      if (error) {
+        if (error.code === "42501" && /self-registration is disabled/i.test(error.message ?? "")) {
+          throw new ApiError(
+            403,
+            "registration_disabled",
+            "self-registration is disabled on this deployment",
+          );
+        }
+        throw error;
       }
-      const selectedOrgId = input?.orgId ?? null;
-      // A guest that names its device gets that device's team back rather than
-      // a new one. Signed-in users are unaffected: the reuse table only ever
-      // holds guest teams, and this branch is gated on is_anonymous.
-      // Reject the client-side placeholders outright. `getDesktopDeviceId`
-      // falls back to a shared literal when storage is unavailable, and any
-      // install that hit it would otherwise be handed the same guest team as
-      // every other one. A null here just means "no reuse" — one extra team is
-      // the correct outcome, strangers sharing a team is not.
-      const rawDeviceId = caller.user.is_anonymous ? (input?.deviceId?.trim() || null) : null;
-      const guestDeviceId =
-        rawDeviceId && !SHARED_DEVICE_ID_PLACEHOLDERS.has(rawDeviceId.toLowerCase())
-          ? rawDeviceId
-          : null;
-      const { data, error } = selectedOrgId
-        ? await supabase.rpc("bootstrap_selected_org_team", {
-          p_org_id: selectedOrgId,
-          p_display_name: input?.displayName ?? null,
-        })
-        : guestDeviceId
-          ? await supabase.rpc("claim_guest_device_team", {
-            p_device_id: guestDeviceId,
-            p_fallback_org: fallbackOrg,
-            p_display_name: input?.displayName ?? null,
-          })
-          : await supabase.rpc("bootstrap_current_org_team", {
-            p_fallback_org: fallbackOrg,
-            p_display_name: input?.displayName ?? null,
-          });
-      if (error) throw error;
       const row = requiredRow(data, "teams.bootstrapTeam");
       return mapTeam({ id: row.team_id ?? row.id, name: row.team_name ?? row.name, slug: row.team_slug ?? row.slug });
     },

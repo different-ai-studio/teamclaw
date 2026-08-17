@@ -17,7 +17,17 @@ function configuredMessage(
   return null
 }
 
-export function ExtensionNoTeamScreen({
+/**
+ * Shown when the account is signed in but has no team and cannot make one:
+ * either the deployment has self-registration off (403 `registration_disabled`)
+ * or an invite-only extension build. Not extension-specific any more — the
+ * `auth.extensionNoTeam.*` i18n namespace keeps its old name deliberately, so
+ * renaming the component does not churn every locale file.
+ *
+ * `messages` is the optional per-brand override; empty falls back to the
+ * translated default below.
+ */
+export function NoTeamScreen({
   messages,
   checking,
   onRetry,

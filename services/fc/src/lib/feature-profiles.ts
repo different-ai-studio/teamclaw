@@ -53,6 +53,28 @@ export interface FeatureFlags {
    * in docs/plans/2026-08-05-remote-feature-flags.md.
    */
   lockLlmConfig?: boolean;
+  /**
+   * Self-registration switch. It gates exactly one action — MINTING A NEW ORG
+   * for a caller who does not belong to one yet (`ensure_personal_org`). Someone
+   * who already has an org is always let through, because they were provisioned
+   * by somebody: an invite, or an org they were already a member of. Gating
+   * "create a team" instead would deadlock a fresh org whose first member cannot
+   * create its default team, and nobody could ever get in.
+   *
+   * Off means: sign-in still succeeds (GOTRUE_DISABLE_SIGNUP must stay false or
+   * invitees could not create an account at all), the bootstrap returns 403
+   * `registration_disabled`, and the client shows the waiting-for-invite screen.
+   *
+   * Enforced in FC only. FC forwards the caller's bearer token, so these RPCs
+   * run as `authenticated` and the grant cannot be narrowed to service_role;
+   * the Supabase gateway is publicly reachable, so a hand-rolled
+   * `POST /rest/v1/rpc/ensure_personal_org` bypasses this. Known and accepted:
+   * it is a product-shape switch, not a security boundary. Do not "fix" it with
+   * an SQL-side guard — see docs/plans/2026-08-17-login-org-team-redesign.md.
+   *
+   * Unset means allowed, which is what every deployment does today.
+   */
+  allowNewOrg?: boolean;
 }
 
 /**
@@ -93,6 +115,7 @@ export const FEATURE_PROFILES: Record<string, FeatureFlags> = {
     channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true },
     apps: false,
     lockLlmConfig: false,
+    allowNewOrg: true,
   },
 
   // Mirrors the branding repo's brands/betly/build.config.json. `webSSO: true`
@@ -103,6 +126,7 @@ export const FEATURE_PROFILES: Record<string, FeatureFlags> = {
     channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true },
     apps: false,
     lockLlmConfig: false,
+    allowNewOrg: true,
   },
 
   // Mirrors the branding repo's brands/copilot361/build.config.json, which
@@ -114,5 +138,6 @@ export const FEATURE_PROFILES: Record<string, FeatureFlags> = {
     channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true },
     apps: false,
     lockLlmConfig: false,
+    allowNewOrg: true,
   },
 };

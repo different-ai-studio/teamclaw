@@ -68,12 +68,6 @@ describe("TeamPicker", () => {
     expect(screen.queryByText(/同一时间只能在一个组织内工作/)).not.toBeInTheDocument();
   });
 
-  it("initializes an empty org before activating its newly created team", async () => {
-    render(<TeamPicker teams={[{ id: "o-empty", name: "Empty Org", orgId: "o-empty", orgName: "Empty Org", itemType: "org", teamId: null }]} onDone={() => {}} />);
-    fireEvent.click(screen.getByText("初始化 Empty Org"));
-    await vi.waitFor(() => expect(bootstrapTeam).toHaveBeenCalledWith({ orgId: "o-empty" }));
-    await vi.waitFor(() => expect(switchToTeam).toHaveBeenCalledWith("created-team"));
-  });
 
   /*
    * Teams are named after their org and the name is not unique, so an org where

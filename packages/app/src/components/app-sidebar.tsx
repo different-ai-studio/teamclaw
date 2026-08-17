@@ -1,8 +1,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Search, SquarePen, PanelLeftIcon, Settings, ChevronUp, Mail, CalendarDays, LogOut, Users, Trophy, Sparkles } from "lucide-react"
+import { Search, SquarePen, PanelLeftIcon, Settings, ChevronUp, Mail, CalendarDays, LogOut, Users, Trophy } from "lucide-react"
 import { useTeamShareStore, isShareModeLocked } from "@/stores/team-share"
-import { UpgradeAccountDialog } from "@/components/auth/UpgradeAccountDialog"
 
 import { useSessionStore } from "@/stores/session"
 import { useUIStore } from "@/stores/ui"
@@ -233,14 +232,12 @@ function SidebarUserAccountMenu() {
   const appMqttConnected = useMqttConnected()
   const appMqttDown = appMqttConnected === false
 
-  const [upgradeOpen, setUpgradeOpen] = React.useState(false)
 
   if (!authSession) return null
 
   const meta = authSession.user.userMetadata ?? undefined
   const avatarUrl = typeof meta?.avatar_url === 'string' ? meta.avatar_url : null
   const email = authSession.user.email || ""
-  const isAnonymous = Boolean(authSession.user.isAnonymous)
   const fallbackName =
     (typeof meta?.full_name === 'string' && meta.full_name) ||
     (typeof meta?.name === 'string' && meta.name) ||
@@ -327,34 +324,15 @@ function SidebarUserAccountMenu() {
         ) : null}
         <DropdownMenuSeparator />
         <div className="space-y-1 px-2 py-1.5 text-[12px]">
-          {isAnonymous ? (
-            <button
-              type="button"
-              onClick={() => setUpgradeOpen(true)}
-              className="flex w-full items-start gap-2 rounded-[8px] -mx-1 px-1 py-1 text-left transition-colors hover:bg-selected/45"
-              data-testid="sidebar-upgrade-account"
-            >
-              <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-coral" />
-              <div className="min-w-0">
-                <div className="text-foreground font-medium">
-                  {t("auth.upgrade.entry", "Upgrade account")}
-                </div>
-                <div className="text-[11px] text-muted-foreground">
-                  {t("auth.upgrade.entryHint", "Bind an email to keep this workspace")}
-                </div>
-              </div>
-            </button>
-          ) : (
-            <div className="flex items-start gap-2">
-              <Mail className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <div className="min-w-0">
-                <div className="text-faint">{t("auth.email", "Email")}</div>
-                <div className="truncate font-mono text-[11px] text-foreground">
-                  {email || t("common.notAvailable", "Not available")}
-                </div>
+          <div className="flex items-start gap-2">
+            <Mail className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <div className="min-w-0">
+              <div className="text-faint">{t("auth.email", "Email")}</div>
+              <div className="truncate font-mono text-[11px] text-foreground">
+                {email || t("common.notAvailable", "Not available")}
               </div>
             </div>
-          )}
+          </div>
           <div className="flex items-start gap-2">
             <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <div className="min-w-0">
@@ -387,7 +365,6 @@ function SidebarUserAccountMenu() {
           {t('common.signOut', 'Sign out')}
         </DropdownMenuItem>
       </DropdownMenuContent>
-      <UpgradeAccountDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} />
     </DropdownMenu>
   )
 }

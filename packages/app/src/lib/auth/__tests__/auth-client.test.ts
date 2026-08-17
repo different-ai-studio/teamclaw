@@ -36,16 +36,6 @@ afterEach(() => {
 });
 
 describe("auth-client", () => {
-  it("signInAnonymously POSTs and stores the session", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(200, makeSession({ access_token: "anon" })));
-    const client = createAuthClient({ baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch });
-    const next = await client.signInAnonymously();
-    expect(next.access_token).toBe("anon");
-    expect(getSession()?.access_token).toBe("anon");
-    const call = fetchImpl.mock.calls[0];
-    expect(call[0]).toBe(`${BASE}/v1/auth/signin-anonymous`);
-    expect((call[1] as RequestInit).method).toBe("POST");
-  });
 
   it("signInWithPassword POSTs credentials and stores the session", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(200, makeSession({ access_token: "password" })));
@@ -166,7 +156,7 @@ describe("auth-client", () => {
   it("non-2xx responses raise AuthError with the GoTrue message", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(400, { error: { code: "validation_failed", message: "bad" } }));
     const client = createAuthClient({ baseUrl: BASE, fetchImpl: fetchImpl as unknown as typeof fetch });
-    await expect(client.signInAnonymously()).rejects.toMatchObject({
+    await expect(client.sendOtp("nope@example.com")).rejects.toMatchObject({
       name: "AuthError",
       status: 400,
       code: "validation_failed",

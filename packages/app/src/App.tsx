@@ -1240,11 +1240,11 @@ function App() {
       for (const raw of urls) {
         const token = parseInviteDeeplink(raw);
         if (!token) continue;
-        // Member invites require a real account. If the user isn't signed in
-        // yet (or is still anonymous), stash the token and let sign-in +
-        // AuthGate's pending-invite effect claim it once they're authenticated.
+        // Member invites require an account. If the user isn't signed in yet,
+        // stash the token and let sign-in + AuthGate's pending-invite effect
+        // claim it once they're authenticated.
         const authState = useAuthStore.getState();
-        if (!authState.session || authState.session.user?.isAnonymous) {
+        if (!authState.session) {
           authState.setPendingInviteToken(token);
           continue;
         }
@@ -1321,7 +1321,7 @@ function App() {
   const authSession = useAuthStore((s) => s.session);
   useEffect(() => {
     if (!isTauri()) return;
-    if (!authSession || authSession.user?.isAnonymous) return;
+    if (!authSession) return;
     const pending = readPendingSessionDeeplink();
     if (!pending) return;
     void openSessionFromDeeplink(pending.sessionId);

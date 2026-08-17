@@ -115,12 +115,10 @@ function ChoiceRow({
 }
 
 function ChooseStep({
-  onQuickTrial,
   onLogin,
   onInvite,
   onServer,
 }: {
-  onQuickTrial: () => void;
   onLogin: () => void;
   onInvite: () => void;
   onServer: () => void;
@@ -159,19 +157,6 @@ function ChooseStep({
           />
         </div>
         <div className="mt-5 flex items-center justify-center gap-3 text-[12px] text-muted-foreground">
-          <button
-            type="button"
-            disabled={loading}
-            onClick={onQuickTrial}
-            className="rounded-[6px] px-1 py-0.5 underline-offset-4 transition-colors hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading
-              ? t("auth.onboarding.startingTrial", "Preparing…")
-              : t("auth.onboarding.quickTrial", "Quick trial")}
-          </button>
-          <span aria-hidden className="text-faint">
-            ·
-          </span>
           <button
             type="button"
             onClick={onServer}
@@ -363,7 +348,6 @@ function ServerStep({ onBack }: { onBack: () => void }) {
 
 export function DesktopOnboarding() {
   const [step, setStep] = useState<Step>("choose");
-  const signInAnonymously = useAuthStore((state) => state.signInAnonymously);
 
   if (step === "login") {
     return (
@@ -377,7 +361,6 @@ export function DesktopOnboarding() {
 
   return (
     <ChooseStep
-      onQuickTrial={() => void signInAnonymously()}
       onLogin={() => setStep("login")}
       onInvite={() => setStep("invite")}
       onServer={() => setStep("server")}
