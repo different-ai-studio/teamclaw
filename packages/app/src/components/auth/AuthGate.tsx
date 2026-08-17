@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, type AuthClaimResult } from "@/stores/auth-store";
 import { useCurrentTeamStore, readCachedCurrentTeam } from "@/stores/current-team";
 import { getBackend } from "@/lib/backend";
 import { isTauri, removeStartupSkeleton } from "@/lib/utils";
@@ -133,6 +133,11 @@ export function AuthGate({ children }: AuthGateProps) {
   const [lastUsedTeamId, setLastUsedTeamId] = useState<string | null>(null);
   const extensionRequiresInvitation =
     isChromeExtension() && !extensionTeamOnboarding.autoCreateTeam;
+  // Team discovery must not race a link invite claim. The claim enters the
+  // invited team and clears the token asynchronously; keeping the promise in
+  // a ref lets the bootstrap effect await the exact in-flight operation even
+  // when React re-runs effects in StrictMode.
+  const inviteClaimPromise = useRef<Promise<AuthClaimResult | null> | null>(null);
 
   useEffect(() => {
     if (isTauri()) void listSetup();
@@ -240,11 +245,20 @@ export function AuthGate({ children }: AuthGateProps) {
     if (!pendingInviteToken) return;
     if (inviteClaimAttempted.current === pendingInviteToken) return;
     inviteClaimAttempted.current = pendingInviteToken;
-    void useAuthStore.getState().claimPendingInvite().then((result) => {
-      // A claimed invite is an explicit team choice; don't immediately reopen
-      // the general picker after its active-team switch completes.
-      if (result) setTeamChosen(true);
-    });
+    const claimPromise = useAuthStore.getState().claimPendingInvite();
+    inviteClaimPromise.current = claimPromise;
+    void claimPromise
+      .then((result) => {
+        // A claimed invite is an explicit team choice; don't immediately reopen
+        // the general picker after its active-team switch completes.
+        if (result) setTeamChosen(true);
+      })
+      .catch((error) => {
+        console.warn("[AuthGate] pending invite claim failed", error);
+      })
+      .finally(() => {
+        if (inviteClaimPromise.current === claimPromise) inviteClaimPromise.current = null;
+      });
   }, [session, pendingInviteToken]);
 
   // Separate from the token replay above: these invites were addressed to the
@@ -304,6 +318,22 @@ export function AuthGate({ children }: AuthGateProps) {
       let teamAssignmentRequired = false;
       let bootErr: unknown = null;
       try {
+        const pendingClaim = pendingInviteToken ? inviteClaimPromise.current : null;
+        if (pendingClaim) {
+          const claimed = await pendingClaim;
+          if (claimed) {
+            // The claim already entered the invited team. Mark bootstrap ready
+            // explicitly so a concurrently started team-list request cannot
+            // overwrite the successful onboarding with `no_team`.
+            setMyTeams([]);
+            setTeamChosen(true);
+            setBootstrapError(null);
+            setRetrying(false);
+            markStartup("team-bootstrap:end");
+            setBootstrap("ready");
+            return;
+          }
+        }
         const allTeams = await getBackend().teams.listAllMyTeams({ includeEmptyOrgs: true });
         markStartup("team-list:end");
         // This build policy is extension-only. Public joinable teams and empty

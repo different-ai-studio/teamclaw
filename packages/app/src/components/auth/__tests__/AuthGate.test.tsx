@@ -435,6 +435,34 @@ describe("AuthGate", () => {
     expect(screen.queryByText("App shell")).not.toBeInTheDocument();
   });
 
+  it("waits for a pending invite claim before resolving the team gate", async () => {
+    isTauriMock.mockReturnValue(false);
+    extensionPolicyMock.isExtension = true;
+    extensionPolicyMock.autoCreateTeam = false;
+    authState.pendingInviteToken = "invite-token";
+
+    let resolveClaim: (result: { teamId: string }) => void = () => {};
+    const claimPromise = new Promise<{ teamId: string }>((resolve) => {
+      resolveClaim = resolve;
+    });
+    authState.claimPendingInvite.mockReturnValue(claimPromise);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(authState.claimPendingInvite).toHaveBeenCalled());
+    expect(backendMock.teams.listAllMyTeams).not.toHaveBeenCalled();
+
+    resolveClaim({ teamId: "team-invited" });
+
+    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+    expect(screen.queryByText("暂未加入团队")).not.toBeInTheDocument();
+    expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
+  });
+
   it("extension: shows contact-matched invitations before entering a team", async () => {
     isTauriMock.mockReturnValue(false);
     extensionPolicyMock.isExtension = true;
