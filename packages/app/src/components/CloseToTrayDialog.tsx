@@ -167,14 +167,16 @@ function ChoiceCard(props: {
       className={cn(
         'grid grid-cols-[18px_1fr] gap-2.5 rounded-[10px] border px-3 py-2.5 text-left transition-colors',
         props.selected
-          ? 'border-[color:rgba(232,90,74,0.45)] bg-[#fff8f6]'
-          : 'border-border bg-background hover:border-[color:rgba(26,26,20,0.16)]',
+          ? 'border-coral/45 bg-coral-soft/25'
+          : 'border-border bg-background hover:border-foreground/16',
       )}
     >
       <span
         className={cn(
           'mt-0.5 h-[14px] w-[14px] rounded-full border',
-          props.selected ? 'border-coral bg-coral shadow-[inset_0_0_0_3px_#fff]' : 'border-border',
+          props.selected
+            ? 'border-coral bg-coral shadow-[inset_0_0_0_3px_var(--paper)]'
+            : 'border-border',
         )}
         aria-hidden
       />
