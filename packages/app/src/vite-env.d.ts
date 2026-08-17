@@ -25,6 +25,8 @@ interface ImportMeta {
 }
 
 declare const __BUILD_CONFIG__: import('./lib/build-config').BuildConfig | undefined
+/** Fully normalized extension pack, including the `extension` branding alias. */
+declare const __TEAMCLU_EXTENSION_PACK__: unknown | undefined
 /** Baked `extensions.settings` from build.config*.json (Vite + extension content-script). */
 declare const __TEAMCLU_EXTENSION_SETTINGS__: unknown | undefined
 

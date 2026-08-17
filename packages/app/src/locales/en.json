@@ -292,6 +292,12 @@
       "retrying": "Retrying…",
       "signOut": "Sign out and use another account"
     },
+    "extensionNoTeam": {
+      "title": "No team yet",
+      "message": "Your account has not joined a team yet. Ask an administrator to invite your sign-in email.",
+      "retry": "Check invitations again",
+      "checking": "Checking…"
+    },
     "signIn": "Sign in",
     "willEmailCode": "We'll email you a 6-digit code.",
     "email": "Email",

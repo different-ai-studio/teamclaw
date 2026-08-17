@@ -61,7 +61,8 @@ const buildConfig = deepMerge(baseConfig || {}, envConfig)
 // and `extensions.settings` (repo configs) reach the app identically.
 const { resolveExtensionPack } = nodeRequire(
   path.join(rootDir, 'scripts/lib/extension-config.js'),
-) as { resolveExtensionPack: (buildConfig: unknown) => { settings: unknown } }
+) as { resolveExtensionPack: (buildConfig: unknown) => { settings: unknown; [key: string]: unknown } }
+const resolvedExtensionPack = resolveExtensionPack(buildConfig)
 
 const { resolveBrandTheme, generateBrandThemeCss, extractRootTokenNames } =
   nodeRequire(path.join(rootDir, 'scripts/lib/brand-theme.js')) as {
@@ -152,7 +153,8 @@ export default defineConfig({
   },
   define: {
     __BUILD_CONFIG__: JSON.stringify(buildConfig),
-    __TEAMCLU_EXTENSION_SETTINGS__: JSON.stringify(resolveExtensionPack(buildConfig).settings),
+    __TEAMCLU_EXTENSION_PACK__: JSON.stringify(resolvedExtensionPack),
+    __TEAMCLU_EXTENSION_SETTINGS__: JSON.stringify(resolvedExtensionPack.settings),
     // Inject build config defaults into import.meta.env so they work without .env files
     'import.meta.env.VITE_LOCALE': JSON.stringify((buildConfig as any).defaults?.locale ?? ''),
     'import.meta.env.PACKAGE_VERSION': JSON.stringify(

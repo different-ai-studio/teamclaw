@@ -21,7 +21,7 @@ import { useAuthStore } from '@/stores/auth-store'
  * The token path (an invite link the user opened) does not come through here —
  * opening the link IS the choice, and AuthGate claims it directly.
  */
-export function PendingInvitesDialog() {
+export function PendingInvitesDialog({ onAccepted }: { onAccepted?: () => void } = {}) {
   const { t } = useTranslation()
   const invites = useAuthStore((s) => s.pendingInvites)
   const [busyId, setBusyId] = React.useState<string | null>(null)
@@ -40,6 +40,7 @@ export function PendingInvitesDialog() {
       toast.error(t('pendingInvite.acceptFailed', 'Failed to join team: {{msg}}', { msg: msg ?? '' }))
       return
     }
+    onAccepted?.()
     toast.success(t('pendingInvite.accepted', 'Joined the team'))
   }
 

@@ -1,10 +1,15 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { setLocalCacheTeamGateMock, removeStartupSkeletonMock, isTauriMock } = vi.hoisted(() => ({
+const { setLocalCacheTeamGateMock, removeStartupSkeletonMock, isTauriMock, extensionPolicyMock } = vi.hoisted(() => ({
   setLocalCacheTeamGateMock: vi.fn().mockResolvedValue(undefined),
   removeStartupSkeletonMock: vi.fn(),
   isTauriMock: vi.fn(() => true),
+  extensionPolicyMock: {
+    isExtension: false,
+    autoCreateTeam: true,
+    noTeamMessage: { 'zh-CN': '请联系管理员邀请你加入团队。' } as Record<string, string>,
+  },
 }));
 
 const { deviceIdMock } = vi.hoisted(() => ({ deviceIdMock: { value: "device-1" as string | null } }));
@@ -25,6 +30,9 @@ const { authState, currentTeamMock, backendMock } = vi.hoisted(() => ({
     // dialog stays closed and these tests only exercise the gate itself.
     pendingInvites: [] as unknown[],
     refreshPendingInvites: vi.fn(),
+    acceptPendingInvite: vi.fn(),
+    declinePendingInvite: vi.fn(),
+    signOut: vi.fn(),
   },
   currentTeamMock: {
     reloadAndSwitchTo: vi.fn(),
@@ -76,6 +84,14 @@ vi.mock("@/lib/utils", () => ({
   cn: (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(" "),
   isTauri: () => isTauriMock(),
   removeStartupSkeleton: () => removeStartupSkeletonMock(),
+}));
+
+vi.mock("@/lib/platform", () => ({
+  isChromeExtension: () => extensionPolicyMock.isExtension,
+}));
+
+vi.mock("@/lib/build-config", () => ({
+  extensionTeamOnboarding: extensionPolicyMock,
 }));
 
 vi.mock("@/stores/setup", () => ({
@@ -145,6 +161,13 @@ beforeEach(() => {
   authState.loading = false;
   authState.authFlow = "idle";
   authState.hydrate.mockReset();
+  authState.pendingInviteToken = null;
+  authState.pendingInvites = [];
+  authState.refreshPendingInvites.mockReset();
+  authState.refreshPendingInvites.mockResolvedValue(undefined);
+  authState.acceptPendingInvite.mockReset();
+  authState.declinePendingInvite.mockReset();
+  authState.signOut.mockReset();
   backendMock.teams.listCurrentUserTeams.mockReset();
   backendMock.teams.listAllMyTeams.mockReset();
   backendMock.teams.listDiscoverableTeams.mockReset();
@@ -161,6 +184,8 @@ beforeEach(() => {
   setLocalCacheTeamGateMock.mockClear();
   removeStartupSkeletonMock.mockClear();
   isTauriMock.mockReturnValue(true);
+  extensionPolicyMock.isExtension = false;
+  extensionPolicyMock.autoCreateTeam = true;
 });
 
 describe("AuthGate", () => {
@@ -389,6 +414,152 @@ describe("AuthGate", () => {
     await waitFor(() => expect(currentTeamMock.switchToTeam).toHaveBeenCalledWith("team-existing"));
     await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
     expect(screen.queryByText(/Team picker/)).not.toBeInTheDocument();
+  });
+
+  it("extension: blocks a teamless user without auto-creating a team", async () => {
+    isTauriMock.mockReturnValue(false);
+    extensionPolicyMock.isExtension = true;
+    extensionPolicyMock.autoCreateTeam = false;
+    backendMock.teams.listAllMyTeams.mockResolvedValue([]);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(screen.getByText("暂未加入团队")).toBeInTheDocument());
+    expect(screen.getByText("请联系管理员邀请你加入团队。")).toBeInTheDocument();
+    expect(authState.refreshPendingInvites).toHaveBeenCalled();
+    expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
+    expect(screen.queryByText("App shell")).not.toBeInTheDocument();
+  });
+
+  it("waits for a pending invite claim before resolving the team gate", async () => {
+    isTauriMock.mockReturnValue(false);
+    extensionPolicyMock.isExtension = true;
+    extensionPolicyMock.autoCreateTeam = false;
+    authState.pendingInviteToken = "invite-token";
+
+    let resolveClaim: (result: { teamId: string }) => void = () => {};
+    const claimPromise = new Promise<{ teamId: string }>((resolve) => {
+      resolveClaim = resolve;
+    });
+    authState.claimPendingInvite.mockReturnValue(claimPromise);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(authState.claimPendingInvite).toHaveBeenCalled());
+    expect(backendMock.teams.listAllMyTeams).not.toHaveBeenCalled();
+
+    resolveClaim({ teamId: "team-invited" });
+
+    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+    expect(screen.queryByText("暂未加入团队")).not.toBeInTheDocument();
+    expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
+  });
+
+  it("extension: shows contact-matched invitations before entering a team", async () => {
+    isTauriMock.mockReturnValue(false);
+    extensionPolicyMock.isExtension = true;
+    extensionPolicyMock.autoCreateTeam = false;
+    authState.pendingInvites = [{
+      inviteId: "invite-1",
+      teamId: "team-invited",
+      teamName: "研发协作组",
+      teamRole: "member",
+      displayName: "New member",
+      invitedByDisplayName: "Alice",
+      inviteEmail: "new@example.com",
+      invitePhone: null,
+      expiresAt: null,
+      matchedVia: "email",
+    }];
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(screen.getByText("你有团队邀请")).toBeInTheDocument());
+    expect(screen.getByText("研发协作组")).toBeInTheDocument();
+    expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
+  });
+
+  it("extension: enters the invited team after the user accepts", async () => {
+    isTauriMock.mockReturnValue(false);
+    extensionPolicyMock.isExtension = true;
+    extensionPolicyMock.autoCreateTeam = false;
+    authState.pendingInvites = [{
+      inviteId: "invite-1",
+      teamId: "team-invited",
+      teamName: "研发协作组",
+      teamRole: "member",
+      displayName: "New member",
+      invitedByDisplayName: "Alice",
+      inviteEmail: "new@example.com",
+      invitePhone: null,
+      expiresAt: null,
+      matchedVia: "email",
+    }];
+    authState.acceptPendingInvite.mockResolvedValue({
+      actorId: "actor-1",
+      teamId: "team-invited",
+      actorType: "member",
+      displayName: "New member",
+      refreshToken: null,
+    });
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "接受邀请" }));
+
+    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+    expect(authState.acceptPendingInvite).toHaveBeenCalledWith("invite-1");
+  });
+
+  it("extension: does not treat public teams or empty org rows as memberships", async () => {
+    isTauriMock.mockReturnValue(false);
+    extensionPolicyMock.isExtension = true;
+    extensionPolicyMock.autoCreateTeam = false;
+    backendMock.teams.listAllMyTeams.mockResolvedValue([
+      { id: "public-team", name: "Public", itemType: "team", isMember: false },
+      { id: "empty-org", name: "Empty org", itemType: "org", isMember: false },
+    ]);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(screen.getByText("暂未加入团队")).toBeInTheDocument());
+    expect(screen.queryByText(/Team picker/)).not.toBeInTheDocument();
+    expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
+  });
+
+  it("plain web: ignores the extension-only policy and keeps automatic creation", async () => {
+    isTauriMock.mockReturnValue(false);
+    extensionPolicyMock.isExtension = false;
+    extensionPolicyMock.autoCreateTeam = false;
+    backendMock.teams.listAllMyTeams.mockResolvedValue([]);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(backendMock.teams.bootstrapTeam).toHaveBeenCalled());
   });
 
   it("extension/web: keeps the shell blocked until myTeams resolves, then removes the skeleton", async () => {

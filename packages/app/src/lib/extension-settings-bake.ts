@@ -12,11 +12,21 @@ export interface ExtensionSettingsBake {
   linkHover: ExtensionLinkHoverBake
 }
 
+export interface ExtensionTeamOnboardingBake {
+  /** Preserve the legacy extension behavior when true. False makes team
+   * assignment invite-only for users who do not already belong to a team. */
+  autoCreateTeam: boolean
+  /** Build-specific copy for the extension's signed-in, teamless gate. */
+  noTeamMessage: Record<string, string>
+}
+
 export interface ExtensionPackConfig {
   /** Solo-agent UI (hide permission control + model on mention pills; force narrow layout). */
   solo: boolean
   /** Side-panel host allowlist (`*.example.com` or `example.com`). Empty = ungated. */
   domains: string[]
+  /** Extension-only policy for the post-login team assignment flow. */
+  teamOnboarding: ExtensionTeamOnboardingBake
   settings: ExtensionSettingsBake
 }
 
@@ -28,10 +38,27 @@ export const DEFAULT_EXTENSION_SETTINGS_BAKE: ExtensionSettingsBake = {
 export const DEFAULT_EXTENSION_PACK_CONFIG: ExtensionPackConfig = {
   solo: false,
   domains: [],
+  teamOnboarding: {
+    autoCreateTeam: true,
+    noTeamMessage: {},
+  },
   settings: {
     hideButton: false,
     linkHover: { domains: [], urlPatterns: [] },
   },
+}
+
+function asLocalizedStrings(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, string> = {}
+  for (const [locale, message] of Object.entries(raw)) {
+    if (typeof message !== 'string') continue
+    const normalizedLocale = locale.trim()
+    const normalizedMessage = message.trim()
+    if (!normalizedLocale || !normalizedMessage) continue
+    out[normalizedLocale] = normalizedMessage
+  }
+  return out
 }
 
 function asStringList(raw: unknown): string[] {
@@ -94,6 +121,10 @@ export function parseExtensionPackConfig(raw: unknown): ExtensionPackConfig {
     return {
       solo: false,
       domains: [],
+      teamOnboarding: {
+        autoCreateTeam: DEFAULT_EXTENSION_PACK_CONFIG.teamOnboarding.autoCreateTeam,
+        noTeamMessage: {},
+      },
       settings: parseExtensionSettingsBake(undefined),
     }
   }
@@ -101,8 +132,14 @@ export function parseExtensionPackConfig(raw: unknown): ExtensionPackConfig {
   const row = raw as {
     solo?: unknown
     domains?: unknown
+    teamOnboarding?: unknown
     settings?: unknown
   }
+
+  const teamOnboardingRaw =
+    row.teamOnboarding && typeof row.teamOnboarding === 'object'
+      ? (row.teamOnboarding as { autoCreateTeam?: unknown; noTeamMessage?: unknown })
+      : null
 
   const domains: string[] = []
   const seen = new Set<string>()
@@ -116,6 +153,10 @@ export function parseExtensionPackConfig(raw: unknown): ExtensionPackConfig {
   return {
     solo: row.solo === true,
     domains,
+    teamOnboarding: {
+      autoCreateTeam: teamOnboardingRaw?.autoCreateTeam !== false,
+      noTeamMessage: asLocalizedStrings(teamOnboardingRaw?.noTeamMessage),
+    },
     settings: parseExtensionSettingsBake(row.settings),
   }
 }

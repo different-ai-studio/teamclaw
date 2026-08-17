@@ -44,6 +44,10 @@ test("resolveExtensionPack yields no domains when neither block is present", () 
   const pack = resolveExtensionPack({ app: { name: "TeamClu" } });
   assert.deepStrictEqual(pack.domains, []);
   assert.strictEqual(pack.solo, false);
+  assert.deepStrictEqual(pack.teamOnboarding, {
+    autoCreateTeam: true,
+    noTeamMessage: {},
+  });
 });
 
 test("resolveExtensionPack tolerates a missing or non-object config", () => {
@@ -65,6 +69,51 @@ test("resolveExtensionPack lets the canonical block win on settings", () => {
   });
   assert.strictEqual(pack.settings.hideButton, false);
   assert.deepStrictEqual(pack.settings.linkHover.domains, ["a.com"]);
+});
+
+test("resolveExtensionPack parses the team onboarding policy", () => {
+  const pack = resolveExtensionPack({
+    extensions: {
+      teamOnboarding: {
+        autoCreateTeam: false,
+        noTeamMessage: {
+          "zh-CN": " 请联系管理员邀请你加入团队。 ",
+          en: "Ask an administrator for an invite.",
+          invalid: 42,
+        },
+      },
+    },
+  });
+  assert.deepStrictEqual(pack.teamOnboarding, {
+    autoCreateTeam: false,
+    noTeamMessage: {
+      "zh-CN": "请联系管理员邀请你加入团队。",
+      en: "Ask an administrator for an invite.",
+    },
+  });
+});
+
+test("resolveExtensionPack accepts the branding alias and lets canonical fields win", () => {
+  const pack = resolveExtensionPack({
+    extension: {
+      teamOnboarding: {
+        autoCreateTeam: false,
+        noTeamMessage: { en: "Alias message" },
+      },
+    },
+    extensions: {
+      teamOnboarding: {
+        noTeamMessage: { "zh-CN": "主配置文案" },
+      },
+    },
+  });
+  assert.deepStrictEqual(pack.teamOnboarding, {
+    autoCreateTeam: false,
+    noTeamMessage: {
+      en: "Alias message",
+      "zh-CN": "主配置文案",
+    },
+  });
 });
 
 test("parseExtensionsConfig still accepts a bare domains row", () => {

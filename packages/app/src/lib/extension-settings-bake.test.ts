@@ -47,6 +47,41 @@ describe('parseExtensionPackConfig', () => {
         hideButton: true,
         linkHover: { domains: [], urlPatterns: [] },
       },
+      teamOnboarding: {
+        autoCreateTeam: true,
+        noTeamMessage: {},
+      },
+    })
+  })
+
+  it('parses the extension-only team onboarding policy', () => {
+    expect(
+      parseExtensionPackConfig({
+        teamOnboarding: {
+          autoCreateTeam: false,
+          noTeamMessage: {
+            'zh-CN': ' 请联系管理员邀请你加入团队。 ',
+            en: ' Ask an administrator for an invite. ',
+            empty: '   ',
+            invalid: 42,
+          },
+        },
+      }),
+    ).toMatchObject({
+      teamOnboarding: {
+        autoCreateTeam: false,
+        noTeamMessage: {
+          'zh-CN': '请联系管理员邀请你加入团队。',
+          en: 'Ask an administrator for an invite.',
+        },
+      },
+    })
+  })
+
+  it('keeps automatic team creation enabled when the policy is omitted', () => {
+    expect(parseExtensionPackConfig(undefined).teamOnboarding).toEqual({
+      autoCreateTeam: true,
+      noTeamMessage: {},
     })
   })
 })

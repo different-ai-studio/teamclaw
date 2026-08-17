@@ -6,12 +6,14 @@ import {
   parseExtensionPackConfig,
   type ExtensionPackConfig,
   type ExtensionSettingsBake,
+  type ExtensionTeamOnboardingBake,
 } from './extension-settings-bake'
 
 export type {
   ExtensionSettingsBake,
   ExtensionLinkHoverBake,
   ExtensionPackConfig,
+  ExtensionTeamOnboardingBake,
 } from './extension-settings-bake'
 
 
@@ -116,7 +118,8 @@ export interface BuildConfig {
    * Chrome extension pack options (`solo`, side-panel `domains`, `settings`).
    * Sole source for extension packaging — no SOLO/DOMAINS CLI overrides.
    */
-  extensions?: Partial<ExtensionPackConfig> & {
+  extensions?: Omit<Partial<ExtensionPackConfig>, 'settings' | 'teamOnboarding'> & {
+    teamOnboarding?: Partial<ExtensionTeamOnboardingBake>
     settings?: Partial<ExtensionSettingsBake> & {
       linkHover?: Partial<ExtensionSettingsBake['linkHover']>
     }
@@ -281,11 +284,16 @@ export const TEAM_SYNCED_EVENT = `${appStoragePrefix}-team-synced`
 
 /** Baked Chrome-extension pack config (`extensions` in build.config*.json). */
 export const extensionPack: ExtensionPackConfig = parseExtensionPackConfig(
-  buildConfig.extensions ?? DEFAULT_EXTENSION_PACK_CONFIG,
+  typeof __TEAMCLU_EXTENSION_PACK__ !== 'undefined'
+    ? __TEAMCLU_EXTENSION_PACK__
+    : buildConfig.extensions ?? DEFAULT_EXTENSION_PACK_CONFIG,
 )
 
 /** Baked Chrome-extension settings (`extensions.settings`). */
 export const extensionSettings: ExtensionSettingsBake = extensionPack.settings
+
+/** Extension-only policy for assigning a team after sign-in. */
+export const extensionTeamOnboarding: ExtensionTeamOnboardingBake = extensionPack.teamOnboarding
 
 /** When true, the extension side-panel hides the settings gear button. */
 export const hideExtensionSettingsButton: boolean = extensionSettings.hideButton === true
