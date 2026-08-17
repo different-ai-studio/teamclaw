@@ -38,6 +38,7 @@ import {
 import { sessionFlowError, sessionFlowLog } from "@/lib/session-flow-log";
 import {
   isCancelledRuntimeFailure,
+  isTransientRuntimeNetworkFailure,
   reportRuntimeEnsureCrash,
   reportRuntimeRpcNotReady,
   reportRuntimeStartFailure,
@@ -123,12 +124,15 @@ export function notifyRuntimeStartFailures(
       { actorId: failure.agentActorId },
     );
   }
-  // Offline presence is already persistent in the selected-agent status, and
-  // reconnect will retry automatically. A request we cancelled ourselves is
-  // likewise recovered by the next retry tick. Keep both in telemetry/debug,
-  // but do not duplicate these expected states as transient error toasts.
+  // Offline presence is already persistent in the selected-agent status.
+  // Client-cancelled requests and daemon → Cloud API network failures are
+  // retried by the recoverable-runtime tick. Keep these in telemetry/debug,
+  // but do not duplicate expected transient states as error toasts.
   const toastable = failures.filter(
-    (f) => f.code !== "device_offline" && !isCancelledRuntimeFailure(f.reason),
+    (f) =>
+      f.code !== "device_offline" &&
+      !isCancelledRuntimeFailure(f.reason) &&
+      !isTransientRuntimeNetworkFailure(f.reason),
   );
   if (toastable.length === 0) return;
   void import("sonner").then(({ toast }) => {

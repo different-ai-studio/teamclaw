@@ -51,8 +51,7 @@ import {
   type TeamShareSection,
   type TeamSkillKind,
 } from '@/stores/team-share-browser'
-import { useTabsStore, selectActiveTab } from '@/stores/tabs'
-import { decodeTeamShareTarget, tabSelectionForSection } from '@/lib/tabs/teamshare-target'
+import { detailSelectionForSection } from '@/lib/tabs/teamshare-target'
 
 const SECTION_META: Record<
   TeamShareSection,
@@ -208,16 +207,9 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const sidebarCollapsed = sidebarState === 'collapsed'
   const meta = SECTION_META[section]
 
-  // What is highlighted comes from the open tab, not from a copy kept here.
-  // The two used to be separate records and could disagree; now the tab strip
-  // and this column cannot say different things about where you are.
-  const activeTab = useTabsStore(selectActiveTab)
-  const activeTarget = activeTab?.type === 'native' ? activeTab.target : null
-  const selected = activeTarget ? tabSelectionForSection(activeTarget, section) : null
-  const activeSkillFile = React.useMemo(() => {
-    const t = activeTarget ? decodeTeamShareTarget(activeTarget) : null
-    return t?.kind === 'skill-file' ? t : null
-  }, [activeTarget])
+  const detailTarget = useTeamShareBrowserStore((s) => s.detailTarget)
+  const selected = detailSelectionForSection(detailTarget, section)
+  const activeSkillFile = detailTarget?.kind === 'skill-file' ? detailTarget : null
 
   const select = useTeamShareBrowserStore((s) => s.select)
   const selectSkillFile = useTeamShareBrowserStore((s) => s.selectSkillFile)
@@ -433,7 +425,8 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
           // for it — show what it is instead of a misleading "Idle".
           if (!m.installed) {
             return {
-              id: m.name,
+              id: m.id,
+              kind: m.kind,
               icon: Plug,
               iconTint: 'bg-muted text-muted-foreground',
               title: m.name,
@@ -453,7 +446,8 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
                 ? t('teamShare.mcpDetail.failed', 'Needs attention')
                 : t('teamShare.mcpDetail.idle', 'Idle')
           return {
-            id: m.name,
+            id: m.id,
+            kind: m.kind,
             icon: Plug,
             iconTint: 'bg-muted text-muted-foreground',
             title: m.name,
@@ -543,9 +537,38 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   }, [section, otherRows, t, q])
 
   const mcpInstalledCount = React.useMemo(
-    () => mcp.items.filter((m) => m.installed).length,
+    () => mcp.items.filter((m) => m.kind === 'team-installed').length,
     [mcp.items],
   )
+  const mcpRegistryCount = React.useMemo(
+    () => mcp.items.filter((m) => m.kind !== 'personal').length,
+    [mcp.items],
+  )
+
+  const mcpGroups = React.useMemo(() => {
+    if (section !== 'mcp') return null
+    const rows = otherRows as Array<{ id: string; kind?: string }>
+    const available = rows.filter((r) => r.kind === 'team-available')
+    const installed = rows.filter((r) => r.kind === 'team-installed')
+    const personal = rows.filter((r) => r.kind === 'personal')
+    return [
+      {
+        key: 'available' as const,
+        label: t('teamShare.mcpGroupAvailable', 'Team · Available'),
+        rows: available,
+      },
+      {
+        key: 'installed' as const,
+        label: t('teamShare.mcpGroupInstalled', 'Team · Installed'),
+        rows: installed,
+      },
+      {
+        key: 'personal' as const,
+        label: t('teamShare.mcpGroupPersonal', 'Personal'),
+        rows: personal,
+      },
+    ].filter((g) => g.rows.length > 0 || !q)
+  }, [section, otherRows, t, q])
   const registryCount = React.useMemo(
     () => skills.items.filter((s) => s.kind !== 'personal').length,
     [skills.items],
@@ -587,7 +610,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
               {section === 'skills'
               ? `${installedCount}/${registryCount}`
               : section === 'mcp'
-                ? `${mcpInstalledCount}/${mcp.items.length}`
+                ? `${mcpInstalledCount}/${mcpRegistryCount}`
                 : count}
             </span>
           </div>
@@ -802,6 +825,42 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             // The directory is missing locally. Sync is on regardless — this is
             // a repairable local state, so offer the repair.
             <TeamDirInitPanel />
+          )
+        ) : mcpGroups ? (
+          mcpGroups.every((g) => g.rows.length === 0) ? (
+            <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
+              {t('teamShare.mcpEmpty', 'No MCP servers yet.')}
+            </div>
+          ) : (
+            mcpGroups.map((group) => (
+              <div key={group.key}>
+                <GroupHeader label={group.label} count={group.rows.length} />
+                {group.rows.length === 0 ? (
+                  <div className="px-4 pb-2 text-[11.5px] text-faint">
+                    {t('teamShare.skillGroupEmpty', 'None')}
+                  </div>
+                ) : (
+                  (group.rows as typeof otherRows).map((row) => (
+                    <ItemRow
+                      key={row.id}
+                      active={selected === row.id}
+                      icon={row.icon}
+                      iconTint={row.iconTint}
+                      title={row.title}
+                      subtitle={row.subtitle}
+                      statusDot={
+                        'statusDot' in row
+                          ? (row.statusDot as 'ready' | 'failed' | 'idle' | undefined)
+                          : undefined
+                      }
+                      trailing={'trailing' in row ? (row.trailing as React.ReactNode) : undefined}
+                      dimmed={'dimmed' in row ? Boolean(row.dimmed) : false}
+                      onClick={() => select(section, row.id)}
+                    />
+                  ))
+                )}
+              </div>
+            ))
           )
         ) : envGroups ? (
           envGroups.every((g) => g.rows.length === 0) ? (

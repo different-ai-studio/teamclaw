@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { useTabsStore } from '../tabs'
 import { useUIStore } from '../ui'
 
 describe('enterActorDraft sidebar handling', () => {
   beforeEach(() => {
+    useTabsStore.getState().closeAll()
     useUIStore.setState({
       currentView: 'chat',
       sidebarFilter: { kind: 'teamShare', section: 'skills' },
@@ -23,5 +25,22 @@ describe('enterActorDraft sidebar handling', () => {
       displayName: 'MACPRO',
       kind: 'agent',
     })
+  })
+
+  it('hides an open file so the actor draft chat becomes visible', () => {
+    useTabsStore.getState().openTab({
+      type: 'file',
+      target: '/workspace/teamclu-team/knowledge/spec.md',
+      label: 'spec.md',
+    })
+
+    useUIStore.getState().enterActorDraft({
+      id: 'agent-1',
+      displayName: 'MACPRO',
+      kind: 'agent',
+    })
+
+    expect(useTabsStore.getState().activeTabId).toBeNull()
+    expect(useTabsStore.getState().tabs).toHaveLength(1)
   })
 })

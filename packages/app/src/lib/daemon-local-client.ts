@@ -1148,9 +1148,10 @@ export async function getDaemonMcp(
 }
 
 /**
- * Ask the daemon to fold team MCP entries into this workspace's
- * `opencode.json`. Only the daemon writes that file (atomic + process lock), so
- * this is how the app applies a team MCP change rather than editing it directly.
+ * Ask the daemon to prune leftover team MCP copies from this workspace's
+ * `opencode.json`. Team servers are no longer materialised there — runtimes
+ * read `~/.amuxd/teams/<id>/cloud/mcp.json` — but older builds may have left
+ * byte-identical copies that would outrank the cloud cache.
  */
 export async function materializeDaemonTeamMcp(
   workspaceId: string,
@@ -1183,6 +1184,7 @@ export async function getDaemonMcpTools(
   workspaceId: string,
   options?: { refresh?: boolean },
 ): Promise<Record<string, DaemonMcpServerProbeResult>> {
+  // Axum Query + serde_urlencoded only accept "true"/"false" for bool — not "1".
   const query = options?.refresh ? '?refresh=true' : ''
   const data = await daemonFetchData<{ servers: Record<string, DaemonMcpServerProbeResult> }>(
     `/v1/workspaces/${workspaceId}/mcp/tools${query}`,

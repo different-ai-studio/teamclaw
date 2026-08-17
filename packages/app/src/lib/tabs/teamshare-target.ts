@@ -1,19 +1,10 @@
 /**
- * Team-share detail views, addressed as tab targets.
- *
- * The third column used to be a second, parallel main area: App.tsx rendered
- * either the tab strip or the team-share detail pane, each with its own idea of
- * what was selected. Anything that wanted to open something had to know which
- * of the two it was standing in — and when it guessed wrong the panel simply
- * never appeared (version history did exactly this).
- *
- * So a team-share view is now a tab like any other. The target string is the
- * whole address: it survives a reload, it deduplicates (the tabs store keys on
- * `type` + `target`), and it is what the list column reads back to decide which
- * row is highlighted. Keep it parseable from the string alone — no side table.
+ * Addresses for team-share detail views. New selections keep the structured
+ * object directly in the browser store; string encoding remains for tabs saved
+ * by older builds and for backward-compatible native-content rendering.
  */
 
-export type TeamShareTabTarget =
+export type TeamShareTarget =
   | { kind: 'skill'; id: string }
   /** One file inside a skill package. `rel` is package-relative, `/`-separated. */
   | { kind: 'skill-file'; id: string; rel: string }
@@ -22,12 +13,15 @@ export type TeamShareTabTarget =
   /** The compose surface for a new MCP server or env key. */
   | { kind: 'create'; section: 'mcp' | 'env' }
 
+/** @deprecated Team-share items now render in a single direct detail pane. */
+export type TeamShareTabTarget = TeamShareTarget
+
 const PREFIX = 'teamshare:'
 
 /** Version history is not team-share-specific, so it keeps its own prefix. */
 const VERSION_HISTORY = 'version-history'
 
-export function encodeTeamShareTarget(t: TeamShareTabTarget): string {
+export function encodeTeamShareTarget(t: TeamShareTarget): string {
   switch (t.kind) {
     case 'skill':
       return `${PREFIX}skill/${t.id}`
@@ -49,7 +43,7 @@ export function encodeTeamShareTarget(t: TeamShareTabTarget): string {
  * `/` (a slug, or `personal:<slug>`), while the rest — a package-relative file
  * path — routinely does.
  */
-export function decodeTeamShareTarget(target: string): TeamShareTabTarget | null {
+export function decodeTeamShareTarget(target: string): TeamShareTarget | null {
   if (!target.startsWith(PREFIX)) return null
   const body = target.slice(PREFIX.length)
   const slash = body.indexOf('/')
@@ -119,5 +113,28 @@ export function tabSelectionForSection(
   }
   if (section === 'mcp') return t.kind === 'mcp' ? t.name : null
   if (section === 'env') return t.kind === 'env' ? t.keyId : null
+  return null
+}
+
+/** Which sidebar section owns a direct team-share detail target. */
+export function teamShareSectionForTarget(
+  target: TeamShareTarget | null,
+): 'skills' | 'mcp' | 'env' | null {
+  if (!target) return null
+  if (target.kind === 'skill' || target.kind === 'skill-file') return 'skills'
+  if (target.kind === 'mcp') return 'mcp'
+  if (target.kind === 'env') return 'env'
+  return target.section
+}
+
+/** Which row a direct detail target highlights in the requested section. */
+export function detailSelectionForSection(
+  target: TeamShareTarget | null,
+  section: 'skills' | 'mcp' | 'env' | 'knowledge',
+): string | null {
+  if (!target || teamShareSectionForTarget(target) !== section) return null
+  if (target.kind === 'skill' || target.kind === 'skill-file') return target.id
+  if (target.kind === 'mcp') return target.name
+  if (target.kind === 'env') return target.keyId
   return null
 }

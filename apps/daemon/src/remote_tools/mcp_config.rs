@@ -13,7 +13,11 @@ pub fn remote_tools_mcp_config_path(session_id: &str) -> PathBuf {
 }
 
 /// Write host-level MCP config for `amuxd remote-tools-mcp`.
+///
+/// Callers currently do **not** invoke this: auto-inject is paused. Keep the
+/// writer so re-enabling is a call-site change, not a rewrite of the payload.
 /// Message-level routing is resolved by daemon using `remote_context_id`.
+#[allow(dead_code)]
 pub fn write_remote_tools_mcp_config(
     session_id: &str,
     team_id: &str,

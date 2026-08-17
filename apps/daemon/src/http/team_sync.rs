@@ -131,20 +131,7 @@ pub async fn reconcile_cloud_config(
         .map(Ok)
         .unwrap_or_else(|| team_id_for_workspace(""))?;
 
-    let Some(resolver) = state.team_cloud.as_ref() else {
-        return Err(HttpError::runtime_unavailable(
-            "team cloud config resolver is not available",
-        ));
-    };
-
-    let outcome = resolver.reconcile_now(&team_id).await;
-    crate::runtime::team_cloud_config::apply_team_cloud_outcome(
-        &team_id,
-        outcome,
-        state.backend.as_ref(),
-        state.runtime_refresh.as_ref(),
-    )
-    .await;
+    let outcome = reconcile_team_cloud_after_write(&state, &team_id).await?;
 
     Ok(Json(ReconcileCloudConfigResponse {
         team_id,
@@ -160,6 +147,9 @@ async fn reconcile_team_cloud_after_write(
     state: &HttpState,
     team_id: &str,
 ) -> Result<crate::runtime::team_cloud_config::TeamCloudReconcileOutcome, HttpError> {
+    let workspace_paths = team_mcp_workspace_paths_for_state(state, team_id).await;
+    let previous_team_mcp = snapshot_team_mcp(&workspace_paths);
+
     let Some(resolver) = state.team_cloud.as_ref() else {
         return Err(HttpError::runtime_unavailable(
             "team cloud config resolver is not available",
@@ -173,7 +163,68 @@ async fn reconcile_team_cloud_after_write(
         state.runtime_refresh.as_ref(),
     )
     .await;
+    prune_team_mcp_snapshots(team_id, &previous_team_mcp);
     Ok(outcome)
+}
+
+type TeamMcpSnapshot = (
+    std::path::PathBuf,
+    std::collections::HashMap<String, crate::config::workspace_control::McpServerConfig>,
+);
+
+async fn team_mcp_workspace_paths_for_state(
+    state: &HttpState,
+    team_id: &str,
+) -> Vec<std::path::PathBuf> {
+    let rows = match state.backend.as_ref() {
+        Some(backend) => backend
+            .get_workspaces_by_agent(team_id, backend.actor_id())
+            .await
+            .unwrap_or_default(),
+        None => Vec::new(),
+    };
+    team_mcp_workspace_paths(team_id, &rows)
+}
+
+fn snapshot_team_mcp(workspace_paths: &[std::path::PathBuf]) -> Vec<TeamMcpSnapshot> {
+    workspace_paths
+        .iter()
+        .map(|path| (path.clone(), crate::config::team_mcp::scan_team_mcp(path)))
+        .collect()
+}
+
+fn prune_team_mcp_snapshots(team_id: &str, snapshots: &[TeamMcpSnapshot]) {
+    for (workspace_path, previous_team) in snapshots {
+        let path = workspace_path.to_string_lossy().into_owned();
+        if let Err(e) = crate::config::team_mcp::prune_materialised_team_mcp_entries(
+            workspace_path,
+            previous_team,
+        ) {
+            tracing::warn!(
+                team_id,
+                path,
+                error = %e,
+                "failed to prune leftover team MCP copies from opencode.json"
+            );
+        }
+    }
+}
+
+fn team_mcp_workspace_paths(
+    team_id: &str,
+    rows: &[crate::backend::WorkspaceRow],
+) -> Vec<std::path::PathBuf> {
+    let mut paths = std::collections::BTreeSet::new();
+    let default = crate::config::global_team_store::default_workspace_dir(team_id);
+    if default.is_dir() {
+        paths.insert(default);
+    }
+    for row in rows {
+        if let Some((path, _)) = crate::config::workspace_path::listable_local_workspace(row) {
+            paths.insert(std::path::PathBuf::from(path));
+        }
+    }
+    paths.into_iter().collect()
 }
 
 #[derive(Debug, Serialize)]
@@ -685,4 +736,64 @@ fn team_id_for_workspace(_workspace_path: &str) -> Result<String, HttpError> {
         .filter(|t| !t.is_empty())
         .map(str::to_string)
         .ok_or_else(|| HttpError::validation("daemon is not onboarded to a team"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_workspace_paths_include_the_daemon_default_workspace() {
+        let home = tempfile::tempdir().unwrap();
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(home.path());
+        let default = crate::config::global_team_store::default_workspace_dir("team-a");
+        std::fs::create_dir_all(&default).unwrap();
+        let regular_home = tempfile::tempdir().unwrap();
+        let regular = regular_home.path().join("regular-workspace");
+        std::fs::create_dir(&regular).unwrap();
+        let rows = vec![crate::backend::WorkspaceRow {
+            id: "ws-1".into(),
+            team_id: "team-a".into(),
+            path: Some(regular.to_string_lossy().into_owned()),
+            archived: false,
+            agent_id: None,
+        }];
+
+        let paths = team_mcp_workspace_paths("team-a", &rows);
+
+        assert!(paths.contains(&default));
+        assert!(paths.contains(&regular));
+    }
+
+    #[test]
+    fn mcp_pruning_uses_the_pre_replacement_team_snapshot() {
+        let daemon_home = tempfile::tempdir().unwrap();
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(daemon_home.path());
+        let workspace = tempfile::tempdir().unwrap();
+        let legacy_dir = workspace
+            .path()
+            .join(crate::config::global_team_store::TEAM_LINK_NAME)
+            .join(".mcp");
+        std::fs::create_dir_all(&legacy_dir).unwrap();
+        std::fs::write(
+            legacy_dir.join("memory.json"),
+            r#"{"mcpServers":{"memory":{"command":"npx","args":["old-memory"]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workspace.path().join("opencode.json"),
+            r#"{"mcp":{"memory":{"type":"local","enabled":true,"command":["npx","old-memory"]}}}"#,
+        )
+        .unwrap();
+
+        let snapshots = snapshot_team_mcp(&[workspace.path().to_path_buf()]);
+        std::fs::remove_file(legacy_dir.join("memory.json")).unwrap();
+        prune_team_mcp_snapshots("team-a", &snapshots);
+
+        let persisted = crate::config::team_mcp::read_persisted_mcp(workspace.path()).unwrap();
+        assert!(
+            !persisted.contains_key("memory"),
+            "the old materialised copy is removed even after the team entry disappeared"
+        );
+    }
 }

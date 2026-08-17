@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 import { useDiagnosticsStore } from '@/stores/diagnostics-store'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useTabsStore } from '@/stores/tabs'
+import { useTeamShareBrowserStore, type TeamShareSection } from '@/stores/team-share-browser'
 import { resolveEmbedMode } from '@/lib/embed-mode'
 import { scheduleReleaseStuckModalLayers } from '@/lib/modal-layer-cleanup'
 import type { PageContext } from '@/lib/embed-page-context'
-import type { TeamShareSection } from '@/stores/team-share-browser'
 
 type View = 'chat' | 'settings'
 
@@ -250,27 +251,18 @@ export const useUIStore = create<UIState>((set, get) => ({
       sidebarFilter: { kind: 'all' },
       draftIdeaId: null,
     })
-    const isStacked = get().mainContentLayout === 'stacked'
+    useWorkspaceStore.getState().clearSelection()
+    useWorkspaceStore.getState().closePanel()
+    useTabsStore.getState().hideAll()
+    useTeamShareBrowserStore.getState().clearDetail()
 
     // Import session and other stores lazily to avoid circular dependencies
     import('@/stores/cron').then(({ useCronStore }) => {
       useCronStore.getState().setShowCronSessions(false)
     })
     import('@/stores/session-selection-store').then(({ useSessionSelectionStore }) => {
-      import('@/stores/workspace').then(({ useWorkspaceStore }) => {
-        import('@/stores/tabs').then(({ useTabsStore }) => {
-          import('@/stores/streaming').then(({ useStreamingStore }) => {
-            import('@/stores/session').then(({ useSessionStore }) => {
-            useWorkspaceStore.getState().clearSelection()
-            useWorkspaceStore.getState().closePanel()
-            // Only deactivate the editor multi-tab pane in stacked layout —
-            // in stacked mode chat and tabs share the same slot, so we need
-            // to hide tabs to reveal the chat view. In split layout the
-            // chat pane is already visible alongside the tabs, so closing
-            // them just makes the user's open files vanish for no reason.
-            if (isStacked) {
-              useTabsStore.getState().hideAll()
-            }
+      import('@/stores/streaming').then(({ useStreamingStore }) => {
+        import('@/stores/session').then(({ useSessionStore }) => {
             useStreamingStore.getState().clearStreaming()
             useSessionSelectionStore.getState().clearActiveSession()
 
@@ -286,8 +278,6 @@ export const useUIStore = create<UIState>((set, get) => ({
               pendingQuestions: [],
               pendingPermissions: [],
             })
-            })
-          })
         })
       })
     })
@@ -329,6 +319,8 @@ export const useUIStore = create<UIState>((set, get) => ({
         ...sidebarPatch,
       })
       releaseStuckModalLayersAfterViewSwitch()
+      useWorkspaceStore.getState().clearSelection()
+      useTabsStore.getState().hideAll()
       resolveWorkspaceInBackground()
       return
     }
@@ -371,6 +363,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       daemonGeneralPrompt: null,
       sidebarFilter: { kind: 'all' },
     })
+    useTabsStore.getState().hideAll()
     // Mirror startNewChat's clear-out so the chat view shows an empty
     // canvas with the preselected actor as the implicit recipient. We
     // dynamic-import to avoid a top-level cycle with session/workspace stores.
@@ -396,7 +389,16 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   clearActorDraft: () => set({ draftPreselectedActor: null }),
 
-  setSidebarFilter: (filter) => set({ sidebarFilter: filter }),
+  setSidebarFilter: (filter) => {
+    const current = get().sidebarFilter
+    const isLeavingKnowledge =
+      current.kind === 'teamShare' &&
+      current.section === 'knowledge' &&
+      !(filter.kind === 'teamShare' && filter.section === 'knowledge')
+
+    if (isLeavingKnowledge) useTabsStore.getState().hideAll()
+    set({ sidebarFilter: filter })
+  },
   toggleIdeasSection: () => set((s) => ({ ideasSectionCollapsed: !s.ideasSectionCollapsed })),
   toggleActorsSection: () => set((s) => ({ actorsSectionCollapsed: !s.actorsSectionCollapsed })),
   toggleLocalDaemon: () => set((s) => ({ localDaemonExpanded: !s.localDaemonExpanded })),

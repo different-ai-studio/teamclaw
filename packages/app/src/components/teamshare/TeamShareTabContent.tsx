@@ -3,11 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Plug, Box } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTeamShareBrowserStore } from '@/stores/team-share-browser'
-import { useTabsStore } from '@/stores/tabs'
-import {
-  encodeTeamShareTarget,
-  type TeamShareTabTarget,
-} from '@/lib/tabs/teamshare-target'
+import { type TeamShareTarget } from '@/lib/tabs/teamshare-target'
 import { SkillDetail } from './SkillDetail'
 import { SkillFileEditor } from './SkillFileEditor'
 import { McpDetail, McpEditForm } from './McpDetail'
@@ -16,8 +12,7 @@ import { EnvDetail, EnvCreateForm } from './EnvDetail'
 /**
  * Compose surface for a new item. Authoring happens here, never in the list.
  *
- * Closing it closes the tab: the form *is* the tab now, so leaving an empty
- * "create" tab behind after submitting would be a window onto nothing.
+ * Closing it clears the direct detail pane.
  */
 function CreatePane({ section }: { section: 'mcp' | 'env' }) {
   const { t } = useTranslation()
@@ -26,13 +21,12 @@ function CreatePane({ section }: { section: 'mcp' | 'env' }) {
   const [envScope, setEnvScope] = React.useState<'team' | 'personal'>('team')
   const createMcp = useTeamShareBrowserStore((s) => s.createMcp)
   const loadCounts = useTeamShareBrowserStore((s) => s.loadCounts)
+  const clearDetail = useTeamShareBrowserStore((s) => s.clearDetail)
   const Icon = section === 'mcp' ? Plug : Box
 
   const close = React.useCallback(() => {
-    const target = encodeTeamShareTarget({ kind: 'create', section })
-    const tab = useTabsStore.getState().tabs.find((x) => x.type === 'native' && x.target === target)
-    if (tab) useTabsStore.getState().closeTab(tab.id)
-  }, [section])
+    clearDetail()
+  }, [clearDetail])
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
@@ -87,8 +81,8 @@ function CreatePane({ section }: { section: 'mcp' | 'env' }) {
   )
 }
 
-/** Renders whichever team-share view a tab target names. */
-export function TeamShareTabContent({ target }: { target: TeamShareTabTarget }) {
+/** Renders the one team-share view currently selected beside the sidebar list. */
+export function TeamShareDetailContent({ target }: { target: TeamShareTarget }) {
   switch (target.kind) {
     case 'skill':
       return <SkillDetail key={target.id} slug={target.id} />
@@ -108,3 +102,6 @@ export function TeamShareTabContent({ target }: { target: TeamShareTabTarget }) 
       return <CreatePane key={target.section} section={target.section} />
   }
 }
+
+/** Backward-compatible renderer for native tabs saved by older builds. */
+export const TeamShareTabContent = TeamShareDetailContent

@@ -1,11 +1,20 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plug, RefreshCw, Loader2, Pencil, Trash2, Download, X } from 'lucide-react'
+import { Plug, RefreshCw, Loader2, Pencil, Trash2, Download, X, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { useTeamShareBrowserStore, type TeamMcpItem } from '@/stores/team-share-browser'
 import { findLiteralSecretKeys, type TeamMcpServerWrite } from '@/lib/backend/cloud-api/team-mcp'
+import { CloudApiError } from '@/lib/backend/cloud-api/http'
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -257,15 +266,18 @@ function SecretWarning({ keys }: { keys: string[] }) {
 
 export function McpDetail({ name }: { name: string }) {
   const { t } = useTranslation()
-  const item = useTeamShareBrowserStore((s) => s.mcp.items.find((x) => x.name === name))
+  const item = useTeamShareBrowserStore((s) => s.mcp.items.find((x) => x.id === name))
   const loadMcpTools = useTeamShareBrowserStore((s) => s.loadMcpTools)
   const installMcp = useTeamShareBrowserStore((s) => s.installMcp)
   const uninstallMcp = useTeamShareBrowserStore((s) => s.uninstallMcp)
   const updateMcp = useTeamShareBrowserStore((s) => s.updateMcp)
   const deleteMcp = useTeamShareBrowserStore((s) => s.deleteMcp)
+  const sharePersonalMcp = useTeamShareBrowserStore((s) => s.sharePersonalMcp)
   const [refreshing, setRefreshing] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const [editing, setEditing] = React.useState(false)
+  const [shareOpen, setShareOpen] = React.useState(false)
+  const [shareDescription, setShareDescription] = React.useState('')
 
   const handleRefresh = React.useCallback(async () => {
     setRefreshing(true)
@@ -292,15 +304,45 @@ export function McpDetail({ name }: { name: string }) {
     [busy],
   )
 
+  const runShare = React.useCallback(async () => {
+    if (busy || !item) return
+    setBusy(true)
+    try {
+      await sharePersonalMcp(item.id, {
+        description: shareDescription.trim() || null,
+      })
+      setShareOpen(false)
+      toast.success(t('teamShare.mcpShareSuccess', 'Shared and installed for you'))
+    } catch (e) {
+      const msg =
+        e instanceof CloudApiError && (e.status === 409 || e.code === 'conflict')
+          ? t('teamShare.mcpShareNameTaken', 'The team already has an MCP server called {{name}}.', {
+              name: item.name,
+            })
+          : e instanceof Error
+            ? e.message
+            : String(e)
+      toast.error(t('teamShare.mcpShareFailed', 'Share failed: {{msg}}', { msg }))
+    } finally {
+      setBusy(false)
+    }
+  }, [busy, item, shareDescription, sharePersonalMcp, t])
+
   if (!item) return null
   const cfg = item.config
   const transport = cfg.type === 'remote' ? 'http' : cfg.type === 'local' ? 'stdio' : (cfg.type ?? '—')
   const envKeys = Object.keys(cfg.environment ?? {})
   const headerKeys = Object.keys(cfg.headers ?? {})
-  // Only catalog-backed servers are editable. A legacy synced `.mcp/*.json`
-  // entry has no row to patch, so it stays read-only until the team republishes
-  // it through the catalog.
-  const editable = item.catalog !== null
+  const isPersonal = item.kind === 'personal'
+  const isAvailable = item.kind === 'team-available'
+  const editable = item.catalog !== null && !isPersonal
+  const scopeLabel =
+    item.kind === 'personal'
+      ? t('teamShare.mcpGroupPersonal', 'Personal')
+      : item.kind === 'team-available'
+        ? t('teamShare.mcpGroupAvailable', 'Team · Available')
+        : t('teamShare.mcpGroupInstalled', 'Team · Installed')
+  const secretKeys = findLiteralSecretKeys(cfg.environment)
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
@@ -315,28 +357,14 @@ export function McpDetail({ name }: { name: string }) {
           <div className="flex items-center gap-2">
             <span className="truncate text-[15px] font-bold text-foreground">{item.name}</span>
             <StatusBadge item={item} />
+            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+              {scopeLabel}
+            </span>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5">
-          {item.installed ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void run(
-                  () => uninstallMcp(item.name),
-                  t('teamShare.mcpDetail.uninstalled', 'Uninstalled'),
-                  t('teamShare.mcpDetail.uninstallFailed', 'Uninstall failed'),
-                )
-              }
-              className="h-8 gap-1.5 text-[13px]"
-            >
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
-              {t('teamShare.mcpDetail.uninstall', 'Uninstall')}
-            </Button>
-          ) : (
+          {isAvailable && (
             <Button
               type="button"
               disabled={busy}
@@ -351,6 +379,40 @@ export function McpDetail({ name }: { name: string }) {
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
               {t('teamShare.mcpDetail.install', 'Install')}
+            </Button>
+          )}
+
+          {(item.kind === 'team-installed' || isPersonal) && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() =>
+                void run(
+                  () => uninstallMcp(item.id),
+                  t('teamShare.mcpDetail.uninstalled', 'Uninstalled'),
+                  t('teamShare.mcpDetail.uninstallFailed', 'Uninstall failed'),
+                )
+              }
+              className="h-8 gap-1.5 text-[13px]"
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+              {t('teamShare.mcpDetail.uninstall', 'Uninstall')}
+            </Button>
+          )}
+
+          {isPersonal && (
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setShareDescription('')
+                setShareOpen(true)
+              }}
+              className="h-8 gap-1.5 bg-coral text-[13px] font-semibold text-white hover:bg-coral/90"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              {t('teamShare.mcpShare', 'Share')}
             </Button>
           )}
 
@@ -383,7 +445,7 @@ export function McpDetail({ name }: { name: string }) {
             </>
           )}
 
-          {item.installed && (
+          {!isAvailable && (
             <Button
               type="button"
               variant="outline"
@@ -412,11 +474,19 @@ export function McpDetail({ name }: { name: string }) {
           />
         ) : (
           <>
-            {!item.installed && (
+            {isAvailable && (
               <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-[13px] text-muted-foreground">
                 {t(
                   'teamShare.mcpDetail.notInstalledHint',
                   'Available to the team but not running for you. Installing starts this server on your machine.',
+                )}
+              </div>
+            )}
+            {isPersonal && (
+              <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-[13px] text-muted-foreground">
+                {t(
+                  'teamShare.mcpDetail.personalHint',
+                  'This server only runs on this machine. It is not in the team catalog. Uninstall removes it locally; Share publishes it to the team and installs it for you.',
                 )}
               </div>
             )}
@@ -440,7 +510,7 @@ export function McpDetail({ name }: { name: string }) {
                   <span className="font-mono text-[12.5px]">{cfg.command.join(' ')}</span>
                 </InfoRow>
               )}
-              <InfoRow label={t('teamShare.mcpDetail.scope', 'Scope')}>{t('teamShare.scope.team', 'Team')}</InfoRow>
+              <InfoRow label={t('teamShare.mcpDetail.scope', 'Scope')}>{scopeLabel}</InfoRow>
               {envKeys.length > 0 && (
                 <InfoRow label={t('teamShare.mcpDetail.env', 'Env')}>
                   <span className="font-mono text-[12.5px]">{envKeys.join(', ')}</span>
@@ -486,6 +556,54 @@ export function McpDetail({ name }: { name: string }) {
           </>
         )}
       </div>
+
+      <Dialog open={shareOpen} onOpenChange={(open) => !busy && setShareOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('teamShare.mcpShareTitle', 'Share to team')}</DialogTitle>
+            <DialogDescription>
+              {t(
+                'teamShare.mcpShareHint',
+                'Publishes this server to the team catalog and installs it for you. Local-only copies are removed afterwards.',
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-[12.5px] text-muted-foreground">
+                {t('teamShare.mcpDetail.name', 'Name')}
+              </label>
+              <div className="font-mono text-[13px] text-foreground">{item.name}</div>
+            </div>
+            <div>
+              <label className="mb-1 block text-[12.5px] text-muted-foreground">
+                {t('teamShare.mcpDetail.description', 'Description')}
+              </label>
+              <textarea
+                value={shareDescription}
+                onChange={(e) => setShareDescription(e.target.value)}
+                rows={3}
+                className={inputCls}
+              />
+            </div>
+            {secretKeys.length > 0 && <SecretWarning keys={secretKeys} />}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => setShareOpen(false)}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() => void runShare()}
+              className="bg-coral text-white hover:bg-coral/90"
+            >
+              {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              {t('teamShare.mcpShareSubmit', 'Share & install')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
