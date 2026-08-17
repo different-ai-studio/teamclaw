@@ -21,7 +21,7 @@ impl Locale {
 /// app's UI language.
 ///
 /// It used to be read per message out of the conversation workspace's
-/// `.teamclu/teamclu.json`, which quietly guaranteed English: the gateways run
+/// `<workspace>/.teamclu/teamclu.json`, which quietly guaranteed English: the gateways run
 /// inside amuxd and were handed the daemon's own state directory, never the
 /// workspace whose language the user had actually set. Language is an app-level
 /// preference anyway — one setting, not one per workspace — so it lives here and
