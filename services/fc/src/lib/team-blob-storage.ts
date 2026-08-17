@@ -1,12 +1,33 @@
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createServiceRoleClient } from "./supabase.js";
+import { getS3Client } from "./oss.js";
 
 // ---------------------------------------------------------------------------
-// Supabase Storage helpers for team blobs.
+// Blob storage for team files.
 //
 // Both team sync (knowledge documents) and the skills registry store immutable,
 // content-addressed, client-encrypted blobs. They share this signing layer and
 // differ only in which private bucket they land in — one place to change when
 // the storage backend moves again.
+//
+// Two backends, picked by `TEAM_BLOBS_BACKEND`:
+//
+//   supabase (default) — Supabase Storage, the historical home.
+//   s3                 — any S3-compatible store: MinIO on self-host, Alibaba
+//                        OSS on the Aliyun FC target. Same protocol both ways,
+//                        which is the point: file bytes stop riding on the
+//                        Postgres-adjacent stack that also serves auth and the
+//                        control plane.
+//
+// The switch is an explicit env var rather than "S3 creds are present": the
+// Aliyun target already sets `ACCESS_KEY_ID` for app-bundle uploads, and
+// inferring from that would silently relocate every team's blobs the day
+// someone configured app deploys.
 //
 // Object paths keep the historical `teams/<teamId>/blobs/sha256/<aa>/<bb>/<hash>`
 // shape, and `amuxc_blobs.oss_key` keeps its name: the column is just "where the
@@ -98,10 +119,78 @@ export function supabaseBlobStorage(bucket: () => string): BlobStorage {
   };
 }
 
+/**
+ * A `BlobStorage` backed by one private S3-compatible bucket.
+ *
+ * Presigned URLs are handed to the daemon, which PUTs/GETs them **directly** —
+ * FC never sees the bytes. So `ENDPOINT` must be the host the client can reach,
+ * not an in-cluster address: SigV4 covers the Host header, so signing for
+ * `minio:9000` and dialing `s3.example.com` fails the signature, and signing
+ * for a host the client cannot resolve fails the transfer. This is why the
+ * self-host MinIO sits behind Caddy on its own domain.
+ */
+export function s3BlobStorage(bucket: () => string): BlobStorage {
+  return {
+    async createUploadUrl(objectPath) {
+      // `as any`: two @aws-sdk major versions coexist in the tree, so the
+      // presigner's `Client` and this `S3Client` have separate declarations of
+      // a private field. Same cast `index.ts` uses for app-bundle uploads.
+      return getSignedUrl(
+        getS3Client() as any,
+        new PutObjectCommand({ Bucket: bucket(), Key: objectPath }),
+        { expiresIn: 900 },
+      );
+    },
+
+    async createDownloadUrl(objectPath, expiresIn = 900) {
+      return getSignedUrl(
+        getS3Client() as any,
+        new GetObjectCommand({ Bucket: bucket(), Key: objectPath }),
+        { expiresIn },
+      );
+    },
+
+    async stat(objectPath) {
+      try {
+        const head = await getS3Client().send(
+          new HeadObjectCommand({ Bucket: bucket(), Key: objectPath }),
+        );
+        return { size: head.ContentLength ?? 0 };
+      } catch (e) {
+        if (isMissingObject(e)) return null;
+        throw e;
+      }
+    },
+  };
+}
+
+/**
+ * Whether an S3 error means "no such object" rather than a real failure.
+ *
+ * A missing object is the normal needs-upload answer. Everything else (bad
+ * creds, network, bucket gone) must propagate: treating those as "absent" would
+ * report every blob as missing and re-upload the entire team.
+ */
+export function isMissingObject(e: unknown): boolean {
+  const status = (e as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+  const name = (e as { name?: string })?.name;
+  return status === 404 || name === "NotFound" || name === "NoSuchKey";
+}
+
+/** Which backend `getTeamBlobStorage` / the skills store resolve to. */
+export function blobBackendKind(): "s3" | "supabase" {
+  return process.env.TEAM_BLOBS_BACKEND?.trim() === "s3" ? "s3" : "supabase";
+}
+
+/** A blob store for `bucket`, on whichever backend this deployment runs. */
+export function blobStorageFor(bucket: () => string): BlobStorage {
+  return blobBackendKind() === "s3" ? s3BlobStorage(bucket) : supabaseBlobStorage(bucket);
+}
+
 let cachedTeamBlobStorage: BlobStorage | undefined;
 
 /** Default blob store for team file sync. */
 export function getTeamBlobStorage(): BlobStorage {
-  cachedTeamBlobStorage ??= supabaseBlobStorage(TEAM_BLOBS_BUCKET);
+  cachedTeamBlobStorage ??= blobStorageFor(TEAM_BLOBS_BUCKET);
   return cachedTeamBlobStorage;
 }
