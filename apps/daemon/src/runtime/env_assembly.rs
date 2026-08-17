@@ -6,11 +6,12 @@ use crate::team_shared_env;
 
 use super::SpawnRuntimeEnv;
 
-/// Assemble personal + team + system env, materialize `provider.team`, and resolve
-/// `${KEY}` placeholders in `opencode.json` before attaching an ACP host.
+/// Assemble personal + team + system env, materialize the active-team
+/// `provider.team`, and resolve workspace `${KEY}` placeholders before attaching
+/// an ACP host.
 ///
 /// `managed_llm` is the team's shared LLM as resolved from the cloud API (base
-/// URL + model list). It is written to `opencode.json`'s `provider.team` inside
+/// URL + model list). It is written to amuxd's global `opencode.json` inside
 /// [`teamclu_runtime_env::assemble_runtime_env`]; the secret (`tc_api_key`) is
 /// derived locally from `actor_id`, never sourced from the cloud config.
 pub fn assemble_spawn_runtime_env(
@@ -47,7 +48,7 @@ pub fn assemble_spawn_runtime_env_for_execution(
     // Cold ManagedLlm cache often yields Unknown and omits TEAMCLU_TEAM_PROVIDER;
     // reconstruct Enabled from on-disk provider.team so the spawn fingerprint
     // matches a later successful cloud resolve with the same gateway data.
-    let disk_team = teamclu_runtime_env::read_disk_team_provider(workspace_root);
+    let disk_team = teamclu_runtime_env::read_global_team_provider();
     let managed_llm =
         teamclu_runtime_env::stabilize_managed_llm_for_spawn(managed_llm, disk_team.as_ref());
     let team_env = team_shared_env::load_team_env_for_workspace_detailed(workspace_root, team_id);
@@ -83,7 +84,7 @@ pub fn assemble_spawn_runtime_env_for_execution(
         }));
     let mut extra_env = bundle.extra_env;
     // Backend-neutral team-provider handoff. opencode consumes the team gateway
-    // via `provider.team` in opencode.json (written by `ensure_team_provider`);
+    // via `provider.team` in the active team's opencode.json;
     // other local runtimes (pi, …) that can't read opencode.json instead read
     // this `TEAMCLU_TEAM_PROVIDER` env and register the provider themselves.
     // The secret is NOT embedded — the payload references `${tc_api_key}`, the

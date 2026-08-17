@@ -29,18 +29,45 @@ pub struct TeamProviderSyncResult {
     pub provider_section_changed: bool,
 }
 
-/// Materialize `provider.team` from `managed_llm`, then resolve apiKey placeholders.
-///
-/// This is the single entry point both spawn (PR2) and reconcile should use so the
-/// two paths cannot drift again.
-pub fn sync_team_provider_on_disk(
-    workspace: &Path,
+/// Materialize `provider.team` from `managed_llm` into amuxd's active-team OpenCode
+/// config. Workspace config remains reserved
+/// for workspace-owned MCP and project settings.
+pub fn sync_global_team_provider(
     managed_llm: &ManagedLlmState,
+    secrets: &HashMap<String, String>,
+) -> anyhow::Result<bool> {
+    let changed = team_provider::ensure_global_team_provider(managed_llm)?;
+    let Some(api_key) = secrets.get("tc_api_key") else {
+        return Ok(changed);
+    };
+    let resolved = crate::opencode_config::OpencodeConfigStore::apply_global(|config| {
+        let Some(key) = config
+            .get_mut("provider")
+            .and_then(|providers| providers.get_mut("team"))
+            .and_then(|team| team.get_mut("options"))
+            .and_then(|options| options.get_mut("apiKey"))
+            .and_then(|key| key.as_str().map(str::to_owned))
+        else {
+            return Ok(false);
+        };
+        let next = key.replace("${tc_api_key}", api_key);
+        if next == key {
+            return Ok(false);
+        }
+        config["provider"]["team"]["options"]["apiKey"] = serde_json::Value::String(next);
+        Ok(true)
+    })?;
+    Ok(changed || resolved)
+}
+
+/// Resolve workspace-owned secrets and install the runtime overlay. Team LLM
+/// materialization is intentionally absent: it belongs to the active-team config.
+pub fn resolve_workspace_runtime_config(
+    workspace: &Path,
     secrets: &HashMap<String, String>,
     scope: SecretResolveScope,
 ) -> anyhow::Result<TeamProviderSyncResult> {
-    let provider_section_changed = team_provider::ensure_team_provider(workspace, managed_llm)?;
-
+    team_provider::remove_legacy_workspace_team_provider(workspace)?;
     let opencode_json_original = match scope {
         SecretResolveScope::FullConfig => {
             mcp_resolve::resolve_config_secret_refs(workspace, secrets)?
@@ -50,10 +77,9 @@ pub fn sync_team_provider_on_disk(
             None
         }
     };
-
     Ok(TeamProviderSyncResult {
         opencode_json_original,
-        provider_section_changed,
+        provider_section_changed: false,
     })
 }
 
@@ -80,10 +106,30 @@ mod tests {
         fs::read_to_string(path.join("opencode.json")).unwrap()
     }
 
+    fn global_config_dir() -> (
+        std::sync::MutexGuard<'static, ()>,
+        TempDir,
+        crate::test_util::AmuxdHomeGuard,
+    ) {
+        let lock = crate::test_util::home_env_lock();
+        let dir = TempDir::new().unwrap();
+        let home = crate::test_util::AmuxdHomeGuard::set(dir.path());
+        fs::write(
+            dir.path().join("daemon.toml"),
+            "active_team = \"team-test\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("teams/team-test/state")).unwrap();
+        (lock, dir, home)
+    }
+
+    fn global_config_path(home: &TempDir) -> std::path::PathBuf {
+        home.path().join("teams/team-test/state/opencode.json")
+    }
+
     #[test]
     fn provider_only_scope_resolves_team_api_key_leaves_mcp_placeholder() {
-        let _lock = crate::test_util::home_env_lock();
-        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
+        let (_lock, global_dir, _home) = global_config_dir();
         let dir = TempDir::new().unwrap();
         fs::write(
             dir.path().join("opencode.json"),
@@ -104,16 +150,18 @@ mod tests {
         .unwrap();
 
         let secrets = secrets_for_team_provider("actor-123");
-        sync_team_provider_on_disk(
+        sync_global_team_provider(&ManagedLlmState::Enabled(sample_provider()), &secrets).unwrap();
+        resolve_workspace_runtime_config(
             dir.path(),
-            &ManagedLlmState::Enabled(sample_provider()),
             &secrets,
             SecretResolveScope::ProviderApiKeysOnly,
         )
         .unwrap();
 
         let on_disk = read_opencode(dir.path());
-        assert!(on_disk.contains("sk-tc-actor-123"));
+        let global = fs::read_to_string(global_config_path(&global_dir)).unwrap();
+        assert!(global.contains("sk-tc-actor-123"));
+        assert!(!on_disk.contains("provider.team"));
         assert!(
             on_disk.contains("${GITHUB_TOKEN}"),
             "reconcile scope must not resolve MCP placeholders"
@@ -126,10 +174,10 @@ mod tests {
 
     #[test]
     fn sync_preserves_resolved_api_key_on_reconcile() {
-        let dir = TempDir::new().unwrap();
+        let (_lock, dir, _home) = global_config_dir();
         let resolved = "sk-tc-actor-xyz";
         fs::write(
-            dir.path().join("opencode.json"),
+            global_config_path(&dir),
             serde_json::json!({
                 "provider": {
                     "team": {
@@ -145,15 +193,14 @@ mod tests {
         )
         .unwrap();
 
-        sync_team_provider_on_disk(
-            dir.path(),
+        sync_global_team_provider(
             &ManagedLlmState::Enabled(sample_provider()),
             &secrets_for_team_provider("actor-xyz"),
-            SecretResolveScope::ProviderApiKeysOnly,
         )
         .unwrap();
 
-        let parsed: serde_json::Value = serde_json::from_str(&read_opencode(dir.path())).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(global_config_path(&dir)).unwrap()).unwrap();
         assert_eq!(
             parsed["provider"]["team"]["options"]["apiKey"].as_str(),
             Some(resolved)
@@ -162,30 +209,17 @@ mod tests {
 
     #[test]
     fn spawn_and_reconcile_scopes_agree_on_team_provider_api_key() {
-        let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("opencode.json"), r#"{}"#).unwrap();
+        let (_lock, dir, _home) = global_config_dir();
 
         let secrets = secrets_for_team_provider("shared-actor");
         let managed = ManagedLlmState::Enabled(sample_provider());
 
-        sync_team_provider_on_disk(
-            dir.path(),
-            &managed,
-            &secrets,
-            SecretResolveScope::ProviderApiKeysOnly,
-        )
-        .unwrap();
-        let reconcile_disk = read_opencode(dir.path());
+        sync_global_team_provider(&managed, &secrets).unwrap();
+        let reconcile_disk = fs::read_to_string(global_config_path(&dir)).unwrap();
 
-        fs::write(dir.path().join("opencode.json"), r#"{}"#).unwrap();
-        sync_team_provider_on_disk(
-            dir.path(),
-            &managed,
-            &secrets,
-            SecretResolveScope::FullConfig,
-        )
-        .unwrap();
-        let spawn_disk = read_opencode(dir.path());
+        fs::write(global_config_path(&dir), r#"{}"#).unwrap();
+        sync_global_team_provider(&managed, &secrets).unwrap();
+        let spawn_disk = fs::read_to_string(global_config_path(&dir)).unwrap();
 
         let reconcile_json: serde_json::Value = serde_json::from_str(&reconcile_disk).unwrap();
         let spawn_json: serde_json::Value = serde_json::from_str(&spawn_disk).unwrap();
@@ -201,8 +235,7 @@ mod tests {
 
     #[test]
     fn full_config_scope_materializes_team_provider_and_resolves_secrets() {
-        let _lock = crate::test_util::home_env_lock();
-        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
+        let (_lock, global_dir, _home) = global_config_dir();
         let dir = TempDir::new().unwrap();
         fs::write(
             dir.path().join("opencode.json"),
@@ -221,21 +254,18 @@ mod tests {
         secrets.insert("tc_api_key".to_string(), "sk-tc-spawn-actor".to_string());
         secrets.insert("API_TOKEN".to_string(), "ghp_spawn".to_string());
 
-        sync_team_provider_on_disk(
-            dir.path(),
-            &ManagedLlmState::Enabled(sample_provider()),
-            &secrets,
-            SecretResolveScope::FullConfig,
-        )
-        .unwrap();
+        sync_global_team_provider(&ManagedLlmState::Enabled(sample_provider()), &secrets).unwrap();
+        resolve_workspace_runtime_config(dir.path(), &secrets, SecretResolveScope::FullConfig)
+            .unwrap();
 
         let on_disk = read_opencode(dir.path());
-        assert!(on_disk.contains("sk-tc-spawn-actor"));
+        let global = fs::read_to_string(global_config_path(&global_dir)).unwrap();
+        assert!(global.contains("sk-tc-spawn-actor"));
         assert!(on_disk.contains("ghp_spawn"));
-        assert!(!on_disk.contains("${tc_api_key}"));
+        assert!(!global.contains("${tc_api_key}"));
         assert!(!on_disk.contains("${API_TOKEN}"));
         assert!(dir.path().join(".teamclu/opencode.runtime.json").exists());
-        let parsed: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&global).unwrap();
         assert_eq!(
             parsed["provider"]["team"]["models"]["model-a"]["name"].as_str(),
             Some("Model A")

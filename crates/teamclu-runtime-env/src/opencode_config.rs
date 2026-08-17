@@ -28,8 +28,8 @@ pub fn opencode_config_path(workspace: &Path) -> PathBuf {
     workspace.join(OPENCODE_JSON)
 }
 
-/// The daemon-owned global opencode config (`~/.amuxd/opencode.json`, or the
-/// white-label equivalent).
+/// The daemon-owned config for the active team
+/// (`~/.amuxd/teams/<team>/state/opencode.json`, or the white-label equivalent).
 ///
 /// This file is amuxd's alone — it is injected into opencode via
 /// `OPENCODE_CONFIG`, which loads it as an *additional* global-scope config
@@ -39,7 +39,28 @@ pub fn opencode_config_path(workspace: &Path) -> PathBuf {
 /// `recover_leading_object` path exists because config files here have been
 /// corrupted by partial writes before.
 pub fn global_opencode_config_path() -> PathBuf {
+    let home = crate::amuxd_home_from_env();
+    crate::amuxd_layout::team_state_dir(&home, &crate::amuxd_layout::active_team(&home))
+        .join(OPENCODE_JSON)
+}
+
+/// Pre-team-layout location, used only to adopt an existing device config on
+/// the first write after upgrading.
+fn legacy_global_opencode_config_path() -> PathBuf {
     crate::amuxd_home_from_env().join(OPENCODE_JSON)
+}
+
+fn migrate_legacy_global_config() -> Result<(), OpencodeConfigError> {
+    let target = global_opencode_config_path();
+    let legacy = legacy_global_opencode_config_path();
+    if target.exists() || !legacy.is_file() {
+        return Ok(());
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| OpencodeConfigError::Io("team config path has no parent".to_string()))?;
+    std::fs::create_dir_all(parent).map_err(map_io_err)?;
+    std::fs::rename(&legacy, &target).map_err(map_io_err)
 }
 
 /// Relative overlay path for the given brand (`{meta}/opencode.runtime.json`).
@@ -72,7 +93,13 @@ impl OpencodeConfigStore {
 
     /// [`load`] against the daemon-owned global config.
     pub fn load_global() -> Result<Value, OpencodeConfigError> {
-        Self::load_at(&global_opencode_config_path())
+        let path = global_opencode_config_path();
+        if path.exists() {
+            return Self::load_at(&path);
+        }
+        // Read compatibility is deliberately non-mutating; the next global
+        // write atomically adopts this file into the active team's state dir.
+        Self::load_at(&legacy_global_opencode_config_path())
     }
 
     /// Load an explicit config path. Missing file reads as an empty object.
@@ -111,6 +138,7 @@ impl OpencodeConfigStore {
     where
         F: FnOnce(&mut Value) -> Result<bool, OpencodeConfigError>,
     {
+        migrate_legacy_global_config()?;
         Self::apply_at(&global_opencode_config_path(), mutator)
     }
 
@@ -135,6 +163,7 @@ impl OpencodeConfigStore {
 
     /// [`write_value`] against the daemon-owned global config.
     pub fn write_value_global(value: &Value) -> Result<(), OpencodeConfigError> {
+        migrate_legacy_global_config()?;
         Self::write_value_locked_at(&global_opencode_config_path(), value)
     }
 
@@ -220,6 +249,49 @@ fn map_io_err(e: std::io::Error) -> OpencodeConfigError {
 mod tests {
     use super::*;
     use std::fs;
+
+    fn isolate_global_config() -> (
+        std::sync::MutexGuard<'static, ()>,
+        tempfile::TempDir,
+        crate::test_util::AmuxdHomeGuard,
+    ) {
+        let lock = crate::test_util::home_env_lock();
+        let home = tempfile::tempdir().unwrap();
+        let guard = crate::test_util::AmuxdHomeGuard::set(home.path());
+        fs::write(
+            home.path().join("daemon.toml"),
+            "active_team = \"team-a\"\n",
+        )
+        .unwrap();
+        (lock, home, guard)
+    }
+
+    #[test]
+    fn global_config_is_scoped_to_active_team_state() {
+        let (_lock, home, _guard) = isolate_global_config();
+        assert_eq!(
+            global_opencode_config_path(),
+            home.path().join("teams/team-a/state/opencode.json")
+        );
+    }
+
+    #[test]
+    fn applying_global_config_adopts_legacy_root_file() {
+        let (_lock, home, _guard) = isolate_global_config();
+        let legacy = home.path().join(OPENCODE_JSON);
+        fs::write(&legacy, r#"{ "provider": { "mine": {} } }"#).unwrap();
+
+        OpencodeConfigStore::apply_global(|config| {
+            config["provider"]["team"] = serde_json::json!({});
+            Ok(true)
+        })
+        .unwrap();
+
+        assert!(!legacy.exists());
+        let migrated = fs::read_to_string(global_opencode_config_path()).unwrap();
+        assert!(migrated.contains("\"mine\""));
+        assert!(migrated.contains("\"team\""));
+    }
 
     #[test]
     fn apply_persists_mutated_object_once() {

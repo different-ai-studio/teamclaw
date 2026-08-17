@@ -14,7 +14,8 @@ pub struct ManagedLlmModel {
 }
 
 /// The team's managed (shared) LLM provider, sourced from the cloud API rather
-/// than a disk file. Materialized into `opencode.json`'s `provider.team` entry.
+/// than a disk file. Materialized into amuxd's global `opencode.json` as
+/// `provider.team`.
 #[derive(Debug, Clone)]
 pub struct ManagedLlmProvider {
     pub name: String,
@@ -114,7 +115,7 @@ pub fn mutate_team_provider(
             } else {
                 &provider.name
             };
-            // Keep a resolved `sk-tc-*` key across reconciles. `ensure_team_provider`
+            // Keep a resolved `sk-tc-*` key across reconciles. `ensure_global_team_provider`
             // runs on every provider read (including after wake); always writing the
             // `${tc_api_key}` placeholder would clobber spawn-time resolution and
             // break LiteLLM auth for a live opencode serve instance.
@@ -165,10 +166,9 @@ pub fn mutate_team_provider(
     Ok(changed)
 }
 
-/// Read `provider.team` from workspace `opencode.json`, if present.
-pub fn read_disk_team_provider(workspace: &Path) -> Option<serde_json::Value> {
-    let content = OpencodeConfigStore::load_raw(workspace).ok().flatten()?;
-    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+/// Read `provider.team` from amuxd's active-team OpenCode config, if present.
+pub fn read_global_team_provider() -> Option<serde_json::Value> {
+    let json = OpencodeConfigStore::load_global().ok()?;
     json.get("provider")
         .and_then(|provider| provider.get("team"))
         .filter(|team| team.is_object())
@@ -218,8 +218,8 @@ pub fn managed_llm_provider_from_disk_team(team: &serde_json::Value) -> Option<M
 ///
 /// Cold cloud fetches / empty TTL caches often yield [`ManagedLlmState::Unknown`],
 /// which omits `TEAMCLU_TEAM_PROVIDER` from the spawn env. A later successful
-/// fetch then injects the key and flips the global OpenCode host fingerprint.
-/// When disk already has `provider.team`, reconstruct `Enabled` from it so the
+/// fetch then injects the key and flips the OpenCode host fingerprint.
+/// When the active-team config already has `provider.team`, reconstruct `Enabled` from it so the
 /// first attach matches a subsequent confirmed cloud answer with the same data.
 pub fn stabilize_managed_llm_for_spawn(
     state: &ManagedLlmState,
@@ -261,17 +261,48 @@ pub fn team_provider_env_payload(provider: &ManagedLlmProvider) -> String {
     .to_string()
 }
 
-/// Reconcile `provider.team` in opencode.json against the cloud-sourced managed LLM.
+/// Reconcile `provider.team` in the active-team OpenCode config against the
+/// cloud-sourced managed LLM.
 ///
 /// Returns whether the on-disk config was rewritten. External callers should prefer
-/// [`crate::team_provider_sync::sync_team_provider_on_disk`] so materialization and secret resolution
+/// [`crate::team_provider_sync::sync_global_team_provider`] so materialization and secret resolution
 /// stay aligned across spawn and reconcile paths.
-pub fn ensure_team_provider(workspace: &Path, state: &ManagedLlmState) -> anyhow::Result<bool> {
+pub fn ensure_global_team_provider(state: &ManagedLlmState) -> anyhow::Result<bool> {
     if matches!(state, ManagedLlmState::Unknown) {
         return Ok(false);
     }
-    OpencodeConfigStore::apply(workspace, |config| {
+    OpencodeConfigStore::apply_global(|config| {
         mutate_team_provider(config, state).map_err(map_mutate_err)
+    })
+    .map_err(map_store_err)
+}
+
+/// Remove the legacy workspace-local copy of TeamClu's reserved `provider.team`.
+///
+/// The entry used to live in every `<workspace>/opencode.json`. Keeping one
+/// around would make a disabled global provider silently fall back to stale
+/// workspace models, so every spawn clears it during the global-config
+/// migration. Other workspace providers are left untouched.
+pub fn remove_legacy_workspace_team_provider(workspace: &Path) -> anyhow::Result<bool> {
+    OpencodeConfigStore::apply(workspace, |config| {
+        let Some(root) = config.as_object_mut() else {
+            return Err(crate::opencode_config::OpencodeConfigError::Parse(
+                "opencode.json root is not an object".to_string(),
+            ));
+        };
+        let Some(providers) = root
+            .get_mut("provider")
+            .and_then(|value| value.as_object_mut())
+        else {
+            return Ok(false);
+        };
+        if providers.remove("team").is_none() {
+            return Ok(false);
+        }
+        if providers.is_empty() {
+            root.remove("provider");
+        }
+        Ok(true)
     })
     .map_err(map_store_err)
 }
@@ -303,22 +334,44 @@ mod tests {
         }
     }
 
-    #[test]
-    fn ensure_team_provider_adds_team_when_enabled() {
+    fn global_config_dir() -> (
+        std::sync::MutexGuard<'static, ()>,
+        TempDir,
+        crate::test_util::AmuxdHomeGuard,
+    ) {
+        let lock = crate::test_util::home_env_lock();
         let dir = TempDir::new().unwrap();
-        ensure_team_provider(dir.path(), &ManagedLlmState::Enabled(sample_provider())).unwrap();
+        let home = crate::test_util::AmuxdHomeGuard::set(dir.path());
+        fs::write(
+            dir.path().join("daemon.toml"),
+            "active_team = \"team-test\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("teams/team-test/state")).unwrap();
+        (lock, dir, home)
+    }
+
+    fn global_config_path(home: &TempDir) -> std::path::PathBuf {
+        home.path()
+            .join("teams/team-test/state")
+            .join(crate::opencode_config::OPENCODE_JSON)
+    }
+
+    #[test]
+    fn ensure_global_team_provider_adds_team_when_enabled() {
+        let (_lock, dir, _home) = global_config_dir();
+        ensure_global_team_provider(&ManagedLlmState::Enabled(sample_provider())).unwrap();
         let parsed: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
-                .unwrap();
+            serde_json::from_str(&fs::read_to_string(global_config_path(&dir)).unwrap()).unwrap();
         assert!(parsed["provider"]["team"].is_object());
     }
 
     #[test]
-    fn ensure_team_provider_preserves_resolved_api_key() {
-        let dir = TempDir::new().unwrap();
+    fn ensure_global_team_provider_preserves_resolved_api_key() {
+        let (_lock, dir, _home) = global_config_dir();
         let resolved_key = "sk-tc-actor-123";
         fs::write(
-            dir.path().join("opencode.json"),
+            global_config_path(&dir),
             serde_json::json!({
                 "provider": {
                     "team": {
@@ -333,10 +386,9 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        ensure_team_provider(dir.path(), &ManagedLlmState::Enabled(sample_provider())).unwrap();
+        ensure_global_team_provider(&ManagedLlmState::Enabled(sample_provider())).unwrap();
         let parsed: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
-                .unwrap();
+            serde_json::from_str(&fs::read_to_string(global_config_path(&dir)).unwrap()).unwrap();
         assert_eq!(
             parsed["provider"]["team"]["options"]["apiKey"].as_str(),
             Some(resolved_key),
@@ -345,10 +397,10 @@ mod tests {
     }
 
     #[test]
-    fn ensure_team_provider_overwrites_existing_team_when_enabled() {
-        let dir = TempDir::new().unwrap();
+    fn ensure_global_team_provider_overwrites_existing_team_when_enabled() {
+        let (_lock, dir, _home) = global_config_dir();
         fs::write(
-            dir.path().join("opencode.json"),
+            global_config_path(&dir),
             serde_json::json!({
                 "provider": {
                     "team": { "options": { "baseURL": "https://old.example" } }
@@ -357,10 +409,9 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        ensure_team_provider(dir.path(), &ManagedLlmState::Enabled(sample_provider())).unwrap();
+        ensure_global_team_provider(&ManagedLlmState::Enabled(sample_provider())).unwrap();
         let parsed: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
-                .unwrap();
+            serde_json::from_str(&fs::read_to_string(global_config_path(&dir)).unwrap()).unwrap();
         assert_eq!(
             parsed["provider"]["team"]["options"]["baseURL"],
             "https://gateway.example/v1"
@@ -368,32 +419,30 @@ mod tests {
     }
 
     #[test]
-    fn ensure_team_provider_removes_stale_team_when_disabled() {
-        let dir = TempDir::new().unwrap();
+    fn ensure_global_team_provider_removes_stale_team_when_disabled() {
+        let (_lock, dir, _home) = global_config_dir();
         fs::write(
-            dir.path().join("opencode.json"),
+            global_config_path(&dir),
             serde_json::json!({ "provider": { "team": {} } }).to_string(),
         )
         .unwrap();
-        ensure_team_provider(dir.path(), &ManagedLlmState::Disabled).unwrap();
+        ensure_global_team_provider(&ManagedLlmState::Disabled).unwrap();
         let parsed: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
-                .unwrap();
+            serde_json::from_str(&fs::read_to_string(global_config_path(&dir)).unwrap()).unwrap();
         assert!(parsed.get("provider").is_none());
     }
 
     #[test]
-    fn ensure_team_provider_unknown_leaves_config_untouched() {
-        let dir = TempDir::new().unwrap();
+    fn ensure_global_team_provider_unknown_leaves_config_untouched() {
+        let (_lock, dir, _home) = global_config_dir();
         fs::write(
-            dir.path().join("opencode.json"),
+            global_config_path(&dir),
             serde_json::json!({ "provider": { "team": { "keep": true } } }).to_string(),
         )
         .unwrap();
-        ensure_team_provider(dir.path(), &ManagedLlmState::Unknown).unwrap();
+        ensure_global_team_provider(&ManagedLlmState::Unknown).unwrap();
         let parsed: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
-                .unwrap();
+            serde_json::from_str(&fs::read_to_string(global_config_path(&dir)).unwrap()).unwrap();
         assert_eq!(parsed["provider"]["team"]["keep"], true);
     }
 

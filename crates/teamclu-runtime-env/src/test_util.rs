@@ -12,6 +12,30 @@ pub struct HomeGuard {
     previous: Option<String>,
 }
 
+pub struct AmuxdHomeGuard {
+    previous: Option<String>,
+}
+
+impl AmuxdHomeGuard {
+    pub fn set(home: &Path) -> Self {
+        let previous = env::var(crate::AMUXD_HOME_ENV).ok();
+        // SAFETY: test-only; guarded by HOME_ENV_LOCK.
+        unsafe {
+            env::set_var(crate::AMUXD_HOME_ENV, home);
+        }
+        Self { previous }
+    }
+}
+
+impl Drop for AmuxdHomeGuard {
+    fn drop(&mut self) {
+        match &self.previous {
+            Some(value) => unsafe { env::set_var(crate::AMUXD_HOME_ENV, value) },
+            None => unsafe { env::remove_var(crate::AMUXD_HOME_ENV) },
+        }
+    }
+}
+
 impl HomeGuard {
     pub fn set(home: &Path) -> Self {
         let previous = env::var("HOME").ok();
