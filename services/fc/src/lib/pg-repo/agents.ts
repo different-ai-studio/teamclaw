@@ -21,6 +21,7 @@ import {
 } from "./authz.js";
 import { ApiError } from "../http-utils.js";
 import { normalizeAgentTypes } from "../agent-types.js";
+import { isListableAgentStatus } from "../agent-status.js";
 
 const iso = (d: Date | string | null | undefined): string | null =>
   d ? new Date(d).toISOString() : null;
@@ -218,6 +219,7 @@ export function makeAgentsRepo(db: DbLike, ctx: AgentsCtx = {}) {
 
       const callerActorId = ctx.callerActorId ?? (ctx.userId ? await resolveActorForTeam(db, ctx.userId, teamId) ?? undefined : undefined);
       const items = rows
+        .filter((r) => isListableAgentStatus(r.status))
         .filter(
           (r) =>
             r.visibility === "team" ||

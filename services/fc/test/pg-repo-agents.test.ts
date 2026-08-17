@@ -51,6 +51,7 @@ async function seedAgentActor(
   teamId: string,
   ownerMemberId: string,
   visibility = "team",
+  status = "active",
 ) {
   const [agentActor] = await db
     .insert(actors)
@@ -59,7 +60,7 @@ async function seedAgentActor(
   await db.insert(agents).values({
     id: agentActor.id,
     agentKind: "claude",
-    status: "active",
+    status,
     visibility,
     ownerMemberId,
   });
@@ -82,6 +83,23 @@ test("listConnectedAgents returns items with kind=agent", async () => {
   assert.ok(
     result.items.every((item: any) => item.kind === "agent"),
     "all items must have kind=agent",
+  );
+});
+
+test("listConnectedAgents hides retired agents", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const member = await seedMemberActor(db, team.id);
+  const live = await seedAgentActor(db, team.id, member.id, "team");
+  await seedAgentActor(db, team.id, member.id, "team", "archived");
+  await seedAgentActor(db, team.id, member.id, "personal", "disabled");
+  const repo = createPgBusinessRepository({ db, callerActorId: member.id });
+
+  const result = await repo.listConnectedAgents(team.id);
+  assert.deepEqual(
+    result.items.map((a: any) => a.id),
+    [live.id],
+    "only the active agent is connected",
   );
 });
 

@@ -31,6 +31,7 @@ import {
 import { isLegalFcTransition } from "./provisioning/app-fc-status.js";
 import { appOssObjectName } from "./provisioning/app-deploy.js";
 import { normalizeAgentTypes } from "./agent-types.js";
+import { isListableAgentStatus, LISTABLE_AGENT_STATUS_OR_FILTER } from "./agent-status.js";
 import { computeRange, getLiteLlmSql, queryTeamUsage } from "./litellm-usage.js";
 import { rollUpUsageByOwner, type UsageOwner } from "./usage-attribution.js";
 import { litellmFetch as sharedLitellmFetch } from "./litellm.js";
@@ -1142,7 +1143,9 @@ export function createSupabaseBusinessRepository(options) {
       let query = supabase
         .from("actor_directory")
         .select(ACTOR_DIRECTORY_COLUMNS)
-        .eq("team_id", teamId);
+        .eq("team_id", teamId)
+        // Retired agents stay out of the listing; members pass on the null term.
+        .or(LISTABLE_AGENT_STATUS_OR_FILTER);
       if (kind) query = query.eq("actor_type", kind);
       query = query.order("last_active_at", { ascending: false, nullsFirst: false })
                    .order("display_name", { ascending: true })
@@ -1163,7 +1166,8 @@ export function createSupabaseBusinessRepository(options) {
         supabase
           .from("actor_directory")
           .select("id, team_id, kind:actor_type, display_name, avatar_url")
-          .eq("team_id", teamId),
+          .eq("team_id", teamId)
+          .or(LISTABLE_AGENT_STATUS_OR_FILTER),
         supabase
           .from("team_members")
           .select("actor_id:member_id, team_id, role, joined_at")
@@ -2711,7 +2715,11 @@ export function createSupabaseBusinessRepository(options) {
           visibility: row.visibility ?? null,
           isOwner: row.is_owner === true,
         };
-      }).filter((row) => typeof row.id === "string" && row.id.length > 0);
+      })
+        .filter((row) => typeof row.id === "string" && row.id.length > 0)
+        // The list_connected_agents RPC has no status predicate, so the filter
+        // lands here rather than in a migration — same rule as the pg-repo twin.
+        .filter((row) => isListableAgentStatus(row.agentStatus));
       return { items };
     },
 

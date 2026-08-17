@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mapCacheRow } from '@/stores/actor-directory-store'
+import { isListableActor, mapCacheRow } from '@/stores/actor-directory-store'
 
 describe('mapCacheRow', () => {
   it('maps ownerMemberId from libsql cache for personal-agent delete gating', () => {
@@ -22,5 +22,22 @@ describe('mapCacheRow', () => {
     expect(row.actor_type).toBe('agent')
     expect(row.visibility).toBe('personal')
     expect(row.owner_member_id).toBe('member-42')
+  })
+})
+
+describe('isListableActor', () => {
+  it('keeps active agents', () => {
+    expect(isListableActor({ actor_type: 'agent', agent_status: 'active' })).toBe(true)
+  })
+
+  it('drops retired agents — the cache is never swept, so a cold start would paint them', () => {
+    expect(isListableActor({ actor_type: 'agent', agent_status: 'archived' })).toBe(false)
+    expect(isListableActor({ actor_type: 'agent', agent_status: 'disabled' })).toBe(false)
+  })
+
+  it('keeps members and any row with no agent status', () => {
+    expect(isListableActor({ actor_type: 'member', agent_status: null })).toBe(true)
+    // A row cached before agent_status was carried must not vanish.
+    expect(isListableActor({ actor_type: 'agent', agent_status: null })).toBe(true)
   })
 })
