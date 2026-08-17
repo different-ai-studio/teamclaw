@@ -12,7 +12,30 @@
 
 ## 现状：为什么会长成这样
 
-### 三个写入方，各拼各的
+### 病根一：网关把 agent 的输出流劫走了
+
+消息写入本来就是 **agent 侧**的事，daemon 里也早就有完整实现：
+
+```
+ACP 事件 → poll_events → handle_acp_event → TurnAggregator → emit_agent_message
+                                                              ├─ session/{id}/live 广播
+                                                              ├─ 本地 TOML
+                                                              └─ 云端 messages（仅 turn-final）
+```
+
+`TurnAggregator` 负责回合切分、工具调用处会 mid-turn flush、打 `turn_id`、区分 interrupted / no_final_reply；`emit_agent_message` 负责广播、落库、盖 model、写 `reply_to_message_id`、必要时推进 catchup cursor。
+
+网关一条都用不上——因为它把这条流劫走了。`AmuxdAgentHandle::run_turn` 调 `checkout_turn_for_acp`，那个函数会 **把运行时的 `event_rx` 从 handle 里 `take()` 出来**（`manager.rs:1334`）。源码自己写着后果（`runtime/manager/poll.rs:5`）：
+
+> Agents whose `event_rx` is checked out for a gateway turn are skipped.
+
+也就是说：**一轮网关 turn 期间，daemon 的事件泵是瞎的**，aggregator 与 `emit_agent_message` 一行都不跑。网关自己收完 ACP 事件、拼出文本，最后调一次 `record_agent_reply` 写一条简化版的行——没有 turn_id、没有 model、没有 reply_to、没有 cursor、没有 mid-turn flush、没有 interrupted 状态。
+
+#933 的三个症状是同一个原因：不是"网关忘了广播"，而是**负责广播的那段代码在网关 turn 里根本没有机会运行**。两套实现也不是并存，是靠"谁抢到 event_rx"互斥——一个接线上的巧合，不是设计。
+
+结论：写入不该"从网关搬到一个新服务"，而是**网关本来就不该驱动 turn**。它该把消息交进去，然后像任何客户端一样订阅这个 session 的产出，把它渲染到聊天里。
+
+### 病根二：三个写入方，各拼各的
 
 | 写入方 | 落库 | 广播 | 去重 | 附加动作 |
 |---|---|---|---|---|
@@ -22,7 +45,7 @@
 
 三份代码拼三次 metadata、各自决定何时写、各自决定要不要广播。cron 甚至多写一份本地 TOML。
 
-### 病根在两个 trait 的形状
+### 病根三：两个 trait 的形状
 
 网关能"做很多不该做的事"，是因为接口把这些权力递到了它手上：
 
@@ -64,6 +87,15 @@
 
 cron 与网关都接 B。桌面端经由 Cloud API + MQTT 与 B 达成同样的语义（不共用代码，共用契约）。
 
+**关键：B 层不是"给网关调用的写入服务"，而是把网关摘出 turn 驱动。** 消息写入留在 agent 侧既有的
+`TurnAggregator` → `emit_agent_message` 这条路上；网关不再 `checkout_turn_for_acp`，事件泵因此在
+网关会话上也正常运行。网关变成"投递 + 订阅"：交进一条消息，然后订阅这个 session 的产出去渲染，
+和桌面端订阅 `session/{id}/live` 是同一件事。
+
+这样一来，网关会话**免费得到**今天没有的东西：mid-turn flush（工具调用处就出字）、turn_id、model
+戳记、reply_to、interrupted / no_final_reply 状态、catchup cursor。这些不是新功能，是 agent 侧
+一直在做、只是网关把流劫走后没人跑的部分。
+
 ## 接口设计
 
 ### 归一化的数据类型（gateway crate 定义）
@@ -94,8 +126,15 @@ pub enum Outbound {
 #[async_trait]
 pub trait ConversationPort: Send + Sync {
     /// 一条用户消息。服务侧负责：解析会话 → 落库 → 广播 → 排队 → 起 turn。
-    /// 回复通过 `sink` 推回来（流式多次、终帧一次）。
-    async fn deliver(&self, msg: InboundMessage, sink: ReplySink) -> Result<(), PortError>;
+    ///
+    /// **不返回回复**。turn 走 agent 侧的正常通路，产出经 `session/{id}/live`
+    /// 出来；渠道通过 `subscribe` 拿到并渲染。今天 `send_prompt` 返回 String
+    /// 的形状正是网关必须劫走 `event_rx` 的原因。
+    async fn deliver(&self, msg: InboundMessage) -> Result<(), PortError>;
+
+    /// 订阅这个聊天所绑定 session 的产出，用于渲染。与桌面端订阅
+    /// `session/{id}/live` 是同一份数据。
+    async fn subscribe(&self, binding: &str) -> Result<ReplyStream, PortError>;
 
     /// 一条斜杠命令。服务侧解释语义并返回要渲染的文本。
     async fn command(&self, cmd: SlashCommand) -> Result<Option<String>, PortError>;
@@ -149,6 +188,12 @@ WeCom 的流式帧节流、KOOK 的卡片、邮件的 MIME 与引用剥离、各
 **P2 — 写入与附件收成一个 service**
 把 #934 的 `GatewayLiveNotifier` 长成完整的写入服务：insert / broadcast / claim / 附件入库（双向共用一套路径与阈值）。cron 迁过来，删掉它自己那份 metadata 拼装与本地 TOML 旁路。
 
+**P2.5 — 网关停止劫流（本设计的核心一步）**
+`run_turn` 不再 `checkout_turn_for_acp`；改为 deliver + subscribe。事件泵在网关会话上恢复运行，
+`emit_agent_message` 接管全部写入与广播，网关侧的 `record_agent_reply` 随之删除。
+**前置**：per-agent 的 turn 串行今天正是由 `checkout_turn_for_acp` + `turn_lock` 提供的，所以
+必须与 P4（排队上移）一起设计——先把排队搬进 B 层，再撤掉 checkout，否则会出现并发 turn。
+
 **P3 — 命令语义收口**
 `AgentHandle` 拆成"运行时 port"（send/cancel/stream）与"会话管理"（sessions/workspace/model/participants）。渠道不再直接持有后者；`/workspace` 不再由渠道写 `daemon.toml`。
 
@@ -179,3 +224,9 @@ WeCom 的流式帧节流、KOOK 的卡片、邮件的 MIME 与引用剥离、各
 2. **流式的回压**：`ReplySink` 目前设想是"推最新累计文本"，WeCom 靠同 id 覆盖气泡。KOOK/Discord 是编辑消息、邮件根本没有流式——`ReplyFrame` 要不要带"该平台是否支持中途更新"的能力位。
 3. **`AgentHandle` 上的 `list_workspaces` / `set_workspace`**：P3 之后由谁暴露给聊天用户？如果保留 `/workspace`，权限边界要明确（现在任何能给机器人发消息的人都能改它的默认工作区）。
 4. **cron 的本地 TOML**：`persist_message` 是否还有存在必要，还是纯历史包袱。
+5. **撤掉 checkout 后的串行保证**：今天"一个 agent 同时只跑一轮"是 `checkout_turn_for_acp`
+   （`event_rx` 只有一份）天然给的。P2.5 撤掉它之后，这个不变量必须由 B 层的排队显式维持，
+   否则两条渠道消息会并发进同一个 runtime。这是 P2.5 与 P4 必须同批的原因。
+6. **同步回执**：WeCom 需要先回一个"正在思考"占位帧再覆盖。deliver 不返回回复之后，这个占位
+   由渠道自己在 `deliver` 成功后立即渲染，还是由 B 层在 turn 开始时广播一个 `turn_started`
+   事件——后者对所有客户端一致，但要新增事件类型。
