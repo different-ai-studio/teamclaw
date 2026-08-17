@@ -227,9 +227,18 @@ test("build.config.example.json documents both backend fields", () => {
 // a config that omits one is not a degraded build — it is no build at all. The
 // omission is invisible in review (the extension build is a separate workflow),
 // which is how packages shipped with realtime pointed at the wrong broker.
-for (const name of ["build.config.dev.json", "build.config.production.json"]) {
+//
+// `build.config.production.json` is tracked and ships, so it is always checked.
+// `build.config.dev.json` is per-machine and untracked (`.gitignore` keeps every
+// root `build.config.*.json` but example/production/teal), so it cannot be a CI
+// invariant — but the machine that has one still gets it checked, which is where
+// a broken local backend would actually bite. Brand configs (teal) are excluded:
+// they override branding only and inherit the backend from `build.config.json`.
+for (const name of ["build.config.production.json", "build.config.dev.json"]) {
+  const configPath = path.join(repoRoot, name);
+  if (!fs.existsSync(configPath)) continue;
   test(`${name} declares both backend fields the extension build requires`, () => {
-    const cfg = JSON.parse(fs.readFileSync(path.join(repoRoot, name), "utf8"));
+    const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
     const backend = resolveExtensionBackend(cfg);
     assert.ok(backend.cloudApiUrl, `${name} must declare cloudApiUrl`);
     assert.ok(backend.mqttWsUrl, `${name} must declare mqttWsUrl`);
