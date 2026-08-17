@@ -242,6 +242,8 @@ services:
       # Private Supabase Storage buckets holding client-encrypted blobs: team
       # file-sync bodies and skill packages. This map is an allowlist, so a var
       # missing here never reaches the container regardless of the box's .env.
+      # Supabase bucket names, and — on TEAM_BLOBS_BACKEND=s3 — the key prefixes
+      # inside the single shared BUCKET.
       TEAM_BLOBS_STORAGE_BUCKET: "${TEAM_BLOBS_STORAGE_BUCKET:-team-blobs}"
       SKILLS_STORAGE_BUCKET: "${SKILLS_STORAGE_BUCKET:-team-skills}"
       # The ONE broker address: FC's own inbox publisher dials it AND
@@ -414,7 +416,9 @@ services:
       retries: 12
       start_period: 20s
 
-  # Buckets must exist before the first upload; MinIO does not create on write.
+  # The bucket must exist before the first upload; MinIO does not create on
+  # write. One bucket holds everything, separated by key prefix:
+  #   apps/…  team-blobs/…  team-skills/…
   # Idempotent, so it is safe on every `compose up`.
   minio-init:
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
@@ -424,14 +428,12 @@ services:
     environment:
       MINIO_ROOT_USER: "${ACCESS_KEY_ID:-teamclu}"
       MINIO_ROOT_PASSWORD: "${ACCESS_KEY_SECRET:-}"
-      TEAM_BLOBS_STORAGE_BUCKET: "${TEAM_BLOBS_STORAGE_BUCKET:-team-blobs}"
-      SKILLS_STORAGE_BUCKET: "${SKILLS_STORAGE_BUCKET:-team-skills}"
+      BUCKET: "${BUCKET:-teamclu-team}"
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
-      mc mb --ignore-existing local/\"$$TEAM_BLOBS_STORAGE_BUCKET\" &&
-      mc mb --ignore-existing local/\"$$SKILLS_STORAGE_BUCKET\" &&
-      echo 'buckets ready'
+      mc mb --ignore-existing local/\"$$BUCKET\" &&
+      echo 'bucket ready'
       "
     restart: "no"
 

@@ -84,10 +84,12 @@ resources:
         SUPABASE_PUBLIC_URL: ${env('SUPABASE_PUBLIC_URL', '')}
         SUPABASE_SERVICE_ROLE_KEY: ${env('SUPABASE_SERVICE_ROLE_KEY')}
         SUPABASE_ANON_KEY: ${env('SUPABASE_ANON_KEY')}
-        # Private buckets holding client-encrypted blobs: team file-sync bodies
-        # and skill packages. On TEAM_BLOBS_BACKEND=s3 these are OSS buckets and
-        # must be SEPARATE from the app-bundle BUCKET above — different
-        # lifecycle and access policies. Both have working defaults,
+        # Client-encrypted blobs: team file-sync bodies and skill packages.
+        # These name Supabase buckets on the supabase backend; on
+        # TEAM_BLOBS_BACKEND=s3 they are key PREFIXES inside the single BUCKET
+        # above, which also holds app bundles under `apps/`. The prefix is what
+        # keeps knowledge blobs and skill packages apart — their object paths are
+        # otherwise byte-identical. Both have working defaults,
         # but `s deploy` overwrites the whole environment map — an undeclared
         # var simply never arrives, so declare them even when unset.
         TEAM_BLOBS_STORAGE_BUCKET: ${env('TEAM_BLOBS_STORAGE_BUCKET', 'team-blobs')}
