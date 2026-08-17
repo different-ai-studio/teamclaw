@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { authState, backendConfig } = vi.hoisted(() => ({
+const { authState, backendConfig, extensionPolicy } = vi.hoisted(() => ({
   authState: {
     loading: false,
     errorMessage: null as string | null,
@@ -13,6 +13,10 @@ const { authState, backendConfig } = vi.hoisted(() => ({
   },
   backendConfig: {
     hasConfig: true,
+  },
+  extensionPolicy: {
+    isExtension: false,
+    autoCreateTeam: true,
   },
 }));
 
@@ -37,6 +41,12 @@ vi.mock("@/lib/version", () => ({
 vi.mock("@/lib/build-config", () => ({
   buildConfig: { app: { name: "TeamClu" } },
   appDisplayName: "TeamClu",
+  extensionTeamOnboarding: extensionPolicy,
+}));
+
+vi.mock("@/lib/platform", () => ({
+  isChromeExtension: () => extensionPolicy.isExtension,
+  capabilities: { oauthSignIn: false },
 }));
 
 import { LoginScreen } from "../LoginScreen";
@@ -50,6 +60,8 @@ beforeEach(() => {
   authState.resetOtp.mockReset();
   authState.signInAnonymously.mockReset();
   backendConfig.hasConfig = true;
+  extensionPolicy.isExtension = false;
+  extensionPolicy.autoCreateTeam = true;
 });
 
 describe("LoginScreen", () => {
@@ -69,6 +81,24 @@ describe("LoginScreen", () => {
     render(<LoginScreen />);
     fireEvent.click(screen.getByRole("button", { name: /try anonymously/i }));
     await waitFor(() => expect(authState.signInAnonymously).toHaveBeenCalledTimes(1));
+  });
+
+  it("hides anonymous trial only in extension builds that disable automatic team creation", () => {
+    extensionPolicy.isExtension = true;
+    extensionPolicy.autoCreateTeam = false;
+
+    render(<LoginScreen />);
+
+    expect(screen.queryByRole("button", { name: /try anonymously/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps anonymous trial visible in plain web even when the extension policy disables it", () => {
+    extensionPolicy.isExtension = false;
+    extensionPolicy.autoCreateTeam = false;
+
+    render(<LoginScreen />);
+
+    expect(screen.getByRole("button", { name: /try anonymously/i })).toBeInTheDocument();
   });
 
   it("shows error message when signInAnonymously fails", () => {

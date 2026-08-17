@@ -292,6 +292,12 @@
       "retrying": "正在重试…",
       "signOut": "退出登录，换个账号"
     },
+    "extensionNoTeam": {
+      "title": "暂未加入团队",
+      "message": "当前账号尚未加入任何团队，请联系管理员向你的登录邮箱发送团队邀请。",
+      "retry": "重新检查邀请",
+      "checking": "正在检查…"
+    },
     "signIn": "登录",
     "willEmailCode": "我们将向你的邮箱发送 6 位验证码。",
     "email": "邮箱",

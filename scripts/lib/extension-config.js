@@ -26,6 +26,19 @@ function asStringList(raw) {
   return out
 }
 
+function asLocalizedStrings(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out = {}
+  for (const [locale, message] of Object.entries(raw)) {
+    if (typeof message !== 'string') continue
+    const normalizedLocale = locale.trim()
+    const normalizedMessage = message.trim()
+    if (!normalizedLocale || !normalizedMessage) continue
+    out[normalizedLocale] = normalizedMessage
+  }
+  return out
+}
+
 /**
  * Normalize a domain entry for the side-panel host gate.
  * Accepts either `*.shopee.io` or a Chrome match pattern `https://*.shopee.io/*`.
@@ -70,10 +83,18 @@ function parseExtensionsConfig(raw) {
     settingsRaw.linkHover && typeof settingsRaw.linkHover === 'object'
       ? settingsRaw.linkHover
       : {}
+  const teamOnboardingRaw =
+    row.teamOnboarding && typeof row.teamOnboarding === 'object'
+      ? row.teamOnboarding
+      : {}
 
   return {
     solo: row.solo === true,
     domains,
+    teamOnboarding: {
+      autoCreateTeam: teamOnboardingRaw.autoCreateTeam !== false,
+      noTeamMessage: asLocalizedStrings(teamOnboardingRaw.noTeamMessage),
+    },
     settings: {
       hideButton: settingsRaw.hideButton === true,
       linkHover: {
@@ -106,6 +127,22 @@ function resolveExtensionPack(buildConfig) {
       ...asStringList(alias.hosts),
     ],
     solo: canonical.solo === true || alias.solo === true,
+    teamOnboarding: {
+      ...(alias.teamOnboarding && typeof alias.teamOnboarding === 'object'
+        ? alias.teamOnboarding
+        : {}),
+      ...(canonical.teamOnboarding && typeof canonical.teamOnboarding === 'object'
+        ? canonical.teamOnboarding
+        : {}),
+      noTeamMessage: {
+        ...(alias.teamOnboarding?.noTeamMessage && typeof alias.teamOnboarding.noTeamMessage === 'object'
+          ? alias.teamOnboarding.noTeamMessage
+          : {}),
+        ...(canonical.teamOnboarding?.noTeamMessage && typeof canonical.teamOnboarding.noTeamMessage === 'object'
+          ? canonical.teamOnboarding.noTeamMessage
+          : {}),
+      },
+    },
     settings: {
       ...(alias.settings && typeof alias.settings === 'object' ? alias.settings : {}),
       ...(canonical.settings && typeof canonical.settings === 'object' ? canonical.settings : {}),

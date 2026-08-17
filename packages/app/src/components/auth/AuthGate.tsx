@@ -25,6 +25,9 @@ import { TeamPicker } from "./TeamPicker";
 import { PendingInvitesDialog } from "@/components/auth/PendingInvitesDialog";
 import { GuestTeamDiscovery } from "@/components/auth/GuestTeamDiscovery";
 import { getDesktopDeviceIdOrNull } from "@/lib/backend/cloud-api/device-id";
+import { isChromeExtension } from "@/lib/platform";
+import { extensionTeamOnboarding } from "@/lib/build-config";
+import { ExtensionNoTeamScreen } from "./ExtensionNoTeamScreen";
 import type { MembershipTeam } from "@/lib/backend";
 
 /** A one-option "choice" is noise: single-locale builds skip the language step
@@ -35,7 +38,7 @@ interface AuthGateProps {
   children: React.ReactNode;
 }
 
-type BootstrapState = "idle" | "checking" | "ready" | "error";
+type BootstrapState = "idle" | "checking" | "ready" | "no_team" | "error";
 
 function memberTeams(teams: MembershipTeam[]): MembershipTeam[] {
   return teams.filter((team) => team.itemType !== "org" && team.isMember !== false);
@@ -69,6 +72,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [bootstrapNonce, setBootstrapNonce] = useState(0);
   const [retrying, setRetrying] = useState(false);
+  const [checkingNoTeamInvites, setCheckingNoTeamInvites] = useState(false);
   const [authHydrated, setAuthHydrated] = useState(false);
   const bootstrappedUserId = useRef<string | null>(null);
   const savedTeamRestoreUserId = useRef<string | null>(null);
@@ -127,6 +131,8 @@ export function AuthGate({ children }: AuthGateProps) {
   // before team-bootstrap can overwrite the cache, so the picker can badge it
   // "Last used". Null on a genuinely-first login (no history).
   const [lastUsedTeamId, setLastUsedTeamId] = useState<string | null>(null);
+  const extensionRequiresInvitation =
+    isChromeExtension() && !extensionTeamOnboarding.autoCreateTeam;
 
   useEffect(() => {
     if (isTauri()) void listSetup();
@@ -248,8 +254,12 @@ export function AuthGate({ children }: AuthGateProps) {
   useEffect(() => {
     if (!session || session.user?.isAnonymous) return;
     if (pendingInviteToken) return;
+    // The invite-only extension path performs this lookup as part of the
+    // blocking team resolution below. Existing-team users still refresh once
+    // bootstrap reaches ready so their normal in-app dialog keeps working.
+    if (extensionRequiresInvitation && bootstrap !== "ready") return;
     void useAuthStore.getState().refreshPendingInvites();
-  }, [session, pendingInviteToken]);
+  }, [session, pendingInviteToken, bootstrap, extensionRequiresInvitation]);
 
   // After auth, resolve the full team chooser before entering a team. Only an
   // empty result may create a team; it uses the dedicated atomic bootstrap RPC.
@@ -291,11 +301,19 @@ export function AuthGate({ children }: AuthGateProps) {
 
     void (async () => {
       let teamSet = false;
+      let teamAssignmentRequired = false;
       let bootErr: unknown = null;
       try {
         const allTeams = await getBackend().teams.listAllMyTeams({ includeEmptyOrgs: true });
         markStartup("team-list:end");
-        if (allTeams.length > 0) {
+        // This build policy is extension-only. Public joinable teams and empty
+        // org rows are not memberships and must not accidentally bypass the
+        // invite-only gate or offer a hidden team-creation path.
+        if (extensionRequiresInvitation && memberTeams(allTeams).length === 0) {
+          setMyTeams([]);
+          await useAuthStore.getState().refreshPendingInvites();
+          teamAssignmentRequired = true;
+        } else if (allTeams.length > 0) {
           // Do not auto-select the first row: the chooser makes the org then
           // team decision explicit, including public teams that need joining.
           setMyTeams(allTeams);
@@ -357,6 +375,9 @@ export function AuthGate({ children }: AuthGateProps) {
       if (teamSet) {
         setBootstrapError(null);
         setBootstrap("ready");
+      } else if (teamAssignmentRequired) {
+        setBootstrapError(null);
+        setBootstrap("no_team");
       } else {
         // No current team means the app can't continue — daemon onboarding,
         // sessions and the actor directory are all team-scoped. Surface the
@@ -366,7 +387,7 @@ export function AuthGate({ children }: AuthGateProps) {
         setBootstrap("error");
       }
     })();
-  }, [loading, session, bootstrapNonce, pendingInviteToken]);
+  }, [loading, session, bootstrapNonce, pendingInviteToken, extensionRequiresInvitation, signOut]);
 
   const retryBootstrap = () => {
     // Re-arm the per-user ref guard and bump the nonce so the bootstrap effect
@@ -375,6 +396,21 @@ export function AuthGate({ children }: AuthGateProps) {
     bootstrappedUserId.current = null;
     setRetrying(true);
     setBootstrapNonce((n) => n + 1);
+  };
+
+  const retryNoTeamInvites = () => {
+    if (checkingNoTeamInvites) return;
+    setCheckingNoTeamInvites(true);
+    void useAuthStore.getState().refreshPendingInvites().finally(() => {
+      setCheckingNoTeamInvites(false);
+    });
+  };
+
+  const finishPendingInvite = () => {
+    setTeamChosen(true);
+    setTeamChoiceResolved(true);
+    setBootstrapError(null);
+    setBootstrap("ready");
   };
 
   // Each gate below either (a) is a pure-loading state — return null so the
@@ -466,6 +502,21 @@ export function AuthGate({ children }: AuthGateProps) {
         onRetry={retryBootstrap}
         onSignOut={() => void signOut()}
       />
+    );
+  }
+
+  if (bootstrap === "no_team") {
+    removeStartupSkeleton();
+    return (
+      <>
+        <ExtensionNoTeamScreen
+          messages={extensionTeamOnboarding.noTeamMessage}
+          checking={checkingNoTeamInvites}
+          onRetry={retryNoTeamInvites}
+          onSignOut={() => void signOut()}
+        />
+        <PendingInvitesDialog onAccepted={finishPendingInvite} />
+      </>
     );
   }
 
