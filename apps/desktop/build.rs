@@ -14,6 +14,20 @@ fn deep_merge(base: &mut serde_json::Value, overlay: serde_json::Value) {
     }
 }
 
+/// Declare a `rerun-if-changed` dependency only for a path that exists.
+///
+/// Cargo cannot distinguish "this input is legitimately absent" from "this input
+/// vanished", so it marks a unit whose declared path fails to stat as stale on
+/// every single build. Every optional input here (gitignored build configs,
+/// staged sidecars, bridge bundles) must go through this instead of printing the
+/// directive unconditionally.
+fn rerun_if_present<P: AsRef<std::path::Path>>(path: P) {
+    let path = path.as_ref();
+    if path.exists() {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+}
+
 fn resolve_updater_url(url: &str) -> Option<String> {
     if url.contains("__OSS_BASE_URL__") {
         let oss_base = std::env::var("OSS_BASE_URL")
@@ -63,7 +77,17 @@ fn main() {
         .unwrap();
 
     let base_path = root_dir.join("build.config.json");
-    println!("cargo:rerun-if-changed={}", base_path.display());
+    // Only declare the dependency when the file is actually there. Cargo treats
+    // a `rerun-if-changed` path it cannot stat as permanently stale ("stale:
+    // missing ..."), so declaring this unconditionally re-ran the build script,
+    // recompiled teamclu_lib and relinked the binary on EVERY build — ~39s of
+    // pure waste per `tauri:dev` start, because build.config.json is gitignored
+    // and absent from a normal checkout (local dev uses BUILD_ENV=dev +
+    // build.config.dev.json instead).
+    //
+    // Trade-off: creating build.config.json later does not invalidate this
+    // build script on its own. Touch apps/desktop/build.rs after adding it.
+    rerun_if_present(&base_path);
 
     let mut config: serde_json::Value = std::fs::read_to_string(&base_path)
         .map(|s| serde_json::from_str(&s).expect("build.config.json is not valid JSON"))
@@ -80,7 +104,10 @@ fn main() {
     println!("cargo:rerun-if-env-changed=BUILD_ENV");
     if let Ok(build_env) = std::env::var("BUILD_ENV") {
         let env_path = root_dir.join(format!("build.config.{}.json", build_env));
-        println!("cargo:rerun-if-changed={}", env_path.display());
+        // Same missing-path rule as base_path above: a BUILD_ENV naming a brand
+        // with no config file on disk would otherwise pin the build script to
+        // "always stale".
+        rerun_if_present(&env_path);
         if let Ok(s) = std::fs::read_to_string(&env_path) {
             let env_config: serde_json::Value = serde_json::from_str(&s)
                 .unwrap_or_else(|_| panic!("build.config.{}.json is not valid JSON", build_env));
@@ -276,7 +303,7 @@ fn main() {
             introspect_bin
         );
     }
-    println!("cargo:rerun-if-changed={}", introspect_bin);
+    rerun_if_present(&introspect_bin);
 
     // amuxd sidecar is bundled (built by scripts/ensure-amuxd-sidecar.js before cargo).
     let amuxd_bin = format!("binaries/amuxd-{}", target_triple);
@@ -289,9 +316,12 @@ fn main() {
             amuxd_bin
         );
     }
-    println!("cargo:rerun-if-changed={}", amuxd_bin);
-    println!("cargo:rerun-if-changed=binaries/cursor-bridge");
-    println!("cargo:rerun-if-changed=binaries/claude-bridge");
+    rerun_if_present(&amuxd_bin);
+    // Both bridge trees are gitignored and staged by
+    // scripts/ensure-agent-bridge-bundles.js; on a checkout that has not staged
+    // them yet an unconditional directive would pin this script to always-stale.
+    rerun_if_present("binaries/cursor-bridge");
+    rerun_if_present("binaries/claude-bridge");
 
     tauri_build::build()
 }

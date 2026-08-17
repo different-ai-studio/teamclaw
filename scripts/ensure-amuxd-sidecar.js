@@ -5,6 +5,7 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const { installSidecarAtomic } = require("./lib/install-sidecar-atomic");
+const { sidecarTargetDir } = require("./lib/sidecar-target-dir");
 
 const VERSION_PROBE_TIMEOUT_MS = 5_000;
 
@@ -102,7 +103,7 @@ function ensureAmuxdSidecar(env, opts) {
     );
   }
   console.log(`${logPrefix} Building amuxd sidecar...`);
-  const targetDir = env.CARGO_TARGET_DIR || path.join(tauriDir, "target");
+  const targetDir = sidecarTargetDir(env, tauriDir, "amuxd");
   const result = spawnSync(
     "cargo",
     ["build", "--manifest-path", manifestPath, "-p", "amuxd", "--target-dir", targetDir],
