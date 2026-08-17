@@ -2966,7 +2966,10 @@
     "ungrouped": "Other",
     "lastUsed": "Last used",
     "initializeOrg": "Initialize {{org}}",
-    "initializing": "Initializing…"
+    "initializing": "Initializing…",
+    "memberCount": "{{count}} members",
+    "memberCount_one": "{{count}} member",
+    "memberCount_other": "{{count}} members"
   },
   "actors": {
     "allTitle": "All actors",

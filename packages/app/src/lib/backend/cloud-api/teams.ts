@@ -19,6 +19,9 @@ type CloudMembershipTeam = {
   isMember?: boolean;
   itemType?: "team" | "org";
   teamId?: string | null;
+  createdAt?: string | null;
+  memberCount?: number | null;
+  ownerName?: string | null;
 };
 
 type CloudInvite = {
@@ -118,6 +121,9 @@ export function createTeamsModule(client: CloudApiClient): TeamsBackend {
         isMember: r.isMember !== false,
         itemType: r.itemType ?? "team",
         teamId: r.teamId ?? r.id,
+        createdAt: r.createdAt ?? null,
+        memberCount: r.memberCount ?? null,
+        ownerName: r.ownerName ?? null,
       }));
     },
     async listDiscoverableTeams() {

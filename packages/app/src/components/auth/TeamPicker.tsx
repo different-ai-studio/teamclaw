@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatDate } from "@/lib/date-format";
 import type { MembershipTeam } from "@/lib/backend";
 import { getBackend } from "@/lib/backend";
 import { useCurrentTeamStore } from "@/stores/current-team";
@@ -39,6 +40,44 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
     const bucket = groups.get(key);
     if (bucket) bucket.push(team);
     else groups.set(key, [team]);
+  }
+
+  /**
+   * Names repeated inside one org group. A team is named after its org and the
+   * name is not unique, so an org where several people onboarded ends up with
+   * several teams reading identically — without this the rows are two
+   * indistinguishable buttons.
+   *
+   * Scoped per group rather than across the whole list on purpose: two teams
+   * with the same name in DIFFERENT orgs are already told apart by the org
+   * heading above them, so annotating those would be noise.
+   */
+  const ambiguousNamesByGroup = new Map<string, Set<string>>();
+  for (const [orgName, orgTeams] of groups) {
+    const counts = new Map<string, number>();
+    for (const team of orgTeams) {
+      if (team.itemType === "org") continue;
+      counts.set(team.name, (counts.get(team.name) ?? 0) + 1);
+    }
+    const dupes = new Set<string>();
+    for (const [name, n] of counts) if (n > 1) dupes.add(name);
+    ambiguousNamesByGroup.set(orgName, dupes);
+  }
+
+  /**
+   * The line shown under an ambiguous name: owner, size, age. Each part is
+   * dropped when the backend did not supply it, so an older server (or the
+   * Postgres backend, which has no org model) degrades to a shorter line rather
+   * than rendering "undefined".
+   */
+  function disambiguation(team: MembershipTeam): string | null {
+    const parts: string[] = [];
+    if (team.ownerName) parts.push(team.ownerName);
+    if (typeof team.memberCount === "number") {
+      parts.push(t("teamPicker.memberCount", { count: team.memberCount }));
+    }
+    if (team.createdAt) parts.push(formatDate(team.createdAt));
+    return parts.length > 0 ? parts.join(" · ") : null;
   }
 
   async function choose(team: MembershipTeam) {
@@ -118,6 +157,10 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
                   const isLastUsed = team.id === lastUsedTeamId;
                   const switching = busyId === team.id;
                   const joinable = team.isMember === false;
+                  const detail =
+                    !emptyOrg && ambiguousNamesByGroup.get(orgName)?.has(team.name)
+                      ? disambiguation(team)
+                      : null;
                   return (
                     <button
                       key={team.id}
@@ -129,20 +172,27 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
                         active ? "border-coral" : "border-border",
                       )}
                     >
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="min-w-0 truncate text-[13px] font-medium text-foreground">
-                          {emptyOrg
-                            ? t("teamPicker.initializeOrg", "Initialize {{org}}", { org: team.name })
-                            : team.name}
-                        </span>
-                        {!emptyOrg && isLastUsed && (
-                          <span className="shrink-0 rounded-full bg-selected px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {t("teamPicker.lastUsed", "Last used")}
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="min-w-0 truncate text-[13px] font-medium text-foreground">
+                            {emptyOrg
+                              ? t("teamPicker.initializeOrg", "Initialize {{org}}", { org: team.name })
+                              : team.name}
                           </span>
-                        )}
-                        {joinable && !emptyOrg && (
-                          <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-faint">
-                            {t("teamPicker.public", "Public")}
+                          {!emptyOrg && isLastUsed && (
+                            <span className="shrink-0 rounded-full bg-selected px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {t("teamPicker.lastUsed", "Last used")}
+                            </span>
+                          )}
+                          {joinable && !emptyOrg && (
+                            <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-faint">
+                              {t("teamPicker.public", "Public")}
+                            </span>
+                          )}
+                        </span>
+                        {detail && (
+                          <span className="min-w-0 truncate text-[11.5px] leading-4 text-faint">
+                            {detail}
                           </span>
                         )}
                       </span>

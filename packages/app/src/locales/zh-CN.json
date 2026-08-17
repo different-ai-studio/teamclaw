@@ -2966,7 +2966,10 @@
     "ungrouped": "其它",
     "lastUsed": "最后使用",
     "initializeOrg": "初始化 {{org}}",
-    "initializing": "初始化中…"
+    "initializing": "初始化中…",
+    "memberCount": "{{count}} 人",
+    "memberCount_one": "{{count}} 人",
+    "memberCount_other": "{{count}} 人"
   },
   "actors": {
     "allTitle": "所有成员",

@@ -474,6 +474,11 @@ export function createSupabaseBusinessRepository(options) {
         isMember: r.is_member !== false,
         itemType: r.item_type === "org" ? "org" : "team",
         teamId: r.team_id ?? null,
+        // Disambiguation for teams that share a name (an org's teams are all
+        // named after the org). Null on an empty-org row, which has no team.
+        createdAt: r.created_at ?? null,
+        memberCount: typeof r.member_count === "number" ? r.member_count : null,
+        ownerName: r.owner_name ?? null,
       }));
     },
 
