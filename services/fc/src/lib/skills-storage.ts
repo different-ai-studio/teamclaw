@@ -1,9 +1,10 @@
-import { SKILLS_BUCKET, supabaseBlobStorage } from "./team-blob-storage.js";
+import { SKILLS_BUCKET, blobStorageFor } from "./team-blob-storage.js";
 
 // ---------------------------------------------------------------------------
 // Supabase Storage helpers for team skill package blobs.
 //
-// Package bodies (zips) live in a private Supabase Storage bucket, keyed by the
+// Package bodies (zips) live in a private bucket on whichever blob backend the
+// deployment runs (see team-blob-storage.ts), keyed by the
 // same content-addressed path amuxc_blobs already tracks
 // (teams/<teamId>/blobs/sha256/<aa>/<bb>/<hash>). amuxc_blobs stays the
 // dedup/bookkeeping table; oss_key just holds this bucket's object path now.
@@ -14,7 +15,15 @@ import { SKILLS_BUCKET, supabaseBlobStorage } from "./team-blob-storage.js";
 
 export { SKILLS_BUCKET };
 
-const storage = supabaseBlobStorage(SKILLS_BUCKET);
+// Resolved lazily: `blobStorageFor` reads env, and a module-level call would
+// freeze the choice at import time — before the process env is fully set up in
+// some test and serverless entrypoints.
+const storage = {
+  createUploadUrl: (p: string) => blobStorageFor(SKILLS_BUCKET).createUploadUrl(p),
+  createDownloadUrl: (p: string, e?: number) =>
+    blobStorageFor(SKILLS_BUCKET).createDownloadUrl(p, e),
+  stat: (p: string) => blobStorageFor(SKILLS_BUCKET).stat(p),
+};
 
 export function createSkillUploadUrl(objectPath: string): Promise<string> {
   return storage.createUploadUrl(objectPath);

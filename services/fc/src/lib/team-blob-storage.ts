@@ -1,12 +1,50 @@
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createServiceRoleClient } from "./supabase.js";
+import { getS3Client, OSS_BUCKET } from "./oss.js";
 
 // ---------------------------------------------------------------------------
-// Supabase Storage helpers for team blobs.
+// Blob storage for team files.
 //
 // Both team sync (knowledge documents) and the skills registry store immutable,
 // content-addressed, client-encrypted blobs. They share this signing layer and
 // differ only in which private bucket they land in — one place to change when
 // the storage backend moves again.
+//
+// On S3 everything shares ONE bucket (`BUCKET`) and is separated by key prefix,
+// so a deployment needs exactly one bucket to provision and one policy to
+// reason about:
+//
+//   apps/<appId>/code.zip                       app bundles (already distinct)
+//   team-blobs/teams/<teamId>/blobs/sha256/...  knowledge documents
+//   team-skills/teams/<teamId>/blobs/sha256/... skill packages
+//
+// The prefix matters for the last two: their object paths are byte-identical
+// (both content-addressed the same way), so without it a skill package and a
+// knowledge blob would be the same object — harmless while both exist, fatal
+// the moment one side's GC deletes it out from under the other.
+//
+// `TEAM_BLOBS_STORAGE_BUCKET` / `SKILLS_STORAGE_BUCKET` name the Supabase
+// bucket on the supabase backend and the key prefix on the s3 one. One setting,
+// one meaning per backend: "where this kind of blob lives".
+//
+// Two backends, picked by `TEAM_BLOBS_BACKEND`:
+//
+//   supabase (default) — Supabase Storage, the historical home.
+//   s3                 — any S3-compatible store: MinIO on self-host, Alibaba
+//                        OSS on the Aliyun FC target. Same protocol both ways,
+//                        which is the point: file bytes stop riding on the
+//                        Postgres-adjacent stack that also serves auth and the
+//                        control plane.
+//
+// The switch is an explicit env var rather than "S3 creds are present": the
+// Aliyun target already sets `ACCESS_KEY_ID` for app-bundle uploads, and
+// inferring from that would silently relocate every team's blobs the day
+// someone configured app deploys.
 //
 // Object paths keep the historical `teams/<teamId>/blobs/sha256/<aa>/<bb>/<hash>`
 // shape, and `amuxc_blobs.oss_key` keeps its name: the column is just "where the
@@ -98,10 +136,93 @@ export function supabaseBlobStorage(bucket: () => string): BlobStorage {
   };
 }
 
+/**
+ * A `BlobStorage` backed by one private S3-compatible bucket.
+ *
+ * Presigned URLs are handed to the daemon, which PUTs/GETs them **directly** —
+ * FC never sees the bytes. So `ENDPOINT` must be the host the client can reach,
+ * not an in-cluster address: SigV4 covers the Host header, so signing for
+ * `minio:9000` and dialing `s3.example.com` fails the signature, and signing
+ * for a host the client cannot resolve fails the transfer. This is why the
+ * self-host MinIO sits behind Caddy on its own domain.
+ *
+ * `prefix` is what keeps the shared bucket's tenants apart; see the module
+ * header. Passing an empty one is legitimate (app bundles carry their own
+ * `apps/` prefix already).
+ */
+export function s3BlobStorage(bucket: () => string, prefix: () => string): BlobStorage {
+  const key = (objectPath: string) => {
+    const p = prefix().replace(/^\/+|\/+$/g, "");
+    return p ? `${p}/${objectPath}` : objectPath;
+  };
+  return {
+    async createUploadUrl(objectPath) {
+      // `as any`: two @aws-sdk major versions coexist in the tree, so the
+      // presigner's `Client` and this `S3Client` have separate declarations of
+      // a private field. Same cast `index.ts` uses for app-bundle uploads.
+      return getSignedUrl(
+        getS3Client() as any,
+        new PutObjectCommand({ Bucket: bucket(), Key: key(objectPath) }),
+        { expiresIn: 900 },
+      );
+    },
+
+    async createDownloadUrl(objectPath, expiresIn = 900) {
+      return getSignedUrl(
+        getS3Client() as any,
+        new GetObjectCommand({ Bucket: bucket(), Key: key(objectPath) }),
+        { expiresIn },
+      );
+    },
+
+    async stat(objectPath) {
+      try {
+        const head = await getS3Client().send(
+          new HeadObjectCommand({ Bucket: bucket(), Key: key(objectPath) }),
+        );
+        return { size: head.ContentLength ?? 0 };
+      } catch (e) {
+        if (isMissingObject(e)) return null;
+        throw e;
+      }
+    },
+  };
+}
+
+/**
+ * Whether an S3 error means "no such object" rather than a real failure.
+ *
+ * A missing object is the normal needs-upload answer. Everything else (bad
+ * creds, network, bucket gone) must propagate: treating those as "absent" would
+ * report every blob as missing and re-upload the entire team.
+ */
+export function isMissingObject(e: unknown): boolean {
+  const status = (e as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+  const name = (e as { name?: string })?.name;
+  return status === 404 || name === "NotFound" || name === "NoSuchKey";
+}
+
+/** Which backend `getTeamBlobStorage` / the skills store resolve to. */
+export function blobBackendKind(): "s3" | "supabase" {
+  return process.env.TEAM_BLOBS_BACKEND?.trim() === "s3" ? "s3" : "supabase";
+}
+
+/**
+ * A blob store for one kind of blob, on whichever backend this deployment runs.
+ *
+ * `name` is the Supabase bucket on the supabase backend, and the key prefix
+ * inside the single shared `BUCKET` on the s3 one.
+ */
+export function blobStorageFor(name: () => string): BlobStorage {
+  return blobBackendKind() === "s3"
+    ? s3BlobStorage(OSS_BUCKET, name)
+    : supabaseBlobStorage(name);
+}
+
 let cachedTeamBlobStorage: BlobStorage | undefined;
 
 /** Default blob store for team file sync. */
 export function getTeamBlobStorage(): BlobStorage {
-  cachedTeamBlobStorage ??= supabaseBlobStorage(TEAM_BLOBS_BUCKET);
+  cachedTeamBlobStorage ??= blobStorageFor(TEAM_BLOBS_BUCKET);
   return cachedTeamBlobStorage;
 }

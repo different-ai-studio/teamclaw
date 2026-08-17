@@ -44,6 +44,13 @@ resources:
         BUCKET: ${env('BUCKET')}
         REGION: ${env('REGION', 'cn-shenzhen')}
         ENDPOINT: ${env('ENDPOINT', 'https://oss-cn-shenzhen.aliyuncs.com')}
+        # Where team file bodies live. `s3` puts them in OSS alongside app
+        # bundles (this target's choice); blank keeps the historical Supabase
+        # Storage path. Self-host sets the same var to `s3` and points it at its
+        # own MinIO — one code path, two backends, chosen per deployment.
+        TEAM_BLOBS_BACKEND: ${env('TEAM_BLOBS_BACKEND', 's3')}
+        # OSS addresses buckets virtual-host style; only MinIO needs path style.
+        S3_FORCE_PATH_STYLE: ${env('S3_FORCE_PATH_STYLE', '')}
         LITELLM_URL: ${env('LITELLM_URL', 'https://ai.ucar.cc')}
         LITELLM_MASTER_KEY: ${env('LITELLM_MASTER_KEY', '')}
         # Blank = no cap, matching the compose default. Keep the two targets in
@@ -77,8 +84,12 @@ resources:
         SUPABASE_PUBLIC_URL: ${env('SUPABASE_PUBLIC_URL', '')}
         SUPABASE_SERVICE_ROLE_KEY: ${env('SUPABASE_SERVICE_ROLE_KEY')}
         SUPABASE_ANON_KEY: ${env('SUPABASE_ANON_KEY')}
-        # Private Supabase Storage buckets holding client-encrypted blobs:
-        # team file-sync bodies and skill packages. Both have working defaults,
+        # Client-encrypted blobs: team file-sync bodies and skill packages.
+        # These name Supabase buckets on the supabase backend; on
+        # TEAM_BLOBS_BACKEND=s3 they are key PREFIXES inside the single BUCKET
+        # above, which also holds app bundles under `apps/`. The prefix is what
+        # keeps knowledge blobs and skill packages apart — their object paths are
+        # otherwise byte-identical. Both have working defaults,
         # but `s deploy` overwrites the whole environment map — an undeclared
         # var simply never arrives, so declare them even when unset.
         TEAM_BLOBS_STORAGE_BUCKET: ${env('TEAM_BLOBS_STORAGE_BUCKET', 'team-blobs')}
