@@ -94,6 +94,21 @@ interface DirectoryState {
   refetch: (teamId: string) => Promise<void>
 }
 
+/**
+ * Statuses that retire an agent. The server already drops these from
+ * `listActorDirectory`, but the libsql cache is append-only (rows are upserted,
+ * never swept), so a cold start would paint agents that the server has since
+ * stopped returning. Mirrors services/fc/src/lib/agent-status.ts — and like it,
+ * hides only a positively-recognised retired status: rows cached before
+ * agent_status was carried have it null and stay visible.
+ */
+const RETIRED_AGENT_STATUSES = new Set(['disabled', 'archived'])
+
+export function isListableActor(row: Pick<ActorRow, 'actor_type' | 'agent_status'>): boolean {
+  if (row.actor_type !== 'agent') return true
+  return !(row.agent_status != null && RETIRED_AGENT_STATUSES.has(row.agent_status))
+}
+
 export function mapCacheRow(r: CachedActorRow): ActorRow {
   return {
     id: r.id,
@@ -172,8 +187,11 @@ export const useActorDirectoryStore = create<DirectoryState>((set, get) => {
       if (initial && !hadData && isTauri()) {
         const local = await loadActorsForTeam(teamId)
         if (local.length > 0) {
-          patch(teamId, { actors: local.map(mapCacheRow).sort(byRecencyThenName), loading: false })
-          hadData = true
+          const cached = local.map(mapCacheRow).filter(isListableActor).sort(byRecencyThenName)
+          if (cached.length > 0) {
+            patch(teamId, { actors: cached, loading: false })
+            hadData = true
+          }
         }
       }
       if (!hadData) patch(teamId, { loading: true })
@@ -188,6 +206,8 @@ export const useActorDirectoryStore = create<DirectoryState>((set, get) => {
         return
       }
 
+      // Filtered here too, not just server-side: FC deployments are per-brand
+      // and hand-rolled, so a client can outrun the API that serves it.
       const rows = (data ?? []).map((row): ActorRow => ({
         id: row.id,
         actor_type: row.actor_type === 'agent' ? 'agent' : 'member',
@@ -206,7 +226,7 @@ export const useActorDirectoryStore = create<DirectoryState>((set, get) => {
         owner_member_id: row.agent_owner_member_id ?? null,
         email: row.email ?? null,
         phone: row.phone ?? null,
-      }))
+      })).filter(isListableActor)
       patch(teamId, { actors: rows, loading: false })
       await writeCache(teamId, rows)
     } finally {

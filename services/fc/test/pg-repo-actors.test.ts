@@ -38,7 +38,13 @@ async function seedMemberActor(db: any, teamId: string, opts: { displayName?: st
   return actor;
 }
 
-async function seedAgentActor(db: any, teamId: string, ownerMemberId: string, visibility = "team") {
+async function seedAgentActor(
+  db: any,
+  teamId: string,
+  ownerMemberId: string,
+  visibility = "team",
+  status = "active",
+) {
   const [agentActor] = await db
     .insert(actors)
     .values({ teamId, actorType: "agent", displayName: "Bot" })
@@ -46,7 +52,7 @@ async function seedAgentActor(db: any, teamId: string, ownerMemberId: string, vi
   await db.insert(agents).values({
     id: agentActor.id,
     agentKind: "claude",
-    status: "active",
+    status,
     visibility,
     ownerMemberId,
   });
@@ -183,6 +189,52 @@ test("listTeamActors agent-visibility: personal agent visible to its owner", asy
   assert.equal(page.items.length, 1, "owner should see their personal agent");
 });
 
+test("listTeamActors hides retired agents but keeps members", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const member = await seedMemberActor(db, team.id);
+  const live = await seedAgentActor(db, team.id, member.id, "team");
+  await seedAgentActor(db, team.id, member.id, "team", "archived");
+  await seedAgentActor(db, team.id, member.id, "team", "disabled");
+  const repo = createPgBusinessRepository({ db, callerActorId: member.id });
+
+  const agentPage = await repo.listTeamActors(team.id, { kind: "agent", limit: 200 });
+  assert.deepEqual(
+    agentPage.items.map((a: any) => a.id),
+    [live.id],
+    "only the active agent belongs in the list",
+  );
+
+  const all = await repo.listTeamActors(team.id, { kind: null, limit: 200 });
+  assert.ok(
+    all.items.some((a: any) => a.id === member.id),
+    "members carry a null agent_status and must survive the filter",
+  );
+});
+
+test("listTeamActors hides a retired agent from its own owner", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const member = await seedMemberActor(db, team.id);
+  await seedAgentActor(db, team.id, member.id, "personal", "archived");
+  const repo = createPgBusinessRepository({ db, callerActorId: member.id });
+
+  const page = await repo.listTeamActors(team.id, { kind: "agent", limit: 200 });
+  assert.equal(page.items.length, 0, "ownership does not exempt a retired agent");
+});
+
+test("listActorDirectoryByIds still resolves a retired agent", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const member = await seedMemberActor(db, team.id);
+  const retired = await seedAgentActor(db, team.id, member.id, "team", "archived");
+  const repo = createPgBusinessRepository({ db, callerActorId: member.id });
+
+  const rows = await repo.listActorDirectoryByIds([retired.id], team.id);
+  assert.equal(rows.length, 1, "messages authored by a retired agent must keep their author name");
+  assert.equal(rows[0].id, retired.id);
+});
+
 // ── getTeamDirectory ──────────────────────────────────────────────────────────
 
 test("getTeamDirectory returns actors and members with canonical keys", async () => {
@@ -202,6 +254,21 @@ test("getTeamDirectory returns actors and members with canonical keys", async ()
 
   const memberKeys = ["actorId", "teamId", "role", "joinedAt"].sort();
   assert.deepEqual(Object.keys(result.members[0]).sort(), memberKeys);
+});
+
+test("getTeamDirectory hides retired agents", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const member = await seedMemberActor(db, team.id, { displayName: "Dir Member" });
+  const live = await seedAgentActor(db, team.id, member.id, "team");
+  const retired = await seedAgentActor(db, team.id, member.id, "team", "archived");
+  const repo = createPgBusinessRepository({ db, callerActorId: member.id });
+
+  const result = await repo.getTeamDirectory(team.id);
+  const ids = result.actors.map((a: any) => a.id);
+  assert.ok(ids.includes(member.id), "member stays");
+  assert.ok(ids.includes(live.id), "active agent stays");
+  assert.ok(!ids.includes(retired.id), "archived agent is gone");
 });
 
 // ── updateCurrentActorProfile ─────────────────────────────────────────────────

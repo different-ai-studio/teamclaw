@@ -2547,6 +2547,12 @@ paths:
     get:
       operationId: listTeamActors
       summary: List team actors
+      description: >-
+        Members, plus the agents the caller may see (team-visible ones and their
+        own personal ones). Retired agents — `agentStatus` of `disabled` or
+        `archived` — are omitted. Look them up by id (`POST /v1/actors/by-ids`,
+        `GET /v1/actors/{actorId}`) to resolve the author of an older message;
+        those readers are deliberately unfiltered.
       tags: [Actors]
       parameters:
         - $ref: "#/components/parameters/TeamId"
@@ -2645,6 +2651,11 @@ paths:
     get:
       operationId: listConnectedAgents
       summary: List connected agents
+      description: >-
+        Team-visible agents plus the caller's own personal ones. Retired agents
+        (`status` of `disabled` or `archived`) are omitted, matching
+        `GET /v1/teams/{teamId}/actors` and the device-binding endpoints, which
+        have always required an active agent.
       tags: [Actors]
       parameters:
         - $ref: "#/components/parameters/TeamId"

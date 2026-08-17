@@ -14,11 +14,17 @@
  *     - agents included when agentVisibility='team' OR ownerMemberId=<callerActorId>
  *   When no callerActorId is available (e.g. internal/contract calls), we include
  *   all team-visible agents (matching Supabase default behavior).
+ *
+ * Agent-status filter:
+ *   Listings (listTeamActors / getTeamDirectory) additionally drop retired
+ *   agents — see ../agent-status.ts. The by-id and sync readers below stay
+ *   unfiltered on purpose.
  */
 
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { actors, agents, members, teamMembers, teams, actorDirectory, actorClientVersions } from "../../db/schema/index.js";
+import { RETIRED_AGENT_STATUSES } from "../agent-status.js";
 import { resolveActorForTeam, requireActorForTeam } from "./authz.js";
 import { DEFAULT_LIST_LIMIT } from "../routing-utils.js";
 import { ApiError } from "../http-utils.js";
@@ -107,6 +113,19 @@ function visibilityFilter(callerActorId?: string) {
   );
 }
 
+/**
+ * Status filter for actor_directory LISTINGS: keep every non-agent row and
+ * every agent that has not been retired. `isNull` carries the members (their
+ * agent_status is null) and is what keeps the `notInArray` from swallowing
+ * them — `null NOT IN (...)` is null, i.e. filtered out.
+ */
+function listableAgentStatusFilter() {
+  return or(
+    isNull(actorDirectory.agentStatus),
+    notInArray(actorDirectory.agentStatus, RETIRED_AGENT_STATUSES as unknown as string[]),
+  );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function makeActorsRepo(db: DbLike, ctx: ActorsCtx = {}) {
   return {
@@ -189,6 +208,7 @@ export function makeActorsRepo(db: DbLike, ctx: ActorsCtx = {}) {
       const conditions = [
         eq(actorDirectory.teamId, teamId),
         visFilter!,
+        listableAgentStatusFilter()!,
       ];
       if (kind) {
         conditions.push(eq(actorDirectory.actorType, kind));
@@ -207,7 +227,7 @@ export function makeActorsRepo(db: DbLike, ctx: ActorsCtx = {}) {
 
     /**
      * Returns the full directory for a team: all actors + member join info.
-     * agent-visibility filter applied at query time.
+     * agent-visibility and agent-status filters applied at query time.
      */
     async getTeamDirectory(teamId: string) {
       const callerActorId = ctx.callerActorId ?? (ctx.userId ? await resolveActorForTeam(db, ctx.userId, teamId) ?? undefined : undefined);
@@ -215,7 +235,7 @@ export function makeActorsRepo(db: DbLike, ctx: ActorsCtx = {}) {
       const rows = await db
         .select()
         .from(actorDirectory)
-        .where(and(eq(actorDirectory.teamId, teamId), visFilter!));
+        .where(and(eq(actorDirectory.teamId, teamId), visFilter!, listableAgentStatusFilter()!));
 
       const actorsList = rows.map(mapActorRow);
       const membersList = rows
