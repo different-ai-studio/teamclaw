@@ -2972,7 +2972,18 @@
     "defaultAgent": "默认 Agent",
     "type": {
       "agent": "智能体",
-      "member": "团队"
+      "member": "团队",
+      "external": "外部成员"
+    },
+    "source": {
+      "wecom": "企业微信",
+      "wechat": "微信",
+      "feishu": "飞书",
+      "discord": "Discord",
+      "kook": "KOOK",
+      "seatalk": "SeaTalk",
+      "email": "邮件",
+      "unknown": "未知来源"
     },
     "role": {
       "owner": "拥有者",
@@ -3012,6 +3023,13 @@
       "email": "邮箱",
       "phone": "手机号",
       "joined": "加入时间",
+      "firstSeen": "首次出现",
+      "source": "来源",
+      "sourceId": "来源 ID",
+      "sessions": "参与的会话",
+      "noSessions": "还没有来自该联系人的会话。",
+      "notFound": "该联系人已不在团队目录中。",
+      "externalNoSession": "外部联系人只能通过他们发消息的渠道联系。",
       "lastActiveLabel": "最近活跃",
       "never": "从未",
       "actorId": "Actor ID",

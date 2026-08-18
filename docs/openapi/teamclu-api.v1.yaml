@@ -5899,6 +5899,20 @@ components:
             - string
             - "null"
           format: uuid
+        source:
+          description: >-
+            Gateway an external actor came in through (wecom, wechat, feishu,
+            discord, kook, seatalk, email). Null for members/agents.
+          type:
+            - string
+            - "null"
+        sourceId:
+          description: >-
+            The external actor's id inside `source` (a channel URN). Null for
+            members/agents.
+          type:
+            - string
+            - "null"
         metadata:
           type:
             - object

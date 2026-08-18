@@ -137,8 +137,13 @@ export function mapApp(r: any) {
 export const SESSION_FULL_COLUMNS =
   "id, team_id, title, mode, idea_id, primary_agent_id, created_by_actor_id, summary, last_message_preview, last_message_at, acp_session_id, binding, gateway_key, source, cron_job_id, created_at, updated_at";
 
+// `source` / `source_id` identify the gateway an EXTERNAL actor came in through
+// (wecom / wechat / feishu / discord / kook / seatalk / email + the id in that
+// system). Null for members and agents. Added to the actor_directory view by
+// 20260818000000_actor_directory_external_source.sql — deploying this FC against
+// a database that predates that migration makes PostgREST reject the select.
 export const ACTOR_DIRECTORY_COLUMNS =
-  "id, team_id, actor_type, user_id, invited_by_actor_id, display_name, avatar_url, team_role, member_status, agent_status, agent_types, default_agent_type, default_workspace_id, agent_visibility, owner_member_id, last_active_at, created_at, updated_at, user_email, user_phone";
+  "id, team_id, actor_type, user_id, invited_by_actor_id, display_name, avatar_url, team_role, member_status, agent_status, agent_types, default_agent_type, default_workspace_id, agent_visibility, owner_member_id, last_active_at, created_at, updated_at, user_email, user_phone, source, source_id";
 
 export function mapSessionFull(row) {
   return {
@@ -194,6 +199,11 @@ export function mapDirectoryActor(row) {
     // SECURITY DEFINER contact join — only teammates ever receive these.
     email: row?.user_email ?? null,
     phone: row?.user_phone ?? null,
+    // External actors only: which gateway they came in through, and their id in
+    // that system. The actors CHECK constraint keeps these two null for every
+    // member and agent.
+    source: row?.source ?? null,
+    sourceId: row?.source_id ?? null,
   };
 }
 

@@ -25,6 +25,9 @@ import { TrafficLights } from '@/components/ui/traffic-lights'
 import { useSidebar } from '@/components/ui/sidebar'
 import { actorAvatarColor } from '@/lib/actor-color'
 import { formatRelativeTimeShort } from '@/lib/date-format'
+import { externalSourceLabel } from '@/lib/external-actor-source'
+import { encodeActorTarget } from '@/lib/tabs/actor-target'
+import { useTabsStore } from '@/stores/tabs'
 import { useUIStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
 import { useActorPresenceStore } from '@/stores/actor-presence-store'
@@ -44,7 +47,23 @@ export type { ActorRow }
 export type { UseActorDirectoryResult as UseActorsForTeamResult } from '@/stores/actor-directory-store'
 export const useActorsForTeam = useActorDirectory
 
-type ActorTypeFilter = 'all' | 'agent' | 'member'
+/**
+ * `all` deliberately means "everyone on the team" — members and agents — and NOT
+ * external gateway contacts. A team that talks to customers over WeCom
+ * accumulates one external actor per person who ever wrote in, which buried the
+ * actual teammates. They are one filter click away instead.
+ */
+export type ActorTypeFilter = 'all' | 'agent' | 'member' | 'external'
+
+/** Whether a row survives the type filter. Exported so the rule is unit-testable
+ *  without driving the filter popover. */
+export function matchesActorTypeFilter(
+  actorType: ActorRow['actor_type'],
+  filter: ActorTypeFilter,
+): boolean {
+  if (filter === 'all') return actorType !== 'external'
+  return actorType === filter
+}
 
 const actorNameCollator = new Intl.Collator(['zh-Hans-CN', 'en'], {
   sensitivity: 'base',
@@ -53,15 +72,18 @@ const actorNameCollator = new Intl.Collator(['zh-Hans-CN', 'en'], {
 
 function ActorRowView({
   actor,
+  onOpen,
   onViewProfile,
   onRequestRemove,
 }: {
   actor: ActorRow
+  onOpen: (actor: ActorRow) => void
   onViewProfile: (actor: ActorRow) => void
   onRequestRemove: (actor: ActorRow) => void
 }) {
   const { t } = useTranslation()
   const isAgent = actor.actor_type === 'agent'
+  const isExternal = actor.actor_type === 'external'
   const isDefaultAgent = useMemberPreferencesStore((s) => isAgent && s.defaultAgentId === actor.id)
   // Members: heartbeat-based — last_active_at within 5min.
   // Agents: authoritative MQTT presence from actor-presence-store
@@ -72,10 +94,11 @@ function ActorRowView({
   // Subscribe so agent rows re-render when MQTT presence / local cache changes.
   useActorPresenceStore((s) => (isAgent ? s.byActorId[actor.id]?.online : undefined))
   const currentMemberActorId = useCurrentTeamStore((s) => s.currentMember?.id ?? null)
+  // External contacts resolve to offline inside resolveActorOnlineStatus — they
+  // publish no presence of their own.
   const online = resolveActorOnlineStatus(actor, { currentMemberActorId })
   const status = actor.actor_type === 'member' ? actor.member_status : actor.agent_status
   const initial = actor.display_name?.trim().slice(0, 1).toUpperCase() || ''
-  const enterActorDraft = useUIStore((s) => s.enterActorDraft)
   const colors = actorAvatarColor(actor.id)
   const lastActive = actor.last_active_at ? formatRelativeTimeShort(new Date(actor.last_active_at)) : ''
   // Subtitle: an agent shows "Team Agent" / "Personal Agent" (the standalone
@@ -89,9 +112,16 @@ function ActorRowView({
       : actor.visibility === 'team'
         ? t('actors.visibility.teamAgent', 'Team Agent')
         : t('actors.type.agent', 'Agent')
-    : actor.team_role
-      ? t(`actors.role.${actor.team_role}`, actor.team_role)
-      : t('actors.type.member', 'Team')
+    : isExternal
+      // Name the channel when we know it: for a WeCom contact whose nickname
+      // never resolved, the raw `wo…` id above says nothing and this line is
+      // the only thing that explains what the row is.
+      ? (actor.source
+        ? `${t('actors.type.external', 'External')} · ${externalSourceLabel(actor.source, t)}`
+        : t('actors.type.external', 'External'))
+      : actor.team_role
+        ? t(`actors.role.${actor.team_role}`, actor.team_role)
+        : t('actors.type.member', 'Team')
 
   const handleCopyName = async () => {
     try {
@@ -120,7 +150,7 @@ function ActorRowView({
     >
       <button
         type="button"
-        onClick={() => enterActorDraft({ id: actor.id, displayName: actor.display_name, kind: actor.actor_type })}
+        onClick={() => onOpen(actor)}
         className="flex w-full items-center gap-2.5 border-b border-border-soft px-4 py-2.5 text-left hover:bg-selected focus:outline-none focus-visible:bg-selected"
       >
           <div className={cn(
@@ -216,22 +246,45 @@ export function ActorsView() {
   const [removeFor, setRemoveFor] = React.useState<ActorRow | null>(null)
   const [removing, setRemoving] = React.useState(false)
 
-  const counts = React.useMemo(() => ({
-    all: actors.length,
-    agent: actors.filter((actor) => actor.actor_type === 'agent').length,
-    member: actors.filter((actor) => actor.actor_type === 'member').length,
-  }), [actors])
+  const counts = React.useMemo(() => {
+    const agent = actors.filter((actor) => actor.actor_type === 'agent').length
+    const member = actors.filter((actor) => actor.actor_type === 'member').length
+    const external = actors.filter((actor) => actor.actor_type === 'external').length
+    // `all` is members + agents, matching what the unfiltered list renders.
+    return { all: agent + member, agent, member, external }
+  }, [actors])
 
   const visibleActors = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     return actors
       .filter((actor) => {
-        if (filter !== 'all' && actor.actor_type !== filter) return false
+        // Unfiltered means the team, not the address book: external gateway
+        // contacts appear only under their own filter.
+        if (!matchesActorTypeFilter(actor.actor_type, filter)) return false
         if (!normalizedQuery) return true
         return actor.display_name.toLowerCase().includes(normalizedQuery)
       })
       .sort((a, b) => actorNameCollator.compare(a.display_name, b.display_name))
   }, [actors, filter, query])
+
+  const openTab = useTabsStore((s) => s.openTab)
+  const enterActorDraft = useUIStore((s) => s.enterActorDraft)
+
+  /**
+   * Clicking a row. A teammate or an agent is someone you write to, so the click
+   * opens a draft session addressed to them. An external contact is not
+   * addressable from here — there is no session to start, only a profile to
+   * read — so it opens its detail pane in the main column instead. This is what
+   * used to drop the user into an empty draft aimed at a WeCom contact that
+   * could never receive it.
+   */
+  const openActor = React.useCallback((actor: ActorRow) => {
+    if (actor.actor_type === 'external') {
+      openTab({ type: 'native', target: encodeActorTarget(actor.id), label: actor.display_name })
+      return
+    }
+    enterActorDraft({ id: actor.id, displayName: actor.display_name, kind: actor.actor_type })
+  }, [enterActorDraft, openTab])
 
   const confirmRemove = async () => {
     if (!removeFor || !teamId) return
@@ -287,7 +340,16 @@ export function ActorsView() {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {visibleActors.map((a) => (
-          <ActorRowView key={a.id} actor={a} onViewProfile={setDetailFor} onRequestRemove={setRemoveFor} />
+          <ActorRowView
+            key={a.id}
+            actor={a}
+            onOpen={openActor}
+            // An external contact's profile IS the pane the row opens; sending
+            // the context-menu entry to the dialog too would be two different
+            // answers to "show me this contact".
+            onViewProfile={a.actor_type === 'external' ? openActor : setDetailFor}
+            onRequestRemove={setRemoveFor}
+          />
         ))}
       </div>
     )
@@ -334,6 +396,11 @@ export function ActorsView() {
               <FilterRow active={filter === 'all'} count={counts.all} label={t('common.all', 'All')} onSelect={() => setFilter('all')} />
               <FilterRow active={filter === 'agent'} count={counts.agent} dotClassName="bg-coral" label={t('actors.type.agent', 'Agent')} onSelect={() => setFilter('agent')} />
               <FilterRow active={filter === 'member'} count={counts.member} dotClassName="bg-emerald-500" label={t('actors.type.member', 'Team')} onSelect={() => setFilter('member')} />
+              {/* Only offered when the team actually has gateway contacts —
+                  otherwise it is a row that can only ever say 0. */}
+              {counts.external > 0 && (
+                <FilterRow active={filter === 'external'} count={counts.external} dotClassName="bg-sky-500" label={t('actors.type.external', 'External')} onSelect={() => setFilter('external')} />
+              )}
             </PopoverContent>
           </Popover>
           <Button

@@ -35,6 +35,7 @@ import type { ActorRow } from '@/stores/actor-directory-store'
 import { cn } from '@/lib/utils'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { canRemoveTeamActor, useTeamPermissions } from '@/lib/team-permissions'
+import { externalSourceLabel } from '@/lib/external-actor-source'
 
 interface Props {
   actor: ActorRow | null
@@ -54,6 +55,10 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
   const displayActor = actor ?? lastActorRef.current
 
   const isAgent = displayActor?.actor_type === 'agent'
+  // A gateway contact (WeCom / Feishu / Discord / …). Neither teammate nor
+  // agent: no role, no membership, and nothing on our side to start a session
+  // with — the conversation lives in the channel they wrote from.
+  const isExternal = displayActor?.actor_type === 'external'
   const agentPresence = useActorPresenceStore((s) =>
     displayActor && isAgent ? s.byActorId[displayActor.id] : undefined,
   )
@@ -134,7 +139,9 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
     : null
   const actorTypeLabel = isAgent
     ? t('actors.detail.agent', 'Agent')
-    : t('actors.detail.member', 'Member')
+    : isExternal
+      ? t('actors.type.external', 'External contact')
+      : t('actors.detail.member', 'Member')
   const onlineLabel = online
     ? t('actors.detail.online', 'Online')
     : (lastActive
@@ -187,6 +194,7 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
   }
 
   const startSession = () => {
+    if (displayActor.actor_type === 'external') return
     enterActorDraft({
       id: displayActor.id,
       displayName: displayActor.display_name,
@@ -331,6 +339,22 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
               )}
               <dt className="text-muted-foreground">{t('actors.detail.type', 'Type')}</dt>
               <dd className="min-w-0 truncate text-foreground">{actorTypeLabel}</dd>
+              {isExternal && (
+                <>
+                  <dt className="text-muted-foreground">{t('actors.detail.source', 'Source')}</dt>
+                  <dd className="min-w-0 truncate text-foreground">
+                    {externalSourceLabel(displayActor.source, t)}
+                  </dd>
+                </>
+              )}
+              {isExternal && displayActor.source_id && (
+                <>
+                  <dt className="text-muted-foreground">{t('actors.detail.sourceId', 'Source ID')}</dt>
+                  <dd className="min-w-0 truncate font-mono text-[12px] text-foreground">
+                    {displayActor.source_id}
+                  </dd>
+                </>
+              )}
               {isAgent && visibilityLabel && (
                 <>
                   <dt className="text-muted-foreground">{t('actors.detail.visibility', 'Visibility')}</dt>
@@ -498,13 +522,22 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
         </div>
 
         <DialogFooter className="flex-row items-center gap-3 border-t border-border-soft bg-paper px-6 py-4 sm:justify-between">
-          <Button
-            onClick={startSession}
-            className="h-10 flex-1 rounded-[9px] bg-coral text-[13px] font-semibold text-white hover:bg-coral/90"
-          >
-            <MessageCircle className="h-4 w-4" />
-            {t('actors.detail.startSession', 'Start session')}
-          </Button>
+          {isExternal ? (
+            <span className="flex-1 text-[12px] leading-5 text-muted-foreground">
+              {t(
+                'actors.detail.externalNoSession',
+                'Reachable only through the channel they wrote from.',
+              )}
+            </span>
+          ) : (
+            <Button
+              onClick={startSession}
+              className="h-10 flex-1 rounded-[9px] bg-coral text-[13px] font-semibold text-white hover:bg-coral/90"
+            >
+              <MessageCircle className="h-4 w-4" />
+              {t('actors.detail.startSession', 'Start session')}
+            </Button>
+          )}
           <div className="flex items-center gap-3">
             <Button
               variant="outline"

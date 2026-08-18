@@ -2972,7 +2972,18 @@
     "defaultAgent": "Default agent",
     "type": {
       "agent": "Agent",
-      "member": "Team"
+      "member": "Team",
+      "external": "External"
+    },
+    "source": {
+      "wecom": "WeCom",
+      "wechat": "WeChat",
+      "feishu": "Feishu",
+      "discord": "Discord",
+      "kook": "KOOK",
+      "seatalk": "SeaTalk",
+      "email": "Email",
+      "unknown": "Unknown source"
     },
     "role": {
       "owner": "Owner",
@@ -3012,6 +3023,13 @@
       "email": "Email",
       "phone": "Phone",
       "joined": "Joined",
+      "firstSeen": "First seen",
+      "source": "Source",
+      "sourceId": "Source ID",
+      "sessions": "Sessions",
+      "noSessions": "No sessions from this contact yet.",
+      "notFound": "This contact is no longer in the team directory.",
+      "externalNoSession": "Reachable only through the channel they wrote from.",
       "lastActiveLabel": "Last active",
       "never": "Never",
       "actorId": "Actor ID",

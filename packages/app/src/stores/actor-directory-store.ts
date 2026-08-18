@@ -36,9 +36,21 @@ export { isActorOnline, resolveActorOnlineStatus }
  * there is no MQTT directory-delta channel for member add/remove/profile).
  */
 
+/**
+ * The three actor kinds. `external` is a gateway contact (WeCom / WeChat /
+ * Feishu / Discord / KOOK / SeaTalk / email) that amuxd created on the first
+ * inbound message — a real row in the same team directory, but not a teammate
+ * and not an agent: it has no team role, no membership, and cannot be mentioned
+ * or added to a session from the client.
+ *
+ * It used to be flattened into `member` here, which put every WeCom contact in
+ * the members list wearing the "Team" subtitle.
+ */
+export type ActorKind = 'member' | 'agent' | 'external'
+
 export type ActorRow = {
   id: string
-  actor_type: 'member' | 'agent'
+  actor_type: ActorKind
   display_name: string
   // Real avatar image URL; the detail dialog falls back to display-name initials
   // when absent. Carried on the network directory row (not the libsql cache).
@@ -61,6 +73,18 @@ export type ActorRow = {
   // network directory row (the libsql first-paint cache does not persist it).
   email?: string | null
   phone?: string | null
+  /**
+   * External actors only: the gateway they came in through and their id in it.
+   * Network-only, like the contact fields — the libsql cache has no column for
+   * them, so a cold-start row carries neither until the reconcile lands.
+   */
+  source?: string | null
+  source_id?: string | null
+}
+
+/** Narrow an arbitrary server/cache string to a kind we can render. */
+export function toActorKind(raw: string | null | undefined): ActorKind {
+  return raw === 'agent' ? 'agent' : raw === 'external' ? 'external' : 'member'
 }
 
 /** Optimistically refresh the local member row after a successful heartbeat. */
@@ -112,7 +136,7 @@ export function isListableActor(row: Pick<ActorRow, 'actor_type' | 'agent_status
 export function mapCacheRow(r: CachedActorRow): ActorRow {
   return {
     id: r.id,
-    actor_type: r.actorType === 'agent' ? 'agent' : 'member',
+    actor_type: toActorKind(r.actorType),
     display_name: r.displayName,
     member_status: r.memberStatus ?? null,
     agent_status: r.agentStatus ?? null,
@@ -210,7 +234,7 @@ export const useActorDirectoryStore = create<DirectoryState>((set, get) => {
       // and hand-rolled, so a client can outrun the API that serves it.
       const rows = (data ?? []).map((row): ActorRow => ({
         id: row.id,
-        actor_type: row.actor_type === 'agent' ? 'agent' : 'member',
+        actor_type: toActorKind(row.actor_type),
         display_name: row.display_name || row.id,
         avatar_url: row.avatar_url ?? null,
         member_status: row.member_status ?? null,
@@ -226,6 +250,8 @@ export const useActorDirectoryStore = create<DirectoryState>((set, get) => {
         owner_member_id: row.agent_owner_member_id ?? null,
         email: row.email ?? null,
         phone: row.phone ?? null,
+        source: row.source ?? null,
+        source_id: row.source_id ?? null,
       })).filter(isListableActor)
       patch(teamId, { actors: rows, loading: false })
       await writeCache(teamId, rows)
