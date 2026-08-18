@@ -1,8 +1,26 @@
 import { randomBytes } from "node:crypto";
 import { ensureAppSchema } from "./app-postgres.js";
+import { ApiError } from "../http-utils.js";
 
 export function appFunctionName(appId: string): string { return `tc-app-${appId}`; }
 export function appOssObjectName(appId: string): string { return `apps/${appId}/code.zip`; }
+
+/**
+ * 503 for a deploy attempt on a deployment that cannot provision.
+ *
+ * `reason` comes from makeDeployDeps and names the empty variable. Without it
+ * this answered a bare "deploy provisioning not configured", which is what the
+ * user saw in a toast and what got written into `apps.provision_error` — true,
+ * and useless for finding out which of APPS_ACCESS_KEY_ID / APPS_OSS_BUCKET /
+ * APPS_FC_ENDPOINT was the empty one.
+ */
+export function deployUnavailable(reason?: string): ApiError {
+  return new ApiError(
+    503,
+    "deploy_unavailable",
+    reason ? `deploy provisioning not configured: ${reason}` : "deploy provisioning not configured",
+  );
+}
 
 // --- Deploy is two calls with a daemon build in between:
 //

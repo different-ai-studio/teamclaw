@@ -310,6 +310,23 @@ services:
       # Set APPS_FC_ENDPOINT, or ALIYUN_ACCOUNT_ID to have it composed.
       APPS_FC_ENDPOINT: "${APPS_FC_ENDPOINT:-}"
       ALIYUN_ACCOUNT_ID: "${ALIYUN_ACCOUNT_ID:-}"
+      # Where the app code artifact (apps/<appId>/code.zip) is staged, and with
+      # which credentials. Separate from ACCESS_KEY_ID/BUCKET/ENDPOINT above
+      # because on this target those are MinIO's: the daemon would presign into
+      # a box-local bucket that Function Compute cannot read, and the same key
+      # would fail to authenticate against the FC API at all. Set all three to
+      # a real Alibaba OSS profile to enable app deploys here; leave them blank
+      # and deploy answers 503 naming the empty one.
+      APPS_ACCESS_KEY_ID: "${APPS_ACCESS_KEY_ID:-}"
+      APPS_ACCESS_KEY_SECRET: "${APPS_ACCESS_KEY_SECRET:-}"
+      APPS_OSS_BUCKET: "${APPS_OSS_BUCKET:-}"
+      # Region of BOTH the function and its code bucket — FC can only load code
+      # from a bucket in its own region. Defaults to REGION, which is wrong here
+      # (it labels the MinIO client), so set it alongside the profile above.
+      APPS_REGION: "${APPS_REGION:-}"
+      # Defaults to https://oss-<APPS_REGION>.aliyuncs.com; override only for a
+      # VPC/internal OSS endpoint.
+      APPS_OSS_ENDPOINT: "${APPS_OSS_ENDPOINT:-}"
       # Optional partner-integration features, all off unless set here. This
       # `environment:` map is an explicit allowlist — a var absent from it never
       # reaches the container, no matter what the box's .env says.

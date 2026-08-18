@@ -21,7 +21,7 @@ import { getFcClient, makeFcOps, resolveFcEndpoint } from "./lib/provisioning/fc
 import { startDeploy as startDeployImpl, finalizeDeploy as finalizeDeployImpl } from "./lib/provisioning/app-deploy.js";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { getS3Client, OSS_BUCKET } from "./lib/oss.js";
+import { resolveAppsOss, getAppsS3Client } from "./lib/provisioning/apps-oss.js";
 import type { JWTVerifyGetKey } from "jose";
 
 // ---------------------------------------------------------------------------
@@ -52,30 +52,48 @@ export function syncGetQueryToBody(event: any) {
 }
 
 // Deploy provisioning deps (FC function + optionally a Postgres schema).
-// Returns {} when FC is unconfigured so deployApp/finalizeDeploy surface 503
-// rather than crashing at import. APPS_FC_ENDPOINT/ALIYUN_ACCOUNT_ID counts as
-// "configured": without it every FC call fails deep inside the SDK.
+// Returns a bare `deployUnavailableReason` when FC is unconfigured so
+// deployApp/finalizeDeploy surface a 503 that NAMES the missing variable rather
+// than crashing at import — or, as before, answering with an opaque
+// "deploy provisioning not configured" that costs an SSH session to decode.
+//
+// Two things must be configured, and they are not the same thing:
+//   * the artifact profile (apps-oss.ts) — which OSS bucket and credentials the
+//     code zip is staged under. NOT automatically the deployment's default S3
+//     config, which on self-host is a box-local MinIO that FC cannot read.
+//   * APPS_FC_ENDPOINT / ALIYUN_ACCOUNT_ID / ROLE_ARN — without one of them
+//     every FC call fails deep inside the SDK.
 //
 // The apps database is a SEPARATE, softer requirement — only `data_app` needs
 // it. Static apps deploy fine without APPS_DB_ADMIN_URL; asking for one is what
 // raises the error, not merely having the module loaded.
 function makeDeployDeps() {
-  if (!process.env.ACCESS_KEY_ID) return {};
+  const resolved = resolveAppsOss();
+  if (resolved.error) return { deployUnavailableReason: resolved.error };
+  const profile = resolved.profile;
   // Same resolution the client uses, so "configured" here and "usable" there
   // cannot drift — including the ROLE_ARN fallback.
-  if (!resolveFcEndpoint()) return {};
-  const bucket = OSS_BUCKET();
-  const fcOps = makeFcOps(getFcClient(), { bucket, role: process.env.ROLE_ARN });
+  if (!resolveFcEndpoint()) {
+    return {
+      deployUnavailableReason:
+        "FC endpoint is not configured: set APPS_FC_ENDPOINT, ALIYUN_ACCOUNT_ID, or a ROLE_ARN to derive it from",
+    };
+  }
+  const bucket = profile.bucket;
+  const fcOps = makeFcOps(getFcClient(profile), { bucket, role: process.env.ROLE_ARN });
   const appsBaseUrl = process.env.APPS_DB_ADMIN_URL;
   const adminExec = appsBaseUrl ? getAppsAdminExecutor() : undefined;
-  const s3 = getS3Client();
+  const s3 = getAppsS3Client(profile);
   // 30 min: the daemon runs `pnpm install && pnpm build` between minting this
   // URL and using it, and a cold install on a modest laptop outlasts 15.
   const mintUploadUrl = (ossObjectName: string) =>
     getSignedUrl(s3 as any, new PutObjectCommand({ Bucket: bucket, Key: ossObjectName }), { expiresIn: 1800 });
   return {
+    // The caller's `region` is ignored: `fc_region` must record where the
+    // function actually went, which is the apps region, not the deployment's
+    // default REGION.
     startDeploy: (a: { appId: string; region: string }) =>
-      startDeployImpl({ mintUploadUrl }, a),
+      startDeployImpl({ mintUploadUrl }, { ...a, region: profile.region }),
     finalizeDeploy: (a: {
       appId: string;
       slug: string;
