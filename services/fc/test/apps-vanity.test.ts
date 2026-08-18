@@ -285,6 +285,30 @@ test("proxy passes the app's own status and headers back untouched", async () =>
   assert.equal(await res.text(), "<!doctype html>");
 });
 
+test("proxy drops the forced-download header FC stamps on its default domain", async () => {
+  // Verified against the live trigger URL: `content-disposition: attachment`
+  // (bare, no filename) rides on the UPSTREAM response, so passing it through
+  // turned every deployed page into a download prompt in the browser.
+  const fake = (async () => new Response("<!doctype html>", {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8", "content-disposition": "attachment" },
+  })) as unknown as typeof fetch;
+  const res = await proxyToApp(new Request("https://website-18e4ecad.example/"), "https://up.example", fake);
+  assert.equal(res.headers.get("content-disposition"), null);
+  assert.equal(res.headers.get("content-type"), "text/html; charset=utf-8");
+});
+
+test("proxy keeps a download the app actually asked for", async () => {
+  // A real download names its file. Dropping that would break every export
+  // button in every deployed app.
+  const fake = (async () => new Response("a,b\n1,2", {
+    status: 200,
+    headers: { "content-type": "text/csv", "content-disposition": 'attachment; filename="report.csv"' },
+  })) as unknown as typeof fetch;
+  const res = await proxyToApp(new Request("https://website-18e4ecad.example/export"), "https://up.example", fake);
+  assert.equal(res.headers.get("content-disposition"), 'attachment; filename="report.csv"');
+});
+
 test("proxy does not follow the app's redirects on its behalf", async () => {
   let init: any = null;
   const fake = (async (_u: any, i: any) => { init = i; return new Response(null, { status: 302, headers: { location: "/login" } }); }) as unknown as typeof fetch;

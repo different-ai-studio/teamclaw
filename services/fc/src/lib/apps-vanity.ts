@@ -132,6 +132,27 @@ function strip(headers: Headers): Headers {
 }
 
 /**
+ * Function Compute stamps a bare `Content-Disposition: attachment` on every
+ * response served through its default `*.fcapp.run` hostname, so that nobody
+ * uses that hostname as a website: the browser downloads the page instead of
+ * rendering it. It arrives on the upstream response, not from the app — this
+ * was verified against the trigger URL directly, which carries it too.
+ *
+ * We are serving the app on its own hostname through our own proxy, so the
+ * measure no longer applies and passing it through would make every deployed
+ * page a download prompt.
+ *
+ * Only the BARE value is dropped. An app's own download (`attachment;
+ * filename="report.csv"`) carries parameters, is deliberate, and is left alone.
+ */
+function stripForcedDownload(headers: Headers): Headers {
+  if (headers.get("content-disposition")?.trim().toLowerCase() === "attachment") {
+    headers.delete("content-disposition");
+  }
+  return headers;
+}
+
+/**
  * Proxy one request to the app's FC trigger, streaming both ways.
  *
  * Response headers pass through untouched apart from hop-by-hop ones: the app
@@ -166,5 +187,5 @@ export async function proxyToApp(
     redirect: "manual",
   } as RequestInit);
 
-  return new Response(res.body, { status: res.status, headers: strip(res.headers) });
+  return new Response(res.body, { status: res.status, headers: stripForcedDownload(strip(res.headers)) });
 }

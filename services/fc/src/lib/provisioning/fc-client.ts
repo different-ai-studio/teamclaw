@@ -151,14 +151,29 @@ export function makeFcOps(client: any, cfg: FcOpsConfig) {
       }));
     },
     async ensureHttpTrigger(functionName: string): Promise<string> {
+      // A method missing from this list is refused by the trigger with a 403
+      // that never reaches the app. The original four left OPTIONS out, which
+      // fails every CORS preflight a browser sends, and HEAD out, which is what
+      // link previews and health checks use.
+      const triggerConfig = JSON.stringify({
+        authType: "anonymous",
+        methods: ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"],
+      });
       try {
         await client.createTrigger(functionName, new $fc.CreateTriggerRequest({
           body: new $fc.CreateTriggerInput({
-            triggerName: "http", triggerType: "http",
-            triggerConfig: JSON.stringify({ authType: "anonymous", methods: ["GET", "POST", "PUT", "DELETE"] }),
+            triggerName: "http", triggerType: "http", triggerConfig,
           }),
         }));
-      } catch (e) { if (!isAlreadyExists(e)) throw e; }
+      } catch (e) {
+        if (!isAlreadyExists(e)) throw e;
+        // Triggers created earlier keep whatever method list they were made
+        // with — creating is a no-op for them, so repair it explicitly rather
+        // than leaving already-deployed apps refusing OPTIONS forever.
+        await client.updateTrigger(functionName, "http", new $fc.UpdateTriggerRequest({
+          body: new $fc.UpdateTriggerInput({ triggerConfig }),
+        }));
+      }
       const t = await client.getTrigger(functionName, "http");
       const url = t?.body?.httpTrigger?.urlInternet;
       if (!url) throw new Error("http trigger has no urlInternet");

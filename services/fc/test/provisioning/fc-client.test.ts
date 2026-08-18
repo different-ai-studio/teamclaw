@@ -9,6 +9,7 @@ function fakeClient(overrides: Record<string, any> = {}) {
     async createFunction(req: any) { calls.push(["createFunction", req]); return { body: {} }; },
     async updateFunction(name: string, req: any) { calls.push(["updateFunction", name, req]); return { body: {} }; },
     async createTrigger(name: string, req: any) { calls.push(["createTrigger", name, req]); return { body: {} }; },
+    async updateTrigger(name: string, trig: string, req: any) { calls.push(["updateTrigger", name, trig, req]); return { body: {} }; },
     async getTrigger(name: string, trig: string) { calls.push(["getTrigger", name, trig]); return { body: { httpTrigger: { urlInternet: "https://fn.example.fcapp.run" } } }; },
   };
   return { client: { ...base, ...overrides }, calls };
@@ -154,6 +155,31 @@ test("ensureHttpTrigger returns the public invoke URL", async () => {
   const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
   const url = await ops.ensureHttpTrigger("tc-app-1");
   assert.equal(url, "https://fn.example.fcapp.run");
+});
+
+test("ensureHttpTrigger allows the methods a browser actually sends", async () => {
+  // The trigger refuses anything outside this list with a 403 the app never
+  // sees. Leaving OPTIONS out fails every CORS preflight; leaving HEAD out
+  // breaks link previews and health checks.
+  const { client, calls } = fakeClient();
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
+  await ops.ensureHttpTrigger("tc-app-1");
+  const cfg = JSON.parse(calls.find((c) => c[0] === "createTrigger")[2].body.triggerConfig);
+  for (const m of ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"]) {
+    assert.ok(cfg.methods.includes(m), `${m} must be allowed`);
+  }
+});
+
+test("ensureHttpTrigger repairs an existing trigger's method list", async () => {
+  // Triggers made before OPTIONS was allowed keep refusing it: createTrigger is
+  // a no-op for them, so a redeploy has to update the config explicitly.
+  const conflict = Object.assign(new Error("exists"), { statusCode: 409, code: "TriggerAlreadyExists" });
+  const { client, calls } = fakeClient({ createTrigger: async () => { throw conflict; } });
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
+  await ops.ensureHttpTrigger("tc-app-1");
+  const upd = calls.find((c) => c[0] === "updateTrigger");
+  assert.ok(upd, "an existing trigger must be updated, not silently left alone");
+  assert.ok(JSON.parse(upd[3].body.triggerConfig).methods.includes("OPTIONS"));
 });
 
 test("ensureHttpTrigger swallows 'trigger already exists' then reads the URL", async () => {
