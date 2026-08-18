@@ -17,14 +17,33 @@ use std::path::{Path, PathBuf};
 /// manifest, so including it would make the file describe itself.
 pub const EXCLUDED_DIR: &str = ".clawhub";
 
+/// Files up to this size are hashed on every inspection; larger ones keep the
+/// size+mtime pre-filter.
+///
+/// A skill pack is prose and scripts. Hashing a whole team's installed set
+/// measured 45ms for 13 packs / 116KB, against an inspection that runs on a
+/// 10-minute reconcile and when the panel opens — the fast path was protecting
+/// a cost that does not exist, at the price of a verdict that can be wrong.
+///
+/// The threshold exists because nothing *stops* someone shipping a model or a
+/// binary inside a pack, and re-reading that every tick would be a real cost.
+/// Such a file keeps the old, weaker check: the uncertainty is confined to
+/// files that should not be in a skill pack to begin with.
+pub const ALWAYS_HASH_MAX_BYTES: u64 = 5 * 1024 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManagedFile {
     pub sha256: String,
     pub size: u64,
-    /// Pre-filter only, never a verdict. mtime survives neither a copy nor a
-    /// clock change, so it may only ever be used to skip work — a match means
-    /// "don't bother reading the file", a mismatch means "read it and decide".
+    /// Pre-filter, and only for files past [`ALWAYS_HASH_MAX_BYTES`].
+    ///
+    /// mtime survives neither a copy nor a clock change, so pairing it with
+    /// size was never a sound verdict: `cp -p` and a restore from backup both
+    /// put back the original mtime, and an edit that keeps the byte count then
+    /// reads as clean. Everything small enough to hash cheaply is now hashed,
+    /// which is what the "never a verdict" rule always implied. This stays for
+    /// the files where reading the bytes every tick would be the wrong trade.
     #[serde(default)]
     pub mtime_ms: u64,
     /// Tracked separately because `chmod +x` is a real edit that moves ctime,
@@ -221,7 +240,12 @@ pub fn inspect(dir: &Path, baseline: Option<&FileManifest>) -> DirtyState {
             modified.push(rel.clone());
             continue;
         }
-        if meta.len() == want.size && mtime_ms(&meta) == want.mtime_ms {
+        // Same size AND same mtime is only allowed to mean "clean" for a file
+        // too big to hash on every pass. See ALWAYS_HASH_MAX_BYTES.
+        if want.size > ALWAYS_HASH_MAX_BYTES
+            && meta.len() == want.size
+            && mtime_ms(&meta) == want.mtime_ms
+        {
             continue;
         }
         match file_sha256(&full) {
@@ -261,6 +285,14 @@ pub fn inspect(dir: &Path, baseline: Option<&FileManifest>) -> DirtyState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Set a file's mtime to an exact millisecond, so a test can reproduce the
+    /// "same size, same mtime" state on purpose.
+    fn set_mtime_ms(path: &Path, ms: u64) {
+        let when = std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms);
+        let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+        file.set_modified(when).unwrap();
+    }
 
     fn write(dir: &Path, rel: &str, body: &str) {
         let path = dir.join(rel);
@@ -340,12 +372,60 @@ mod tests {
         let swapped = original.replace("body", "b0dy");
         assert_eq!(swapped.len(), original.len());
         std::fs::write(&path, swapped).unwrap();
-        // Equal length: only the hash can tell these apart. If mtime happens to
-        // land in the same millisecond the fast path would wave it through, so
-        // force the comparison the way a later reconcile tick would see it.
-        let mut baseline = m.clone();
-        baseline.get_mut("SKILL.md").unwrap().mtime_ms = 0;
-        assert!(inspect(&dir, Some(&baseline)).is_dirty());
+        // Equal length: only the hash can tell these apart. No longer any need
+        // to defeat a fast path first — a file this size is always hashed.
+        assert!(inspect(&dir, Some(&m)).is_dirty());
+    }
+
+    /// The blind spot the size+mtime pre-filter used to have, in the shape that
+    /// actually produces it: an edit that keeps both the byte count and the
+    /// original mtime. `cp -p`, a restore from backup and rsync's `-t` all do
+    /// exactly this.
+    #[test]
+    fn an_edit_that_restores_size_and_mtime_is_still_caught() {
+        let (_tmp, dir) = fixture();
+        let m = build_manifest(&dir).unwrap();
+        let path = dir.join("SKILL.md");
+        let original = std::fs::read_to_string(&path).unwrap();
+        let swapped = original.replace("body", "b0dy");
+        assert_eq!(swapped.len(), original.len());
+        std::fs::write(&path, &swapped).unwrap();
+
+        // Put the recorded mtime back, so size AND mtime both match the
+        // baseline — the exact state the old fast path waved through.
+        let baseline_mtime = m.get("SKILL.md").unwrap().mtime_ms;
+        set_mtime_ms(&path, baseline_mtime);
+        let meta = std::fs::metadata(&path).unwrap();
+        assert_eq!(meta.len(), m.get("SKILL.md").unwrap().size);
+        assert_eq!(mtime_ms(&meta), baseline_mtime);
+
+        assert!(
+            inspect(&dir, Some(&m)).is_dirty(),
+            "content changed; matching size and mtime must not be taken as clean"
+        );
+    }
+
+    /// The exception, stated as a test so it cannot rot into an accident: past
+    /// the threshold the old pre-filter still applies, because re-reading a
+    /// file that big on every tick is the wrong trade.
+    #[test]
+    fn a_file_past_the_threshold_keeps_the_pre_filter() {
+        let (_tmp, dir) = fixture();
+        let path = dir.join("big.bin");
+        let size = (ALWAYS_HASH_MAX_BYTES + 1) as usize;
+        std::fs::write(&path, vec![b'a'; size]).unwrap();
+        let m = build_manifest(&dir).unwrap();
+
+        // Same length, different bytes, original mtime restored.
+        let baseline_mtime = m.get("big.bin").unwrap().mtime_ms;
+        std::fs::write(&path, vec![b'b'; size]).unwrap();
+        set_mtime_ms(&path, baseline_mtime);
+
+        assert_eq!(
+            inspect(&dir, Some(&m)),
+            DirtyState::Clean,
+            "the documented cost of keeping the fast path for large files"
+        );
     }
 
     #[cfg(unix)]
