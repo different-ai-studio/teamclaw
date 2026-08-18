@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/build-config", () => ({
-  buildConfig: { features: { auth: { webSSO: true } } },
+// webSSO is a Cloud-API flag now, not a baked one — mock the resolver the
+// module actually reads rather than the build config.
+vi.mock("@/lib/remote-features", () => ({
+  getFeatures: () => ({ auth: { webSSO: true } }),
 }));
 
 // ssoConfig now reads the FC-delivered Web SSO target out of server-config

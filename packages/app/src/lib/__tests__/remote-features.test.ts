@@ -23,12 +23,23 @@ beforeEach(() => {
 });
 
 describe("resolution without any remote data", () => {
-  it("falls back to the build config when no snapshot exists", async () => {
+  it("falls back to OFF — the build config no longer supplies flags", async () => {
+    const { getFeatures } = await loadModule();
+    const features = getFeatures();
+    // Every flag is the Cloud API's to set. With nothing cached and nothing
+    // fetched, the client offers only what needs no flag (email OTP).
+    expect(features.apps).toBe(false);
+    expect(features.lockLlmConfig).toBe(false);
+    expect(features.auth).toEqual({
+      google: false, wechat: false, phone: false, password: false, webSSO: false,
+    });
+    expect(Object.values(features.channels).every((v) => v === false)).toBe(true);
+  });
+
+  it("still takes `updater` from the build, defaulting to on", async () => {
     const { getFeatures } = await loadModule();
     const { buildConfig } = await import("@/lib/build-config");
-    const features = getFeatures();
-    expect(features.updater).toBe(buildConfig.features.updater);
-    expect(features.apps).toBe(Boolean(buildConfig.features.apps));
+    expect(getFeatures().updater).toBe(buildConfig.features?.updater ?? true);
   });
 
   it("treats an empty remote block as 'no overrides', NOT as 'everything off'", async () => {
@@ -43,14 +54,22 @@ describe("resolution without any remote data", () => {
 });
 
 describe("merging", () => {
-  it("merges channels key-by-key instead of replacing the block", async () => {
+  it("takes channels only from what the server names — the rest are off", async () => {
     const { applyRemoteFeatures, getFeatures } = await loadModule();
-    applyRemoteFeatures("session", { channels: { discord: false } });
+    // `channels` is session-scope only (see scopeToOwnedKeys), so this is the
+    // whole story for them: named keys apply, unnamed ones are off. There is
+    // no build config left to inherit an answer from.
+    applyRemoteFeatures("session", { channels: { discord: true, feishu: false } });
     const { channels } = getFeatures();
-    expect(channels.discord).toBe(false);
-    // Everything the server did not mention keeps the build config's answer.
-    expect(channels.feishu).toBe(true);
-    expect(channels.wecom).toBe(true);
+    expect(channels.discord).toBe(true);
+    expect(channels.feishu).toBe(false);
+    expect(channels.wecom).toBe(false);
+  });
+
+  it("ignores channels sent to the public scope (auth-only endpoint)", async () => {
+    const { applyRemoteFeatures, getFeatures } = await loadModule();
+    applyRemoteFeatures("public", { channels: { discord: true } });
+    expect(getFeatures().channels.discord).toBe(false);
   });
 
   it("lets the session scope override booleans", async () => {
@@ -60,21 +79,16 @@ describe("merging", () => {
     expect(getFeatures().lockLlmConfig).toBe(true);
   });
 
-  it("ANDs webSSO with the build flag in both directions", async () => {
+  it("lets the server decide webSSO in both directions", async () => {
     const { applyRemoteFeatures, getFeatures } = await loadModule();
-    const { buildConfig } = await import("@/lib/build-config");
-    const baked = Boolean(buildConfig.features.auth?.webSSO);
+    // No longer ANDed with a build flag, and there is no build-time host list
+    // behind it any more either — WEBSSO_LOGIN_URL decides where the flow
+    // points, and it is server-side too.
+    applyRemoteFeatures("public", { auth: { webSSO: true } });
+    expect(getFeatures().auth.webSSO).toBe(true);
 
-    // The server can always turn it OFF.
     applyRemoteFeatures("public", { auth: { webSSO: false } });
     expect(getFeatures().auth.webSSO).toBe(false);
-
-    // But turning it ON only holds if the build opted in: the admin-console
-    // hosts allowed to receive an injected session are compiled into the
-    // desktop binary, so a server-side enable cannot work — and must not
-    // appear to.
-    applyRemoteFeatures("public", { auth: { webSSO: true } });
-    expect(getFeatures().auth.webSSO).toBe(baked);
   });
 
   it("never lets the server enable the updater flag", async () => {

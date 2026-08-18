@@ -30,15 +30,12 @@ function authDeps(stub) {
   };
 }
 
-test("POST /v1/auth/signin-anonymous proxies to GoTrue /signup", async () => {
+test("POST /v1/auth/signin-anonymous answers 410 and never reaches GoTrue", async () => {
+  // Anonymous sign-in was removed from the product. The route survives as an
+  // explicit gone so already-installed clients get a legible answer instead of
+  // a 404 that reads like a routing bug.
   const stub = stubGoTrue({
-    "POST /auth/v1/signup": () => new Response(JSON.stringify({
-      access_token: "at",
-      refresh_token: "rt",
-      expires_in: 3600,
-      token_type: "bearer",
-      user: { id: "user-1", is_anonymous: true },
-    }), { status: 200 }),
+    "POST /auth/v1/signup": () => new Response("{}", { status: 200 }),
   });
   const res = await handleBusinessApiRequest({
     httpMethod: "POST",
@@ -46,13 +43,11 @@ test("POST /v1/auth/signin-anonymous proxies to GoTrue /signup", async () => {
     headers: {},
     body: "{}",
   }, authDeps(stub));
-  assert.equal(res.statusCode, 200);
-  const body = JSON.parse(res.body);
-  assert.equal(body.access_token, "at");
-  assert.equal(body.user.is_anonymous, true);
-  assert.equal(stub.calls[0].init.headers.apikey, "anon-key");
-  assert.deepEqual(JSON.parse(stub.calls[0].init.body), { data: {} });
+  assert.equal(res.statusCode, 410);
+  assert.equal(JSON.parse(res.body).error.code, "anonymous_signin_removed");
+  assert.equal(stub.calls.length, 0);
 });
+
 
 test("POST /v1/auth/signin-otp forwards email to /otp", async () => {
   const stub = stubGoTrue({

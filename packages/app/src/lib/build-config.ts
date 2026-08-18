@@ -47,8 +47,13 @@ export interface BuildConfig {
    *  it and keeps using the bootstrap address. Also accepted under the
    *  `extension` / `extensions` block. */
   mqttWsUrl?: string
-  team: {
-    lockLlmConfig: boolean
+  /**
+   * Retired: `lockLlmConfig` is a Cloud API flag now
+   * (services/fc/src/lib/feature-profiles.ts). Kept optional and unread so an
+   * existing brand config carrying it still parses.
+   */
+  team?: {
+    lockLlmConfig?: boolean
   }
   app: {
     /** Bundle identity: drives `productName`, the .app / installer filename, and
@@ -76,34 +81,22 @@ export interface BuildConfig {
      *  acme://invite?token=…). Omitted → "teamclu". */
     scheme?: string
   }
+  /**
+   * Build-time inputs only. Feature FLAGS moved to the Cloud API
+   * (services/fc/src/lib/feature-profiles.ts) and are no longer read from
+   * here — adding one back to a build config would have no effect.
+   *
+   * What is left is the one thing a server must not be able to decide.
+   */
   features: {
     /** Enables the in-app updater UI (About → check/install) and the startup
      *  auto-check. The update *server* URL is configured separately via
-     *  `app.updater.endpoints` (baked into tauri.conf at build time). */
-    updater: boolean
-    channels: boolean | ChannelsFeatureConfig
-    auth?: {
-      google?: boolean
-      wechat?: boolean
-      phone?: boolean
-      /** Email + password sign-in. Off by default; enable per build. */
-      password?: boolean
-      /** "快捷登录" — harvest a shared session from the partner admin console
-       *  webview. Off by default. The sign-in URL + storage key are delivered
-       *  at runtime by the Cloud API (`WEBSSO_LOGIN_URL` / `WEBSSO_STORAGE_KEY`),
-       *  never hardcoded here. */
-      webSSO?: boolean
-      /** Admin console hosts allowed to receive an injected TeamClu session.
-       *  Consumed by build.rs (baked into WEBSSO_ADMIN_HOSTS) as the native-side
-       *  re-check; deployment-specific hosts belong in a brand build config. */
-      webSSOHosts?: string[]
-    }
-    /** Apps module: build full-stack apps (per-app workspace/git + FC deploy).
-     *  Off by default; on in build.config.dev.json. Enabling it in a shipped
-     *  build also needs the deploy env (CODEUP_*, APPS_DB_ADMIN_URL,
-     *  APPS_FC_ENDPOINT/ALIYUN_ACCOUNT_ID) on that build's Cloud API, or deploy
-     *  answers 503 deploy_unavailable. */
-    apps?: boolean
+     *  `app.updater.endpoints` (baked into tauri.conf at build time).
+     *
+     *  Never server-controlled: it gates the auto-check itself, so a wrong
+     *  remote value would strand every installed client with no way to update
+     *  out of the mistake. Absent means on. */
+    updater?: boolean
   }
   /** Which local agent runtime this build targets. "opencode" (default) drives
    *  the official opencode over `opencode serve` HTTP; "pi" selects the pi
@@ -163,11 +156,11 @@ export function hasAnyChannel(channels: boolean | ChannelsFeatureConfig): boolea
  * layered `build.config.dev.json` on top.
  */
 export const FALLBACK_BUILD_CONFIG: BuildConfig = {
-  team: {
-    lockLlmConfig: false,
-  },
   app: { name: 'TeamClu', shortName: 'teamclu' },
-  features: { updater: true, channels: { ...allChannelsEnabled }, auth: { google: false, wechat: false, phone: false, password: false, webSSO: false }, apps: false },
+  // Feature flags are the Cloud API's now; only the two build-time inputs live
+  // here. `updater: true` matches the resolver's default — an absent flag must
+  // not silently disable updates.
+  features: { updater: true },
   defaults: { theme: 'system' },
 }
 

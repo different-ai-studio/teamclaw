@@ -1,11 +1,18 @@
-// Runtime feature flags: the build config is the DEFAULT, the Cloud API is the
-// override.
+// Runtime feature flags: the Cloud API is the ONLY source.
 //
-// `buildConfig.features` is baked at package time, so changing a flag used to
-// mean shipping a new client. The Cloud API now delivers a subset of those
-// flags at runtime and this module merges the two. Nothing here ever *requires*
-// the network: with no snapshot and no reachable server, every value falls back
-// to exactly what the build baked, which is the pre-existing behaviour.
+// Flags used to live in `buildConfig.features` as well, so every change meant
+// shipping a new client AND remembering to restate it server-side — two copies
+// that drifted. The build config no longer carries them: a flag is now edited
+// in exactly one place, `services/fc/src/lib/feature-profiles.ts`.
+//
+// `updater` is the single exception and is NOT a feature flag in this sense —
+// see the note where it is resolved below.
+//
+// Nothing here requires the network. With no snapshot and no reachable server
+// every flag falls back to OFF, leaving email OTP — the one method that needs
+// no flag — as the way in. A brand whose real login method is something else
+// therefore shows a reduced login screen until the first `/v1/config/public`
+// lands, which is the deliberate cost of having one source of truth.
 //
 // Two snapshots, two scopes, because the two endpoints answer at different
 // times in the app's life:
@@ -40,7 +47,6 @@ export interface ResolvedFeatures {
   auth: AuthFeatures;
   channels: ChannelsFeatureConfig;
   apps: boolean;
-  /** Defaults from `buildConfig.team.lockLlmConfig` — note the different path. */
   lockLlmConfig: boolean;
 }
 
@@ -160,30 +166,7 @@ function writeSnapshot(scope: FeatureScope, origin: string, patch: RemoteFeature
 // Resolution
 // ---------------------------------------------------------------------------
 
-// Normalizing `channels` here rather than importing build-config's helper is
-// deliberate. This module sits in the import graph of nearly every gated
-// surface, including suites that partially mock @/lib/build-config; depending
-// on one more of that module's exports turns an unrelated test's mock into an
-// import-time crash. Same reason every read below is defensive.
-function normalizeChannels(value: boolean | ChannelsFeatureConfig | undefined): ChannelsFeatureConfig {
-  if (value === undefined) value = true;
-  if (typeof value === "boolean") {
-    return {
-      discord: value,
-      feishu: value,
-      email: value,
-      kook: value,
-      wecom: value,
-      wechat: value,
-      seatalk: value,
-    };
-  }
-  return value;
-}
-
 function resolveFrom(patches: RemoteFeaturePatch[]): ResolvedFeatures {
-  const base = buildConfig?.features ?? {};
-  const baseAuth = base.auth ?? {};
   const merged: RemoteFeaturePatch = {};
   for (const patch of patches) {
     Object.assign(merged, patch, {
@@ -192,36 +175,34 @@ function resolveFrom(patches: RemoteFeaturePatch[]): ResolvedFeatures {
     });
   }
 
-  const channels = normalizeChannels(base.channels);
   return {
-    // Never remote. See the allowlist note above. Defaults to on, matching
-    // FALLBACK_BUILD_CONFIG — an absent flag must not silently disable
-    // updates.
-    updater: base.updater ?? true,
+    // The one flag that is still build-time, and deliberately so: it gates the
+    // startup auto-check as well as the About button, so a wrong remote value
+    // would not hide a button — it would strand every installed client with no
+    // way to update out of the mistake. Defaults to on: an absent flag must not
+    // silently disable updates.
+    updater: buildConfig?.features?.updater ?? true,
     auth: {
-      google: merged.auth?.google ?? baseAuth.google ?? false,
-      wechat: merged.auth?.wechat ?? baseAuth.wechat ?? false,
-      phone: merged.auth?.phone ?? baseAuth.phone ?? false,
-      password: merged.auth?.password ?? baseAuth.password ?? false,
-      // ANDed, not overridden. The admin-console hosts allowed to receive an
-      // injected session are compiled into the desktop binary
-      // (WEBSSO_ADMIN_HOSTS, apps/desktop/build.rs), so a server that turns
-      // this on cannot make it work — and a build that never opted in must not
-      // be talked into it by whatever server it happens to point at.
-      webSSO: Boolean(baseAuth.webSSO) && (merged.auth?.webSSO ?? Boolean(baseAuth.webSSO)),
+      google: merged.auth?.google ?? false,
+      wechat: merged.auth?.wechat ?? false,
+      phone: merged.auth?.phone ?? false,
+      password: merged.auth?.password ?? false,
+      // Server-controlled like every other flag. Where the flow may point is
+      // server-controlled too (WEBSSO_LOGIN_URL) — there is no build-time host
+      // list any more.
+      webSSO: merged.auth?.webSSO ?? false,
     },
     channels: {
-      discord: merged.channels?.discord ?? channels.discord,
-      feishu: merged.channels?.feishu ?? channels.feishu,
-      email: merged.channels?.email ?? channels.email,
-      kook: merged.channels?.kook ?? channels.kook,
-      wecom: merged.channels?.wecom ?? channels.wecom,
-      wechat: merged.channels?.wechat ?? channels.wechat,
-      seatalk: merged.channels?.seatalk ?? channels.seatalk,
+      discord: merged.channels?.discord ?? false,
+      feishu: merged.channels?.feishu ?? false,
+      email: merged.channels?.email ?? false,
+      kook: merged.channels?.kook ?? false,
+      wecom: merged.channels?.wecom ?? false,
+      wechat: merged.channels?.wechat ?? false,
+      seatalk: merged.channels?.seatalk ?? false,
     },
-    apps: merged.apps ?? base.apps ?? false,
-    // Lives under `team`, not `features`, in the build config.
-    lockLlmConfig: merged.lockLlmConfig ?? buildConfig?.team?.lockLlmConfig ?? false,
+    apps: merged.apps ?? false,
+    lockLlmConfig: merged.lockLlmConfig ?? false,
   };
 }
 
@@ -329,10 +310,9 @@ export function __resetFeaturesForTest(): void {
 /**
  * Subscribe a component to the effective flags.
  *
- * Every gated surface must read through this rather than the build config: the
- * flags now arrive mid-session, and a value captured at module scope (the old
- * `const channels = resolveChannelsConfig(buildConfig.features.channels)`
- * pattern) can never observe that.
+ * Every gated surface must read through this rather than reading config
+ * directly: the flags arrive mid-session, and a value captured at module scope
+ * can never observe that.
  *
  * `getFeatures` returns a stable reference until something actually changes,
  * so this is safe as a useSyncExternalStore snapshot.

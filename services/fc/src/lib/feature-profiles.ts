@@ -39,6 +39,7 @@ export interface ChannelFeatureFlags {
   kook?: boolean;
   wecom?: boolean;
   wechat?: boolean;
+  seatalk?: boolean;
 }
 
 export interface FeatureFlags {
@@ -78,6 +79,12 @@ export interface FeatureFlags {
 }
 
 /**
+ * The ONLY place a feature flag is defined. The build configs used to carry a
+ * `features` block as well and every flag had to be written twice; they no
+ * longer do, so a profile here is the complete answer rather than an override
+ * on top of whatever the client baked. A flag omitted from a profile resolves
+ * to OFF at the client — it is not inherited from the build any more.
+ *
  * Selected by `APP_FEATURES_PROFILE`. One profile per RUNNING Cloud API, not
  * per brand — though today each deployment happens to serve one brand:
  *
@@ -102,28 +109,34 @@ export interface FeatureFlags {
  * one side and overrides on the other; drift shows up as a flag that flips the
  * moment the network answers, which is confusing to debug and trivial to avoid.
  *
- * Two things you cannot express here, both by design:
- *   - `updater` (build-time only — a remote mistake is unrecoverable)
- *   - `auth.webSSOHosts` (compiled into the desktop binary)
- * `auth.webSSO` can be turned OFF here but not ON: the client ANDs it with the
- * build flag.
+ * One thing you still cannot express here, by design: `updater`. It gates the
+ * startup auto-check itself, so a remote mistake would strand every installed
+ * client with no way to update out of it.
+ *
+ * Everything else, `auth.webSSO` included, is settable here. Where Web SSO may
+ * point is server-side too — the WEBSSO_LOGIN_URL env, delivered by
+ * /v1/config/{public,bootstrap}. The desktop binary no longer carries a second
+ * host allowlist to keep in step with it.
  */
 export const FEATURE_PROFILES: Record<string, FeatureFlags> = {
   // Mirrors build.config.production.json (in this repo).
   "self-host": {
     auth: { google: true, wechat: false, phone: false, password: false, webSSO: false },
-    channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true },
-    apps: false,
+    channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true, seatalk: true },
+    // Entry point only. The deploy chain behind it needs ACCESS_KEY_ID +
+    // APPS_FC_ENDPOINT (see makeDeployDeps in src/index.ts); with those unset
+    // this box answers 503 for deploys while listing and creating still work.
+    apps: true,
     lockLlmConfig: false,
     allowNewOrg: true,
   },
 
   // Mirrors the branding repo's brands/betly/build.config.json. `webSSO: true`
-  // holds only because that build also bakes it on, together with
-  // `webSSOHosts: ["admin.mx5.cn"]`.
+  // is now the whole story — the host comes from WEBSSO_LOGIN_URL on that
+  // deployment, not from anything baked into the build.
   belayo: {
     auth: { google: false, wechat: false, phone: true, password: false, webSSO: true },
-    channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true },
+    channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true, seatalk: true },
     apps: false,
     lockLlmConfig: false,
     allowNewOrg: true,
@@ -135,7 +148,7 @@ export const FEATURE_PROFILES: Record<string, FeatureFlags> = {
   // record rather than an omission.
   copilot361: {
     auth: { google: false, wechat: false, phone: false, password: false, webSSO: false },
-    channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true },
+    channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true, seatalk: true },
     apps: false,
     lockLlmConfig: false,
     allowNewOrg: true,

@@ -4,18 +4,19 @@ import { useAuthStore } from "@/stores/auth-store";
 
 const { isTauriMock } = vi.hoisted(() => ({ isTauriMock: vi.fn() }));
 vi.mock("@/lib/utils", async (orig) => ({ ...(await orig<object>()), isTauri: isTauriMock }));
-vi.mock("@/lib/build-config", async (importOriginal) => {
-  const actual = await importOriginal<{ buildConfig: Record<string, unknown> }>();
-  return {
-    ...actual,
-    buildConfig: {
-      ...actual.buildConfig,
-      features: {
-        ...(actual.buildConfig.features as Record<string, unknown>),
-        auth: { google: true, wechat: true, webSSO: true },
-      },
-    },
+// Auth methods come from the Cloud API now, so turn them on where the
+// component reads them instead of faking a build config that no longer
+// carries flags.
+vi.mock("@/lib/remote-features", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const features = {
+    updater: true,
+    auth: { google: true, wechat: true, phone: false, password: false, webSSO: true },
+    channels: { discord: false, feishu: false, email: false, kook: false, wecom: false, wechat: false, seatalk: false },
+    apps: false,
+    lockLlmConfig: false,
   };
+  return { ...actual, useFeatures: () => features, getFeatures: () => features };
 });
 
 import { OAuthButtons } from "../LoginScreen";
