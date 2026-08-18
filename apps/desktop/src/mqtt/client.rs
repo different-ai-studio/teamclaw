@@ -1,6 +1,7 @@
 use anyhow::Result;
 use rumqttc::{
-    AsyncClient, ConnectReturnCode, Event, EventLoop, LastWill, MqttOptions, Packet, QoS, Transport,
+    AsyncClient, ConnectReturnCode, Event, EventLoop, LastWill, MqttOptions, Packet, QoS,
+    SubscribeFilter, Transport,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -93,6 +94,36 @@ fn build_mqtt_options(cfg: &ClientConfig, clean_session: bool) -> MqttOptions {
     }
 
     opts
+}
+
+/// Replay the subscriptions the UI has registered on the current MQTT client.
+///
+/// A successful CONNACK only proves the transport is back. The broker may have
+/// discarded the previous persistent session, so relying on `session_present`
+/// can leave the desktop connected but unable to receive RPC responses. MQTT
+/// subscriptions are idempotent, therefore replaying them after every CONNACK
+/// is both safe and the smallest reliable recovery path.
+async fn resubscribe_tracked_topics(bus: &super::MqttBusInner) -> Result<usize, String> {
+    // Keep the same lock order as mqtt_subscribe/mqtt_unsubscribe so a user
+    // unsubscribe cannot race with this replay and be accidentally restored.
+    let client_guard = bus.client.lock().await;
+    let client = client_guard.as_ref().ok_or("mqtt client unavailable")?;
+    let mut topics: Vec<String> = bus.subscribed.lock().await.iter().cloned().collect();
+    topics.sort_unstable();
+    if topics.is_empty() {
+        return Ok(0);
+    }
+
+    let count = topics.len();
+    let filters = topics
+        .into_iter()
+        .map(|path| SubscribeFilter::new(path, QoS::AtLeastOnce));
+    client
+        .client
+        .subscribe_many(filters)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(count)
 }
 
 /// One-shot broker reachability probe. Does not touch the shared [`MqttBus`].
@@ -190,6 +221,38 @@ mod tests {
         assert_eq!(broker.connection_address(), "wss://mqtt.example.com/mqtt");
         assert_eq!(broker.port, 443);
     }
+
+    #[tokio::test]
+    async fn connack_replay_enqueues_every_tracked_subscription() {
+        let options = MqttOptions::new("desktop-resubscribe-test", "127.0.0.1", 1883);
+        let (client, event_loop) = AsyncClient::new(options, 8);
+        let bus = super::super::MqttBusInner::new();
+        *bus.client.lock().await = Some(MqttClient {
+            client,
+            event_loop: Arc::new(Mutex::new(event_loop)),
+            client_id: "desktop-resubscribe-test".to_string(),
+        });
+        bus.subscribed.lock().await.extend([
+            "amux/team/+/rpc/res".to_string(),
+            "amux/team/session/+/live".to_string(),
+        ]);
+
+        assert_eq!(resubscribe_tracked_topics(&bus).await, Ok(2));
+    }
+
+    #[tokio::test]
+    async fn connack_replay_fails_when_the_current_client_is_missing() {
+        let bus = super::super::MqttBusInner::new();
+        bus.subscribed
+            .lock()
+            .await
+            .insert("amux/team/+/rpc/res".to_string());
+
+        assert_eq!(
+            resubscribe_tracked_topics(&bus).await,
+            Err("mqtt client unavailable".to_string())
+        );
+    }
 }
 
 pub async fn run_event_loop(bus: Arc<super::MqttBusInner>, app: tauri::AppHandle, generation: u64) {
@@ -256,10 +319,28 @@ pub async fn run_event_loop(bus: Arc<super::MqttBusInner>, app: tauri::AppHandle
         match poll_result {
             Ok(Event::Incoming(Packet::ConnAck(ack))) => {
                 if ack.code == ConnectReturnCode::Success {
+                    // `poll()` holds the event-loop mutex. Release it before
+                    // queueing SUBSCRIBE so the next poll can send the packet.
+                    drop(event_loop);
                     backoff_secs = 1;
-                    bus.set_connected(true);
-                    tracing::info!("mqtt CONNACK: success");
-                    let _ = app.emit("mqtt:connected", true);
+                    match resubscribe_tracked_topics(&bus).await {
+                        Ok(subscription_count) => {
+                            bus.set_connected(true);
+                            tracing::info!(
+                                session_present = ack.session_present,
+                                subscription_count,
+                                "mqtt CONNACK: success; subscriptions restored"
+                            );
+                            let _ = app.emit("mqtt:connected", true);
+                        }
+                        Err(error) => {
+                            bus.set_connected(false);
+                            let msg = format!("mqtt subscription restore failed: {error}");
+                            tracing::warn!(session_present = ack.session_present, "{msg}");
+                            let _ = app.emit("mqtt:connected", false);
+                            let _ = app.emit("mqtt:error", msg.as_str());
+                        }
+                    }
                 } else {
                     // The broker accepted the TCP/TLS socket but refused the MQTT
                     // session (e.g. bad credentials). Surface the reason instead of
