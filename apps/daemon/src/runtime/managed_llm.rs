@@ -161,30 +161,7 @@ mod tests {
     use super::*;
     use crate::backend::mock::MockBackend;
     use crate::backend::{ManagedLlmConfig, ManagedLlmModelInfo};
-
-    static AMUXD_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    struct AmuxdHomeGuard(Option<String>);
-
-    impl AmuxdHomeGuard {
-        fn set(path: &std::path::Path) -> Self {
-            let previous = std::env::var(teamclu_runtime_env::AMUXD_HOME_ENV).ok();
-            // SAFETY: test-only and protected by AMUXD_HOME_LOCK.
-            unsafe { std::env::set_var(teamclu_runtime_env::AMUXD_HOME_ENV, path) };
-            Self(previous)
-        }
-    }
-
-    impl Drop for AmuxdHomeGuard {
-        fn drop(&mut self) {
-            match &self.0 {
-                Some(value) => unsafe {
-                    std::env::set_var(teamclu_runtime_env::AMUXD_HOME_ENV, value)
-                },
-                None => unsafe { std::env::remove_var(teamclu_runtime_env::AMUXD_HOME_ENV) },
-            }
-        }
-    }
+    use crate::test_brand_env::BrandEnvGuard;
 
     fn config_with_models(models: &[&str]) -> ManagedLlmConfig {
         ManagedLlmConfig {
@@ -201,23 +178,25 @@ mod tests {
         }
     }
 
-    fn isolated_global_config() -> (
-        std::sync::MutexGuard<'static, ()>,
-        tempfile::TempDir,
-        AmuxdHomeGuard,
-    ) {
-        let lock = AMUXD_HOME_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+    /// An isolated amuxd home for the tests that write the global team config.
+    ///
+    /// `BrandEnvGuard` deliberately, rather than a mutex local to this module:
+    /// it carries the daemon-wide `TEST_HOME_LOCK`, and `HOME`, `AMUXD_HOME`
+    /// and the brand name all feed the SAME process-global path resolution. A
+    /// second lock only serialized this module against itself while leaving it
+    /// free to race `runtime::env_assembly` — which is exactly what turned main
+    /// red after #948: both suites drive `<amuxd home>/teams/<active>/state/
+    /// opencode.json`, so whoever set AMUXD_HOME last won.
+    fn isolated_global_config() -> (tempfile::TempDir, BrandEnvGuard) {
         let dir = tempfile::TempDir::new().unwrap();
-        let home = AmuxdHomeGuard::set(dir.path());
+        let home = BrandEnvGuard::set_amuxd_home(dir.path());
         std::fs::write(
             dir.path().join("daemon.toml"),
             "active_team = \"team-test\"\n",
         )
         .unwrap();
         std::fs::create_dir_all(dir.path().join("teams/team-test/state")).unwrap();
-        (lock, dir, home)
+        (dir, home)
     }
 
     fn team_model_ids() -> Vec<String> {
@@ -239,7 +218,7 @@ mod tests {
     /// env. Reconciling has to replace the list on disk, not union into it.
     #[tokio::test]
     async fn reconcile_replaces_the_team_model_list_from_cloud() {
-        let (_lock, _global, _home) = isolated_global_config();
+        let (_global, _home) = isolated_global_config();
         let mock = MockBackend::with_identity("team-x", "actor-x");
         mock.state()
             .managed_llm_configs
@@ -307,7 +286,7 @@ mod tests {
     /// `${tc_api_key}` placeholder (wake / refresh regression).
     #[tokio::test]
     async fn reconcile_preserves_resolved_team_api_key() {
-        let (_lock, _global, _home) = isolated_global_config();
+        let (_global, _home) = isolated_global_config();
         let resolved_key = "sk-tc-actor-x";
         std::fs::write(
             teamclu_runtime_env::opencode_config::global_opencode_config_path(),
@@ -341,7 +320,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconcile_resolves_tc_api_key_placeholder() {
-        let (_lock, _global, _home) = isolated_global_config();
+        let (_global, _home) = isolated_global_config();
         std::fs::write(
             teamclu_runtime_env::opencode_config::global_opencode_config_path(),
             serde_json::to_string_pretty(&serde_json::json!({
@@ -370,7 +349,7 @@ mod tests {
     /// A cloud blip must not strip a working `provider.team`.
     #[tokio::test]
     async fn unknown_state_leaves_disk_untouched() {
-        let (_lock, _global, _home) = isolated_global_config();
+        let (_global, _home) = isolated_global_config();
         std::fs::write(
             teamclu_runtime_env::opencode_config::global_opencode_config_path(),
             serde_json::to_string_pretty(&serde_json::json!({
