@@ -133,6 +133,41 @@ pub trait ChannelDriver: Send + Sync {
 
 ★ 这一层就是 #933 要抽的写入服务。**两件事必须一起做**：只做 #933，渠道仍各自解析各自渲染；只做本文，写入仍是两套。
 
+### 4.1 内核落在哪一侧
+
+内核**不是**现在的 `AmuxdAgentHandle`。那是 daemon 侧实现 gateway `AgentHandle` trait 的适配器，职责单一：驱动一次 turn。它是内核的协作者，而且按 #933 的目标最终应该退化掉 —— turn 走 `apply_start_runtime` 的正常生命周期，而不是自己另起一条。把路由、去重、写入堆进一个本该只管"跑一轮"的东西里，是在重复今天的错误。
+
+落点由**依赖方向**决定。现状：
+
+```
+apps/daemon    ─┐
+                ├──→ crates/teamclu-gateway   （叶子 crate，不依赖任何 amuxd 内部）
+apps/desktop   ─┘
+```
+
+gateway crate 只认注入进来的两个 trait（`AgentHandle` / `ChannelStore`）。而内核要用的东西全在 daemon 侧：#933 的写入服务、live 发布、runtime 生命周期、backend client、external actor 映射。把流水线放进 crate，就得把这些反向暴露给它 —— 依赖方向就反了，crate 也不再能独立测试。
+
+| 放哪 | 放什么 |
+|---|---|
+| `crates/teamclu-gateway` | 归一化类型（`InboundMessage` / `OutboundMessage` / `ChannelCaps`）、`ChannelDriver` trait、**各渠道协议驱动** |
+| `apps/daemon/src/channels/core/`（新增） | 流水线本体：去重、路由、身份、准入、写入+广播、turn、按 caps 降级渲染 |
+
+`apps/daemon/src/channels/` 今天已经是 daemon 侧适配层（`agent_handle` / `backend_store` / `manager` / `live_notify` / `reply_token`），内核长在这里最自然：现有的 `AmuxdChannelStore` 基本被内核吸收，`manager.rs` 退成"启动/停止驱动"。
+
+### 4.2 出站有三条路，只有一条经过 session
+
+设计只盯着网关自己的回复是不够的。今天一条消息发到企微，有三条互不相干的路径：
+
+| 路径 | 入口 | 是否进 session |
+|---|---|---|
+| 网关回复 | 渠道驱动自己的 reply | ✅ 已入库并广播（#934 之后） |
+| MCP `send` 工具 | `handle_mcp_send` → `ChannelManager::dispatch_send` | ⚠️ **先推渠道再补录**，顺序反了（#933 第 3 条） |
+| introspect MCP | desktop 的 `introspect_api.rs:156` → `teamclu_gateway::wecom::send_proactive_message` | ❌ **完全不进 session** |
+
+第三条最隐蔽：`introspect_api.rs` 是 desktop 开在 `127.0.0.1:13144` 上给 `teamclu-introspect` MCP 二进制用的本地 HTTP API。agent 调这个工具 `POST /send-wecom`（含 `media_base64` 附件），desktop 直接调 gateway crate 的渠道函数 —— **绕开 daemon、绕开 session、绕开一切**。企微里有那条消息和那个文件，桌面端查无此物，和 #933 描述的出站附件症状一模一样，只是入口不同。
+
+收编方式一致：这三条都必须走 §4 的流水线（先入库、再由驱动渲染）。desktop 那条额外要改依赖方向 —— 它现在直接 link gateway crate 去发消息，应当改为经 daemon（desktop 已经有本地 daemon 客户端），否则"渠道驱动只被内核调用"这条约束在 desktop 侧就是空话。
+
 ---
 
 ## 5. 迁移顺序
@@ -150,6 +185,7 @@ pub trait ChannelDriver: Send + Sync {
 - `session.rs` 的本地 session 映射（云端 session 成为唯一权威）
 - 各渠道的 turn 驱动与流式节流散落实现
 - `ChannelManager::dispatch_send` 的旁路文件语义（#933 第 3 条）
+- desktop `introspect_api.rs` 里对 gateway crate 渠道函数的直接调用（§4.2 第三条路），改为经 daemon
 
 ---
 
@@ -161,6 +197,7 @@ pub trait ChannelDriver: Send + Sync {
 4. **多 bot**：企业微信已经一个渠道多 bot，`bot_id` 必须进 `Conversation` 的键，否则两个 bot 的同名群会撞。
 5. **附件惰性获取**：入站附件用闭包而非字节，是为了让"纯文本消息立即开始 turn"（WeCom 现在的行为）不被附件下载拖慢；但闭包的生命周期要跨过 turn，需要明确谁持有。
 6. **兼容期**：`session.rs` 的本地映射退休时，已有的 `feishu:<chat_id>` / `email:thread:<id>` 记录需要迁移到云端 session 绑定，否则老会话会断。
+7. **desktop 直连渠道要不要一起收**（§4.2 第三条路）：改成经 daemon 会让 desktop 多一个"daemon 不在跑就发不出去"的失败态 —— 现在它是自己直接发的，不依赖 daemon。是接受这个新依赖，还是给 introspect 的 send 保留一条明确标注"不入 session"的旁路？倾向前者：一条发得出去但没人看得见的消息，比发不出去更难排查。
 
 ---
 
