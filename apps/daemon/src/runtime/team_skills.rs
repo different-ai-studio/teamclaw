@@ -67,7 +67,7 @@ pub fn team_cloud_skills_dir(team_id: &str) -> PathBuf {
     global_team_cloud_dir(team_id).join("skills")
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct TeamSkillReconcileOutcome {
     pub installed: usize,
     pub removed: usize,
@@ -83,6 +83,7 @@ pub struct TeamSkillReconciler {
     backend: Arc<dyn Backend>,
     http: reqwest::Client,
     last_fetch: AsyncMutex<HashMap<String, Instant>>,
+    reconcile_lock: AsyncMutex<()>,
 }
 
 impl TeamSkillReconciler {
@@ -91,6 +92,7 @@ impl TeamSkillReconciler {
             backend,
             http: reqwest::Client::new(),
             last_fetch: AsyncMutex::new(HashMap::new()),
+            reconcile_lock: AsyncMutex::new(()),
         }
     }
 
@@ -107,6 +109,7 @@ impl TeamSkillReconciler {
     /// Reconcile regardless of the TTL. Used on startup and by the MQTT nudge,
     /// which only exists to pull the next tick forward.
     pub async fn reconcile_now(&self, team_id: &str) -> TeamSkillReconcileOutcome {
+        let _guard = self.reconcile_lock.lock().await;
         let rows = match self.backend.team_skills(team_id).await {
             Ok(rows) => rows,
             Err(e) => {

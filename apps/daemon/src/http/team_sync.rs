@@ -286,6 +286,139 @@ pub async fn uninstall_team_mcp(
 }
 
 // ---------------------------------------------------------------------------
+// Daemon-owned team skill management
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSkillsResponse {
+    pub team_id: String,
+    pub skills: Vec<crate::backend::TeamSkillRow>,
+}
+
+/// `GET /v1/team/skills` — list registry skills decorated for this daemon's
+/// own agent actor. The handler deliberately uses the daemon's shared backend;
+/// a local management client must never create a second refresh-token owner.
+pub async fn list_team_skills(
+    principal: Principal,
+    State(state): State<HttpState>,
+) -> Result<Json<TeamSkillsResponse>, HttpError> {
+    require_scope(&principal, "workspace:read")?;
+    let (backend, team_id) = daemon_backend_and_team(&state)?;
+    let skills = backend
+        .team_skills(&team_id)
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    Ok(Json(TeamSkillsResponse { team_id, skills }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallTeamSkillRequest {
+    pub version: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSkillReconcileResponse {
+    pub team_id: String,
+    #[serde(flatten)]
+    pub outcome: crate::runtime::team_skills::TeamSkillReconcileOutcome,
+}
+
+/// `PUT /v1/team/skills/:slug/install` — assign a published skill to this
+/// daemon actor and materialise the resulting desired set immediately.
+pub async fn install_team_skill(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Path(slug): Path<String>,
+    Json(body): Json<InstallTeamSkillRequest>,
+) -> Result<Json<TeamSkillReconcileResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    if slug.trim().is_empty() {
+        return Err(HttpError::validation("skill slug must not be empty"));
+    }
+    if body.version < 1 {
+        return Err(HttpError::validation("skill version must be at least 1"));
+    }
+    let (backend, team_id) = daemon_backend_and_team(&state)?;
+    backend
+        .record_team_skill_install(&team_id, &slug, body.version)
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    reconcile_team_skills_for_state(&state, team_id).await
+}
+
+/// `POST /v1/team/skills/reconcile` — force the same reconciler used by the
+/// daemon's periodic task to run now.
+pub async fn reconcile_team_skills(
+    principal: Principal,
+    State(state): State<HttpState>,
+) -> Result<Json<TeamSkillReconcileResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let (_, team_id) = daemon_backend_and_team(&state)?;
+    reconcile_team_skills_for_state(&state, team_id).await
+}
+
+async fn reconcile_team_skills_for_state(
+    state: &HttpState,
+    team_id: String,
+) -> Result<Json<TeamSkillReconcileResponse>, HttpError> {
+    let reconciler = state
+        .team_skills
+        .as_ref()
+        .ok_or_else(|| HttpError::runtime_unavailable("team skill reconciler is not available"))?;
+    let outcome = reconciler.reconcile_now(&team_id).await;
+    crate::runtime::team_skills::apply_team_skill_outcome(
+        &team_id,
+        outcome,
+        state.backend.as_ref(),
+        state.runtime_refresh.as_ref(),
+    )
+    .await;
+    Ok(Json(TeamSkillReconcileResponse { team_id, outcome }))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamShareModeResponse {
+    pub team_id: String,
+    pub mode: Option<String>,
+}
+
+/// `GET /v1/team/share-mode` — authoritative cloud share mode through the
+/// daemon-owned backend/token state.
+pub async fn get_share_mode(
+    principal: Principal,
+    State(state): State<HttpState>,
+) -> Result<Json<TeamShareModeResponse>, HttpError> {
+    require_scope(&principal, "workspace:read")?;
+    let (backend, team_id) = daemon_backend_and_team(&state)?;
+    let config = backend
+        .team_share_config(&team_id)
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    Ok(Json(TeamShareModeResponse {
+        team_id,
+        mode: config.mode,
+    }))
+}
+
+fn daemon_backend_and_team(
+    state: &HttpState,
+) -> Result<(&std::sync::Arc<dyn crate::backend::Backend>, String), HttpError> {
+    let backend = state
+        .backend
+        .as_ref()
+        .ok_or_else(|| HttpError::runtime_unavailable("cloud backend unavailable"))?;
+    let team_id = backend.team_id().trim().to_string();
+    if team_id.is_empty() {
+        return Err(HttpError::validation("daemon is not onboarded to a team"));
+    }
+    Ok((backend, team_id))
+}
+
+// ---------------------------------------------------------------------------
 // Task 11: secrets delivery
 // ---------------------------------------------------------------------------
 

@@ -82,6 +82,7 @@ pub async fn spawn(
     onboarding: Option<Arc<dyn crate::http::setup::OnboardingService>>,
     local_rpc_tx: Option<crate::http::state::LocalRpcTx>,
     local_live_ingest_tx: Option<crate::http::state::LocalLiveIngestTx>,
+    team_skills: Option<Arc<crate::runtime::team_skills::TeamSkillReconciler>>,
 ) -> anyhow::Result<HttpHandle> {
     // Resolve token + port files (defaults live in DaemonConfig::config_dir).
     let token_path = http
@@ -127,9 +128,9 @@ pub async fn spawn(
         .map(|b| Arc::new(crate::runtime::managed_llm::ManagedLlmResolver::new(b)));
     // Same shape for team MCP / team env: desktop posts after a Cloud API write
     // so the daemon cache converges immediately instead of waiting for the tick.
-    let team_cloud = backend.clone().map(|b| {
-        Arc::new(crate::runtime::team_cloud_config::TeamCloudConfigResolver::new(b))
-    });
+    let team_cloud = backend
+        .clone()
+        .map(|b| Arc::new(crate::runtime::team_cloud_config::TeamCloudConfigResolver::new(b)));
 
     let state = HttpState::new(
         http,
@@ -147,6 +148,7 @@ pub async fn spawn(
     .with_live_tee(live_tee)
     .with_managed_llm(managed_llm)
     .with_team_cloud(team_cloud)
+    .with_team_skills(team_skills)
     .with_local_rpc(local_rpc_tx)
     .with_local_live_ingest(local_live_ingest_tx);
 
@@ -258,6 +260,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -287,6 +290,7 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
             None,
             None,
             None,
@@ -341,6 +345,7 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
             None,
             None,
             None,
@@ -542,6 +547,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -616,6 +622,7 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
             None,
             None,
             None,
@@ -703,6 +710,7 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
             None,
             None,
             None,
@@ -802,6 +810,7 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
             None,
             None,
             None,
@@ -911,6 +920,7 @@ mod tests {
             None,
             Some(rpc_tx),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -969,6 +979,129 @@ mod tests {
         let decoded = crate::proto::teamclu::RpcResponse::decode(bytes.as_ref()).unwrap();
         assert!(decoded.success);
         assert_eq!(decoded.request_id, "req-42");
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn team_management_routes_use_the_daemon_backend() {
+        let home = tempfile::tempdir().unwrap();
+        let team_id = "team-manage-http-route-test";
+
+        let backend = Arc::new(crate::backend::mock::MockBackend::with_identity(
+            team_id,
+            "agent-manage",
+        ));
+        {
+            let mut state = backend.state();
+            state.team_share_configs.insert(
+                team_id.to_string(),
+                crate::backend::ShareModeConfig {
+                    mode: Some("oss".to_string()),
+                },
+            );
+            state.team_skills.insert(
+                team_id.to_string(),
+                vec![crate::backend::TeamSkillRow {
+                    slug: "managed-skill".to_string(),
+                    summary: "Managed through daemon HTTP".to_string(),
+                    category: "test".to_string(),
+                    when_to_use: String::new(),
+                    when_not_to_use: String::new(),
+                    requires: None,
+                    owner_actor_id: None,
+                    latest_version: 2,
+                    installed: false,
+                    installed_version: None,
+                }],
+            );
+        }
+        let backend_dyn: Arc<dyn Backend> = backend.clone();
+        let reconciler = Arc::new(crate::runtime::team_skills::TeamSkillReconciler::new(
+            backend_dyn.clone(),
+        ));
+
+        let token_path = home.path().join("http-token");
+        let cfg = HttpConfig {
+            bind: "127.0.0.1:0".into(),
+            token_file: Some(token_path.clone()),
+            port_file: Some(home.path().join("http-port")),
+            ..HttpConfig::default()
+        };
+        let runtime = crate::http::runtime_adapter::StubRuntimeAdapter::new(32);
+        let handle = spawn(
+            cfg,
+            metadata("agent-manage".into(), "test"),
+            runtime,
+            None,
+            None,
+            None,
+            test_dispatcher(),
+            None,
+            Some(backend_dyn),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(reconciler),
+        )
+        .await
+        .unwrap();
+        let base = format!("http://{}", handle.local_addr);
+        let root = std::fs::read_to_string(&token_path).unwrap();
+        let client = reqwest::Client::new();
+        let exchanged: serde_json::Value = client
+            .post(format!("{base}/v1/auth/exchange"))
+            .bearer_auth(root.trim())
+            .json(&serde_json::json!({
+                "scopes": ["workspace:read", "workspace:write"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let token = exchanged["token"].as_str().unwrap();
+
+        let share: serde_json::Value = client
+            .get(format!("{base}/v1/team/share-mode"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(share["teamId"], team_id);
+        assert_eq!(share["mode"], "oss");
+
+        let skills: serde_json::Value = client
+            .get(format!("{base}/v1/team/skills"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(skills["teamId"], team_id);
+        assert_eq!(skills["skills"][0]["slug"], "managed-skill");
+
+        let response = client
+            .put(format!("{base}/v1/team/skills/managed-skill/install"))
+            .bearer_auth(token)
+            .json(&serde_json::json!({ "version": 2 }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 200);
+        assert_eq!(
+            backend.state().team_skill_installs,
+            vec![(team_id.to_string(), "managed-skill".to_string(), 2)]
+        );
+
         handle.shutdown().await;
     }
 }

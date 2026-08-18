@@ -147,6 +147,10 @@ pub struct MockState {
     /// Per-team `team_share_config` overrides. Missing entries fall back to
     /// `ShareModeConfig::default()` (i.e. team-share disabled).
     pub team_share_configs: HashMap<String, ShareModeConfig>,
+    /// Per-team registry rows returned by `team_skills`.
+    pub team_skills: HashMap<String, Vec<super::TeamSkillRow>>,
+    /// `(team_id, slug, version)` writes made by `record_team_skill_install`.
+    pub team_skill_installs: Vec<(String, String, i64)>,
     /// Per-agent `get_agent_defaults` overrides. Missing entries fall back to
     /// `AgentDefaults::default()` (all `None`).
     pub agent_defaults: HashMap<String, AgentDefaults>,
@@ -234,6 +238,38 @@ impl Backend for MockBackend {
             .get(team_id)
             .cloned()
             .unwrap_or_default())
+    }
+
+    async fn team_skills(&self, team_id: &str) -> BackendResult<Vec<super::TeamSkillRow>> {
+        Ok(self
+            .state
+            .lock()
+            .unwrap()
+            .team_skills
+            .get(team_id)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn record_team_skill_install(
+        &self,
+        team_id: &str,
+        slug: &str,
+        version: i64,
+    ) -> BackendResult<()> {
+        let mut state = self.state.lock().unwrap();
+        state
+            .team_skill_installs
+            .push((team_id.to_string(), slug.to_string(), version));
+        if let Some(row) = state
+            .team_skills
+            .get_mut(team_id)
+            .and_then(|rows| rows.iter_mut().find(|row| row.slug == slug))
+        {
+            row.installed = true;
+            row.installed_version = Some(version);
+        }
+        Ok(())
     }
 
     async fn get_effective_default_agent(&self, _team_id: &str) -> BackendResult<Option<String>> {
