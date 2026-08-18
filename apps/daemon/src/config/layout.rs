@@ -100,6 +100,22 @@ pub fn team_workspace_dir(team_id: &str) -> PathBuf {
     team_dir(team_id).join("workspace")
 }
 
+/// `teams/<id>/apps` — one directory per app, and the only place an app's
+/// files live.
+///
+/// A sibling of `state/`, not a child of it: an app checkout is the user's own
+/// project, not daemon bookkeeping, and it is what an agent session opens as
+/// its working directory. Nor is it under `workspace/`, which is the shared
+/// default worktree — an app owns its directory outright.
+pub fn team_apps_dir(team_id: &str) -> PathBuf {
+    team_dir(team_id).join("apps")
+}
+
+/// `teams/<active>/apps` — the app root for the team this daemon serves.
+pub fn active_apps_dir() -> PathBuf {
+    team_apps_dir(&active_team())
+}
+
 fn team_slug(team_id: &str) -> &str {
     let trimmed = team_id.trim();
     if trimmed.is_empty() {

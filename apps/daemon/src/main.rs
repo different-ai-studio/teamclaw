@@ -132,6 +132,11 @@ fn main() -> anyhow::Result<()> {
             cli::process::prepare_daemon_start();
             config::layout::purge_v1_layout();
             config::layout::ensure();
+            // App checkouts moved out of `state/` and into `teams/<id>/apps`.
+            // Done here, at boot, and never from the path accessor: the deploy
+            // pipeline builds whatever sits at the new path, so a checkout left
+            // behind would keep shipping the seed template.
+            http::apps::migrate_legacy_apps_root();
             cli::process::write_pidfile()?;
             let _pid_guard = PidfileGuard;
             // Absent config bootstraps rather than failing: a fresh install must
