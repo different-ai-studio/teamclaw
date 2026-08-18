@@ -8,11 +8,15 @@ import { isRateLimited, resolveClientIp } from "./lib/rate-limit.js";
 import { handleSyncRequest } from "./lib/legacy-sync.js";
 import { resolveBackendKind } from "./lib/backend-kind.js";
 import * as admin from "./lib/admin-handlers.js";
+import { isServable, proxyToApp, type LookupVanityApp } from "./lib/apps-vanity.js";
+import { parseAppPublicHost } from "./lib/apps-public-host.js";
 
 export type AppDeps = {
   createRepository: (args: { accessToken: string }) => unknown;
   createAuthRepository: () => unknown;
   runCron?: (task: string) => Promise<unknown>;
+  /** Resolves a vanity app host to its row; injected so tests need no database. */
+  lookupVanityApp?: LookupVanityApp;
 };
 
 function sendLegacy(_c: any, r: { statusCode: number; headers?: Record<string, string>; body: string }) {
@@ -24,6 +28,42 @@ function sendLegacy(_c: any, r: { statusCode: number; headers?: Record<string, s
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
+
+  // --- Deployed apps on their own hostnames -------------------------------
+  //
+  // Registered FIRST, ahead of CORS and the rate limiter, because these
+  // requests are not Cloud API traffic at all: the response belongs to the
+  // user's app, and adding our CORS headers or counting a page load against an
+  // API budget would both be wrong.
+  //
+  // Caddy sends every `*.<APPS_PUBLIC_DOMAIN>` request here (it cannot know an
+  // app's Function Compute URL — the trigger hostname carries a random suffix),
+  // and asks this same service whether a hostname deserves a certificate.
+  if (deps.lookupVanityApp) {
+    const lookup = deps.lookupVanityApp;
+
+    // Caddy's on-demand TLS gate. Answer 200 only for a hostname that really
+    // maps to an app; anything else must 404 so Caddy declines the handshake
+    // instead of requesting a certificate for it.
+    app.get("/internal/caddy/ask", async (c) => {
+      const domain = c.req.query("domain") ?? "";
+      if (!parseAppPublicHost(domain)) return c.text("not an app host", 404);
+      const found = await lookup(domain);
+      return found ? c.text("ok", 200) : c.text("no such app", 404);
+    });
+
+    app.use("*", async (c, next) => {
+      const host = c.req.header("host");
+      if (!parseAppPublicHost(host)) return next();
+      const target = await lookup(host!);
+      // A hostname whose app exists but has never deployed is a real app with
+      // nothing to serve yet — say so, rather than proxying to null.
+      if (!isServable(target)) {
+        return c.text(target ? "app is not deployed yet" : "no such app", 404);
+      }
+      return proxyToApp(c.req.raw, target.fcEndpoint);
+    });
+  }
 
   // CORS — two modes depending on deployment:
   //

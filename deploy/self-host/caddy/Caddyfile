@@ -5,6 +5,17 @@
 	# Force RSA certs — ECDSA with Let's Encrypt YE1 chain causes
 	# ERR_SSL_VERSION_OR_CIPHER_MISMATCH on some clients (incl. CN networks).
 	key_type rsa2048
+
+	# Deployed apps get a certificate on first request rather than from a fixed
+	# list — there is no list, apps come and go. `ask` is what keeps that from
+	# being an open cert-minting endpoint: FC answers 404 for any hostname that
+	# is not a deployed app, and Caddy then declines the handshake instead of
+	# going to Let's Encrypt. Without it, anyone pointing a name at this box
+	# could burn the rate limit, which counts per REGISTERED domain and is
+	# therefore shared with api/supabase/mqtt/s3 on the same name.
+	on_demand_tls {
+		ask http://fc:9000/internal/caddy/ask
+	}
 }
 
 # CADDY_SITE_SCHEME is "http://" when CADDY_TLS_MODE=off (gen-secrets.sh), empty
@@ -74,4 +85,26 @@
 {$CADDY_SITE_SCHEME}{$EMQX_DASHBOARD_DOMAIN} {
 	{$CADDY_SITE_TLS}
 	reverse_proxy emqx:18083
+}
+
+# Deployed apps: <slug>-<id8>.{$APPS_DOMAIN}
+#
+# The wildcard sits one level DOWN, on its own `apps.` label, and never on the
+# bare base domain: `*.teamclu-dev.ucar.cc` would swallow api/supabase/mqtt/s3/
+# studio/emqx and hand every typo'd hostname to on-demand TLS.
+#
+# Everything goes to FC rather than straight to Function Compute because the
+# trigger hostname carries a random suffix (tc-app-<id>-<random>.fcapp.run) and
+# cannot be derived from the request — FC looks the app up by Host and streams
+# the response through. That also means an app's routes survive a Caddy restart
+# with no reconciliation: there is nothing per-app in this file.
+#
+# APPS_DOMAIN falls back to apps.localhost (internal CA, no ACME) on a box that
+# has not set one, for the same reason S3_DOMAIN does: a nameless block is read
+# as global configuration and Caddy refuses to start.
+{$CADDY_SITE_SCHEME}*.{$APPS_DOMAIN} {
+	tls {
+		on_demand
+	}
+	reverse_proxy fc:9000
 }

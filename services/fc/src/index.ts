@@ -22,6 +22,7 @@ import { startDeploy as startDeployImpl, finalizeDeploy as finalizeDeployImpl } 
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { resolveAppsOss, getAppsS3Client } from "./lib/provisioning/apps-oss.js";
+import { makeVanityLookup } from "./lib/apps-vanity.js";
 import type { JWTVerifyGetKey } from "jose";
 
 // ---------------------------------------------------------------------------
@@ -185,6 +186,9 @@ const app = createApp({
   createRepository: makeBusinessRepoFactory(resolveBackendKind()),
   createAuthRepository: makeAuthRepoFactory(resolveBackendKind()),
   runCron: (task: string) => runCronTask(getDb(), task),
+  // Reads the control-plane database directly on both backends: the vanity
+  // host and the Caddy `ask` probe carry no bearer token to scope a repo with.
+  lookupVanityApp: makeVanityLookup(getDb),
 });
 
 const honoHandler = handle(app);

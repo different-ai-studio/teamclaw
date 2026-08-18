@@ -327,6 +327,11 @@ services:
       # Defaults to https://oss-<APPS_REGION>.aliyuncs.com; override only for a
       # VPC/internal OSS endpoint.
       APPS_OSS_ENDPOINT: "${APPS_OSS_ENDPOINT:-}"
+      # Parent domain for per-app vanity hostnames
+      # (<slug>-<id8>.<this>). Blank = feature off: apps keep their raw
+      # Function Compute trigger URL and Caddy never asks about a certificate.
+      # Requires a wildcard A record for *.<this> pointing at this box.
+      APPS_PUBLIC_DOMAIN: "${APPS_PUBLIC_DOMAIN:-}"
       # Optional partner-integration features, all off unless set here. This
       # `environment:` map is an explicit allowlist — a var absent from it never
       # reaches the container, no matter what the box's .env says.
@@ -496,6 +501,9 @@ services:
       # crash-loops Caddy and takes every site down with it. `.localhost` is
       # served by Caddy's internal CA, so the placeholder never touches ACME.
       S3_DOMAIN: "${S3_DOMAIN:-s3.localhost}"
+      # Parent of every deployed app's hostname. Same never-empty rule as
+      # S3_DOMAIN above — `*.` with nothing after it is a nameless block.
+      APPS_DOMAIN: "${APPS_PUBLIC_DOMAIN:-apps.localhost}"
       ACME_EMAIL: "${ACME_EMAIL}"
       CADDY_GLOBAL_TLS: "${CADDY_GLOBAL_TLS:-}"
       CADDY_SITE_TLS: "${CADDY_SITE_TLS:-}"

@@ -12,6 +12,7 @@ import { requireActorForTeam, resolveActorForTeam } from "./authz.js";
 import { isLegalStatusTransition } from "./app-status.js";
 import { isLegalFcTransition } from "../provisioning/app-fc-status.js";
 import { appOssObjectName, deployUnavailable } from "../provisioning/app-deploy.js";
+import { appPublicUrl } from "../apps-public-host.js";
 import { ApiError } from "../http-utils.js";
 
 type AppsCtx = { userId?: string };
@@ -31,7 +32,7 @@ function slugify(name: string): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const iso = (v: any): string | null => (v ? new Date(v).toISOString() : null);
 
-// Shared mapper — exposes EXACTLY the 12 canonical app fields. Reused by
+// Shared mapper — exposes EXACTLY the canonical app fields. Reused by
 // listApps/updateApp in the next task.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapApp(r: any) {
@@ -46,6 +47,9 @@ function mapApp(r: any) {
     provisionStatus: r.provisionStatus,
     fcStatus: r.fcStatus ?? null,
     fcEndpoint: r.fcEndpoint ?? null,
+    // Derived from slug + id, never stored — see the same field in
+    // supabase-repo/shared.ts. Null when this deployment has no apps domain.
+    publicUrl: appPublicUrl(r.slug, r.id),
     fcFunctionName: r.fcFunctionName ?? null,
     fcRegion: r.fcRegion ?? null,
     createdAt: iso(r.createdAt)!,

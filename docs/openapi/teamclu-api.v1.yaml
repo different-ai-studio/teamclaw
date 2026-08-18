@@ -5255,7 +5255,17 @@ components:
             - type: "null"
         fcEndpoint:
           type: [string, "null"]
-          description: Public URL of the deployed app; set once `fcStatus` is `live`.
+          description: >-
+            Function Compute trigger URL of the deployed app; set once
+            `fcStatus` is `live`. Its hostname carries a random suffix, so it
+            cannot be derived from the app — prefer `publicUrl` when present.
+        publicUrl:
+          type: [string, "null"]
+          description: >-
+            Vanity URL (`https://<slug>-<first 8 of id>.<apps domain>`) served
+            by the deployment's own reverse proxy. Derived, never stored, and
+            null when the deployment has no apps domain configured — then
+            `fcEndpoint` is the only address the app has.
         fcFunctionName: { type: [string, "null"] }
         fcRegion: { type: [string, "null"] }
         createdAt: { type: string, format: date-time }

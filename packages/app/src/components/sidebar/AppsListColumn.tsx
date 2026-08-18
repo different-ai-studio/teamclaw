@@ -107,23 +107,28 @@ function AppItemRow({ app, onClick, onRename }: RowProps) {
     if (path) await revealInFinder(path)
   }, [app.id])
 
+  // The address we hand the user is the vanity one when this deployment has an
+  // apps domain — `publicUrl` is null otherwise, and the raw Function Compute
+  // trigger URL (random suffix and all) remains the only way in.
+  const shareUrl = app.publicUrl ?? app.fcEndpoint
+
   const handleOpenUrl = React.useCallback(async (e: React.SyntheticEvent) => {
     e.stopPropagation()
-    if (!app.fcEndpoint) return
+    if (!shareUrl) return
     const { open } = await import('@tauri-apps/plugin-shell')
-    await open(app.fcEndpoint)
-  }, [app.fcEndpoint])
+    await open(shareUrl)
+  }, [shareUrl])
 
   const handleCopyUrl = React.useCallback(async (e: React.SyntheticEvent) => {
     e.stopPropagation()
-    if (!app.fcEndpoint) return
+    if (!shareUrl) return
     try {
-      await navigator.clipboard.writeText(app.fcEndpoint)
+      await navigator.clipboard.writeText(shareUrl)
     } catch {
       const { toast } = await import('sonner')
       toast.error(t('apps.urlCopyFailed', '复制失败'))
     }
-  }, [app.fcEndpoint, t])
+  }, [shareUrl, t])
 
   return (
     <div className="group relative flex items-stretch">
