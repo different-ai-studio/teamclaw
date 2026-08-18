@@ -95,6 +95,27 @@ mod fc_endpoint_tests {
         std::fs::write(cfg_dir.join(crate::commands::CONFIG_FILE_NAME), body).unwrap();
     }
 
+    /// These three assert on the Cloud API URL `build.rs` bakes in from
+    /// `build.config*.json` — a gitignored file. A debug build without one leaves
+    /// `CLOUD_API_URL` unset **on purpose** (`cargo check` / `tauri dev` have to
+    /// keep working), and `default_fc_endpoint` panics on it by design, so on a
+    /// clean checkout these tests could only ever fail. Nothing caught that
+    /// because CI never ran this crate's tests.
+    ///
+    /// Skip rather than weaken: when a build config *is* present — every pipeline
+    /// that ships a binary supplies one — they run for real.
+    fn baked_endpoint_or_skip() -> Option<&'static str> {
+        match option_env!("CLOUD_API_URL") {
+            Some(url) if !url.trim().is_empty() => Some(url.trim()),
+            _ => {
+                eprintln!(
+                    "skipping: no CLOUD_API_URL baked in (no build.config.json).                      Run with VITE_CLOUD_API_URL=<url> to exercise this."
+                );
+                None
+            }
+        }
+    }
+
     fn temp_dir() -> std::path::PathBuf {
         let base = std::env::temp_dir().join(format!(
             "teamclu-fc-endpoint-test-{}-{}",
@@ -113,6 +134,9 @@ mod fc_endpoint_tests {
         // A stale per-workspace pin must NOT override the build-config URL —
         // this is the regression that produced
         // `FunctionNotFound: function 'legacy-test-api' does not exist`.
+        if baked_endpoint_or_skip().is_none() {
+            return;
+        }
         let dir = temp_dir();
         write_workspace_config(
             &dir,
@@ -127,6 +151,9 @@ mod fc_endpoint_tests {
 
     #[test]
     fn missing_config_uses_build_default() {
+        if baked_endpoint_or_skip().is_none() {
+            return;
+        }
         let dir = temp_dir();
         // No teamclu.json at all.
         assert_eq!(
@@ -138,6 +165,9 @@ mod fc_endpoint_tests {
 
     #[test]
     fn default_endpoint_is_non_empty_https() {
+        let Some(_) = baked_endpoint_or_skip() else {
+            return;
+        };
         let d = default_fc_endpoint();
         assert!(
             d.starts_with("https://"),

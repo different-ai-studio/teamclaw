@@ -121,6 +121,19 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --manifest-path apps/desktop/Cargo.toml -- -D warnings
 
+      # Never ran before, and it showed: the skills root moved to
+      # `~/.agents/skills` and the assertion for the old path sat red for
+      # however long, four separate test-local `HomeGuard`s raced each other
+      # over `$HOME`, and three oss_sync tests could only pass on a machine
+      # with a (gitignored) build.config.json. All fixed; this is what keeps
+      # them fixed.
+      #
+      # No build config on the runner, so `CLOUD_API_URL` is unset — the tests
+      # that need it skip themselves rather than fail (see
+      # `commands::oss_sync::fc_endpoint_tests::baked_endpoint_or_skip`).
+      - name: Run desktop unit tests
+        run: cargo test -p teamclu --locked --lib
+
   database:
     name: Database Tests (pgTAP)
     runs-on: ubuntu-latest

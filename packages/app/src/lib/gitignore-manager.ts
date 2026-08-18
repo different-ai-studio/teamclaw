@@ -76,7 +76,17 @@ export async function ensureGitignoreEntries(workspacePath: string): Promise<voi
     if (!existingContent.endsWith('\n')) {
       newContent += '\n'
     }
-    newContent += `\n# ${buildConfig.app.name} system directories\n`
+    // Only when it isn't already there. This used to be written unconditionally,
+    // which went unnoticed while there was a single entry (`.teamclu/`): every
+    // workspace already had it, so the append path never ran. Adding a second
+    // entry made every existing workspace take it — and get a second copy of the
+    // header stapled above the new line.
+    const header = `# ${buildConfig.app.name} system directories`
+    if (!hasEntry(lines, header)) {
+      newContent += `\n${header}\n`
+    } else {
+      newContent += '\n'
+    }
     newContent += missingEntries.join('\n') + '\n'
 
     await writeTextFile(gitignorePath, newContent)
