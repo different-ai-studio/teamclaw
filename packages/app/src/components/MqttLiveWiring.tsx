@@ -60,7 +60,6 @@ import { acquireActorPresenceStore } from "@/stores/actor-presence-store";
 import { MessageKind, type Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
 import { agentStreamKey, isAgentActiveStatus, isTerminalAgentStatus, isToolOnlyTurnAnchor, mergePendingAgentReplies, normalizeToolResultEvent, normalizeToolUseEvent, registerDiscardPendingStreamReply, rememberLiveEventId, shouldPatchFlushedToolEvent, streamEntryHasVisibleContent } from "@/lib/live-agent-stream";
 import { mapAcpPlanEntries, syncPlanFromTodoTool, syncPlanFromTodoToolResult } from "@/lib/sync-plan-from-todowrite";
-import { useWorkspaceStore } from "@/stores/workspace";
 import { reportSkillUsage } from "@/lib/telemetry/skill-usage";
 import { upsertMessagesBatch, softDeleteMessage, type MessageRow } from "@/lib/local-cache";
 import { syncActorsForTeam } from "@/lib/sync/actor-sync";
