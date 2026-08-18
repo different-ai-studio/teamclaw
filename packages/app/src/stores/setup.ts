@@ -27,12 +27,20 @@ function persistSetupSatisfied(ok: boolean): void {
   }
 }
 
+/**
+ * Why a runtime is not usable, when "not installed" would be misleading.
+ * Only cursor reports one — its readiness is an AND of four conditions and the
+ * usual failure is a missing API key, not a missing install.
+ */
+export type RuntimeBlocker = 'api_key' | 'node' | 'bridge'
+
 export type RequirementStatus = {
   id: string
   title: string
   optional: boolean
   present: boolean
   version: string | null
+  blocker?: RuntimeBlocker | null
 }
 
 export type SetupProgress = {
