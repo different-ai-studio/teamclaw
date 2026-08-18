@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeFcOps, fcEndpoint, accountIdFromRoleArn } from "../../src/lib/provisioning/fc-client.js";
+import { makeFcOps, fcEndpoint, accountIdFromRoleArn, NODE_BIN, nodejsLayerArn } from "../../src/lib/provisioning/fc-client.js";
 
 function fakeClient(overrides: Record<string, any> = {}) {
   const calls: any[] = [];
@@ -17,7 +17,7 @@ function fakeClient(overrides: Record<string, any> = {}) {
 test("ensureFunction creates when GetFunction 404s", async () => {
   const notFound = Object.assign(new Error("not found"), { statusCode: 404, code: "FunctionNotFound" });
   const { client, calls } = fakeClient({ getFunction: async () => { throw notFound; } });
-  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc" });
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
   await ops.ensureFunction("tc-app-1", { ossObjectName: "apps/1/code.zip", env: { PORT: "9000" } });
   assert.ok(calls.some((c) => c[0] === "createFunction"));
   assert.ok(!calls.some((c) => c[0] === "updateFunction"));
@@ -25,7 +25,7 @@ test("ensureFunction creates when GetFunction 404s", async () => {
 
 test("ensureFunction updates code when the function already exists", async () => {
   const { client, calls } = fakeClient();
-  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc" });
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
   await ops.ensureFunction("tc-app-1", { ossObjectName: "apps/1/code.zip", env: { PORT: "9000" } });
   assert.ok(calls.some((c) => c[0] === "updateFunction"));
   assert.ok(!calls.some((c) => c[0] === "createFunction"));
@@ -37,20 +37,52 @@ test("ensureFunction points the custom runtime at the artifact's own layout", as
   // the function silently fails to boot.
   const notFound = Object.assign(new Error("not found"), { statusCode: 404, code: "FunctionNotFound" });
   const { client, calls } = fakeClient({ getFunction: async () => { throw notFound; } });
-  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc" });
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
   await ops.ensureFunction("tc-app-1", { ossObjectName: "apps/1/code.zip", env: { PORT: "9000" } });
   const create = calls.find((c) => c[0] === "createFunction");
   const runtimeCfg = create[1].body.customRuntimeConfig;
-  assert.deepEqual(runtimeCfg.command, ["node"]);
   assert.deepEqual(runtimeCfg.args, ["server/index.mjs"]);
   assert.equal(runtimeCfg.port, 9000);
+});
+
+test("ensureFunction starts node from the layer, by absolute path", async () => {
+  // The custom runtime image has no node — a bare "node" (and even
+  // `/bin/sh -c 'exec node …'`) dies at instance start with exit 127. The
+  // official layer supplies one under /opt and does not touch PATH.
+  const notFound = Object.assign(new Error("not found"), { statusCode: 404, code: "FunctionNotFound" });
+  const { client, calls } = fakeClient({ getFunction: async () => { throw notFound; } });
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
+  await ops.ensureFunction("tc-app-1", { ossObjectName: "apps/1/code.zip", env: { PORT: "9000" } });
+  const create = calls.find((c) => c[0] === "createFunction")[1].body;
+  assert.deepEqual(create.customRuntimeConfig.command, [NODE_BIN]);
+  assert.match(NODE_BIN, /^\//, "must be an absolute path, not a PATH lookup");
+  assert.deepEqual(create.layers, ["acs:fc:cn-shenzhen:official:layers/Nodejs20/versions/3"]);
+});
+
+test("nodejsLayerArn is region-scoped", () => {
+  // A layer ARN names its region; the function's region is the apps region, so
+  // borrowing another region's ARN makes CreateFunction fail on a valid config.
+  assert.equal(nodejsLayerArn("cn-hangzhou"), "acs:fc:cn-hangzhou:official:layers/Nodejs20/versions/3");
+});
+
+test("ensureFunction re-sends the layer and start command on the update path", async () => {
+  // Functions created before the layer existed boot with a command that cannot
+  // resolve. A code-only update would leave them broken through every redeploy
+  // the user tries — the update has to repair the config, not just the code.
+  const { client, calls } = fakeClient();
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
+  await ops.ensureFunction("tc-app-1", { ossObjectName: "apps/1/code.zip", env: { PORT: "9000" } });
+  const upd = calls.find((c) => c[0] === "updateFunction")[2].body;
+  assert.deepEqual(upd.customRuntimeConfig.command, [NODE_BIN]);
+  assert.deepEqual(upd.customRuntimeConfig.args, ["server/index.mjs"]);
+  assert.deepEqual(upd.layers, ["acs:fc:cn-shenzhen:official:layers/Nodejs20/versions/3"]);
 });
 
 test("ensureFunction re-sends environmentVariables on the update path", async () => {
   // A redeploy rotates the app's DB password, so the env must be rewritten
   // alongside the code rather than assumed to survive.
   const { client, calls } = fakeClient();
-  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc" });
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
   await ops.ensureFunction("tc-app-1", {
     ossObjectName: "apps/1/code.zip",
     env: { PORT: "9000", DATABASE_URL: "postgres://app_x:new-pw@h/teamclu_apps" },
@@ -119,7 +151,7 @@ test("fcEndpoint composes the host from the APPS region, not the default one", (
 
 test("ensureHttpTrigger returns the public invoke URL", async () => {
   const { client } = fakeClient();
-  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc" });
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
   const url = await ops.ensureHttpTrigger("tc-app-1");
   assert.equal(url, "https://fn.example.fcapp.run");
 });
@@ -127,7 +159,7 @@ test("ensureHttpTrigger returns the public invoke URL", async () => {
 test("ensureHttpTrigger swallows 'trigger already exists' then reads the URL", async () => {
   const conflict = Object.assign(new Error("exists"), { statusCode: 409, code: "TriggerAlreadyExists" });
   const { client } = fakeClient({ createTrigger: async () => { throw conflict; } });
-  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc" });
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc", region: "cn-shenzhen" });
   const url = await ops.ensureHttpTrigger("tc-app-1");
   assert.equal(url, "https://fn.example.fcapp.run");
 });

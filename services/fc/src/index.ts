@@ -80,7 +80,13 @@ function makeDeployDeps() {
     };
   }
   const bucket = profile.bucket;
-  const fcOps = makeFcOps(getFcClient(profile), { bucket, role: process.env.ROLE_ARN });
+  const fcOps = makeFcOps(getFcClient(profile), {
+    bucket,
+    role: process.env.ROLE_ARN,
+    // Region of the function, which is also where its Node layer must come
+    // from — a layer ARN is region-scoped.
+    region: profile.region,
+  });
   const appsBaseUrl = process.env.APPS_DB_ADMIN_URL;
   const adminExec = appsBaseUrl ? getAppsAdminExecutor() : undefined;
   const s3 = getAppsS3Client(profile);
