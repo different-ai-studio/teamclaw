@@ -9,6 +9,7 @@ pub mod provider_auth;
 mod roles_skills;
 mod session_store;
 pub mod team_config;
+pub mod device_mcp;
 pub mod team_mcp;
 pub mod workspace_control;
 mod workspace_instructions;

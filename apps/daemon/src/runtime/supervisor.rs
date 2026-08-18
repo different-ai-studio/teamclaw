@@ -146,37 +146,18 @@ fn mutate_inherent_mcp(
         changed = true;
     }
 
-    let send_tool = send_mcp_config()?;
-    let needs_send_tool = mcp_obj
-        .get(SEND_MCP_SERVER_NAME)
-        .map(|existing| existing != &send_tool)
-        .unwrap_or(true);
-    if needs_send_tool {
-        mcp_obj.insert(SEND_MCP_SERVER_NAME.to_string(), send_tool);
-        changed = true;
-    }
-
-    if !mcp_obj.contains_key("playwright") {
-        mcp_obj.insert(
-            "playwright".to_string(),
-            serde_json::json!({
-                "type": "local",
-                "enabled": false,
-                "command": ["npx", "-y", "@playwright/mcp@latest"]
-            }),
-        );
-        changed = true;
-    }
-
-    if !mcp_obj.contains_key("chrome-control") {
-        mcp_obj.insert(
-            "chrome-control".to_string(),
-            serde_json::json!({
-                "type": "local",
-                "enabled": true,
-                "command": ["npx", "-y", "chrome-devtools-mcp@latest", "--autoConnect"]
-            }),
-        );
+    // `amuxd-send`, `playwright`, `chrome-control` and `autoui` are device-level
+    // and live in `~/.amuxd/mcp.json` (see `config::device_mcp`). They used to be
+    // written here, once per workspace, each copy carrying this machine's
+    // absolute binary paths. Drop any such copy: it outranks the device file, so
+    // leaving it pins the workspace to whatever was current when it was written.
+    let device_names: Vec<String> = mcp_obj
+        .keys()
+        .filter(|name| crate::config::device_mcp::is_device_scoped(name))
+        .cloned()
+        .collect();
+    for name in device_names {
+        mcp_obj.remove(&name);
         changed = true;
     }
 
@@ -222,6 +203,7 @@ fn mutate_instruction_plugin(
 pub fn materialize_opencode_for_prepare(
     workspace_path: &Path,
 ) -> Result<(), WorkspaceControlError> {
+    ensure_device_layers();
     teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
         let mut changed = false;
         changed |= mutate_default_permissions(config).map_err(ws_to_store_err)?;
@@ -241,6 +223,7 @@ pub fn materialize_opencode_for_prepare(
 pub fn materialize_inherent_mcp_for_spawn(
     workspace_path: &Path,
 ) -> Result<(), WorkspaceControlError> {
+    ensure_device_layers();
     teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
         mutate_inherent_mcp(workspace_path, config).map_err(ws_to_store_err)
     })
@@ -248,8 +231,24 @@ pub fn materialize_inherent_mcp_for_spawn(
     Ok(())
 }
 
+/// Seed the two device-level layers the workspace config no longer carries:
+/// `~/.amuxd/mcp.json` (device MCP) and the active team's global `skills.paths`.
+///
+/// Best-effort on purpose — both are read with a "missing means empty" fallback,
+/// so a failure here degrades to "no device MCP this run" rather than blocking a
+/// spawn. It logs, which is what makes that visible.
+fn ensure_device_layers() {
+    if let Err(e) = crate::config::device_mcp::ensure_device_mcp() {
+        warn!(error = %e, "seeding device MCP config failed");
+    }
+    if let Err(e) = ensure_global_skill_paths() {
+        warn!(error = %e, "seeding global skill paths failed");
+    }
+}
+
 /// Seed inherent MCP entries that TeamClu expects (non-destructive).
 pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
+    ensure_device_layers();
     let config_path = opencode_json_path(workspace_path);
     let changed = teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(
         workspace_path,
@@ -266,33 +265,8 @@ pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControl
     Ok(())
 }
 
-/// Name of the gateway `send` bridge in the workspace's `mcp` map.
-const SEND_MCP_SERVER_NAME: &str = "amuxd-send";
-
-/// The gateway `send` bridge, registered per workspace rather than per
-/// session.
-///
-/// It used to be written to a per-session config that only the fresh-attach
-/// path passed along, so a session the desktop (or a resume sweep) had already
-/// attached silently had no send tool. Nothing in the argv is session-specific
-/// any more — `send` takes its destination from the caller's `reply_token` —
-/// so it can live here, next to remote-tools, and be there for every session
-/// on every backend regardless of who attached first. `opencode.json`'s `mcp`
-/// map is the MCP source of truth for all four runtimes, pi included.
-fn send_mcp_config() -> Result<serde_json::Value, WorkspaceControlError> {
-    let amuxd_bin =
-        std::env::current_exe().map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
-    let sock = crate::config::DaemonConfig::sock_path();
-    Ok(serde_json::json!({
-        "type": "local",
-        "enabled": true,
-        "command": [
-            amuxd_bin.to_string_lossy(),
-            "mcp-server",
-            format!("--sock={}", sock.to_string_lossy())
-        ]
-    }))
-}
+// The gateway `send` bridge moved to `config::device_mcp`: nothing in its argv is
+// workspace-specific, so one registration per machine replaces one per workspace.
 
 fn resolve_executable(path: PathBuf) -> Option<PathBuf> {
     if path.is_file() {
@@ -520,72 +494,145 @@ fn ensure_extended_inherent_config(
             }
         }
 
-        if !mcp_obj.contains_key("autoui") {
-            mcp_obj.insert(
-                "autoui".to_string(),
-                serde_json::json!({
-                    "type": "local",
-                    "enabled": true,
-                    "command": ["npx", "-y", "autoui-mcp@latest"],
-                    "environment": {
-                        "QWEN_API_KEY": "${QWEN_API_KEY}",
-                        "QWEN_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                        "QWEN_MODEL": "qwen3-vl-flash"
-                    }
-                }),
-            );
-            *changed = true;
-        } else if let Some(autoui) = mcp_obj.get_mut("autoui").and_then(|v| v.as_object_mut()) {
-            let needs_restore = autoui
-                .get("environment")
-                .and_then(|v| v.as_object())
-                .map(|env| env.is_empty())
-                .unwrap_or(true);
-            if needs_restore {
-                autoui.insert(
-                    "environment".to_string(),
-                    serde_json::json!({
-                        "QWEN_API_KEY": "${QWEN_API_KEY}",
-                        "QWEN_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                        "QWEN_MODEL": "qwen3-vl-flash"
-                    }),
-                );
-                *changed = true;
-            }
-        }
+        // autoui / playwright / chrome-control / amuxd-send are seeded once per
+        // machine by `config::device_mcp::ensure_device_mcp`, not here.
     }
 
+    // `skills.paths` is not workspace state either. It used to be seeded here as
+    // `["teamclu-team/skills", "<home>/.agents/skills"]`:
+    //
+    // - `teamclu-team/skills` is workspace-*relative*, and under the v2 home
+    //   layout the team share lives in `~/.amuxd/teams/<id>/shared/teamclu-team`.
+    //   It resolved only through the symlink a fully-onboarded workspace happens
+    //   to have; in a workspace without one it silently pointed at nothing.
+    // - `<home>/.agents/skills` is the same directory for every workspace.
+    //
+    // Both now go into the active team's global config as absolute paths, which
+    // `sync_opencode_generated` copies wholesale into `OPENCODE_CONFIG`. Stale
+    // workspace copies are dropped so the relative form cannot outrank them.
     {
-        let skills = obj.entry("skills").or_insert_with(|| serde_json::json!({}));
-        let skills_obj = skills
-            .as_object_mut()
-            .ok_or_else(|| WorkspaceControlError::Parse("skills is not an object".into()))?;
-        let paths_val = skills_obj
-            .entry("paths")
-            .or_insert_with(|| serde_json::json!([]));
-        let paths = paths_val
-            .as_array_mut()
-            .ok_or_else(|| WorkspaceControlError::Parse("skills.paths is not an array".into()))?;
-        if !paths.iter().any(|v| v.as_str() == Some(TEAM_SKILLS_PATH)) {
-            paths.push(serde_json::json!(TEAM_SKILLS_PATH));
+        let dropped = obj
+            .get_mut("skills")
+            .and_then(|skills| skills.as_object_mut())
+            .and_then(|skills| skills.get_mut("paths"))
+            .and_then(|paths| paths.as_array_mut())
+            .map(|paths| {
+                let before = paths.len();
+                paths.retain(|value| !is_migrated_skill_path(value.as_str()));
+                before != paths.len()
+            })
+            .unwrap_or(false);
+        if dropped {
             *changed = true;
         }
-        if let Some(home) = dirs::home_dir() {
-            let agents = home.join(".agents").join("skills");
-            let agents_str = agents.to_string_lossy().to_string();
-            let already = paths.iter().any(|v| {
-                v.as_str()
-                    .map(|s| s == agents_str || s == "~/.agents/skills")
-                    .unwrap_or(false)
-            });
-            if !already {
-                paths.push(serde_json::json!(agents_str));
-                *changed = true;
-            }
+        // Drop an emptied `skills` object rather than leaving `{"paths": []}`,
+        // which reads as "this workspace deliberately has no skill paths".
+        let empty = obj
+            .get("skills")
+            .and_then(|skills| skills.as_object())
+            .map(|skills| {
+                skills.len() <= 1
+                    && skills
+                        .get("paths")
+                        .and_then(|paths| paths.as_array())
+                        .map(|paths| paths.is_empty())
+                        .unwrap_or(true)
+            })
+            .unwrap_or(false);
+        if empty {
+            obj.remove("skills");
+            *changed = true;
         }
     }
 
     Ok(())
+}
+
+/// Skill paths that moved to the global config — the ones older builds seeded
+/// into every workspace. Both the `~`-prefixed and the expanded form of the
+/// agents dir count: older builds wrote either.
+fn is_migrated_skill_path(path: Option<&str>) -> bool {
+    let Some(path) = path else { return false };
+    if path == TEAM_SKILLS_PATH || path == "~/.agents/skills" {
+        return true;
+    }
+    dirs::home_dir()
+        .map(|home| home.join(".agents").join("skills"))
+        .map(|agents| path == agents.to_string_lossy())
+        .unwrap_or(false)
+}
+
+/// Seed the real skill roots into the active team's global config, absolutely —
+/// so no workspace has to be standing in the right place for them to resolve.
+///
+/// The two roots that actually receive skills, in the same order
+/// `config::team_skill_roots` uses:
+///
+/// 1. `~/.amuxd/teams/<id>/state/cloud/skills` — what an admin assigned to this
+///    hosted agent. First, so a member's private edit of the same slug cannot
+///    decide what a team agent executes.
+/// 2. `~/.agents/skills` — the member-side registry install dir.
+///
+/// Notably NOT the team share's `teamclu-team/skills`: file sync carries
+/// documents only, so nothing is ever installed there (see the note on
+/// `config::team_skill_roots`). The relative `teamclu-team/skills` that older
+/// builds wrote into every workspace pointed at that empty directory — and only
+/// resolved at all in a workspace whose team-share symlink existed.
+pub fn ensure_global_skill_paths() -> Result<bool, WorkspaceControlError> {
+    use teamclu_runtime_env::opencode_config::{OpencodeConfigError, OpencodeConfigStore};
+
+    let mut wanted: Vec<String> = Vec::new();
+    if let Some(team_id) = crate::config::team_mcp::onboarded_team_id() {
+        wanted.push(
+            crate::runtime::team_skills::team_cloud_skills_dir(&team_id)
+                .to_string_lossy()
+                .into_owned(),
+        );
+    }
+    if let Some(home) = dirs::home_dir() {
+        wanted.push(
+            home.join(".agents")
+                .join("skills")
+                .to_string_lossy()
+                .into_owned(),
+        );
+    }
+    if wanted.is_empty() {
+        return Ok(false);
+    }
+
+    OpencodeConfigStore::apply_global(|config| {
+        let obj = config.as_object_mut().ok_or_else(|| {
+            OpencodeConfigError::Parse("global opencode.json root is not an object".to_string())
+        })?;
+        if !obj.contains_key("$schema") {
+            obj.insert(
+                "$schema".to_string(),
+                serde_json::json!("https://opencode.ai/config.json"),
+            );
+        }
+        let skills = obj.entry("skills").or_insert_with(|| serde_json::json!({}));
+        let skills_obj = skills.as_object_mut().ok_or_else(|| {
+            OpencodeConfigError::Parse("global opencode.json skills is not an object".to_string())
+        })?;
+        let paths_val = skills_obj
+            .entry("paths")
+            .or_insert_with(|| serde_json::json!([]));
+        let paths = paths_val.as_array_mut().ok_or_else(|| {
+            OpencodeConfigError::Parse(
+                "global opencode.json skills.paths is not an array".to_string(),
+            )
+        })?;
+        let mut changed = false;
+        for path in wanted {
+            if !paths.iter().any(|v| v.as_str() == Some(path.as_str())) {
+                paths.push(serde_json::json!(path));
+                changed = true;
+            }
+        }
+        Ok(changed)
+    })
+    .map_err(map_store_err)
 }
 
 fn remove_non_native_desktop_control_skills(skills_dir: &Path) {
@@ -1616,49 +1663,42 @@ mod inherent_mcp_tests {
             .unwrap_or_default()
     }
 
+    // Device-level servers are no longer written per workspace — the send bridge,
+    // the npx bridges and their argv now live once in `~/.amuxd/mcp.json`
+    // (`config::device_mcp`, which owns the tests for their contents).
     #[test]
-    fn the_send_bridge_is_registered_for_every_workspace() {
-        // The regression this pins: `send` used to be written to a per-session
-        // config that only a fresh attach applied, so a session the desktop had
-        // already attached had no send tool. Registering it here is what makes
-        // it independent of who attached first — and of which backend runs,
-        // since this map is the MCP source of truth for all of them.
+    fn device_scoped_servers_are_not_written_into_a_workspace() {
         let mut config = serde_json::json!({});
         let mcp = inherent_mcp_map(&mut config);
-        let entry = mcp.get(SEND_MCP_SERVER_NAME).expect("send bridge present");
-        assert_eq!(entry.get("enabled").and_then(|v| v.as_bool()), Some(true));
-        let command: Vec<&str> = entry
-            .get("command")
-            .and_then(|v| v.as_array())
-            .unwrap()
-            .iter()
-            .filter_map(|v| v.as_str())
-            .collect();
-        assert!(command.contains(&"mcp-server"), "got: {command:?}");
+        for name in crate::config::device_mcp::DEVICE_MCP_NAMES {
+            assert!(!mcp.contains_key(*name), "{name} leaked into the workspace");
+        }
     }
 
     #[test]
-    fn the_send_bridge_carries_no_session_identity() {
-        // Baking `--session-id` / `--binding` into argv is what forced the
-        // per-session registration in the first place. Destination now comes
-        // from the caller's reply token, so nothing here may be session-scoped.
-        let mut config = serde_json::json!({});
+    fn a_device_scoped_copy_left_by_an_older_build_is_removed() {
+        // The copy outranks the device file, so leaving it pins this workspace to
+        // whatever binary path was current the day it was written — after a
+        // reinstall, a path that no longer exists.
+        let mut config = serde_json::json!({
+            "mcp": {
+                "amuxd-send": { "type": "local", "enabled": true, "command": ["/old/amuxd", "mcp-server"] },
+                "chrome-control": { "type": "local", "enabled": true, "command": ["npx", "chrome"] }
+            }
+        });
         let mcp = inherent_mcp_map(&mut config);
-        let command = mcp[SEND_MCP_SERVER_NAME]["command"].to_string();
-        assert!(!command.contains("--session-id"), "got: {command}");
-        assert!(!command.contains("--binding"), "got: {command}");
+        assert!(!mcp.contains_key("amuxd-send"));
+        assert!(!mcp.contains_key("chrome-control"));
     }
 
     #[test]
     fn rewriting_an_existing_config_keeps_user_servers() {
         let mut config = serde_json::json!({
-            "mcp": { "autoui": { "type": "local", "enabled": true, "command": ["npx", "autoui"] } }
+            "mcp": { "ctx7": { "type": "local", "enabled": true, "command": ["npx", "ctx7"] } }
         });
         let mcp = inherent_mcp_map(&mut config);
-        assert!(mcp.contains_key("autoui"), "user server survived");
-        assert!(mcp.contains_key(SEND_MCP_SERVER_NAME));
-        // Auto-injecting remote-tools is paused (it is stripped instead), so
-        // the send bridge is the only inherent server a rewrite adds.
+        assert!(mcp.contains_key("ctx7"), "user server survived");
+        // Auto-injecting remote-tools is paused — it is stripped instead.
         assert!(!mcp.contains_key(REMOTE_TOOLS_MCP_SERVER_NAME));
     }
 }

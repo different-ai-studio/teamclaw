@@ -38,6 +38,15 @@ pub fn cache_dir() -> PathBuf {
     teamclu_runtime_env::amuxd_layout::cache_dir(&root())
 }
 
+/// `~/.amuxd/mcp.json` — device-level MCP servers (see `config::device_mcp`).
+///
+/// At the root because it is the one MCP layer that is neither per-team nor a
+/// cache: it describes *this machine's* tools (this daemon's socket, the local
+/// `npx` bridges), survives a team switch, and holds the user's enable toggles.
+pub fn device_mcp_file() -> PathBuf {
+    root().join("mcp.json")
+}
+
 /// One directory per team.
 pub fn teams_dir() -> PathBuf {
     teamclu_runtime_env::amuxd_layout::teams_dir(&root())

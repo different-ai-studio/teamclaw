@@ -922,13 +922,18 @@ impl WorkspaceControlStore for OpenCodeCompatStore {
     ) -> Result<ApplyOutcome, WorkspaceControlError> {
         let wpath = self.workspace_path(workspace_id)?;
         let _lock = self.write_lock.lock().unwrap();
-        let workspace_only = super::team_mcp::filter_put_body(&wpath, servers);
+        // The four device-scoped servers are the same on every workspace of this
+        // machine, so a toggle on one of them is a machine-wide decision and is
+        // persisted once, in `~/.amuxd/mcp.json`.
+        let (workspace_only, device) = super::team_mcp::split_put_body(&wpath, servers);
+        super::device_mcp::put_device_entries(device)?;
         let mut cfg = Self::read_opencode_json(&wpath)?;
         cfg.mcp = workspace_only;
         Self::write_opencode_json(&wpath, &cfg)?;
         // Drop any team copy an older build left in this file; the runtimes read
         // the team's own file now, and a leftover copy would outrank it forever.
         super::team_mcp::prune_materialised_team_mcp(&wpath)?;
+        super::team_mcp::prune_device_mcp(&wpath)?;
         // OpenCode re-reads mcp on next session start; a running session
         // needs a restart to pick up server changes.
         Ok(ApplyOutcome::RestartRequired)
@@ -1691,6 +1696,9 @@ mod tests {
 
     #[test]
     fn put_and_get_mcp_round_trips() {
+        // `playwright` is device-scoped, so the PUT lands in `~/.amuxd/mcp.json`
+        // and the isolation is what keeps this test off the real one.
+        let _iso = isolate_global_config();
         let dir = tempfile::tempdir().unwrap();
         let store = make_store();
         let wid = ws_id(dir.path());
@@ -1720,6 +1728,15 @@ mod tests {
         assert_eq!(s.server_type, "local");
         assert_eq!(s.command, vec!["npx", "@playwright/mcp"]);
         assert_eq!(s.enabled, Some(true));
+        // Device-scoped: persisted once for the machine, and never copied into
+        // the workspace config (a copy there would outrank the device file).
+        assert_eq!(s.source.as_deref(), Some("inherent"));
+        assert!(
+            super::super::team_mcp::read_persisted_mcp(dir.path())
+                .unwrap()
+                .is_empty(),
+            "device server must not be written into the workspace"
+        );
     }
 
     #[test]

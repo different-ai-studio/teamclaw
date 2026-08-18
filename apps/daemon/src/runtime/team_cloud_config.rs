@@ -310,6 +310,18 @@ fn sync_opencode_generated_unlocked(team_id: &str) -> std::io::Result<bool> {
             "opencode generated mcp must be an object",
         )
     })?;
+    // Device servers (`~/.amuxd/mcp.json`) are already in opencode's own shape,
+    // so they go in verbatim. They are inserted before the team's so a team
+    // server of the same name still wins.
+    if let Ok(body) = std::fs::read_to_string(crate::config::device_mcp::device_mcp_file()) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(servers) = json.get("mcp").and_then(|v| v.as_object()) {
+                for (name, raw) in servers {
+                    mcp_map.insert(name.clone(), raw.clone());
+                }
+            }
+        }
+    }
     if let Ok(body) = std::fs::read_to_string(team_cloud_mcp_file(team_id)) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
             let servers = json
