@@ -21,6 +21,7 @@ pub mod permission_policy;
 pub mod prompt_attachments;
 pub mod refresh;
 pub mod sidecar;
+pub mod well_known_bin;
 pub mod supervisor;
 pub mod team_cloud_config;
 pub mod team_skills;

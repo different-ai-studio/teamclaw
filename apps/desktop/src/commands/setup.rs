@@ -14,6 +14,14 @@ pub struct RequirementStatus {
     pub optional: bool,
     pub present: bool,
     pub version: Option<String>,
+    /// Why `present` is false, when we can say something better than "missing".
+    ///
+    /// Only cursor sets it today: its `satisfied` is an AND of four unrelated
+    /// conditions, so a flat "not installed" badge was actively wrong — the
+    /// usual cause is a missing API key on a machine where Cursor is installed.
+    /// `None` means the plain "not installed" reading is correct.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<String>,
 }
 
 /// Rust target triple for the current host (matches the sidecar naming convention).
@@ -147,6 +155,7 @@ pub async fn setup_list_requirements<R: Runtime>(
             optional: false,
             // Desktop-managed: the bundled sidecar is the binary we run — no
             // copy into ~/.amuxd/bin is required.
+            blocker: None,
             present: locate_bundled_amuxd().is_some(),
             version: amuxd_version.or_else(|| {
                 locate_bundled_amuxd().and_then(|p| {
@@ -169,8 +178,30 @@ pub async fn setup_list_requirements<R: Runtime>(
             optional: false,
             present: runtime_satisfied,
             version: runtime_version,
+            blocker: None,
         },
     ])
+}
+
+/// Which of cursor's four preconditions to name in the UI.
+///
+/// `cursor.satisfied` is `node && bridge_script && api_key && sdk` (see
+/// `apps/daemon/src/cursor_install/mod.rs`), and none of them is "the user
+/// installed Cursor" — so reporting a bare "not installed" sent people off to
+/// install a CLI that could not have helped. Ordered by what the user can act
+/// on: the key is theirs to supply, the rest is our own bundle being incomplete.
+fn cursor_blocker(node: &serde_json::Value) -> Option<String> {
+    let flag = |k: &str| node[k].as_bool().unwrap_or(false);
+    if !flag("apiKeyPresent") {
+        return Some("api_key".to_string());
+    }
+    if !flag("nodePresent") {
+        return Some("node".to_string());
+    }
+    if !flag("bridgeScriptPresent") || !flag("sdkInstalled") {
+        return Some("bridge".to_string());
+    }
+    None
 }
 
 /// Install status of every agent runtime the user can pick from (#881).
@@ -194,16 +225,20 @@ pub async fn setup_list_agent_runtimes<R: Runtime>(
     let doctor = read_doctor(&app, None).await;
     let status = |id: &str, key: &str, title: &str| {
         let node = doctor.as_ref().map(|d| &d[key]);
+        let present = node.and_then(|r| r["satisfied"].as_bool()).unwrap_or(false);
         RequirementStatus {
             id: id.to_owned(),
             title: title.to_owned(),
             // `optional: true` marks a runtime the app cannot install, so the
             // frontend can drop it when absent instead of offering a dead action.
             optional: id == "cursor" || id == "claude-code",
-            present: node.and_then(|r| r["satisfied"].as_bool()).unwrap_or(false),
+            present,
             version: node
                 .and_then(|r| r["version"].as_str())
                 .map(|s| s.to_string()),
+            blocker: (!present && id == "cursor")
+                .then(|| node.and_then(cursor_blocker))
+                .flatten(),
         }
     };
     Ok(vec![

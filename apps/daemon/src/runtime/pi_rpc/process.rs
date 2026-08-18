@@ -200,6 +200,10 @@ impl PiProcessPool {
         }
 
         let mut cmd = tokio::process::Command::new(&binary);
+        // Keep the spawn honest with the probe: doctor reports pi as present by
+        // resolving it in a well-known dir, so the child has to be able to run
+        // it (npm shim -> `env node`) from that same PATH.
+        cmd.env("PATH", crate::runtime::well_known_bin::augmented_path());
         cmd.arg("--mode")
             .arg("rpc")
             .arg("--session-dir")
@@ -300,7 +304,11 @@ impl PiProcessPool {
 /// Resolve the pi binary amuxd should run. Order: explicit daemon config
 /// override → `~/.pi/bin/pi` when present → `pi` on PATH.
 pub(crate) fn resolve_binary(configured: Option<&str>) -> String {
-    resolve_binary_with(configured, default_bin())
+    resolve_binary_with(
+        configured,
+        default_bin(),
+        &crate::runtime::well_known_bin::search_dirs(),
+    )
 }
 
 fn default_bin() -> Option<PathBuf> {
@@ -308,7 +316,14 @@ fn default_bin() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".pi").join("bin").join(name))
 }
 
-fn resolve_binary_with(configured: Option<&str>, default_bin: Option<PathBuf>) -> String {
+/// `well_known` is a parameter rather than a call to
+/// `well_known_bin::search_dirs()` so the precedence test below does not depend
+/// on whether the machine running it happens to have pi installed.
+fn resolve_binary_with(
+    configured: Option<&str>,
+    default_bin: Option<PathBuf>,
+    well_known: &[PathBuf],
+) -> String {
     if let Some(b) = configured {
         if !b.is_empty() && b != "claude" {
             return b.to_string();
@@ -319,7 +334,12 @@ fn resolve_binary_with(configured: Option<&str>, default_bin: Option<PathBuf>) -
             return p.to_string_lossy().to_string();
         }
     }
-    "pi".to_string()
+    // `~/.pi/bin` is only where pi's own installer puts it; a Homebrew or npm
+    // install lands elsewhere and used to fall through to the bare name, which
+    // a GUI-launched daemon cannot resolve. See runtime::well_known_bin.
+    crate::runtime::well_known_bin::find_with("pi", &[], well_known)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "pi".to_string())
 }
 
 /// Stable (FNV-1a) hash of the canonical worktree path, used to name the
@@ -442,18 +462,27 @@ mod tests {
 
     #[test]
     fn resolve_binary_precedence() {
-        assert_eq!(resolve_binary_with(Some("/opt/pi"), None), "/opt/pi");
+        assert_eq!(resolve_binary_with(Some("/opt/pi"), None, &[]), "/opt/pi");
         // serde default "claude" counts as unconfigured
-        assert_eq!(resolve_binary_with(Some("claude"), None), "pi");
-        assert_eq!(resolve_binary_with(Some(""), None), "pi");
-        assert_eq!(resolve_binary_with(None, None), "pi");
+        assert_eq!(resolve_binary_with(Some("claude"), None, &[]), "pi");
+        assert_eq!(resolve_binary_with(Some(""), None, &[]), "pi");
+        assert_eq!(resolve_binary_with(None, None, &[]), "pi");
         // existing default bin wins over PATH fallback
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("pi");
         std::fs::write(&bin, "").unwrap();
         assert_eq!(
-            resolve_binary_with(None, Some(bin.clone())),
+            resolve_binary_with(None, Some(bin.clone()), &[]),
             bin.to_string_lossy()
+        );
+        // ...and a well-known-dir hit beats the bare name when ~/.pi/bin has
+        // nothing (Homebrew / npm installs).
+        let brew = tempfile::tempdir().unwrap();
+        let brew_pi = brew.path().join("pi");
+        std::fs::write(&brew_pi, "").unwrap();
+        assert_eq!(
+            resolve_binary_with(None, None, &[brew.path().to_path_buf()]),
+            brew_pi.to_string_lossy()
         );
     }
 

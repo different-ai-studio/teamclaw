@@ -39,8 +39,11 @@ pub fn doctor() -> CursorStatus {
 }
 
 fn which_node() -> Option<String> {
+    // node is the one dependency of the cursor bridge we can look for
+    // ourselves; a Homebrew node is invisible to a GUI-launched daemon's PATH.
     let out = std::process::Command::new("node")
         .arg("--version")
+        .env("PATH", crate::runtime::well_known_bin::augmented_path())
         .output()
         .ok()?;
     out.status.success().then(|| "node".to_string())

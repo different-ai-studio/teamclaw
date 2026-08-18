@@ -160,7 +160,32 @@ export function DaemonGeneralSection() {
     [agentRuntimes],
   )
 
+  /**
+   * The short badge for an unusable runtime. "Not installed" is only the truth
+   * when nothing more specific came back: cursor is ready when node + our
+   * bridge + the SDK + an API key all line up, and reporting a missing key as
+   * "not installed" sent people off to install a CLI that would not have
+   * helped.
+   */
+  const runtimeBlockerLabel = React.useCallback(
+    (id: DaemonLocalAgent): string => {
+      switch (agentRuntimes.find((r) => r.id === id)?.blocker) {
+        case 'api_key':
+          return t('settings.daemonGeneral.runtimeNeedsApiKey', '缺 API Key')
+        case 'node':
+          return t('settings.daemonGeneral.runtimeNeedsNode', '缺 node')
+        case 'bridge':
+          return t('settings.daemonGeneral.runtimeBridgeMissing', '桥接未就绪')
+        default:
+          return t('settings.daemonGeneral.runtimeNotInstalled', '未安装')
+      }
+    },
+    [agentRuntimes, t],
+  )
+
   const selectedRuntimeMissing = localAgent !== null && runtimeInstalled(localAgent) === false
+  const selectedRuntimeBlocker =
+    localAgent !== null ? (agentRuntimes.find((r) => r.id === localAgent)?.blocker ?? null) : null
 
   React.useEffect(() => {
     if (!isTauri() || localAgent !== 'cursor') {
@@ -629,7 +654,7 @@ export function DaemonGeneralSection() {
                               {id}
                               {installed === false && (
                                 <span className="font-sans text-[10.5px] text-muted-foreground">
-                                  {t('settings.daemonGeneral.runtimeNotInstalled', '未安装')}
+                                  {runtimeBlockerLabel(id)}
                                 </span>
                               )}
                             </span>
@@ -657,11 +682,17 @@ export function DaemonGeneralSection() {
                     <dd className="col-span-2 flex items-start gap-1.5 text-[11.5px] leading-relaxed text-coral">
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <span>
-                        {t(
-                          'settings.daemonGeneral.runtimeMissingHint',
-                          '{{agent}} is not installed on this machine, so agents in this team cannot start. Pick a runtime that is installed, or install {{agent}} first.',
-                          { agent: localAgent },
-                        )}
+                        {selectedRuntimeBlocker
+                          ? t(
+                              'settings.daemonGeneral.runtimeBlockedHint',
+                              '{{agent}} 还不能用：{{reason}}。在此之前，这个团队的 agent 无法启动。',
+                              { agent: localAgent, reason: runtimeBlockerLabel(localAgent as DaemonLocalAgent) },
+                            )
+                          : t(
+                              'settings.daemonGeneral.runtimeMissingHint',
+                              '{{agent}} is not installed on this machine, so agents in this team cannot start. Pick a runtime that is installed, or install {{agent}} first.',
+                              { agent: localAgent },
+                            )}
                       </span>
                     </dd>
                   </>

@@ -32,8 +32,11 @@ pub fn resolve_binary(configured: Option<&str>) -> String {
 
 /// `<bin> --version` → the first version-like token.
 fn pi_version_of(bin: &str) -> Option<String> {
+    // PATH augmented: pi installs as an npm shim whose shebang is
+    // `#!/usr/bin/env node`, so finding the file is not enough to run it.
     let out = std::process::Command::new(bin)
         .arg("--version")
+        .env("PATH", crate::runtime::well_known_bin::augmented_path())
         .output()
         .ok()?;
     if !out.status.success() {
