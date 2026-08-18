@@ -29,6 +29,16 @@ export interface SkillLocalState {
   installedVersion: string | null
   modified: string[]
   deleted: string[]
+  /**
+   * Files in the pack directory that the install never put there — something
+   * dropped in by hand, or written by the skill's own script.
+   *
+   * Dirt in its own right: publishing measures the whole directory, so these
+   * ship with the next version whether or not anyone meant them to. The cost of
+   * reporting them is that a pack whose script writes beside itself stays in
+   * the conflict UI until the user publishes or discards.
+   */
+  added: string[]
 }
 
 /** One pack as `team_skill_list_installed` found it. */

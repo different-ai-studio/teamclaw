@@ -456,6 +456,7 @@ function ShareSheet({
 function ConflictBar({
   modified,
   deleted,
+  added,
   installedVersion,
   latestVersion,
   busy,
@@ -467,6 +468,7 @@ function ConflictBar({
 }: {
   modified: string[]
   deleted: string[]
+  added: string[]
   installedVersion: number | null
   latestVersion: number | null
   busy: boolean
@@ -483,6 +485,9 @@ function ConflictBar({
       : null,
     deleted.length
       ? t('teamShare.skillConflictDeleted', '{{files}} deleted', { files: deleted.join('、') })
+      : null,
+    added.length
+      ? t('teamShare.skillConflictAdded', '{{files}} added', { files: added.join('、') })
       : null,
   ]
     .filter(Boolean)
@@ -1443,6 +1448,7 @@ export function SkillDetail({ slug }: { slug: string }) {
       {conflicted && (
         <ConflictBar
           modified={localState?.modified ?? []}
+          added={localState?.added ?? []}
           deleted={localState?.deleted ?? []}
           installedVersion={baseVersion}
           latestVersion={item.latestVersion}
