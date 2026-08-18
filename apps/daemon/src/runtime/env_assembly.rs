@@ -124,8 +124,44 @@ pub fn assemble_spawn_runtime_env_for_execution(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_brand_env::BrandEnvGuard;
     use teamclu_runtime_env::team_crypto::{self, SecretEntry};
     use teamclu_runtime_env::{ManagedLlmModel, ManagedLlmProvider};
+
+    /// An isolated amuxd home with an active team.
+    ///
+    /// Every test that assembles a spawn environment needs this: assembly calls
+    /// `ensure_global_team_provider`, which WRITES the team provider into
+    /// `<amuxd home>/teams/<active team>/state/opencode.json`. Without the
+    /// override that path is the developer's real `~/.amuxd` — running this
+    /// suite locally overwrote the machine's actual gateway URL and model list
+    /// with these fixtures, then read them back on the next run, which is why
+    /// the same test failed differently on a developer box than on CI.
+    ///
+    /// `BrandEnvGuard` (not a private mutex) because it holds the daemon-wide
+    /// `TEST_HOME_LOCK`: `HOME`, `AMUXD_HOME` and the brand name all feed the
+    /// same process-global path resolution, so a second lock would serialize
+    /// these tests against each other while still racing `team_link` and
+    /// friends. Drop order matters — the guard restores the env before the
+    /// TempDir it points at is removed.
+    fn amuxd_home_with_active_team() -> (tempfile::TempDir, BrandEnvGuard) {
+        let home = tempfile::tempdir().unwrap();
+        let guard = BrandEnvGuard::set_amuxd_home(home.path());
+        std::fs::write(
+            home.path().join("daemon.toml"),
+            "active_team = \"team-test\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(home.path().join("teams/team-test/state")).unwrap();
+        (home, guard)
+    }
+
+    /// Where the active team's `opencode.json` lives — resolved the same way
+    /// the production writer resolves it, so the test cannot drift from the
+    /// layout by hand-joining a path.
+    fn global_team_config() -> std::path::PathBuf {
+        teamclu_runtime_env::opencode_config::global_opencode_config_path()
+    }
 
     /// Covers the production boundary, rather than merely testing the secret
     /// reader: an encrypted team value must be present in the environment that
@@ -133,6 +169,7 @@ mod tests {
     /// personal environment cannot mask a regression in this test.
     #[test]
     fn encrypted_team_secret_is_injected_into_spawn_environment() {
+        let (_home, _home_guard) = amuxd_home_with_active_team();
         let workspace = tempfile::tempdir().unwrap();
         let team_secret = "6a".repeat(32);
         let config_dir = workspace.path().join(".teamclu");
@@ -187,6 +224,7 @@ mod tests {
 
     #[test]
     fn worktree_uses_parent_team_env_and_materializes_its_own_opencode_config() {
+        let (_home, _home_guard) = amuxd_home_with_active_team();
         let workspace = tempfile::tempdir().unwrap();
         let worktree = workspace.path().join(".worktrees/cron-j1-r1");
         std::fs::create_dir_all(&worktree).unwrap();
@@ -257,20 +295,35 @@ mod tests {
                 .map(String::as_str),
             Some("from-parent")
         );
+        // The worktree config carries the workspace's own `${KEY}` placeholders,
+        // resolved from the PARENT workspace's team env.
         let materialized = std::fs::read_to_string(worktree.join("opencode.json")).unwrap();
-        assert!(materialized.contains("cron-model"));
         assert!(materialized.contains("from-parent"));
         assert!(
             !workspace.path().join("opencode.json").exists(),
-            "provider/config materialization belongs in the execution worktree"
+            "placeholder resolution belongs in the execution worktree"
+        );
+        // The team provider is NOT part of that file any more: since #941 it is
+        // scoped to the active team and written once, globally.
+        let global = std::fs::read_to_string(global_team_config()).unwrap();
+        assert!(
+            global.contains("cron-model"),
+            "the managed provider belongs in the active team's global opencode.json"
+        );
+        assert!(
+            !materialized.contains("cron-model"),
+            "and must not be duplicated into the worktree config"
         );
     }
 
     #[test]
     fn unknown_managed_llm_with_disk_provider_matches_enabled_fingerprint() {
+        let (_home, _home_guard) = amuxd_home_with_active_team();
         let workspace = tempfile::tempdir().unwrap();
+        // The "disk provider" a cold cache falls back to is the active team's
+        // global config (`read_global_team_provider`), not the workspace's.
         std::fs::write(
-            workspace.path().join("opencode.json"),
+            global_team_config(),
             serde_json::json!({
                 "provider": {
                     "team": {
@@ -319,7 +372,7 @@ mod tests {
 
         assert!(
             from_unknown.extra_env.contains_key("TEAMCLU_TEAM_PROVIDER"),
-            "Unknown + disk provider.team must still inject TEAMCLU_TEAM_PROVIDER"
+            "Unknown + global provider.team must still inject TEAMCLU_TEAM_PROVIDER"
         );
         assert_eq!(
             from_unknown.extra_env.get("TEAMCLU_TEAM_PROVIDER"),
