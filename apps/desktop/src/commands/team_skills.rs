@@ -863,6 +863,10 @@ pub struct TeamSkillInspectResult {
     pub installed_version: Option<String>,
     pub modified: Vec<String>,
     pub deleted: Vec<String>,
+    /// Files in the pack directory that the install never put there. Dirt in
+    /// its own right: the publish path measures the whole directory, so these
+    /// ship with the next version.
+    pub added: Vec<String>,
 }
 
 /// Does this pack still look the way we installed it?
@@ -905,6 +909,7 @@ pub fn team_skill_inspect(
         installed_version: None,
         modified: Vec::new(),
         deleted: Vec::new(),
+        added: Vec::new(),
     };
 
     if !target.exists() {
@@ -920,6 +925,7 @@ pub fn team_skill_inspect(
             installed_version: Some(origin.installed_version.clone()),
             modified: Vec::new(),
             deleted: Vec::new(),
+            added: Vec::new(),
         });
     }
 
@@ -931,12 +937,17 @@ pub fn team_skill_inspect(
 
     let baseline = origin.and_then(|o| o.files);
     match inspect(&target, baseline.as_ref()) {
-        DirtyState::Dirty { modified, deleted } => Ok(TeamSkillInspectResult {
+        DirtyState::Dirty {
+            modified,
+            deleted,
+            added,
+        } => Ok(TeamSkillInspectResult {
             slug,
             state: "dirty".to_string(),
             installed_version,
             modified,
             deleted,
+            added,
         }),
         _ => Ok(TeamSkillInspectResult {
             slug,
@@ -944,6 +955,7 @@ pub fn team_skill_inspect(
             installed_version,
             modified: Vec::new(),
             deleted: Vec::new(),
+            added: Vec::new(),
         }),
     }
 }
@@ -976,8 +988,12 @@ pub async fn team_skill_diff(
         validate_slug(&slug)?;
         let target = global_skills_dir()?.join(&slug);
 
-        let (modified, deleted) = match installed_state(&target) {
-            DirtyState::Dirty { modified, deleted } => (modified, deleted),
+        let (modified, deleted, added) = match installed_state(&target) {
+            DirtyState::Dirty {
+                modified,
+                deleted,
+                added,
+            } => (modified, deleted, added),
             _ => return Ok(Vec::new()),
         };
 
@@ -1030,7 +1046,10 @@ pub async fn team_skill_diff(
         };
 
         let mut out = Vec::new();
-        for rel in modified.into_iter().chain(deleted) {
+        // `added` rides the same loop on purpose: the staging copy has no such
+        // file, so `read_text` returns None for the baseline side and the diff
+        // renders as "all new" — which is exactly what it is.
+        for rel in modified.into_iter().chain(deleted).chain(added) {
             let (baseline, baseline_binary) = read_text(&staging.path().join(&rel));
             let (current, current_binary) = read_text(&target.join(&rel));
             out.push(TeamSkillFileDiff {
@@ -1337,9 +1356,54 @@ mod tests {
         std::fs::write(&path, edited).unwrap();
 
         match installed_state(&skill) {
-            DirtyState::Dirty { modified, deleted } => {
+            DirtyState::Dirty {
+                modified,
+                deleted,
+                added,
+            } => {
                 assert_eq!(modified, vec!["SKILL.md".to_string()]);
                 assert!(deleted.is_empty());
+                assert!(added.is_empty());
+            }
+            other => panic!("expected dirty, got {:?}", other),
+        }
+    }
+
+    /// A file dropped into an installed pack is dirt, even though every file
+    /// the install laid down is untouched: publishing measures the whole
+    /// directory, so this one would ship with the next version.
+    #[test]
+    fn a_file_added_beside_the_pack_is_dirty() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let skill = dir.path().join("deploy-check");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: deploy-check\n---\nbody\n",
+        )
+        .unwrap();
+        stamp_installed_state(
+            &skill,
+            InstalledStamp {
+                slug: "deploy-check",
+                version: 3,
+                team_id: Some("team-a"),
+                shipped: None,
+            },
+        )
+        .unwrap();
+
+        std::fs::write(skill.join("notes.md"), "mine\n").unwrap();
+
+        match installed_state(&skill) {
+            DirtyState::Dirty {
+                modified,
+                deleted,
+                added,
+            } => {
+                assert!(modified.is_empty(), "nothing the install wrote changed");
+                assert!(deleted.is_empty());
+                assert_eq!(added, vec!["notes.md".to_string()]);
             }
             other => panic!("expected dirty, got {:?}", other),
         }

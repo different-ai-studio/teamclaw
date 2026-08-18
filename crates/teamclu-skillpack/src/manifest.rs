@@ -42,6 +42,19 @@ pub enum DirtyState {
     Dirty {
         modified: Vec<String>,
         deleted: Vec<String>,
+        /// Files present in the pack directory that the baseline never
+        /// mentioned — something the user dropped in.
+        ///
+        /// These count as dirt because the pack directory *is* the package on
+        /// the publish path (`build_manifest` measures the whole thing), so an
+        /// extra file is not inert: the next publish ships it. Reporting it is
+        /// what lets the user see that before it goes out.
+        ///
+        /// The cost is real and was designed against once already: a skill
+        /// whose own script writes a log or cache beside itself now shows up as
+        /// dirty, which pauses auto-follow for that pack until the user
+        /// publishes (adopting the file) or discards (removing it).
+        added: Vec<String>,
     },
     /// No baseline was recorded. Either the pack predates manifests or somebody
     /// created the directory by hand; in both cases we know nothing about what
@@ -220,10 +233,28 @@ pub fn inspect(dir: &Path, baseline: Option<&FileManifest>) -> DirtyState {
         }
     }
 
-    if modified.is_empty() && deleted.is_empty() {
+    // Anything on disk the baseline never listed. `list_managed_paths` already
+    // drops `.clawhub/` (our own bookkeeping) and symlinks, so this is exactly
+    // "files a person or a script put here".
+    let added: Vec<String> = match list_managed_paths(dir) {
+        Ok(on_disk) => on_disk
+            .into_iter()
+            .filter(|rel| !baseline.contains_key(rel))
+            .collect(),
+        // Unreadable directory: the per-file loop above has already reported
+        // every baseline entry as deleted, so claiming additions on top would
+        // be noise.
+        Err(_) => Vec::new(),
+    };
+
+    if modified.is_empty() && deleted.is_empty() && added.is_empty() {
         DirtyState::Clean
     } else {
-        DirtyState::Dirty { modified, deleted }
+        DirtyState::Dirty {
+            modified,
+            deleted,
+            added,
+        }
     }
 }
 
@@ -272,7 +303,9 @@ mod tests {
         std::fs::remove_file(dir.join("scripts/check.sh")).unwrap();
 
         match inspect(&dir, Some(&m)) {
-            DirtyState::Dirty { modified, deleted } => {
+            DirtyState::Dirty {
+                modified, deleted, ..
+            } => {
                 assert_eq!(modified, vec!["SKILL.md".to_string()]);
                 assert_eq!(deleted, vec!["scripts/check.sh".to_string()]);
             }
@@ -281,13 +314,21 @@ mod tests {
     }
 
     #[test]
-    fn files_the_package_never_shipped_are_invisible() {
+    fn files_the_package_never_shipped_are_reported_as_added() {
         let (_tmp, dir) = fixture();
         let m = build_manifest(&dir).unwrap();
-        // A script writing its cache next to itself is the common case; it must
-        // not pin the skill as dirty and stall auto-follow forever.
+        // A script writing its cache next to itself used to be waved through,
+        // to keep auto-follow from stalling on a file nobody edited. It is now
+        // reported instead: the publish path measures the whole directory, so
+        // staying silent meant shipping a file the author never saw. The pack
+        // pauses in the conflict UI until they publish or discard it.
         write(&dir, "cache/run.log", "noise\n");
-        assert_eq!(inspect(&dir, Some(&m)), DirtyState::Clean);
+        match inspect(&dir, Some(&m)) {
+            DirtyState::Dirty { added, .. } => {
+                assert_eq!(added, vec!["cache/run.log".to_string()]);
+            }
+            other => panic!("expected an addition, got {other:?}"),
+        }
     }
 
     #[test]
@@ -327,9 +368,8 @@ mod tests {
 
     #[test]
     fn a_scoped_manifest_ignores_what_the_package_did_not_ship() {
-        // The upgrade case. `build_manifest` would sweep the script's own log
-        // into the baseline, and the next time the script ran the pack would be
-        // "modified" — auto-follow stopped for good over a file nobody edited.
+        // The upgrade case: a scoped baseline must not ADOPT the script's own
+        // log, or every later write to it would read as "modified".
         let (_tmp, dir) = fixture();
         write(&dir, "cache/run.log", "noise\n");
         let shipped = vec!["SKILL.md".to_string(), "scripts/check.sh".to_string()];
@@ -339,8 +379,55 @@ mod tests {
         assert_eq!(scoped.len(), 2);
         assert!(!scoped.contains_key("cache/run.log"));
         assert!(build_manifest(&dir).unwrap().contains_key("cache/run.log"));
+
+        // It is still not `modified` — but it IS reported as added, and that is
+        // a deliberate change of policy: the publish path measures the whole
+        // directory, so this file would ship with the next version. The user
+        // has to see it. The price is that a pack whose script writes beside
+        // itself sits in the conflict UI until they publish or discard.
         write(&dir, "cache/run.log", "more noise\n");
-        assert_eq!(inspect(&dir, Some(&scoped)), DirtyState::Clean);
+        match inspect(&dir, Some(&scoped)) {
+            DirtyState::Dirty {
+                modified,
+                deleted,
+                added,
+            } => {
+                assert!(modified.is_empty(), "the log is not a baseline file");
+                assert!(deleted.is_empty());
+                assert_eq!(added, vec!["cache/run.log".to_string()]);
+            }
+            other => panic!("expected the stray file to be reported: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_file_the_user_drops_in_is_added_not_modified() {
+        let (_tmp, dir) = fixture();
+        let m = build_manifest(&dir).unwrap();
+        write(&dir, "notes.md", "my own notes\n");
+
+        match inspect(&dir, Some(&m)) {
+            DirtyState::Dirty {
+                modified,
+                deleted,
+                added,
+            } => {
+                assert!(modified.is_empty());
+                assert!(deleted.is_empty());
+                assert_eq!(added, vec!["notes.md".to_string()]);
+            }
+            other => panic!("a new file must be dirt: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn our_own_bookkeeping_directory_is_never_an_addition() {
+        let (_tmp, dir) = fixture();
+        let m = build_manifest(&dir).unwrap();
+        // `.clawhub/` holds the baseline itself — reporting it would make every
+        // installed pack permanently dirty.
+        write(&dir, &format!("{EXCLUDED_DIR}/origin.json"), "{}\n");
+        assert_eq!(inspect(&dir, Some(&m)), DirtyState::Clean);
     }
 
     #[test]
