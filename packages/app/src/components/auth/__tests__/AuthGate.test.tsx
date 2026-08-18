@@ -18,6 +18,16 @@ const { setLocalCacheTeamGateMock, removeStartupSkeletonMock, isTauriMock, exten
   },
 }));
 
+/**
+ * The persisted current-team snapshot (localStorage) the gate reads to decide
+ * what to restore. Mutable so a test can present a returning user.
+ */
+const { cachedTeamMock } = vi.hoisted(() => ({
+  cachedTeamMock: {
+    value: null as null | { team: { id: string } | null; teamUserId: string | null },
+  },
+}));
+
 const { authState, currentTeamMock, backendMock } = vi.hoisted(() => ({
   authState: {
     session: { user: { id: "user-1" } } as { user: { id: string; isAnonymous?: boolean } } | null,
@@ -69,7 +79,7 @@ vi.mock("@/stores/current-team", () => ({
     getState: () => currentTeamMock,
   },
   setLocalCacheTeamGate: setLocalCacheTeamGateMock,
-  readCachedCurrentTeam: () => null,
+  readCachedCurrentTeam: () => cachedTeamMock.value,
 }));
 
 vi.mock("@/lib/backend", () => ({
@@ -172,6 +182,7 @@ beforeEach(() => {
   currentTeamMock.switchToTeam.mockReset();
   currentTeamMock.team = null;
   currentTeamMock.teamUserId = null;
+  cachedTeamMock.value = null;
   backendMock.teams.listAllMyTeams.mockResolvedValue([]);
   backendMock.teams.bootstrapTeam.mockResolvedValue({ id: "team-bootstrap", name: "Bootstrap", slug: "bootstrap" });
   setLocalCacheTeamGateMock.mockClear();
@@ -255,6 +266,86 @@ describe("AuthGate", () => {
 
     await waitFor(() => expect(currentTeamMock.switchToTeam).toHaveBeenCalledWith("team-cached"));
     await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+  });
+
+  /*
+   * The remembered team must outrank the picker. Before this, the picker's gate
+   * (2+ memberships, or any joinable public team) was checked FIRST, so a
+   * returning user with several teams re-picked on every single launch and the
+   * remembered id only decorated a row with a "Last used" badge.
+   */
+  it("restores the remembered team instead of asking again when the user has several", async () => {
+    cachedTeamMock.value = { team: { id: "team-b" }, teamUserId: "user-1" };
+    backendMock.teams.listAllMyTeams.mockResolvedValue([
+      { id: "team-a", name: "Alpha", slug: "alpha", orgId: "org-1", orgName: "Org" },
+      { id: "team-b", name: "Beta", slug: "beta", orgId: "org-1", orgName: "Org" },
+      { id: "team-c", name: "Gamma", slug: "gamma", orgId: "org-2", orgName: "Other" },
+    ]);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(currentTeamMock.switchToTeam).toHaveBeenCalledWith("team-b"));
+    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+    expect(screen.queryByText(/Team picker/)).not.toBeInTheDocument();
+  });
+
+  // Every org gets an org-named PUBLIC default team, so a single-membership user
+  // normally has a joinable row in the listing too — which used to be enough to
+  // force the picker on every launch.
+  it("restores the remembered team even when a joinable public team is listed", async () => {
+    cachedTeamMock.value = { team: { id: "team-mine" }, teamUserId: "user-1" };
+    backendMock.teams.listAllMyTeams.mockResolvedValue([
+      { id: "team-mine", name: "Mine", slug: "mine", orgId: "org-1", orgName: "Org" },
+      { id: "team-open", name: "Org", slug: "org", orgId: "org-1", orgName: "Org", isMember: false },
+    ]);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(currentTeamMock.switchToTeam).toHaveBeenCalledWith("team-mine"));
+    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+    expect(screen.queryByText(/Team picker/)).not.toBeInTheDocument();
+  });
+
+  it("falls back to the picker when the remembered team is no longer a membership", async () => {
+    cachedTeamMock.value = { team: { id: "team-gone" }, teamUserId: "user-1" };
+    backendMock.teams.listAllMyTeams.mockResolvedValue([
+      { id: "team-a", name: "Alpha", slug: "alpha", orgId: "org-1", orgName: "Org" },
+      { id: "team-b", name: "Beta", slug: "beta", orgId: "org-1", orgName: "Org" },
+    ]);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Team picker/)).toBeInTheDocument());
+    expect(currentTeamMock.switchToTeam).not.toHaveBeenCalled();
+  });
+
+  it("ignores a remembered team that belongs to a different user", async () => {
+    cachedTeamMock.value = { team: { id: "team-foreign" }, teamUserId: "other-user" };
+    backendMock.teams.listAllMyTeams.mockResolvedValue([
+      { id: "team-a", name: "Alpha", slug: "alpha", orgId: "org-1", orgName: "Org" },
+      { id: "team-foreign", name: "Foreign", slug: "foreign", orgId: "org-9", orgName: "Theirs" },
+    ]);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Team picker/)).toBeInTheDocument());
+    expect(currentTeamMock.switchToTeam).not.toHaveBeenCalled();
   });
 
   it("does not adopt a cached team that belongs to a different user", async () => {

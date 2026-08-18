@@ -1237,6 +1237,8 @@
       "teamId": "Team ID",
       "orgName": "Org name",
       "orgId": "Org ID",
+      "switchTeam": "Switch team",
+      "switchTeamDesc": "Pick the team to work in. The app reopens in it and remembers the choice.",
       "appearance": "Appearance",
       "language": "Language",
       "languageDesc": "Choose the app display language",
@@ -2951,6 +2953,7 @@
     "public": "Public",
     "ungrouped": "Other",
     "lastUsed": "Last used",
+    "current": "Current",
     "memberCount": "{{count}} members",
     "memberCount_one": "{{count}} member",
     "memberCount_other": "{{count}} members"

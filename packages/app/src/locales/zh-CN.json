@@ -1237,6 +1237,8 @@
       "teamId": "团队 ID",
       "orgName": "组织名称",
       "orgId": "组织 ID",
+      "switchTeam": "切换团队",
+      "switchTeamDesc": "选择要进入的团队。应用会切换过去，并在下次启动时记住这次选择。",
       "appearance": "外观",
       "language": "语言",
       "languageDesc": "选择应用界面语言",
@@ -2951,6 +2953,7 @@
     "public": "公开",
     "ungrouped": "其它",
     "lastUsed": "最后使用",
+    "current": "当前",
     "memberCount": "{{count}} 人",
     "memberCount_one": "{{count}} 人",
     "memberCount_other": "{{count}} 人"

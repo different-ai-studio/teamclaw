@@ -46,16 +46,31 @@ function needsTeamPicker(teams: MembershipTeam[]): boolean {
   return memberTeams(teams).length > 1 || teams.some((team) => team.isMember === false);
 }
 
+/**
+ * The team to enter without asking. A remembered team OUTRANKS the picker: the
+ * user already made that choice on a previous launch, and re-asking every cold
+ * start is the bug this ordering fixes.
+ *
+ * Checking `needsTeamPicker` first (as this did) made the remembered id dead
+ * code — anyone with 2+ memberships, or with a single joinable public team in
+ * their org (every org has an org-named public default team since #959), got
+ * the picker on every launch with "Last used" as a badge and nothing more.
+ *
+ * The picker therefore only appears when there is no usable history: a genuine
+ * first login, or a remembered team the user is no longer a member of.
+ * Switching afterwards is Settings → General → switch team.
+ */
 function pickAutoRestoreTarget(
   teams: MembershipTeam[],
   lastUsedTeamId: string | null,
 ): MembershipTeam | undefined {
-  if (needsTeamPicker(teams)) return undefined;
   const members = memberTeams(teams);
-  return (
-    (lastUsedTeamId ? members.find((team) => team.id === lastUsedTeamId) : undefined) ??
-    (members.length === 1 ? members[0] : undefined)
-  );
+  const remembered = lastUsedTeamId
+    ? members.find((team) => team.id === lastUsedTeamId)
+    : undefined;
+  if (remembered) return remembered;
+  if (needsTeamPicker(teams)) return undefined;
+  return members.length === 1 ? members[0] : undefined;
 }
 
 export function AuthGate({ children }: AuthGateProps) {
