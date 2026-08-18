@@ -30,7 +30,7 @@ function makeApp({
   } as any);
 }
 
-test("GET /v1/teams?scope=all forwards empty-org picker opt-in and returns orgName", async () => {
+test("GET /v1/teams?scope=all returns orgName and takes no listing options", async () => {
   let received: any;
   const app = makeApp({
     listAllMyTeams: async (args: any) => {
@@ -41,31 +41,35 @@ test("GET /v1/teams?scope=all forwards empty-org picker opt-in and returns orgNa
       ];
     },
   });
+  // `includeEmptyOrgs` is gone: an org with no team now gets one on its first
+  // member's login, so there is no empty-org picker row to opt into. A stray
+  // query param must simply be ignored, not forwarded.
   const res = await app.request("/v1/teams?scope=all&includeEmptyOrgs=true", {
     headers: { authorization: "Bearer x" },
   });
   assert.equal(res.status, 200);
   const body = (await res.json()) as any;
-  assert.deepEqual(received, { includeEmptyOrgs: true });
+  assert.deepEqual(received, undefined);
   assert.equal(body.items.length, 2);
   assert.equal(body.items[0].orgName, "Org One");
   assert.equal(body.nextCursor, null);
 });
 
-test("GET /v1/teams?scope=discoverable returns public browsing rows", async () => {
+test("GET /v1/teams?scope=discoverable is gone — it falls through to the member listing", async () => {
+  // Anonymous public-team browsing was removed with anonymous sign-in. An old
+  // client still sending the scope must get the ordinary listing rather than a
+  // route error.
+  let discoverableCalled = false;
   const app = makeApp({
-    listDiscoverableTeams: async () => [
-      { id: "public-1", name: "Open Team", slug: "open", orgId: "o1", orgName: "Org One", visibility: "public", isMember: false },
-    ],
+    listDiscoverableTeams: async () => { discoverableCalled = true; return []; },
   });
   const res = await app.request("/v1/teams?scope=discoverable", {
-    headers: { authorization: "Bearer anonymous-token" },
+    headers: { authorization: "Bearer x" },
   });
   assert.equal(res.status, 200);
   const body = await res.json() as any;
-  assert.deepEqual(body.items[0], {
-    id: "public-1", name: "Open Team", slug: "open", orgId: "o1", orgName: "Org One", visibility: "public", isMember: false,
-  });
+  assert.equal(discoverableCalled, false);
+  assert.equal(body.items[0].id, "active-only");
 });
 
 test("POST /v1/teams/bootstrap delegates atomic first-team creation", async () => {
@@ -82,31 +86,13 @@ test("POST /v1/teams/bootstrap delegates atomic first-team creation", async () =
     body: JSON.stringify({ displayName: "Boss" }),
   });
   assert.equal(res.status, 200);
-  // deviceId rides along for guest-team reuse; a signed-in bootstrap sends none.
-  assert.deepEqual(input, { displayName: "Boss", orgId: null, deviceId: null });
+  // displayName is the whole input now: `orgId` went with the empty-org picker
+  // row and `deviceId` with the guest-team reuse the anonymous path needed.
+  assert.deepEqual(input, { displayName: "Boss" });
   assert.equal((await res.json() as any).name, "Org One");
 });
 
-test("POST /v1/teams/bootstrap forwards an explicitly selected empty org", async () => {
-  let input: any;
-  const app = makeApp({
-    bootstrapTeam: async (received: any) => {
-      input = received;
-      return { id: "org-team", name: "Org One", slug: "org-one" };
-    },
-  });
-  const res = await app.request("/v1/teams/bootstrap", {
-    method: "POST",
-    headers: { authorization: "Bearer x", "content-type": "application/json" },
-    body: JSON.stringify({ orgId: "00000000-0000-4000-8000-000000000001" }),
-  });
-  assert.equal(res.status, 200);
-  assert.deepEqual(input, {
-    displayName: null,
-    orgId: "00000000-0000-4000-8000-000000000001",
-    deviceId: null,
-  });
-});
+
 
 test("GET /v1/teams (no scope) keeps the active-org listing", async () => {
   let allCalled = false;
