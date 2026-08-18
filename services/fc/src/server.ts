@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { resolveBackendKind } from "./lib/backend-kind.js";
-import { makeBusinessRepoFactory, makeAuthRepoFactory } from "./index.js";
+import { makeBusinessRepoFactory, makeAuthRepoFactory, vanityLookup } from "./index.js";
 import { runCronTask } from "./lib/cron.js";
 import { getDb } from "./db/client.js";
 
@@ -11,6 +11,9 @@ const app = createApp({
   createRepository: makeBusinessRepoFactory(kind),
   createAuthRepository: makeAuthRepoFactory(kind),
   runCron: (task: string) => runCronTask(getDb(), task),
+  // This entry — not the FC handler — is what serves apps on their own
+  // hostnames, because the reverse proxy in front of it is the self-host one.
+  lookupVanityApp: vanityLookup(),
 });
 
 const parsedPort = Number(process.env.PORT);

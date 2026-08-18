@@ -7,18 +7,25 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createApp } from "../src/app.js";
 import { appPublicUrl, appPublicLabel, parseAppPublicHost } from "../src/lib/apps-public-host.js";
-import { isServable, proxyToApp } from "../src/lib/apps-vanity.js";
+import {
+  isServable, proxyToApp, selectByIdPrefix, makeSupabaseVanityLookup, makeVanityLookup,
+} from "../src/lib/apps-vanity.js";
 
 const DOMAIN = "apps.teamclu-dev.ucar.cc";
 const APP_ID = "18e4ecad-6189-495b-a873-7fe09179a5f5";
 const env = { APPS_PUBLIC_DOMAIN: DOMAIN } as NodeJS.ProcessEnv;
 
-function withDomain<T>(fn: () => T): T {
+/** Awaits the callback before restoring: a sync `finally` would put the domain
+ *  back while the async body is still between its first and second await. */
+async function withDomain<T>(fn: () => T | Promise<T>): Promise<T> {
   const prev = process.env.APPS_PUBLIC_DOMAIN;
   process.env.APPS_PUBLIC_DOMAIN = DOMAIN;
-  try { return fn(); } finally {
+  try { return await fn(); } finally {
     if (prev === undefined) delete process.env.APPS_PUBLIC_DOMAIN;
     else process.env.APPS_PUBLIC_DOMAIN = prev;
   }
@@ -135,11 +142,109 @@ test("requests on the API's own host still reach the API", async () => {
   });
 });
 
+test("an ambiguous id prefix serves neither app", () => {
+  const rows = [
+    { id: "18e4ecad-1111", slug: "website", fcEndpoint: "https://a", fcStatus: "live" },
+    { id: "18e4ecad-2222", slug: "website", fcEndpoint: "https://b", fcStatus: "live" },
+  ];
+  assert.equal(selectByIdPrefix(rows, "18e4ecad"), null, "a coin flip between teams is not an answer");
+  assert.equal(selectByIdPrefix(rows, "18e4ecad-1"), rows[0]);
+  assert.equal(selectByIdPrefix(rows, "deadbeef"), null);
+});
+
 test("isServable requires a live status AND an endpoint", () => {
   assert.equal(isServable(null), false);
   assert.equal(isServable({ id: "1", slug: "s", fcStatus: "live", fcEndpoint: null }), false);
   assert.equal(isServable({ id: "1", slug: "s", fcStatus: "deploy_error", fcEndpoint: "https://x" }), false);
   assert.equal(isServable({ id: "1", slug: "s", fcStatus: "live", fcEndpoint: "https://x" }), true);
+});
+
+// --- both entry points ------------------------------------------------------
+
+test("every createApp() call wires the vanity lookup", () => {
+  // There are two entries: the container (server.ts) and the Alibaba FC handler
+  // (index.ts). The first version of this feature wired only the handler, so
+  // the self-host container — the ONLY deployment that serves vanity hosts —
+  // registered neither the proxy nor `ask`, and answered a bare 404 that looked
+  // exactly like a DNS or certificate problem.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  for (const entry of ["server.ts", "index.ts"]) {
+    const src = fs.readFileSync(path.join(here, "../src", entry), "utf8");
+    assert.match(
+      src,
+      /createApp\(\{[\s\S]*?lookupVanityApp[\s\S]*?\}\)/,
+      `${entry} builds an app without lookupVanityApp`,
+    );
+  }
+});
+
+// --- which database the lookup reads --------------------------------------
+
+test("the supabase lookup filters by slug and matches the id prefix in memory", async () => {
+  // NOT `id like '18e4ecad%'`: `id` is a uuid column and Postgres has no
+  // `uuid ~~ text` operator, so that filter comes back as a query ERROR rather
+  // than an empty result — a failure mode that only shows up against a real
+  // database, never against a mock that accepts any filter.
+  const calls: any[] = [];
+  const client = {
+    from(table: string) {
+      const q: any = {
+        select(cols: string) { calls.push(["select", table, cols]); return q; },
+        eq(col: string, val: string) { calls.push(["eq", col, val]); return q; },
+        like() { throw new Error("must not filter a uuid column with LIKE"); },
+        limit() {
+          return Promise.resolve({
+            data: [
+              { id: "18e4ecad-6189-495b-a873-7fe09179a5f5", slug: "website", fc_endpoint: "https://up", fc_status: "live" },
+              { id: "99999999-0000-0000-0000-000000000000", slug: "website", fc_endpoint: "https://other", fc_status: "live" },
+            ],
+            error: null,
+          });
+        },
+      };
+      return q;
+    },
+  };
+  const lookup = makeSupabaseVanityLookup(() => client);
+  const found = await withDomain(() => lookup(`website-18e4ecad.${DOMAIN}`));
+  assert.equal(found?.fcEndpoint, "https://up", "the OTHER team's app must not be served");
+  assert.deepEqual(calls.find((c) => c[0] === "eq"), ["eq", "slug", "website"]);
+});
+
+test("the supabase lookup surfaces a query error instead of reporting 'no such app'", async () => {
+  // Answering null on an error would tell Caddy the app does not exist, and a
+  // transient database blip would look exactly like a deleted app.
+  const client = { from: () => ({ select: () => ({ eq: () => ({ limit: async () => ({ data: null, error: { message: "boom" } }) }) }) }) };
+  const lookup = makeSupabaseVanityLookup(() => client);
+  await assert.rejects(
+    () => withDomain(() => lookup(`website-18e4ecad.${DOMAIN}`)),
+    /vanity app lookup failed: boom/,
+  );
+});
+
+test("the backend picks the client, and neither is built for a non-app host", async () => {
+  // getDb() throws outright when DATABASE_URL is unset — the normal state of a
+  // self-host box on the supabase backend — so choosing eagerly, or choosing
+  // wrong, takes down every request that merely passes through.
+  let dbBuilt = 0;
+  let srBuilt = 0;
+  const lookup = makeVanityLookup({
+    backendKind: () => "supabase",
+    getDb: () => { dbBuilt++; throw new Error("DATABASE_URL is not set"); },
+    getServiceRoleClient: () => {
+      srBuilt++;
+      return { from: () => ({ select: () => ({ eq: () => ({ limit: async () => ({ data: [], error: null }) }) }) }) };
+    },
+  });
+
+  await withDomain(async () => {
+    assert.equal(await lookup("api.teamclu-dev.ucar.cc"), null);
+    assert.equal(dbBuilt + srBuilt, 0, "a non-app host must not build any client");
+
+    assert.equal(await lookup(`ghost-18e4ecad.${DOMAIN}`), null);
+    assert.equal(srBuilt, 1, "supabase backend must use the service-role client");
+    assert.equal(dbBuilt, 0, "and must never touch getDb()");
+  });
 });
 
 // --- the proxy itself ------------------------------------------------------

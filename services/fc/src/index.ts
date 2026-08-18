@@ -23,6 +23,7 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { resolveAppsOss, getAppsS3Client } from "./lib/provisioning/apps-oss.js";
 import { makeVanityLookup } from "./lib/apps-vanity.js";
+import { createServiceRoleClient } from "./lib/supabase.js";
 import type { JWTVerifyGetKey } from "jose";
 
 // ---------------------------------------------------------------------------
@@ -111,6 +112,23 @@ function makeDeployDeps() {
   };
 }
 
+/**
+ * Vanity-host lookup, wired for whichever backend this deployment runs.
+ *
+ * Exported so the container entry (server.ts) and the FC handler below share
+ * ONE wiring. They are two separate `createApp()` calls, and the first version
+ * of this feature configured only the handler — so the self-host container,
+ * the only deployment that actually serves vanity hosts, registered neither
+ * the proxy nor the `ask` endpoint and answered a plain 404.
+ */
+export function vanityLookup() {
+  return makeVanityLookup({
+    backendKind: () => resolveBackendKind(),
+    getDb,
+    getServiceRoleClient: createServiceRoleClient,
+  });
+}
+
 export function makeAuthRepoFactory(kind: "supabase" | "postgres") {
   if (kind === "postgres") {
     return () => createPgAuthRepository();
@@ -186,9 +204,7 @@ const app = createApp({
   createRepository: makeBusinessRepoFactory(resolveBackendKind()),
   createAuthRepository: makeAuthRepoFactory(resolveBackendKind()),
   runCron: (task: string) => runCronTask(getDb(), task),
-  // Reads the control-plane database directly on both backends: the vanity
-  // host and the Caddy `ask` probe carry no bearer token to scope a repo with.
-  lookupVanityApp: makeVanityLookup(getDb),
+  lookupVanityApp: vanityLookup(),
 });
 
 const honoHandler = handle(app);

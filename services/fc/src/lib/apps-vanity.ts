@@ -32,7 +32,20 @@ type DbLike = any;
 
 export type LookupVanityApp = (host: string) => Promise<VanityApp | null>;
 
-export function makeVanityLookup(getDb: () => DbLike): LookupVanityApp {
+/**
+ * Of the apps sharing a slug (one per team at most), the one whose id starts
+ * with the prefix from the hostname.
+ *
+ * Two hits means two teams whose slugs AND id prefixes collide — serving either
+ * would be a coin flip between different teams' apps, so serve neither.
+ */
+export function selectByIdPrefix(rows: VanityApp[], idPrefix: string): VanityApp | null {
+  const hits = rows.filter((r) => typeof r.id === "string" && r.id.startsWith(idPrefix));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** Postgres backend: read the control-plane tables directly. */
+export function makePgVanityLookup(getDb: () => DbLike): LookupVanityApp {
   return async (host: string) => {
     const parsed = parseAppPublicHost(host);
     if (!parsed) return null;
@@ -45,12 +58,56 @@ export function makeVanityLookup(getDb: () => DbLike): LookupVanityApp {
       })
       .from(apps)
       .where(and(eq(apps.slug, parsed.slug), sql`${apps.id}::text like ${parsed.idPrefix + "%"}`))
-      // Two rows means two teams whose slugs AND id prefixes collide. Serving
-      // either one would be a coin flip between different teams' apps, so serve
-      // neither — `limit(2)` is what makes that case visible at all.
       .limit(2);
-    if (rows.length !== 1) return null;
-    return rows[0] as VanityApp;
+    return selectByIdPrefix(rows as VanityApp[], parsed.idPrefix);
+  };
+}
+
+/**
+ * Supabase backend: PostgREST with the service-role key, which is how every
+ * other tokenless path here reads the database.
+ *
+ * Filters on slug alone and matches the id prefix in memory rather than asking
+ * PostgREST for `id like '…%'`: `id` is a uuid column, and Postgres has no
+ * `uuid ~~ text` operator — that filter fails as a query error, not as an empty
+ * result. At most one row per team shares a slug, so the list is tiny.
+ */
+export function makeSupabaseVanityLookup(getClient: () => any): LookupVanityApp {
+  return async (host: string) => {
+    const parsed = parseAppPublicHost(host);
+    if (!parsed) return null;
+    const { data, error } = await getClient()
+      .from("apps")
+      .select("id, slug, fc_endpoint, fc_status")
+      .eq("slug", parsed.slug)
+      .limit(50);
+    if (error) throw new Error(`vanity app lookup failed: ${error.message}`);
+    const rows: VanityApp[] = (data ?? []).map((r: any) => ({
+      id: r.id, slug: r.slug, fcEndpoint: r.fc_endpoint ?? null, fcStatus: r.fc_status ?? null,
+    }));
+    return selectByIdPrefix(rows, parsed.idPrefix);
+  };
+}
+
+/**
+ * The lookup this deployment can actually perform.
+ *
+ * Chosen per call rather than at wiring time so neither client is constructed
+ * on a deployment that never serves a vanity host — and `getDb()` in
+ * particular throws outright when DATABASE_URL is unset, which is the normal
+ * state of a self-host box running the supabase backend.
+ */
+export function makeVanityLookup(deps: {
+  backendKind: () => string;
+  getDb: () => DbLike;
+  getServiceRoleClient: () => any;
+}): LookupVanityApp {
+  return async (host: string) => {
+    if (!parseAppPublicHost(host)) return null;
+    const impl = deps.backendKind() === "postgres"
+      ? makePgVanityLookup(deps.getDb)
+      : makeSupabaseVanityLookup(deps.getServiceRoleClient);
+    return impl(host);
   };
 }
 
