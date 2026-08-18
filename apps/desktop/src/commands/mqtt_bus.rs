@@ -35,18 +35,19 @@ pub async fn mqtt_connect(
         use_tls,
     };
     let client = MqttClient::connect(cfg).map_err(|e| e.to_string())?;
-    let generation = bus.bump_generation();
-    // Reset to false until the event loop observes a CONNACK. Without this,
-    // a stale `true` from a previous session could leak into the UI between
-    // `mqtt_connect` returning and the broker's CONNACK arriving.
-    bus.set_connected(false);
-    let previous_client = {
-        let mut client_guard = bus.client.lock().await;
-        client_guard.replace(client)
+    let (generation, previous_client) = {
+        let _client_guard = bus.client_gate.write().await;
+        let _event_guard = bus.event_gate.write().await;
+        let generation = bus.bump_generation();
+        let previous_client = bus.client.lock().await.replace(client);
+        bus.subscribed.lock().await.clear();
+        (generation, previous_client)
     };
-    bus.subscribed.lock().await.clear();
     if let Some(previous_client) = previous_client {
-        let _ = previous_client.client.disconnect().await;
+        // The retired event loop may already have stopped draining its bounded
+        // channel. Never wait for capacity on a client that no longer owns the
+        // generation.
+        let _ = previous_client.client.try_disconnect();
     }
 
     let bus_arc = (*bus).clone();
@@ -59,28 +60,38 @@ pub async fn mqtt_connect(
 
 #[tauri::command]
 pub async fn mqtt_subscribe(bus: State<'_, MqttBus>, topic: String) -> Result<(), String> {
-    let client_guard = bus.client.lock().await;
-    let client = client_guard.as_ref().ok_or("mqtt not connected")?;
-    client
+    let _client_guard = bus.client_gate.read().await;
+    let client = bus
         .client
+        .lock()
+        .await
+        .as_ref()
+        .ok_or("mqtt not connected")?
+        .client
+        .clone();
+    client
         .subscribe(&topic, QoS::AtLeastOnce)
         .await
         .map_err(|e| e.to_string())?;
-    drop(client_guard);
     bus.subscribed.lock().await.insert(topic);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn mqtt_unsubscribe(bus: State<'_, MqttBus>, topic: String) -> Result<(), String> {
-    let client_guard = bus.client.lock().await;
-    let client = client_guard.as_ref().ok_or("mqtt not connected")?;
-    client
+    let _client_guard = bus.client_gate.read().await;
+    let client = bus
         .client
+        .lock()
+        .await
+        .as_ref()
+        .ok_or("mqtt not connected")?
+        .client
+        .clone();
+    client
         .unsubscribe(&topic)
         .await
         .map_err(|e| e.to_string())?;
-    drop(client_guard);
     bus.subscribed.lock().await.remove(&topic);
     Ok(())
 }
@@ -92,10 +103,19 @@ pub async fn mqtt_publish(
     bytes: Vec<u8>,
     retain: bool,
 ) -> Result<(), String> {
+    let _client_guard = bus.client_gate.read().await;
+    let generation = bus.ready_generation().ok_or("mqtt not ready")?;
     let client_guard = bus.client.lock().await;
-    let client = client_guard.as_ref().ok_or("mqtt not connected")?;
-    client
+    if bus.ready_generation() != Some(generation) {
+        return Err("mqtt not ready".to_string());
+    }
+    let client = client_guard
+        .as_ref()
+        .ok_or("mqtt not connected")?
         .client
+        .clone();
+    drop(client_guard);
+    client
         .publish(&topic, QoS::AtLeastOnce, retain, bytes)
         .await
         .map_err(|e| e.to_string())?;
