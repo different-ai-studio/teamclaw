@@ -6,27 +6,113 @@
 use std::path::{Path, PathBuf};
 
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
 
+use crate::backend::TeamSkillRow;
 use crate::config::{
-    encode_workspace_path, workspace_path::listable_local_workspace, AgentBackendConfig,
-    DaemonConfig, OpenCodeCompatStore, ProviderAuthRequest, ProviderModelConfig,
-    WorkspaceControlStore,
+    encode_workspace_path, AgentBackendConfig, DaemonConfig, OpenCodeCompatStore,
+    ProviderAuthRequest, ProviderModelConfig, WorkspaceControlStore,
 };
-use crate::daemon::backend_from_provider_config;
-use crate::provider_config::ProviderConfig;
 use crate::sync::oss::state::LocalSyncState;
 use crate::sync::secret_store::{mask_secret, validate_team_secret, SecretStore, TeamSecrets};
 
 /// One cloud-registered workspace that exists on this machine (same filter as
 /// `GET /v1/workspaces`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 struct RegisteredWorkspace {
     path: PathBuf,
     display_name: String,
     is_default: bool,
     #[allow(dead_code)]
     workspace_id: String,
+}
+
+/// Small loopback client for the running daemon's management surface.
+/// Cloud credentials stay owned by that process; this CLI only holds a
+/// short-lived local session token.
+struct ManageDaemonClient {
+    client: reqwest::Client,
+    base: String,
+    session_token: String,
+}
+
+impl ManageDaemonClient {
+    async fn connect() -> anyhow::Result<Self> {
+        let port_path = DaemonConfig::http_port_path();
+        let token_path = DaemonConfig::http_token_path();
+        let port = std::fs::read_to_string(&port_path)
+            .map_err(|e| {
+                anyhow::anyhow!("read {} ({e}). Is the daemon running?", port_path.display())
+            })?
+            .trim()
+            .to_string();
+        let root_token = std::fs::read_to_string(&token_path)
+            .map_err(|e| anyhow::anyhow!("read {} ({e})", token_path.display()))?
+            .trim()
+            .to_string();
+        if port.is_empty() || root_token.is_empty() {
+            anyhow::bail!("daemon HTTP control files are empty; restart amuxd");
+        }
+
+        let client = reqwest::Client::new();
+        let base = format!("http://127.0.0.1:{port}");
+        let exchange: serde_json::Value = client
+            .post(format!("{base}/v1/auth/exchange"))
+            .bearer_auth(&root_token)
+            .json(&serde_json::json!({
+                "scopes": ["workspace:read", "workspace:write"],
+                "ttl_seconds": 300,
+                "label": "manage-cli",
+            }))
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("connect to running daemon: {e}"))?
+            .error_for_status()
+            .map_err(|e| anyhow::anyhow!("authenticate to running daemon: {e}"))?
+            .json()
+            .await?;
+        let session_token = exchange["token"]
+            .as_str()
+            .filter(|token| !token.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("daemon auth response missing token"))?
+            .to_string();
+
+        Ok(Self {
+            client,
+            base,
+            session_token,
+        })
+    }
+
+    async fn json<T: DeserializeOwned>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<serde_json::Value>,
+    ) -> anyhow::Result<T> {
+        let mut request = self
+            .client
+            .request(method, format!("{}{}", self.base, path))
+            .bearer_auth(&self.session_token);
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("daemon request {path}: {e}"))?;
+        let status = response.status();
+        let bytes = response.bytes().await?;
+        if !status.is_success() {
+            let detail = serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|body| body["detail"].as_str().map(str::to_owned))
+                .unwrap_or_else(|| String::from_utf8_lossy(&bytes).into_owned());
+            anyhow::bail!("daemon request {path} returned {status}: {detail}");
+        }
+        serde_json::from_slice(&bytes)
+            .map_err(|e| anyhow::anyhow!("decode daemon response {path}: {e}"))
+    }
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -41,6 +127,7 @@ pub fn run() -> anyhow::Result<()> {
                 "Agent runtime (install & default)",
                 "LLM provider",
                 "Team share secrets",
+                "Team skills",
                 "Sync status / trigger",
                 "Quit",
             ])
@@ -52,7 +139,8 @@ pub fn run() -> anyhow::Result<()> {
             1 => agent_runtime_menu(&theme)?,
             2 => llm_menu(&theme)?,
             3 => team_secrets_menu(&theme)?,
-            4 => sync_menu(&theme)?,
+            4 => team_skills_menu(&theme)?,
+            5 => sync_menu(&theme)?,
             _ => break,
         }
     }
@@ -559,6 +647,182 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Manage the skills assigned to this daemon's own agent actor.
+///
+/// Unlike the Desktop UI, a headless daemon never selects another actor: its
+/// Cloud API credential is the hosted agent identity, so all installs land on
+/// this machine and are materialised under its daemon-owned cloud cache.
+fn team_skills_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
+    loop {
+        let (team_id, skills) = fetch_team_skills()?;
+        println!("Team: {team_id}");
+        if skills.is_empty() {
+            println!("  No skills have been published to this team's registry.");
+        } else {
+            println!("  Registry skills (for this daemon):");
+            for skill in &skills {
+                let installed = match skill.installed_version {
+                    Some(version) if version == skill.latest_version => {
+                        format!("installed v{version}")
+                    }
+                    Some(version) => format!(
+                        "installed v{version}; update available v{}",
+                        skill.latest_version
+                    ),
+                    None => "not installed".to_string(),
+                };
+                println!(
+                    "  - {} (latest v{}; {installed})",
+                    skill.slug, skill.latest_version
+                );
+            }
+        }
+
+        let choice = Select::with_theme(theme)
+            .with_prompt("Team skills")
+            .items(&[
+                "Refresh registry",
+                "Install a skill on this daemon",
+                "Sync installed skills now",
+                "Back",
+            ])
+            .default(0)
+            .interact()?;
+
+        match choice {
+            0 => continue,
+            1 => install_team_skill_interactive(theme, &team_id, &skills)?,
+            2 => sync_team_skills_now(&team_id)?,
+            _ => break,
+        }
+    }
+    Ok(())
+}
+
+fn install_team_skill_interactive(
+    theme: &ColorfulTheme,
+    team_id: &str,
+    skills: &[TeamSkillRow],
+) -> anyhow::Result<()> {
+    let available: Vec<&TeamSkillRow> = skills.iter().filter(|skill| !skill.installed).collect();
+    if available.is_empty() {
+        println!("All published team skills are already assigned to this daemon.");
+        return Ok(());
+    }
+    let labels: Vec<String> = available
+        .iter()
+        .map(|skill| {
+            let summary = skill.summary.trim();
+            if summary.is_empty() {
+                format!("{} (v{})", skill.slug, skill.latest_version)
+            } else {
+                format!("{} (v{}) — {summary}", skill.slug, skill.latest_version)
+            }
+        })
+        .collect();
+    let idx = Select::with_theme(theme)
+        .with_prompt("Install on this daemon")
+        .items(&labels)
+        .interact()?;
+    let skill = available[idx];
+    let version = skill.latest_version.max(1);
+    if !Confirm::with_theme(theme)
+        .with_prompt(format!(
+            "Assign {} v{version} to this daemon and download it now?",
+            skill.slug
+        ))
+        .default(true)
+        .interact()?
+    {
+        return Ok(());
+    }
+
+    let outcome = install_and_sync_team_skill(team_id, &skill.slug, version)?;
+    println!("✓ {} is assigned to this daemon.", skill.slug);
+    print_team_skill_sync_outcome(outcome);
+    Ok(())
+}
+
+fn sync_team_skills_now(team_id: &str) -> anyhow::Result<()> {
+    let outcome = reconcile_team_skills(team_id)?;
+    print_team_skill_sync_outcome(outcome);
+    Ok(())
+}
+
+fn print_team_skill_sync_outcome(outcome: crate::runtime::team_skills::TeamSkillReconcileOutcome) {
+    if outcome.changed() {
+        println!(
+            "✓ Team skills synced: installed {}, removed {}.",
+            outcome.installed, outcome.removed
+        );
+        println!("  New agent sessions will discover the updated skill set.");
+    } else {
+        println!("✓ Team skills are already current.");
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpTeamSkillsResponse {
+    team_id: String,
+    skills: Vec<TeamSkillRow>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpTeamSkillReconcileResponse {
+    team_id: String,
+    #[serde(flatten)]
+    outcome: crate::runtime::team_skills::TeamSkillReconcileOutcome,
+}
+
+fn fetch_team_skills() -> anyhow::Result<(String, Vec<TeamSkillRow>)> {
+    tokio::runtime::Runtime::new()?.block_on(async {
+        let daemon = ManageDaemonClient::connect().await?;
+        let response: HttpTeamSkillsResponse = daemon
+            .json(reqwest::Method::GET, "/v1/team/skills", None)
+            .await?;
+        Ok((response.team_id, response.skills))
+    })
+}
+
+fn install_and_sync_team_skill(
+    team_id: &str,
+    slug: &str,
+    version: i64,
+) -> anyhow::Result<crate::runtime::team_skills::TeamSkillReconcileOutcome> {
+    tokio::runtime::Runtime::new()?.block_on(async {
+        let daemon = ManageDaemonClient::connect().await?;
+        let path = format!("/v1/team/skills/{slug}/install");
+        let response: HttpTeamSkillReconcileResponse = daemon
+            .json(
+                reqwest::Method::PUT,
+                &path,
+                Some(serde_json::json!({ "version": version })),
+            )
+            .await?;
+        if response.team_id != team_id {
+            anyhow::bail!("daemon is bound to a different team");
+        }
+        Ok(response.outcome)
+    })
+}
+
+fn reconcile_team_skills(
+    team_id: &str,
+) -> anyhow::Result<crate::runtime::team_skills::TeamSkillReconcileOutcome> {
+    tokio::runtime::Runtime::new()?.block_on(async {
+        let daemon = ManageDaemonClient::connect().await?;
+        let response: HttpTeamSkillReconcileResponse = daemon
+            .json(reqwest::Method::POST, "/v1/team/skills/reconcile", None)
+            .await?;
+        if response.team_id != team_id {
+            anyhow::bail!("daemon is bound to a different team");
+        }
+        Ok(response.outcome)
+    })
+}
+
 fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
     let config_path = DaemonConfig::default_path();
     // team_share is serde-skipped on DaemonConfig; a raw load would always
@@ -578,10 +842,8 @@ fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
         println!("  Use manual sync below or `amuxd config set team_share.auto_sync true`.");
     }
 
-    if let Ok(rt) = tokio::runtime::Runtime::new() {
-        if let Ok(mode) = rt.block_on(fetch_cloud_share_mode(&team_id)) {
-            println!("Cloud share-mode: {mode}");
-        }
+    if let Ok(mode) = fetch_share_mode(&team_id) {
+        println!("Cloud share-mode: {mode}");
     }
 
     let toggle_label = if auto_sync {
@@ -687,21 +949,27 @@ fn trigger_manual_sync(theme: &ColorfulTheme, team_id: &str) -> anyhow::Result<(
     Ok(())
 }
 
-async fn fetch_cloud_share_mode(team_id: &str) -> anyhow::Result<String> {
-    let backend_path =
-        ProviderConfig::default_path().map_err(|e| anyhow::anyhow!("backend config path: {e}"))?;
-    let provider_config = ProviderConfig::load_from_path(&backend_path)
-        .map_err(|e| anyhow::anyhow!("load {}: {e}", backend_path.display()))?;
-    let backend = backend_from_provider_config(provider_config)
-        .map_err(|e| anyhow::anyhow!("cloud backend: {e}"))?;
-    let share = backend
-        .team_share_config(team_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    Ok(share
-        .mode
-        .filter(|m| !m.trim().is_empty())
-        .unwrap_or_else(|| "(unset)".to_string()))
+fn fetch_share_mode(team_id: &str) -> anyhow::Result<String> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Response {
+        team_id: String,
+        mode: Option<String>,
+    }
+
+    tokio::runtime::Runtime::new()?.block_on(async {
+        let daemon = ManageDaemonClient::connect().await?;
+        let response: Response = daemon
+            .json(reqwest::Method::GET, "/v1/team/share-mode", None)
+            .await?;
+        if response.team_id != team_id {
+            anyhow::bail!("daemon is bound to a different team");
+        }
+        Ok(response
+            .mode
+            .filter(|mode| !mode.trim().is_empty())
+            .unwrap_or_else(|| "(unset)".to_string()))
+    })
 }
 
 fn pick_workspace(theme: &ColorfulTheme) -> anyhow::Result<PathBuf> {
@@ -776,42 +1044,16 @@ fn fetch_registered_workspaces() -> anyhow::Result<Vec<RegisteredWorkspace>> {
 }
 
 async fn fetch_registered_workspaces_async() -> anyhow::Result<Vec<RegisteredWorkspace>> {
-    let backend_path =
-        ProviderConfig::default_path().map_err(|e| anyhow::anyhow!("backend config path: {e}"))?;
-    let provider_config = ProviderConfig::load_from_path(&backend_path)
-        .map_err(|e| anyhow::anyhow!("load {}: {e}", backend_path.display()))?;
-    let backend = backend_from_provider_config(provider_config)
-        .map_err(|e| anyhow::anyhow!("cloud backend: {e}"))?;
-
-    let team_id = backend.team_id().to_string();
-    let actor_id = backend.actor_id().to_string();
-    if team_id.trim().is_empty() {
-        anyhow::bail!("no team_id in backend.toml");
+    #[derive(Deserialize)]
+    struct Response {
+        workspaces: Vec<RegisteredWorkspace>,
     }
 
-    let default_id = backend
-        .get_agent_defaults(&actor_id)
-        .await
-        .ok()
-        .and_then(|d| d.default_workspace_id);
-
-    let rows = backend
-        .get_workspaces_by_agent(&team_id, &actor_id)
-        .await
-        .map_err(|e| anyhow::anyhow!("get workspaces: {e}"))?;
-
-    let mut out = Vec::new();
-    for row in rows {
-        let Some((path, display_name)) = listable_local_workspace(&row) else {
-            continue;
-        };
-        out.push(RegisteredWorkspace {
-            path: PathBuf::from(path),
-            display_name,
-            is_default: default_id.as_deref() == Some(row.id.as_str()),
-            workspace_id: row.id,
-        });
-    }
+    let daemon = ManageDaemonClient::connect().await?;
+    let mut out = daemon
+        .json::<Response>(reqwest::Method::GET, "/v1/workspaces", None)
+        .await?
+        .workspaces;
     out.sort_by(|a, b| {
         b.is_default
             .cmp(&a.is_default)
@@ -953,57 +1195,19 @@ fn trigger_sync_via_http(
     team_id: &str,
     force_sync: bool,
 ) -> anyhow::Result<HttpSyncStatus> {
-    let port_path = DaemonConfig::http_port_path();
-    let token_path = DaemonConfig::http_token_path();
-    let port = std::fs::read_to_string(&port_path)
-        .map_err(|e| anyhow::anyhow!("read {} ({e}). Is the daemon running?", port_path.display()))?
-        .trim()
-        .to_string();
-    let root_token = std::fs::read_to_string(&token_path)
-        .map_err(|e| anyhow::anyhow!("read {} ({e})", token_path.display()))?
-        .trim()
-        .to_string();
-
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
-        let client = reqwest::Client::new();
-        let base = format!("http://127.0.0.1:{port}");
-
-        #[derive(serde::Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct ExchangeBody<'a> {
-            scopes: &'a [&'a str],
-            label: &'a str,
-        }
-
-        let exchange: serde_json::Value = client
-            .post(format!("{base}/v1/auth/exchange"))
-            .header("authorization", format!("Bearer {root_token}"))
-            .json(&ExchangeBody {
-                scopes: &["workspace:read", "workspace:write"],
-                label: "manage-cli",
-            })
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-        let session_token = exchange["token"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("exchange response missing token"))?;
-
+        let daemon = ManageDaemonClient::connect().await?;
         let workspace_path = workspace.to_string_lossy().to_string();
-        let sync: HttpSyncStatus = client
-            .post(format!("{base}/v1/team/sync"))
-            .header("authorization", format!("Bearer {session_token}"))
-            .json(&serde_json::json!({
-                "workspacePath": workspace_path,
-                "forceSync": force_sync,
-            }))
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
+        let sync: HttpSyncStatus = daemon
+            .json(
+                reqwest::Method::POST,
+                "/v1/team/sync",
+                Some(serde_json::json!({
+                    "workspacePath": workspace_path,
+                    "forceSync": force_sync,
+                })),
+            )
             .await?;
 
         // Ignore unused field in struct when API returns extra keys.

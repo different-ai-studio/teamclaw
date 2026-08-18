@@ -970,6 +970,9 @@ impl DaemonServer {
         // Escapes the HTTP-setup block so the prewarm notifier can be installed
         // once the sock command channel exists (below).
         let mut supervisor_for_prewarm: Option<Arc<crate::runtime::RuntimeSupervisor>> = None;
+        let team_skill_reconciler = Arc::new(
+            crate::runtime::team_skills::TeamSkillReconciler::new(self.backend.clone()),
+        );
         let _http_handle = {
             let mut meta = crate::http::server::metadata(self.actor_id.clone(), "amuxd");
             // Expose configured backends so the model-catalog endpoint can
@@ -1050,6 +1053,7 @@ impl DaemonServer {
                 })),
                 Some(local_rpc_tx),
                 Some(local_live_ingest_tx),
+                Some(team_skill_reconciler.clone()),
             )
             .await
             {
@@ -1374,8 +1378,8 @@ impl DaemonServer {
             .filter(|id| !id.is_empty())
             .map(str::to_owned)
         {
-            use crate::runtime::team_skills::{apply_team_skill_outcome, TeamSkillReconciler};
-            let reconciler = Arc::new(TeamSkillReconciler::new(self.backend.clone()));
+            use crate::runtime::team_skills::apply_team_skill_outcome;
+            let reconciler = team_skill_reconciler.clone();
             let backend = Some(self.backend.clone());
             let refresh = self.refresh_coordinator.clone();
             tokio::spawn(async move {

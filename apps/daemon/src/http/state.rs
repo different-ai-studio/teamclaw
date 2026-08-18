@@ -151,6 +151,10 @@ pub struct HttpState {
     /// tick so a post-write `POST /v1/team/cloud-config/reconcile` and the
     /// periodic poll share one TTL/`last_fetch`. `None` in focused tests.
     pub team_cloud: Option<Arc<crate::runtime::team_cloud_config::TeamCloudConfigResolver>>,
+    /// Materialises the skills assigned to this daemon's agent. The loopback
+    /// management API and the periodic task share this instance so both use
+    /// the daemon-owned backend/token state and the same reconcile cadence.
+    pub team_skills: Option<Arc<crate::runtime::team_skills::TeamSkillReconciler>>,
     /// `daemon.toml` path backing `/v1/config/*`. `None` in focused tests —
     /// those routes then return 503.
     pub config_path: Option<std::path::PathBuf>,
@@ -209,6 +213,7 @@ impl HttpState {
             live_tee: None,
             managed_llm: None,
             team_cloud: None,
+            team_skills: None,
             config_path: None,
             channel_reload_tx: None,
             onboarding: None,
@@ -254,6 +259,15 @@ impl HttpState {
         team_cloud: Option<Arc<crate::runtime::team_cloud_config::TeamCloudConfigResolver>>,
     ) -> Self {
         self.team_cloud = team_cloud;
+        self
+    }
+
+    /// Attach the shared team-skill reconciler.
+    pub fn with_team_skills(
+        mut self,
+        team_skills: Option<Arc<crate::runtime::team_skills::TeamSkillReconciler>>,
+    ) -> Self {
+        self.team_skills = team_skills;
         self
     }
 
