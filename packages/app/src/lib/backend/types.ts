@@ -924,6 +924,9 @@ export interface AppRow {
   provisionStatus: string;
   fcStatus: string | null;
   fcEndpoint: string | null;
+  /** Vanity URL (`<slug>-<id8>.<apps domain>`), or null on a deployment that
+   *  has no apps domain — then `fcEndpoint` is the only address there is. */
+  publicUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -3,6 +3,7 @@
 import WebSocket from "ws";
 
 import { ApiError } from "../http-utils.js";
+import { appPublicUrl } from "../apps-public-host.js";
 
 // FC runtime is Node 20 which lacks native WebSocket. supabase-js v2.45+ tries
 // to construct a RealtimeClient at createClient() time and throws without a
@@ -113,7 +114,7 @@ export function slugify(name: string): string {
 
 export const appIso = (v: any): string | null => (v ? new Date(v).toISOString() : null);
 
-// Exposes EXACTLY the 12 canonical app fields. Reads snake_case DB columns
+// Exposes EXACTLY the canonical app fields. Reads snake_case DB columns
 // (PostgREST returns the table's native column names).
 export function mapApp(r: any) {
   return {
@@ -127,6 +128,10 @@ export function mapApp(r: any) {
     provisionStatus: r.provision_status,
     fcStatus: r.fc_status ?? null,
     fcEndpoint: r.fc_endpoint ?? null,
+    // Derived, never stored: the vanity host is a pure function of slug + id,
+    // and a deployment without an apps domain has none. Storing it would let a
+    // renamed app keep a hostname that no longer routes.
+    publicUrl: appPublicUrl(r.slug, r.id),
     fcFunctionName: r.fc_function_name ?? null,
     fcRegion: r.fc_region ?? null,
     createdAt: appIso(r.created_at)!,

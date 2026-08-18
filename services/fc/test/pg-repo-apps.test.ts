@@ -52,7 +52,7 @@ test("createApp inserts a workspace + app and returns canonical fields", async (
 
   assert.deepEqual(Object.keys(app).sort(), [
     "createdAt", "fcStatus", "fcEndpoint", "fcFunctionName", "fcRegion",
-    "id", "name", "provisionStatus",
+    "id", "name", "provisionStatus", "publicUrl",
     "slug", "teamId", "type", "updatedAt", "visibility", "workspaceId",
   ].sort());
   assert.equal(app.teamId, team.id);

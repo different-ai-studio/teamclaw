@@ -1906,15 +1906,17 @@ const APP_ROW = {
   updated_at: "2026-06-13T00:00:00Z",
 };
 
-test("apps: mapApp exposes exactly the 13 canonical keys", async () => {
+test("apps: mapApp exposes exactly the canonical keys", async () => {
   const repo = appsRepo(appsSupabase({ seed: { apps: [APP_ROW] } }));
   const items = await repo.listApps({ teamId: "team-1", limit: 100 });
   assert.equal(items.length, 1);
   assert.deepEqual(Object.keys(items[0]).sort(), [
     "createdAt", "fcStatus", "fcEndpoint", "fcFunctionName", "fcRegion",
-    "id", "name", "provisionStatus",
+    "id", "name", "provisionStatus", "publicUrl",
     "slug", "teamId", "type", "updatedAt", "visibility", "workspaceId",
   ].sort());
+  // Null unless the deployment sets an apps domain — this suite sets none.
+  assert.equal(items[0].publicUrl, null);
   assert.equal(items[0].teamId, "team-1");
   assert.equal(items[0].workspaceId, "ws-1");
   assert.equal(items[0].provisionStatus, "pending");
