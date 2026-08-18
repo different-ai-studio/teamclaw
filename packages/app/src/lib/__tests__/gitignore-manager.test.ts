@@ -63,11 +63,24 @@ describe('gitignore-manager', () => {
 
     it('should not duplicate entries with different formatting', async () => {
       vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLU_DIR}\n`)  // No trailing slash
+      // No trailing slash on the meta dir, and opencode.json already listed.
+      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLU_DIR}\nopencode.json\n`)
 
       await ensureGitignoreEntries('/workspace')
 
       expect(writeTextFile).not.toHaveBeenCalled()
+    })
+
+    // Machine-local runtime config: the daemon rewrites it per machine, so a
+    // committed copy is churn (and used to be an API-key leak).
+    it('ignores the workspace opencode.json', async () => {
+      vi.mocked(exists).mockResolvedValue(true)
+      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLU_DIR}/\n`)
+
+      await ensureGitignoreEntries('/workspace')
+
+      const writtenContent = vi.mocked(writeTextFile).mock.calls[0][1]
+      expect(writtenContent).toContain('opencode.json')
     })
 
     it('should add comment header when appending entries', async () => {
@@ -84,7 +97,7 @@ describe('gitignore-manager', () => {
 
     it('should not duplicate existing entries', async () => {
       vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLU_DIR}/\n`)
+      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLU_DIR}/\nopencode.json\n`)
 
       await ensureGitignoreEntries('/workspace')
 
