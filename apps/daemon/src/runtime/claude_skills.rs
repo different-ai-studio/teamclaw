@@ -178,7 +178,39 @@ fn io_err(e: std::io::Error) -> WorkspaceControlError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::global_team_store::TEAM_LINK_NAME;
+    use crate::config::global_team_store::TEST_HOME_LOCK;
+
+    /// A workspace whose only team skill root is one it declares itself.
+    ///
+    /// Two things this has to nail down. The team drive's own `skills/` stopped
+    /// being a root (see `collect_team_skill_paths`), so the fixture declares
+    /// one through `opencode.json` instead. And `team_skill_roots` probes
+    /// `$HOME/.agents/skills`, which on a developer machine is a real directory
+    /// full of real packs — without redirecting HOME these tests symlink whatever
+    /// the person running them happens to have installed, and pass or fail by
+    /// machine. The lock is the daemon-wide one every HOME-mutating test shares.
+    fn workspace_with_team_root() -> (
+        std::sync::MutexGuard<'static, ()>,
+        tempfile::TempDir,
+        tempfile::TempDir,
+        PathBuf,
+    ) {
+        let lock = TEST_HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", home.path());
+        let ws = tempfile::tempdir().unwrap();
+        let team_skills = ws.path().join("team-skills");
+        std::fs::create_dir_all(&team_skills).unwrap();
+        std::fs::write(
+            ws.path().join("opencode.json"),
+            format!(
+                r#"{{"skills":{{"paths":["{}"]}}}}"#,
+                team_skills.to_string_lossy()
+            ),
+        )
+        .unwrap();
+        (lock, home, ws, team_skills)
+    }
 
     fn write_skill(dir: &Path, slug: &str) {
         let skill_dir = dir.join(slug);
@@ -192,9 +224,7 @@ mod tests {
 
     #[test]
     fn symlinks_team_skills_into_claude_dir() {
-        let ws = tempfile::tempdir().unwrap();
-        let team_skills = ws.path().join(TEAM_LINK_NAME).join("skills");
-        std::fs::create_dir_all(&team_skills).unwrap();
+        let (_lock, _home, ws, team_skills) = workspace_with_team_root();
         write_skill(&team_skills, "team-skill");
 
         ensure_claude_team_skills(ws.path()).unwrap();
@@ -206,9 +236,7 @@ mod tests {
 
     #[test]
     fn local_skill_wins_over_team_with_same_slug() {
-        let ws = tempfile::tempdir().unwrap();
-        let team_skills = ws.path().join(TEAM_LINK_NAME).join("skills");
-        std::fs::create_dir_all(&team_skills).unwrap();
+        let (_lock, _home, ws, team_skills) = workspace_with_team_root();
         write_skill(&team_skills, "shared-name");
 
         let local = ws.path().join(".claude/skills/shared-name");
@@ -224,9 +252,7 @@ mod tests {
 
     #[test]
     fn removes_stale_team_symlinks() {
-        let ws = tempfile::tempdir().unwrap();
-        let team_skills = ws.path().join(TEAM_LINK_NAME).join("skills");
-        std::fs::create_dir_all(&team_skills).unwrap();
+        let (_lock, _home, ws, team_skills) = workspace_with_team_root();
         write_skill(&team_skills, "keep-me");
 
         ensure_claude_team_skills(ws.path()).unwrap();
