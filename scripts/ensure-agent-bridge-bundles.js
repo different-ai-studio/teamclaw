@@ -95,13 +95,44 @@ function hashFile(filePath) {
   return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
+/**
+ * Hash every file under `src/`, path included so a rename counts as a change.
+ *
+ * Without this the fingerprint was dependencies-only, and editing bridge source
+ * did not invalidate the staged bundle: the app kept running the previously
+ * copied `src/`, so a fix looked deployed while the old code was still what ran.
+ * Only a package.json/lock edit happened to force a refresh.
+ */
+function hashBridgeSources(srcDir) {
+  const root = path.join(srcDir, "src");
+  const hash = crypto.createHash("sha256");
+  /** @param {string} dir */
+  const walk = (dir) => {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      hash.update(path.relative(root, full));
+      hash.update(fs.readFileSync(full));
+    }
+  };
+  if (!fs.existsSync(root)) return "";
+  walk(root);
+  return hash.digest("hex");
+}
+
 function bridgeFingerprint(srcDir) {
   const lock = path.join(srcDir, "package-lock.json");
   const pkg = path.join(srcDir, "package.json");
   if (!fs.existsSync(lock) || !fs.existsSync(pkg)) {
     return null;
   }
-  return `${hashFile(pkg)}:${hashFile(lock)}`;
+  return `${hashFile(pkg)}:${hashFile(lock)}:${hashBridgeSources(srcDir)}`;
 }
 
 /**

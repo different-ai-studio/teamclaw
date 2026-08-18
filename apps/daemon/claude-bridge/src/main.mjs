@@ -17,6 +17,8 @@
 import readline from 'node:readline'
 import { query, AbortError } from '@anthropic-ai/claude-agent-sdk'
 
+import { repairTranscript } from './transcript-repair.mjs'
+
 /**
  * @typedef {{
  *   q: import('@anthropic-ai/claude-agent-sdk').Query,
@@ -328,6 +330,28 @@ async function startSession(params, resume) {
   if (!cwd) throw new Error('cwd is required')
   const sessionKey = `pending-${nextPermissionId++}`
   const input = new PushQueue()
+
+  // The SDK replays its own transcript on resume, so one invalid record bricks
+  // the session for good: every later turn re-sends it and the API rejects the
+  // request before the model runs. Interrupting a tool call has been observed
+  // to leave the interrupted tool's result recorded twice in one message, which
+  // trips "tool_use ids must be unique". Fix it here, where we still can.
+  if (resume) {
+    const repair = repairTranscript(resume)
+    if (repair.repaired) {
+      emit({
+        event: 'transcript_repaired',
+        sessionId: sessionKey,
+        resume,
+        path: repair.path,
+        backup: repair.backup,
+        removed: repair.removed.length,
+      })
+    } else if (repair.error) {
+      // Not fatal: an unrepaired transcript may still be perfectly valid.
+      emit({ event: 'transcript_repair_failed', sessionId: sessionKey, resume, message: repair.error })
+    }
+  }
 
   const fullAccess = params.permissionMode === 'bypassPermissions'
   const q = query({
