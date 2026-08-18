@@ -96,7 +96,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@bufbuild/protoc-gen-es": "^2.13.0",
+    "@bufbuild/protoc-gen-es": "^2.14.0",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/oxide-darwin-arm64": "^4.3.3",
     "@tailwindcss/oxide-darwin-x64": "^4.3.3",
