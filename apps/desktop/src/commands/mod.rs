@@ -17,7 +17,6 @@ pub mod introspect_api;
 pub mod introspect_auth;
 pub mod knowledge;
 pub mod local_secret_store;
-pub mod local_stats;
 pub mod mcp;
 pub mod mqtt_bus;
 pub mod oauth_loopback;

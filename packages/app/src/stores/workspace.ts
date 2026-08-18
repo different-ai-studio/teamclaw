@@ -489,22 +489,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         console.warn("[Workspace] Failed to load contacts:", error);
       }
 
-      // Trigger team data export to ensure .leaderboard directory exists
-      try {
-        const { useTelemetryStore } = await import("./telemetry");
-        useTelemetryStore.getState().exportTeamData(true);
-      } catch (error) {
-        console.warn("[Workspace] Failed to trigger team data export:", error);
-      }
-
-      // Load local stats for this workspace
-      try {
-        const { loadLocalStatsForWorkspace } = await import("./local-stats");
-        loadLocalStatsForWorkspace(expandedPath);
-      } catch (error) {
-        console.warn("[Workspace] Failed to load local stats:", error);
-      }
-
       set({ isLoadingWorkspace: false });
     } catch (error) {
       console.error("Failed to load workspace:", error);
