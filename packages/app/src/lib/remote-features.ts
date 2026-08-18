@@ -187,11 +187,9 @@ function resolveFrom(patches: RemoteFeaturePatch[]): ResolvedFeatures {
       wechat: merged.auth?.wechat ?? false,
       phone: merged.auth?.phone ?? false,
       password: merged.auth?.password ?? false,
-      // Server-controlled like every other flag now. `webSSOHosts` stays
-      // compiled into the binary (WEBSSO_ADMIN_HOSTS, apps/desktop/build.rs):
-      // turning this on for a build that baked no hosts yields a button that
-      // does nothing, which is the intended failure — the server chooses
-      // whether the method is offered, the build chooses where it may point.
+      // Server-controlled like every other flag. Where the flow may point is
+      // server-controlled too (WEBSSO_LOGIN_URL) — there is no build-time host
+      // list any more.
       webSSO: merged.auth?.webSSO ?? false,
     },
     channels: {

@@ -14,10 +14,12 @@
 // source `web-sso.ts` reads. This is the reverse direction of that flow — it
 // injects a session instead of harvesting one.
 //
-// Security: the resolved host is the allowlist. We only ever expose the
-// TeamClu bearer token to the host the Cloud API declares — never to arbitrary
-// third-party webviews. The native side re-checks the host against its own
-// build-time allowlist (WEBSSO_ADMIN_HOSTS) as defense in depth.
+// Security: the resolved host IS the allowlist, and this function is the only
+// place it is enforced. We expose the TeamClu bearer token solely to the host
+// the Cloud API declares (WEBSSO_LOGIN_URL) — never to arbitrary third-party
+// webviews. A second, compile-time allowlist used to re-check this natively;
+// it was removed because it was a hand-maintained copy of the same host, and
+// the two silently drifting apart broke injection with no diagnostic.
 
 import { getSession } from "@/lib/auth/session-store"
 import { adminConsoleTarget } from "@/lib/auth/web-sso"

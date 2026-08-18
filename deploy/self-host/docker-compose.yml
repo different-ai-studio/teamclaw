@@ -325,8 +325,9 @@ services:
       PHONE_EMAIL_DOMAIN: "${PHONE_EMAIL_DOMAIN:-}"
       PHONE_AUTH_ENCRYPTION_KEY: "${PHONE_AUTH_ENCRYPTION_KEY:-}"
       # Web SSO 快捷登录 target, delivered to clients via /v1/config/{public,
-      # bootstrap}. The host here must match features.auth.webSSOHosts in the
-      # desktop build config, or session injection silently does nothing.
+      # bootstrap}. This is the single source for WHERE the flow points: the
+      # desktop build no longer carries a second host allowlist that had to be
+      # kept in step with it (and failed silently when it was not).
       WEBSSO_LOGIN_URL: "${WEBSSO_LOGIN_URL:-}"
       WEBSSO_STORAGE_KEY: "${WEBSSO_STORAGE_KEY:-}"
       # Runtime feature flags served by /v1/config/{public,bootstrap}. The

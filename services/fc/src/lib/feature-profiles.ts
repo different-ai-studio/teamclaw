@@ -109,15 +109,14 @@ export interface FeatureFlags {
  * one side and overrides on the other; drift shows up as a flag that flips the
  * moment the network answers, which is confusing to debug and trivial to avoid.
  *
- * Two things you still cannot express here, both by design:
- *   - `updater` (build-time only — a remote mistake would strand every
- *     installed client with no way to update out of it)
- *   - `auth.webSSOHosts` (compiled into the desktop binary via
- *     apps/desktop/build.rs, because it decides which admin-console hosts may
- *     receive an injected session)
- * `auth.webSSO` itself IS settable here now: the server decides whether the
- * method is offered, the build decides where it may point. Turning it on for a
- * build that baked no hosts yields a button that does nothing.
+ * One thing you still cannot express here, by design: `updater`. It gates the
+ * startup auto-check itself, so a remote mistake would strand every installed
+ * client with no way to update out of it.
+ *
+ * Everything else, `auth.webSSO` included, is settable here. Where Web SSO may
+ * point is server-side too — the WEBSSO_LOGIN_URL env, delivered by
+ * /v1/config/{public,bootstrap}. The desktop binary no longer carries a second
+ * host allowlist to keep in step with it.
  */
 export const FEATURE_PROFILES: Record<string, FeatureFlags> = {
   // Mirrors build.config.production.json (in this repo).
@@ -133,8 +132,8 @@ export const FEATURE_PROFILES: Record<string, FeatureFlags> = {
   },
 
   // Mirrors the branding repo's brands/betly/build.config.json. `webSSO: true`
-  // holds only because that build also bakes it on, together with
-  // `webSSOHosts: ["admin.mx5.cn"]`.
+  // is now the whole story — the host comes from WEBSSO_LOGIN_URL on that
+  // deployment, not from anything baked into the build.
   belayo: {
     auth: { google: false, wechat: false, phone: true, password: false, webSSO: true },
     channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true, seatalk: true },

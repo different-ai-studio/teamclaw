@@ -16,10 +16,7 @@
     }
   },
   "features": {
-    "updater": true,
-    "auth": {
-      "webSSOHosts": []
-    }
+    "updater": true
   },
   "localAgent": "opencode",
   "defaults": {

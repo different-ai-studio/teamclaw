@@ -81,9 +81,9 @@ describe("merging", () => {
 
   it("lets the server decide webSSO in both directions", async () => {
     const { applyRemoteFeatures, getFeatures } = await loadModule();
-    // No longer ANDed with a build flag. The build still decides WHERE a
-    // harvested session may come from (webSSOHosts is compiled in); the server
-    // decides whether the method is offered at all.
+    // No longer ANDed with a build flag, and there is no build-time host list
+    // behind it any more either — WEBSSO_LOGIN_URL decides where the flow
+    // points, and it is server-side too.
     applyRemoteFeatures("public", { auth: { webSSO: true } });
     expect(getFeatures().auth.webSSO).toBe(true);
 

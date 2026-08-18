@@ -86,7 +86,7 @@ export interface BuildConfig {
    * (services/fc/src/lib/feature-profiles.ts) and are no longer read from
    * here — adding one back to a build config would have no effect.
    *
-   * What is left are the two things a server must not be able to decide.
+   * What is left is the one thing a server must not be able to decide.
    */
   features: {
     /** Enables the in-app updater UI (About → check/install) and the startup
@@ -97,16 +97,6 @@ export interface BuildConfig {
      *  remote value would strand every installed client with no way to update
      *  out of the mistake. Absent means on. */
     updater?: boolean
-    auth?: {
-      /** Admin console hosts allowed to receive an injected TeamClu session.
-       *  Consumed by build.rs (baked into WEBSSO_ADMIN_HOSTS) as the native-side
-       *  re-check; deployment-specific hosts belong in a brand build config.
-       *
-       *  Stays build-time because it decides WHERE a harvested session may come
-       *  from. Whether the method is offered at all is `auth.webSSO`, which the
-       *  Cloud API owns. */
-      webSSOHosts?: string[]
-    }
   }
   /** Which local agent runtime this build targets. "opencode" (default) drives
    *  the official opencode over `opencode serve` HTTP; "pi" selects the pi

@@ -219,31 +219,6 @@ fn build_teamclu_identity_script(device_no: &str, device_name: &str) -> String {
     )
 }
 
-/// Hosts of the partner admin SPA that share TeamClu's GoTrue. Only these
-/// hosts receive an injected TeamClu session — never inject tokens into
-/// arbitrary third-party webviews, that would leak the bearer token to any
-/// site.
-///
-/// Baked in at compile time from `app.features.auth.webSSOHosts` in the build
-/// config (see build.rs), so deployment-specific hostnames live in the brand's
-/// `build.config.<brand>.json` rather than in source. Absent/empty means no
-/// host is allowed and session injection is off — this is the native-side
-/// re-check that backs the frontend allowlist in admin-sso-inject.ts, so it
-/// must not be sourced from the renderer.
-fn admin_sso_hosts() -> impl Iterator<Item = &'static str> {
-    option_env!("WEBSSO_ADMIN_HOSTS")
-        .into_iter()
-        .flat_map(|raw| raw.split(','))
-        .map(str::trim)
-        .filter(|host| !host.is_empty())
-}
-
-fn host_allows_session_injection(url: &tauri::Url) -> bool {
-    url.host_str()
-        .map(|h| admin_sso_hosts().any(|allowed| allowed == h))
-        .unwrap_or(false)
-}
-
 /// Reject http(s) URLs whose host cannot be resolved before handing them to
 /// WKWebView / WebView2. Loading an unresolvable `WebviewUrl::External` has
 /// been observed to freeze the AppKit main thread on macOS (window undraggable,
@@ -530,15 +505,17 @@ pub async fn webview_create(
     );
 
     // Partner admin console auto-login: seed the current TeamClu session into
-    // the page's supabase-js localStorage key, but ONLY for allowlisted hosts
-    // that share TeamClu's GoTrue. Computed before parsed_url is moved into
-    // the builder.
+    // the page's supabase-js localStorage key.
+    //
+    // The host check lives entirely on the caller side (adminSsoInjectionFor),
+    // which only returns a key + session when the URL matches the admin host
+    // the Cloud API declared via WEBSSO_LOGIN_URL. There used to be a second,
+    // compile-time allowlist here (WEBSSO_ADMIN_HOSTS, baked from
+    // features.auth.webSSOHosts) — but it was a hand-maintained copy of that
+    // same host, and the two drifting apart made injection fail silently. One
+    // source of truth beats a duplicate that has to be kept in step.
     let auth_inject_script = match (auth_storage_key.as_deref(), auth_session_json.as_deref()) {
-        (Some(key), Some(session))
-            if !key.is_empty()
-                && !session.is_empty()
-                && host_allows_session_injection(&parsed_url) =>
-        {
+        (Some(key), Some(session)) if !key.is_empty() && !session.is_empty() => {
             Some(build_supabase_session_script(key, session))
         }
         _ => None,
