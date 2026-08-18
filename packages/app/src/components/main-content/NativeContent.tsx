@@ -3,7 +3,7 @@ import { FileQuestion } from "lucide-react"
 import { VersionHistoryTab } from "@/components/version/VersionHistoryTab"
 import { KnowledgeVersionHistory } from "@/components/teamshare/KnowledgeVersionHistory"
 import { TeamShareTabContent } from "@/components/teamshare/TeamShareTabContent"
-import { ExternalActorDetail } from "@/components/main-content/ExternalActorDetail"
+import { ActorDetailPane } from "@/components/main-content/ActorDetailPane"
 import {
   decodeTeamShareTarget,
   decodeVersionHistoryTarget,
@@ -27,7 +27,7 @@ export function NativeContent({ target }: NativeContentProps) {
   if (teamShare) return <TeamShareTabContent target={teamShare} />
 
   const actorId = decodeActorTarget(target)
-  if (actorId) return <ExternalActorDetail actorId={actorId} />
+  if (actorId) return <ActorDetailPane actorId={actorId} />
 
   const versionPath = decodeVersionHistoryTarget(target)
   if (versionPath !== undefined) {

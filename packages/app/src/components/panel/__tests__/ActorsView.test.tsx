@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ActorsView, matchesActorTypeFilter } from '../ActorsView'
 import { useTabsStore } from '@/stores/tabs'
+import { useUIStore } from '@/stores/ui'
 
 const listActorDirectory = vi.fn()
 vi.mock('@/lib/backend', () => ({
@@ -33,6 +34,7 @@ vi.mock('react-i18next', () => ({
 beforeEach(() => {
   listActorDirectory.mockReset()
   useTabsStore.setState({ tabs: [], activeTabId: null, _lastActiveTabId: null })
+  useUIStore.setState({ draftPreselectedActor: null })
 })
 
 /** A gateway contact as the directory returns it: no role, no membership. */
@@ -156,7 +158,34 @@ describe('ActorsView', () => {
     expect(screen.getByText(/^·\s*1$/)).toBeInTheDocument()
   })
 
-  it('opens an external contact in a main-column tab instead of a draft session', async () => {
+  // Clicking a row used to jump straight into a new draft session addressed to
+  // that actor. The list is where you look somebody up, so it now opens the
+  // profile; "Start session" is an explicit button inside it.
+  it('opens a member in a main-column tab instead of a draft session', async () => {
+    mockActorsRows([
+      {
+        id: 'a-1',
+        actor_type: 'member',
+        display_name: 'Alice',
+        member_status: 'active',
+        agent_status: null,
+        last_active_at: null,
+      },
+    ])
+
+    render(<ActorsView />)
+
+    const row = await screen.findByRole('button', { name: /Alice/ })
+    fireEvent.click(row)
+
+    const tabs = useTabsStore.getState().tabs
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0]).toMatchObject({ type: 'native', target: 'actor/a-1', label: 'Alice' })
+    // No draft was entered — the chat column keeps whatever it was showing.
+    expect(useUIStore.getState().draftPreselectedActor).toBeNull()
+  })
+
+  it('opens an external contact in a main-column tab too', async () => {
     mockActorsRows([externalRow('x-9', 'Kefu Wang')])
 
     render(<ActorsView />)

@@ -5,7 +5,6 @@ import { Check, Filter, Loader2, Plus, Search, Sparkles, Star, User as UserIcon,
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { InviteActorDialog } from '@/components/sidebar/InviteActorDialog'
-import { ActorDetailDialog } from '@/components/sidebar/ActorDetailDialog'
 import { ActorContextMenu } from '@/components/sidebar/ActorContextMenu'
 import {
   AlertDialog,
@@ -28,7 +27,6 @@ import { formatRelativeTimeShort } from '@/lib/date-format'
 import { externalSourceLabel } from '@/lib/external-actor-source'
 import { encodeActorTarget } from '@/lib/tabs/actor-target'
 import { useTabsStore } from '@/stores/tabs'
-import { useUIStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
 import { useActorPresenceStore } from '@/stores/actor-presence-store'
 import {
@@ -242,7 +240,6 @@ export function ActorsView() {
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [filter, setFilter] = React.useState<ActorTypeFilter>('all')
   const [inviteOpen, setInviteOpen] = React.useState(false)
-  const [detailFor, setDetailFor] = React.useState<ActorRow | null>(null)
   const [removeFor, setRemoveFor] = React.useState<ActorRow | null>(null)
   const [removing, setRemoving] = React.useState(false)
 
@@ -268,23 +265,18 @@ export function ActorsView() {
   }, [actors, filter, query])
 
   const openTab = useTabsStore((s) => s.openTab)
-  const enterActorDraft = useUIStore((s) => s.enterActorDraft)
 
   /**
-   * Clicking a row. A teammate or an agent is someone you write to, so the click
-   * opens a draft session addressed to them. An external contact is not
-   * addressable from here — there is no session to start, only a profile to
-   * read — so it opens its detail pane in the main column instead. This is what
-   * used to drop the user into an empty draft aimed at a WeCom contact that
-   * could never receive it.
+   * Clicking a row shows who the actor is, in the main column.
+   *
+   * It used to open a draft session addressed to them instead — which was wrong
+   * for an external gateway contact (nothing on our side can deliver to one) and
+   * premature for everyone else: the list is where you go to look somebody up.
+   * "Start session" is now an explicit button inside the profile.
    */
   const openActor = React.useCallback((actor: ActorRow) => {
-    if (actor.actor_type === 'external') {
-      openTab({ type: 'native', target: encodeActorTarget(actor.id), label: actor.display_name })
-      return
-    }
-    enterActorDraft({ id: actor.id, displayName: actor.display_name, kind: actor.actor_type })
-  }, [enterActorDraft, openTab])
+    openTab({ type: 'native', target: encodeActorTarget(actor.id), label: actor.display_name })
+  }, [openTab])
 
   const confirmRemove = async () => {
     if (!removeFor || !teamId) return
@@ -344,10 +336,10 @@ export function ActorsView() {
             key={a.id}
             actor={a}
             onOpen={openActor}
-            // An external contact's profile IS the pane the row opens; sending
-            // the context-menu entry to the dialog too would be two different
-            // answers to "show me this contact".
-            onViewProfile={a.actor_type === 'external' ? openActor : setDetailFor}
+            // The profile IS what the row opens, so the context-menu entry goes
+            // to the same place — two different answers to "show me this actor"
+            // would just be confusing.
+            onViewProfile={openActor}
             onRequestRemove={setRemoveFor}
           />
         ))}
@@ -445,12 +437,6 @@ export function ActorsView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <ActorDetailDialog
-        actor={detailFor}
-        teamId={teamId}
-        onOpenChange={(open) => { if (!open) setDetailFor(null) }}
-        onRemoved={refetch}
-      />
     </div>
   )
 }
