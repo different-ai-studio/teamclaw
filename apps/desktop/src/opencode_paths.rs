@@ -86,6 +86,7 @@ pub fn resolve_opencode_db_path(workspace_path: &str) -> Result<String, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_home::HomeGuard;
     use tempfile::tempdir;
 
     #[test]
@@ -153,20 +154,5 @@ mod tests {
 
         let resolved = resolve_opencode_db_path(workspace_dir.path().to_str().unwrap()).unwrap();
         assert_eq!(resolved, isolated_db.to_string_lossy());
-    }
-
-    struct HomeGuard;
-
-    impl HomeGuard {
-        fn set(path: &Path) -> Self {
-            std::env::set_var("HOME", path);
-            Self
-        }
-    }
-
-    impl Drop for HomeGuard {
-        fn drop(&mut self) {
-            std::env::remove_var("HOME");
-        }
     }
 }

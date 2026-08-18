@@ -751,6 +751,7 @@ pub(crate) async fn team_listings_from_cloud(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_home::HomeGuard;
 
     #[test]
     fn init_shared_secrets_does_not_create_missing_team_dir() {
@@ -791,32 +792,6 @@ mod tests {
         assert!(fc_client_for("/tmp/ws", Some("tok"), Some("not a url")).is_none());
     }
 
-    fn home_lock() -> &'static std::sync::Mutex<()> {
-        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| std::sync::Mutex::new(()))
-    }
-
-    struct HomeGuard {
-        original: Option<std::ffi::OsString>,
-    }
-
-    impl HomeGuard {
-        fn set(path: &Path) -> Self {
-            let original = std::env::var_os("HOME");
-            std::env::set_var("HOME", path);
-            Self { original }
-        }
-    }
-
-    impl Drop for HomeGuard {
-        fn drop(&mut self) {
-            match &self.original {
-                Some(v) => std::env::set_var("HOME", v),
-                None => std::env::remove_var("HOME"),
-            }
-        }
-    }
-
     #[test]
     fn resolve_team_dir_prefers_existing_workspace_link() {
         let workspace_dir = tempfile::tempdir().unwrap();
@@ -830,7 +805,6 @@ mod tests {
 
     #[test]
     fn resolve_team_dir_falls_back_to_global_when_workspace_unlinked() {
-        let _guard = home_lock().lock().unwrap();
         let home_dir = tempfile::tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
 

@@ -51,6 +51,8 @@ pub mod sentry_utils;
 mod session_export;
 mod telemetry;
 mod terminal;
+#[cfg(test)]
+pub mod test_home;
 mod webview_recovery;
 
 /// Get the mtime of the user's shell profile file as a u64 (seconds since epoch).

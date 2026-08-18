@@ -343,7 +343,9 @@ fn to_index_entries(entries: Vec<EnvVarEntry>) -> Vec<teamclu_runtime_env::Perso
         .collect()
 }
 
-fn from_index_entries(entries: Vec<teamclu_runtime_env::PersonalEnvIndexEntry>) -> Vec<EnvVarEntry> {
+fn from_index_entries(
+    entries: Vec<teamclu_runtime_env::PersonalEnvIndexEntry>,
+) -> Vec<EnvVarEntry> {
     entries
         .into_iter()
         .map(|e| EnvVarEntry {
@@ -365,10 +367,7 @@ pub(crate) fn read_env_index(workspace_path: &str) -> Result<Vec<EnvVarEntry>, S
 }
 
 /// Persist the index at machine level and retire this workspace's copy.
-pub(crate) fn write_env_index(
-    workspace_path: &str,
-    entries: &[EnvVarEntry],
-) -> Result<(), String> {
+pub(crate) fn write_env_index(workspace_path: &str, entries: &[EnvVarEntry]) -> Result<(), String> {
     teamclu_runtime_env::write_personal_env_index_for_brand(
         brand(),
         &to_index_entries(entries.to_vec()),
@@ -1184,38 +1183,12 @@ pub(crate) fn derive_personal_env_index_from_blob(workspace_path: &str) -> Resul
 mod tests {
     use super::*;
     use crate::commands::local_secret_store::SecretStorePaths;
-    use std::sync::{Mutex, OnceLock};
+    // One lock for every test in the crate that touches HOME — see test_home.
+    use crate::test_home::HomeGuard;
     use tempfile::tempdir;
-
-    fn home_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    struct HomeGuard {
-        original_home: Option<std::ffi::OsString>,
-    }
-
-    impl HomeGuard {
-        fn set(path: &Path) -> Self {
-            let original_home = std::env::var_os("HOME");
-            std::env::set_var("HOME", path);
-            Self { original_home }
-        }
-    }
-
-    impl Drop for HomeGuard {
-        fn drop(&mut self) {
-            match &self.original_home {
-                Some(value) => std::env::set_var("HOME", value),
-                None => std::env::remove_var("HOME"),
-            }
-        }
-    }
 
     #[test]
     fn read_env_blob_migrates_legacy_disk_snapshot_into_local_encrypted_store() {
-        let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
@@ -1266,7 +1239,6 @@ mod tests {
 
     #[test]
     fn read_personal_secret_blob_merges_legacy_once_per_workspace() {
-        let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_a = tempdir().unwrap();
         let workspace_b = tempdir().unwrap();
@@ -1321,7 +1293,6 @@ mod tests {
 
     #[test]
     fn existing_blob_survives_legacy_reader_error_without_marking_complete() {
-        let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
@@ -1356,7 +1327,6 @@ mod tests {
 
     #[test]
     fn existing_blob_reads_even_if_teamclu_json_is_invalid() {
-        let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
@@ -1388,7 +1358,6 @@ mod tests {
 
     #[test]
     fn first_migration_succeeds_even_if_teamclu_json_is_invalid() {
-        let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
@@ -1410,7 +1379,6 @@ mod tests {
 
     #[test]
     fn startup_retry_is_requested_when_teamclu_json_is_invalid() {
-        let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
@@ -1444,7 +1412,6 @@ mod tests {
 
     #[test]
     fn env_var_delete_removes_all_case_variants_from_blob_and_index() {
-        let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
@@ -1495,7 +1462,6 @@ mod tests {
 
     #[test]
     fn derive_personal_env_index_from_blob_adds_missing_user_keys() {
-        let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());

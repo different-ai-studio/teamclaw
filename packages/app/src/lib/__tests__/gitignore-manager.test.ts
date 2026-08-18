@@ -71,6 +71,21 @@ describe('gitignore-manager', () => {
       expect(writeTextFile).not.toHaveBeenCalled()
     })
 
+    // A workspace that predates a new entry already has the header, and the
+    // append used to staple a second copy above the new line.
+    it('does not repeat the comment header when it is already there', async () => {
+      vi.mocked(exists).mockResolvedValue(true)
+      vi.mocked(readTextFile).mockResolvedValue(
+        `# TeamClu system directories\n${TEAMCLU_DIR}/\n`,
+      )
+
+      await ensureGitignoreEntries('/workspace')
+
+      const writtenContent = vi.mocked(writeTextFile).mock.calls[0][1] as string
+      expect(writtenContent).toContain('opencode.json')
+      expect(writtenContent.match(/# TeamClu system directories/g)).toHaveLength(1)
+    })
+
     // Machine-local runtime config: the daemon rewrites it per machine, so a
     // committed copy is churn (and used to be an API-key leak).
     it('ignores the workspace opencode.json', async () => {
