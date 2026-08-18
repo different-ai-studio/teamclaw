@@ -8,6 +8,14 @@ import { buildConfig, TEAMCLU_DIR } from '@/lib/build-config'
 export const TEAMCLU_GITIGNORE_ENTRIES = [
   `# ${buildConfig.app.name} system directories`,
   `${TEAMCLU_DIR}/`,
+  // Machine-local runtime config, not project content: the daemon materializes
+  // it per machine (absolute binary paths, a local introspect port), so a
+  // committed copy is churn at best and, on pre-#742 installs, a provider API
+  // key in the history at worst.
+  //
+  // Note for an existing repo: git keeps tracking a file it already tracks —
+  // `git rm --cached opencode.json` is what actually stops it.
+  'opencode.json',
 ]
 
 /**
@@ -68,7 +76,18 @@ export async function ensureGitignoreEntries(workspacePath: string): Promise<voi
     if (!existingContent.endsWith('\n')) {
       newContent += '\n'
     }
-    newContent += `\n# ${buildConfig.app.name} system directories\n`
+    // Only when it isn't already there. This used to be written unconditionally,
+    // which went unnoticed while there was a single entry — the workspace
+    // metadata directory, spelled by buildConfig, not here: every
+    // workspace already had it, so the append path never ran. Adding a second
+    // entry made every existing workspace take it — and get a second copy of the
+    // header stapled above the new line.
+    const header = `# ${buildConfig.app.name} system directories`
+    if (!hasEntry(lines, header)) {
+      newContent += `\n${header}\n`
+    } else {
+      newContent += '\n'
+    }
     newContent += missingEntries.join('\n') + '\n'
 
     await writeTextFile(gitignorePath, newContent)

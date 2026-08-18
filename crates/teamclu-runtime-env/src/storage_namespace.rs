@@ -31,7 +31,8 @@ pub const AMUXD_HOME_ENV: &str = "AMUXD_HOME";
 /// likely does not belong in the daemon home at all.
 ///
 /// Sorted, so the layout test can compare against a sorted directory listing.
-pub const ROOT_ALLOWLIST: &[&str] = &["cache", "daemon.toml", "device-id", "logs", "run", "teams"];
+pub const ROOT_ALLOWLIST: &[&str] =
+    &["cache", "daemon.toml", "device-id", "logs", "mcp.json", "run", "teams"];
 
 /// Folder name under `$HOME` for official amuxd state (`~/.amuxd`).
 pub const OFFICIAL_AMUXD_DIR_NAME: &str = "amuxd";

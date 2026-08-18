@@ -64,7 +64,6 @@ interface TelemetryState {
   getStarRating: (messageId: string) => StarRating | undefined
   handleSessionIdle: (sessionId: string) => void
   generateAllSessionReports: (workspacePath?: string) => Promise<void>
-  exportTeamData: (force?: boolean) => void
   destroy: () => void
 }
 
@@ -214,16 +213,6 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       // Trigger session report creation/update for this session
       get().handleSessionIdle(sessionId)
 
-      // Schedule team data export after feedback change
-      scheduleTeamFeedbackExport()
-
-      // Update local stats
-      const { useWorkspaceStore } = await import('@/stores/workspace')
-      const { useLocalStatsStore } = await import('@/stores/local-stats')
-      const workspacePath = useWorkspaceStore.getState().workspacePath
-      if (workspacePath) {
-        await useLocalStatsStore.getState().incrementFeedback(workspacePath, rating)
-      }
     } catch (err) {
       console.error('[telemetry] Failed to set feedback:', err)
     }
@@ -242,8 +231,6 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       // Trigger session report creation/update for this session
       get().handleSessionIdle(sessionId)
 
-      // Schedule team data export after feedback removal
-      scheduleTeamFeedbackExport()
     } catch (err) {
       console.error('[telemetry] Failed to remove feedback:', err)
     }
@@ -305,16 +292,6 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       // Trigger session report creation/update for this session
       get().handleSessionIdle(sessionId)
 
-      // Schedule team data export after star rating change
-      scheduleTeamFeedbackExport()
-
-      // Update local stats
-      const { useWorkspaceStore } = await import('@/stores/workspace')
-      const { useLocalStatsStore } = await import('@/stores/local-stats')
-      const workspacePath = useWorkspaceStore.getState().workspacePath
-      if (workspacePath) {
-        await useLocalStatsStore.getState().addStarRating(workspacePath, rating)
-      }
     } catch (err) {
       console.error('[telemetry] Failed to set star rating:', err)
     }
@@ -333,8 +310,6 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       // Trigger session report creation/update for this session
       get().handleSessionIdle(sessionId)
 
-      // Schedule team data export after star rating removal
-      scheduleTeamFeedbackExport()
     } catch (err) {
       console.error('[telemetry] Failed to remove star rating:', err)
     }
@@ -405,25 +380,6 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
         }
         console.log(`[telemetry] Scored session ${sessionId}:`, scores.length, 'scores')
 
-        scheduleTeamFeedbackExport()
-
-        // Update local stats: task completed and session count
-        // Note: Token usage is now tracked per message in handleMessageCompleted
-        const { useWorkspaceStore } = await import('@/stores/workspace')
-        const { useLocalStatsStore } = await import('@/stores/local-stats')
-        const workspacePath = useWorkspaceStore.getState().workspacePath
-        if (workspacePath) {
-          const localStatsStore = useLocalStatsStore.getState()
-          
-          // Increment task completed
-          await localStatsStore.incrementTaskCompleted(workspacePath)
-          
-          // Increment session count (with feedback if applicable)
-          const feedbackPositive = (report as { _feedbackPositive?: number })._feedbackPositive || 0
-          const feedbackNegative = (report as { _feedbackNegative?: number })._feedbackNegative || 0
-          const hasFeedback = feedbackPositive + feedbackNegative > 0
-          await localStatsStore.incrementSessionCount(workspacePath, hasFeedback)
-        }
       } catch (err) {
         console.error('[telemetry] Scoring failed for session:', sessionId, err)
       }
@@ -533,19 +489,11 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
 
       console.log(`[telemetry] Report generation complete: ${successCount} created, ${skipCount} skipped, ${errorCount} errors`)
 
-      // Export team data after generating reports
-      if (successCount > 0) {
-        scheduleTeamFeedbackExport()
-      }
     } catch (err) {
       console.error('[telemetry] Failed to generate session reports:', err)
     } finally {
       set({ isGeneratingReports: false })
     }
-  },
-
-  exportTeamData: () => {
-    // No-op in Supabase mode. Leaderboard now lives in the public.team_leaderboard view.
   },
 
   destroy: () => {
@@ -565,18 +513,4 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
  */
 if (typeof window !== 'undefined') {
   (window as any)[`__${appShortName.toUpperCase()}_TELEMETRY__`] = useTelemetryStore.getState()
-}
-
-// ─── Team Feedback & Leaderboard Export ──────────────────────────────────
-
-function scheduleTeamFeedbackExport(_force: boolean = false) {
-  // No-op in Supabase mode. Leaderboard now lives in the public.team_leaderboard view.
-}
-
-/**
- * Trigger team leaderboard export (with debouncing)
- * Call this after updating .teamclu/stats.json to sync changes to team leaderboard
- */
-export function triggerTeamLeaderboardExport() {
-  scheduleTeamFeedbackExport()
 }

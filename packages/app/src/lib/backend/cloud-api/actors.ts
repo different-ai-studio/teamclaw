@@ -28,6 +28,9 @@ type CloudActor = {
   lastActiveAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  // External actors only: the gateway they came in through and their id in it.
+  source?: string | null;
+  sourceId?: string | null;
   // Only present on the single-actor detail response (GET /v1/actors/:id).
   clientVersions?: ClientVersionEntry[] | null;
 };
@@ -69,6 +72,8 @@ function mapActor(row: CloudActor): ActorDirectoryEntry {
     agent_owner_member_id: row.agentOwnerMemberId ?? null,
     email: row.email ?? null,
     phone: row.phone ?? null,
+    source: row.source ?? null,
+    source_id: row.sourceId ?? null,
     last_active_at: row.lastActiveAt ?? null,
     created_at: row.createdAt ?? null,
     updated_at: row.updatedAt ?? null,

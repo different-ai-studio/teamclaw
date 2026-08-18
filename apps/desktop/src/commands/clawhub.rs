@@ -807,29 +807,18 @@ pub async fn clawhub_update(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
+    use crate::test_home::HomeGuard;
     use tempfile::tempdir;
 
-    struct HomeGuard;
-
-    impl HomeGuard {
-        fn set(path: &Path) -> Self {
-            std::env::set_var("HOME", path);
-            Self
-        }
-    }
-
-    impl Drop for HomeGuard {
-        fn drop(&mut self) {
-            std::env::remove_var("HOME");
-        }
-    }
-
+    /// Every ClawHub / marketplace install lands in the shared Agents skills root
+    /// so OpenCode, Claude Code and pi all discover the same pack. This asserted
+    /// the pre-move `~/.config/opencode/skills` long after the move — and nothing
+    /// caught it, because CI never ran this crate's tests.
     #[test]
-    fn global_skills_dir_uses_home_config_opencode_skills() {
+    fn global_skills_dir_uses_the_shared_agents_skills_root() {
         let home_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
         let dir = global_skills_dir().unwrap();
-        assert_eq!(dir, home_dir.path().join(".config/opencode/skills"));
+        assert_eq!(dir, home_dir.path().join(".agents/skills"));
     }
 }

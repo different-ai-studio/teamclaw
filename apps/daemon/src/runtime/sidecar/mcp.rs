@@ -1,10 +1,12 @@
 //! Workspace MCP manifest → `@cursor/sdk` `AgentOptions.mcpServers`.
 //!
-//! Three sources, merged in this order (later wins a name clash):
+//! Four sources, merged in this order (later wins a name clash):
 //!
-//! 1. `~/.amuxd/teams/<id>/cloud/mcp.json` — Cursor `{ "mcpServers": … }`.
-//! 2. `<worktree>/opencode.json` `mcp` map — the user's own servers.
-//! 3. `mcp_config_path` — host-level `remote-tools-host.json`.
+//! 1. `~/.amuxd/mcp.json` `mcp` map — this machine's own servers (`amuxd-send`,
+//!    the `npx` bridges). Used to be copied into every workspace config.
+//! 2. `~/.amuxd/teams/<id>/cloud/mcp.json` — Cursor `{ "mcpServers": … }`.
+//! 3. `<worktree>/opencode.json` `mcp` map — the user's own servers.
+//! 4. `mcp_config_path` — host-level `remote-tools-host.json`.
 //!
 //! The SDK wants `Record<string, McpServerConfig>` (`options.d.ts:235`) where a
 //! stdio entry is `{type:"stdio", command: string, args: string[], env}` — note
@@ -146,13 +148,22 @@ fn servers_from_team_cloud_value(root: &Value) -> McpServers {
 /// Assemble every MCP server a cursor session should see. Missing or malformed
 /// files contribute nothing rather than failing the attach.
 pub fn assemble(worktree: &str, mcp_config_path: Option<&Path>) -> McpServers {
-    // Team servers first, so a same-named workspace entry overwrites them
-    // below. Local override beats the team's copy.
-    let mut out = crate::config::team_mcp::onboarded_team_id()
+    // Device servers first — the machine's own tools, in the same shape as a
+    // workspace config. They used to be copied into every workspace, which is
+    // why a workspace entry of the same name still overwrites them below.
+    let mut out = read_json(&crate::config::device_mcp::device_mcp_file())
+        .map(|v| servers_from_opencode_value(&v))
+        .unwrap_or_default();
+    // Team servers next, so a same-named workspace entry overwrites them below.
+    // Local override beats the team's copy.
+    for (name, cfg) in crate::config::team_mcp::onboarded_team_id()
         .map(|id| crate::runtime::team_cloud_config::team_cloud_mcp_file(&id))
         .and_then(|p| read_json(&p))
         .map(|v| servers_from_team_cloud_value(&v))
-        .unwrap_or_default();
+        .unwrap_or_default()
+    {
+        out.insert(name, cfg);
+    }
     for (name, cfg) in read_json(&Path::new(worktree).join("opencode.json"))
         .map(|v| servers_from_opencode_value(&v))
         .unwrap_or_default()
@@ -249,8 +260,17 @@ mod tests {
         assert!(servers_from_mcp_config_value(&json!({})).is_empty());
     }
 
+    /// `assemble` reads `~/.amuxd/mcp.json`, so every test that calls it needs an
+    /// isolated home or this machine's own device servers show up in the result.
+    fn isolate_home() -> (crate::test_brand_env::BrandEnvGuard, tempfile::TempDir) {
+        let home = tempfile::tempdir().unwrap();
+        let guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(home.path());
+        (guard, home)
+    }
+
     #[test]
     fn assemble_merges_both_sources_with_remote_tools_winning() {
+        let _iso = isolate_home();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("opencode.json"),
@@ -273,6 +293,7 @@ mod tests {
 
     #[test]
     fn assemble_tolerates_missing_files() {
+        let _iso = isolate_home();
         let dir = tempfile::tempdir().unwrap();
         assert!(assemble(&dir.path().to_string_lossy(), None).is_empty());
         assert!(assemble("/nonexistent/worktree", Some(Path::new("/nope.json"))).is_empty());

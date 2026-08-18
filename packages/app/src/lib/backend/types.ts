@@ -647,6 +647,13 @@ export interface ActorDirectoryEntry {
   // Member contact — null for agents/external and anonymous members.
   email?: string | null;
   phone?: string | null;
+  /**
+   * External actors only (`actor_type === 'external'`): the gateway the contact
+   * reached us through — `wecom` | `wechat` | `feishu` | `discord` | `kook` |
+   * `seatalk` | `email` — and their id inside it. Null for members and agents.
+   */
+  source?: string | null;
+  source_id?: string | null;
   // Per-device client versions — only populated by the single-actor detail fetch.
   client_versions?: ClientVersionEntry[] | null;
 }

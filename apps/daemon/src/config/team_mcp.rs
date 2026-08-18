@@ -67,7 +67,7 @@ fn parse_err(e: serde_json::Error) -> WorkspaceControlError {
 }
 
 fn is_inherent(name: &str) -> bool {
-    INHERENT_MCP_NAMES.contains(&name)
+    INHERENT_MCP_NAMES.contains(&name) || super::device_mcp::is_device_scoped(name)
 }
 
 pub(crate) fn onboarded_team_id() -> Option<String> {
@@ -289,9 +289,36 @@ pub fn merge_mcp_layers(
 pub fn load_merged_mcp(
     workspace: &Path,
 ) -> Result<HashMap<String, McpServerConfig>, WorkspaceControlError> {
-    let team = scan_team_mcp(workspace);
+    // Device layer first, team over it, workspace last. Device and team never
+    // collide in practice (the device names are ours), but if a team ever ships
+    // a server called `playwright` the team's definition is the one that should
+    // win — it is the deliberate choice, ours is a default.
+    let mut overlay = super::device_mcp::load_device_mcp();
+    overlay.extend(scan_team_mcp(workspace));
     let persisted = read_persisted_mcp(workspace)?;
-    Ok(merge_mcp_layers(&team, &persisted))
+    Ok(merge_mcp_layers(&overlay, &persisted))
+}
+
+/// Split a PUT body into (workspace-owned, device-owned).
+///
+/// Team entries are dropped entirely — they are read from the team's own file,
+/// and a workspace copy would outrank it forever. Device-scoped entries are
+/// handed back separately so the caller can persist them once per machine
+/// instead of once per workspace.
+pub fn split_put_body(
+    workspace: &Path,
+    body: HashMap<String, McpServerConfig>,
+) -> (HashMap<String, McpServerConfig>, HashMap<String, McpServerConfig>) {
+    let mut device = HashMap::new();
+    let mut workspace_owned = HashMap::new();
+    for (name, cfg) in filter_put_body(workspace, body) {
+        if super::device_mcp::is_device_scoped(&name) {
+            device.insert(name, cfg);
+        } else {
+            workspace_owned.insert(name, cfg);
+        }
+    }
+    (workspace_owned, device)
 }
 
 /// Strip team/inherent overlay entries from a PUT body; persist workspace-owned only.
@@ -334,6 +361,72 @@ pub struct PruneTeamMcpOutcome {
 /// Only byte-identical copies go. An entry that differs from the team's is a
 /// deliberate local override — the one thing the workspace layer exists for —
 /// and outranking the team is exactly what it should keep doing.
+/// Move device-scoped MCP entries out of a workspace `opencode.json`.
+///
+/// Same failure mode as the team prune above, one layer down: these four servers
+/// are now written once per machine (`~/.amuxd/mcp.json`), and a workspace copy
+/// outranks it — so a leftover copy pins this workspace to whatever binary path
+/// and enable-flag were current the day it was written. Reinstall the app and
+/// `amuxd-send` in that copy points at a binary that no longer exists.
+///
+/// A copy whose settings differ from the device file is carried over before it
+/// is dropped, so a `chrome-control` the user had disabled in this workspace
+/// ends up disabled machine-wide rather than silently re-enabled. Anything that
+/// matches is just removed.
+pub fn prune_device_mcp(workspace: &Path) -> Result<PruneTeamMcpOutcome, WorkspaceControlError> {
+    let device = super::device_mcp::load_device_mcp();
+    let mut carry_over: HashMap<String, McpServerConfig> = HashMap::new();
+    let mut removed_count = 0usize;
+
+    let changed =
+        teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace, |json| {
+            let Some(obj) = json.as_object_mut() else {
+                return Ok(false);
+            };
+            let Some(mcp_obj) = obj.get_mut("mcp").and_then(|m| m.as_object_mut()) else {
+                return Ok(false);
+            };
+
+            let names: Vec<String> = mcp_obj
+                .keys()
+                .filter(|name| super::device_mcp::is_device_scoped(name))
+                .cloned()
+                .collect();
+
+            for name in &names {
+                if let Some(raw) = mcp_obj.remove(name) {
+                    removed_count += 1;
+                    // Only a *user* difference is worth carrying: `amuxd-send`'s
+                    // argv differs on every reinstall and the device file's copy
+                    // is the fresh one, so never let a stale local copy win.
+                    if name == "amuxd-send" {
+                        continue;
+                    }
+                    if let Ok(local) = serde_json::from_value::<McpServerConfig>(raw) {
+                        let differs = device
+                            .get(name)
+                            .map(|current| !configs_equal(current, &local))
+                            .unwrap_or(true);
+                        if differs {
+                            carry_over.insert(name.clone(), local);
+                        }
+                    }
+                }
+            }
+            Ok(removed_count > 0)
+        })
+        .map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
+
+    if !carry_over.is_empty() {
+        super::device_mcp::put_device_entries(carry_over)?;
+    }
+
+    Ok(PruneTeamMcpOutcome {
+        changed,
+        removed_count,
+    })
+}
+
 pub fn prune_materialised_team_mcp(
     workspace: &Path,
 ) -> Result<PruneTeamMcpOutcome, WorkspaceControlError> {

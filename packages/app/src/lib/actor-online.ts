@@ -2,7 +2,8 @@ import { resolveAgentDevicePresenceSync } from '@/lib/agent-device-reachability'
 
 export type ActorOnlineRow = {
   id: string
-  actor_type: 'member' | 'agent'
+  /** Any directory kind, `external` included — see the note below. */
+  actor_type: 'member' | 'agent' | 'external'
   last_active_at: string | null
 }
 
@@ -18,6 +19,11 @@ export function isActorOnline(lastActiveAt: string | null): boolean {
  *
  * Agents use the shared device-presence merge (MQTT store + local daemon cache).
  * `agentPresence` remains as a test/fallback when the store has no retain yet.
+ *
+ * External gateway contacts are never online. They publish no presence, and
+ * their `last_active_at` is bumped by every inbound message — so the member
+ * heartbeat rule would light one up green for five minutes after a WeCom message
+ * lands, claiming a signal we do not have.
  */
 export function resolveActorOnlineStatus(
   actor: ActorOnlineRow,
@@ -26,6 +32,7 @@ export function resolveActorOnlineStatus(
     agentPresence?: { online: boolean } | undefined
   } = {},
 ): boolean {
+  if (actor.actor_type === 'external') return false
   const isAgent = actor.actor_type === 'agent'
   if (isAgent) {
     const merged = resolveAgentDevicePresenceSync(actor.id)

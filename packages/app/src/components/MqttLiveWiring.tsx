@@ -60,8 +60,7 @@ import { acquireActorPresenceStore } from "@/stores/actor-presence-store";
 import { MessageKind, type Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
 import { agentStreamKey, isAgentActiveStatus, isTerminalAgentStatus, isToolOnlyTurnAnchor, mergePendingAgentReplies, normalizeToolResultEvent, normalizeToolUseEvent, registerDiscardPendingStreamReply, rememberLiveEventId, shouldPatchFlushedToolEvent, streamEntryHasVisibleContent } from "@/lib/live-agent-stream";
 import { mapAcpPlanEntries, syncPlanFromTodoTool, syncPlanFromTodoToolResult } from "@/lib/sync-plan-from-todowrite";
-import { useWorkspaceStore } from "@/stores/workspace";
-import { useLocalStatsStore } from "@/stores/local-stats";
+import { reportSkillUsage } from "@/lib/telemetry/skill-usage";
 import { upsertMessagesBatch, softDeleteMessage, type MessageRow } from "@/lib/local-cache";
 import { syncActorsForTeam } from "@/lib/sync/actor-sync";
 import { syncIdeasForTeam } from "@/lib/sync/idea-sync";
@@ -1183,17 +1182,14 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
                   rawInput: tu.rawInput,
                   rawOutput: tu.rawOutput,
                 });
-                // Capture skill invocations for local stats + cloud leaderboard.
-                // tu.toolName is "skill" for Skill tool calls; tu.params.name is
-                // the skill slug (e.g. "sentry-fix").
+                // Capture skill invocations for the cloud leaderboard's skill
+                // dimension. tu.toolName is "skill" for Skill tool calls;
+                // tu.params.name is the skill slug (e.g. "sentry-fix").
                 if (
                   (tu.toolName === "skill" || tu.params?.description === "skill") &&
                   tu.params?.name
                 ) {
-                  const wp = useWorkspaceStore.getState().workspacePath;
-                  if (wp) {
-                    void useLocalStatsStore.getState().incrementSkillUsage(wp, tu.params.name);
-                  }
+                  void reportSkillUsage(tu.params.name);
                 }
                 syncPlanFromTodoTool(sid, actorId, {
                   toolName: tu.toolName,

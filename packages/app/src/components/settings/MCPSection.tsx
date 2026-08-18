@@ -33,7 +33,7 @@ import { AddMCPDialog } from './AddMCPDialog'
 import type { DaemonLocalAgent } from '@/lib/daemon-local-client'
 
 // MCP names that are always auto-injected by TeamClu and cannot be deleted
-const INHERENT_MCP_NAMES = new Set(['playwright', 'chrome-control', 'autoui', 'teamclu-introspect'])
+const INHERENT_MCP_NAMES = new Set(['amuxd-send', 'playwright', 'chrome-control', 'autoui', 'teamclu-introspect'])
 
 type McpEntrySource = 'inherent' | 'team' | 'workspace'
 

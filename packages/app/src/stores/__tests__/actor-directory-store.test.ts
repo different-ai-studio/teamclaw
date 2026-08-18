@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isListableActor, mapCacheRow } from '@/stores/actor-directory-store'
+import { isListableActor, mapCacheRow, toActorKind } from '@/stores/actor-directory-store'
 
 describe('mapCacheRow', () => {
   it('maps ownerMemberId from libsql cache for personal-agent delete gating', () => {
@@ -22,6 +22,45 @@ describe('mapCacheRow', () => {
     expect(row.actor_type).toBe('agent')
     expect(row.visibility).toBe('personal')
     expect(row.owner_member_id).toBe('member-42')
+  })
+
+  // Gateway contacts used to be flattened into `member` here, which put every
+  // WeCom sender in the members list under the "Team" subtitle.
+  it('keeps an external gateway contact as its own kind', () => {
+    const row = mapCacheRow({
+      id: 'ext-1',
+      teamId: 'team-1',
+      actorType: 'external',
+      displayName: 'wodi9vSQAAU8frf71',
+      memberStatus: null,
+      agentStatus: null,
+      lastActiveAt: '2026-08-18T00:00:00Z',
+      teamRole: null,
+      agentVisibility: null,
+      ownerMemberId: null,
+      createdAt: '2026-08-01T00:00:00Z',
+      updatedAt: '2026-08-18T00:00:00Z',
+      syncedAt: '2026-08-18T00:00:00Z',
+    })
+
+    expect(row.actor_type).toBe('external')
+  })
+})
+
+describe('toActorKind', () => {
+  it('recognises the three real kinds', () => {
+    expect(toActorKind('agent')).toBe('agent')
+    expect(toActorKind('external')).toBe('external')
+    expect(toActorKind('member')).toBe('member')
+  })
+
+  it('falls back to member for anything unknown', () => {
+    // A kind added server-side that this build has never heard of still has to
+    // render as something; a person is the safer default than an agent (which
+    // would get agent-only affordances like "set as default agent").
+    expect(toActorKind('role_agent')).toBe('member')
+    expect(toActorKind(null)).toBe('member')
+    expect(toActorKind(undefined)).toBe('member')
   })
 })
 

@@ -99,6 +99,7 @@ import {
   isTeamShareOwnedTarget,
   teamShareSectionForTarget,
 } from "@/lib/tabs/teamshare-target";
+import { isActorOwnedTarget } from "@/lib/tabs/actor-target";
 import { useTeamShareBrowserStore } from "@/stores/team-share-browser";
 import { TeamShareDetailContent } from "@/components/teamshare/TeamShareTabContent";
 import { useTerminalStore } from "@/stores/terminal-store";
@@ -797,9 +798,10 @@ function AppContent() {
   }, [currentTeamId, sessionListLoadedTeamId]);
 
   // A team-share tab names a row in *this* team's registry — a skill id, an MCP
-  // server, an env key, a document's history. After a switch those addresses
-  // resolve to nothing, so the tabs go with the team rather than lingering as
-  // windows onto another team's content.
+  // server, an env key, a document's history. An actor tab names a row in this
+  // team's directory. After a switch those addresses resolve to nothing, so the
+  // tabs go with the team rather than lingering as windows onto another team's
+  // content.
   const prevTeamIdRef = useRef<string | null>(currentTeamId);
   useEffect(() => {
     const prev = prevTeamIdRef.current;
@@ -807,7 +809,11 @@ function AppContent() {
     if (prev === null || prev === currentTeamId) return;
     useTabsStore
       .getState()
-      .closeWhere((tab) => tab.type === "native" && isTeamShareOwnedTarget(tab.target));
+      .closeWhere(
+        (tab) =>
+          tab.type === "native" &&
+          (isTeamShareOwnedTarget(tab.target) || isActorOwnedTarget(tab.target)),
+      );
     useTeamShareBrowserStore.getState().clearDetail();
   }, [currentTeamId]);
 

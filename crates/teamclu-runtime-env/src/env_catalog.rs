@@ -327,7 +327,19 @@ pub fn load_personal_env_listings(
         .filter(|s| !s.is_empty())
         .unwrap_or("teamclu");
 
-    let index_entries: Vec<PersonalEnvListing> = read_teamclu_config_for_brand(workspace, brand)
+    // Machine-level index first; a workspace copy an older build wrote is folded
+    // in behind it so nothing disappears before the desktop rewrites the index.
+    let machine_entries: Vec<PersonalEnvListing> =
+        crate::personal_secrets::read_personal_env_index_for_brand(brand)
+            .into_iter()
+            .map(|entry| PersonalEnvListing {
+                key: entry.key,
+                description: entry.description,
+                category: entry.category,
+            })
+            .collect();
+
+    let legacy_entries: Vec<PersonalEnvListing> = read_teamclu_config_for_brand(workspace, brand)
         .and_then(|config| {
             config
                 .get("envVars")
@@ -358,7 +370,8 @@ pub fn load_personal_env_listings(
         std::collections::HashMap::new();
 
     // System / index-only rows first (e.g. tc_api_key before a value is present).
-    for entry in index_entries {
+    // Legacy first so the machine copy overwrites it on a key both describe.
+    for entry in legacy_entries.into_iter().chain(machine_entries) {
         by_lower.insert(entry.key.to_ascii_lowercase(), entry);
     }
 

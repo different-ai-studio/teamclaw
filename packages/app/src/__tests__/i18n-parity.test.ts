@@ -79,6 +79,8 @@ for (const m of sourceBlob.matchAll(/\b(?:title|desc|label)Key:\s*['"]([\w]+(?:\
 // Keys built dynamically as t(`prefix.${x}`) — list the static prefixes here.
 const DYNAMIC_PREFIXES = [
   'actors.role.',
+  // Keyed by the gateway an external actor came in through (externalSourceLabel).
+  'actors.source.',
   'setupWizard.deps.',
   // Keyed by OnboardingStep at the call site (#881).
   'settings.daemonOnboarding.steps.',

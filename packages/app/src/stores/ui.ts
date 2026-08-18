@@ -43,7 +43,9 @@ export type SidebarFilter =
   | { kind: 'ideas' }
   | { kind: 'apps' }
   | { kind: 'actors' }
-  | { kind: 'actor'; actorId: string; displayName: string; actorType: 'member' | 'agent' }
+  /** `actorType` is carried for callers that want it; nothing reads it today.
+   *  It spans every actor kind, external gateway contacts included. */
+  | { kind: 'actor'; actorId: string; displayName: string; actorType: 'member' | 'agent' | 'external' }
   | { kind: 'idea'; ideaId: string; title: string }
   | { kind: 'workspace'; workspaceId: string | null; path: string; name: string }
   | { kind: 'teamShare'; section: TeamShareSection }

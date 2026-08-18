@@ -74,7 +74,11 @@ export function NewSessionDialog() {
     () =>
       actors
         .filter((a) => a.id !== currentMemberId)
-        .filter((a) => a.actor_type === 'member' || a.actor_type === 'agent')
+        // External gateway contacts are in the same directory but cannot be put
+        // in a session from here (no membership, nothing to route to), so they
+        // are filtered out — as a predicate, which also narrows the kind.
+        .filter((a): a is typeof a & { actor_type: 'member' | 'agent' } =>
+          a.actor_type === 'member' || a.actor_type === 'agent')
         .map((a) => ({ id: a.id, actor_type: a.actor_type, display_name: a.display_name }))
         .sort((a, b) => a.display_name.localeCompare(b.display_name)),
     [actors, currentMemberId],

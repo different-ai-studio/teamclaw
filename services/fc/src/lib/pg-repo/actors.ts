@@ -93,7 +93,26 @@ function mapDirectoryActorRow(r: any) {
     updatedAt: iso(r.updatedAt),
     email: null as null,
     phone: null as null,
+    // This schema has no source / source_id columns: `upsertExternalActor` above
+    // encodes the pair into userId as `<source>:<sourceId>`, so that is where
+    // they are read back from. Only external rows carry it — a member's userId
+    // is an auth user id, which has no colon.
+    ...splitExternalSource(r.actorType, r.userId),
   };
+}
+
+/**
+ * `<source>:<sourceId>` → the pair, for external actors only. Splits on the
+ * FIRST colon: a gateway id can itself contain colons (the URN forms the
+ * channels build, e.g. `wecom:corp/user`).
+ */
+function splitExternalSource(actorType: unknown, userId: unknown) {
+  if (actorType !== "external" || typeof userId !== "string") {
+    return { source: null as string | null, sourceId: null as string | null };
+  }
+  const cut = userId.indexOf(":");
+  if (cut <= 0) return { source: null as string | null, sourceId: userId || null };
+  return { source: userId.slice(0, cut), sourceId: userId.slice(cut + 1) || null };
 }
 
 /** Visibility filter expression for actor_directory queries */

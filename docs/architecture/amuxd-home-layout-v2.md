@@ -56,10 +56,10 @@
 | `~/.{brand}/` | 桌面端 | daemon 只读（个人密钥），**不写** |
 | `<workspace>/` | 双方 | 各写各的文件，见 §5 |
 
-**规则二：`~/.amuxd` 根目录只允许出现这六项。**
+**规则二：`~/.amuxd` 根目录只允许出现这七项。**
 
 ```text
-daemon.toml  device-id  teams/  run/  logs/  cache/
+daemon.toml  device-id  mcp.json  teams/  run/  logs/  cache/
 ```
 
 新增任何东西之前，先回答一个问题：**换一个团队，这个值该不该跟着变？**
@@ -77,6 +77,7 @@ daemon.toml  device-id  teams/  run/  logs/  cache/
 │
 ├── daemon.toml                        # 机器级配置 + 活跃团队指针（§3.1）
 ├── device-id                          # daemon 安装 id，仅用于版本上报（§3.2）
+├── mcp.json                           # 设备级 MCP server（§3.4）
 │
 ├── run/                               # 进程运行时，随进程生灭，可安全删除
 │   ├── amuxd.pid
@@ -193,6 +194,28 @@ panic、init 前的 print、子进程输出。managed.log 由桌面端在每次 
 轮换。诊断打包优先取 `amuxd.log`，缺失时回退 managed / out / err。
 
 旧布局三份日志并存且永不截断，实测单机 116 MB——这就是轮换是必修项的原因。
+
+### 3.4 `mcp.json`
+
+设备级 MCP server：`amuxd-send`（本机 daemon 的 socket）、`playwright`、
+`chrome-control`、`autoui`。形状是 opencode 自己的
+`{ "mcp": { name: { type, enabled, command: [...] } } }`，**不是**团队那份用的
+Cursor `mcpServers` 形状——Cursor 形状没地方放 `enabled`（playwright 默认关），
+而这个形状每个消费者本来就已经在为工作区配置解析了。
+
+三个消费者与团队 MCP 完全对称：`config::team_mcp::load_merged_mcp`（设置页的合并
+视图）、`runtime/sidecar/mcp.rs`（cursor / claude-agent / pi）、
+`runtime::team_cloud_config::sync_opencode_generated`（opencode，经 `OPENCODE_CONFIG`）。
+合并顺序：设备 → 团队 → 工作区，后者覆盖前者。
+
+放在根目录而不是 `teams/<id>/state/` 或 `cache/`：它描述的是**这台机器**的工具
+（本机 socket、本机 npx 桥），换团队不该变，也不是缓存——里面有用户的开关状态。
+
+这四个 server 以前是被物化进**每一个** `<workspace>/opencode.json` 的，每份都带着
+本机的绝对二进制路径：换台机器打开同一个仓库就会被重写，提交进 git 就永久冲突，
+而且工作区那份的优先级高于设备那份，所以重装 app 之后 `amuxd-send` 会指向一个已经
+不存在的二进制。`teamclu-introspect` 不在这里——它的 argv 带
+`--workspace <绝对路径>`，是唯一真正按工作区变的 inherent server。
 
 ---
 

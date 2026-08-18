@@ -31,6 +31,7 @@ import { useCurrentTeamStore } from '@/stores/current-team'
 import { getBackend } from '@/lib/backend'
 import { SettingCard, SectionHeader, ToggleSwitch } from './shared'
 import { TeamDefaultAgentCard } from './TeamDefaultAgentCard'
+import { SwitchTeamDialog } from '@/components/auth/SwitchTeamDialog'
 import { useAcpDebugStore } from '@/stores/acp-debug-store'
 import { appStoragePrefix, buildConfig } from '@/lib/build-config'
 import { NOTIFICATION_LEVEL_KEY } from '@/lib/notification-service'
@@ -93,6 +94,7 @@ export const GeneralSection = React.memo(function GeneralSection() {
   const currentMemberName = useCurrentTeamStore((s) => s.currentMember?.displayName ?? '')
   const currentTeamId = useCurrentTeamStore((s) => s.team?.id ?? '')
   const currentTeamName = useCurrentTeamStore((s) => s.team?.name ?? '')
+  const [switchTeamOpen, setSwitchTeamOpen] = React.useState(false)
   // Org name/id aren't kept in the current-team cache; resolve them from the
   // membership list (which carries orgId/orgName) by matching the active team.
   const [orgInfo, setOrgInfo] = React.useState<{ orgId: string | null; orgName: string | null }>({
@@ -260,10 +262,22 @@ export const GeneralSection = React.memo(function GeneralSection() {
       {currentTeamId ? (
         <SettingCard>
           <div className="space-y-3">
-            <label className="text-[13px] font-medium flex items-center gap-2">
-              <Server className="h-4 w-4 text-muted-foreground" />
-              {t('settings.general.teamInfo', 'Team & Organization')}
-            </label>
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-[13px] font-medium flex items-center gap-2">
+                <Server className="h-4 w-4 text-muted-foreground" />
+                {t('settings.general.teamInfo', 'Team & Organization')}
+              </label>
+              {/* The login gate restores the last team instead of asking every
+                  launch, so this is the way to change teams without signing out. */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSwitchTeamOpen(true)}
+                className="shrink-0"
+              >
+                {t('settings.general.switchTeam', 'Switch team')}
+              </Button>
+            </div>
             <dl className="space-y-2 text-xs">
               {[
                 { label: t('settings.general.teamName', 'Team name'), value: currentTeamName },
@@ -278,6 +292,7 @@ export const GeneralSection = React.memo(function GeneralSection() {
               ))}
             </dl>
           </div>
+          <SwitchTeamDialog open={switchTeamOpen} onOpenChange={setSwitchTeamOpen} />
         </SettingCard>
       ) : null}
 

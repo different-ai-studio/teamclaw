@@ -1237,6 +1237,8 @@
       "teamId": "团队 ID",
       "orgName": "组织名称",
       "orgId": "组织 ID",
+      "switchTeam": "切换团队",
+      "switchTeamDesc": "选择要进入的团队。应用会切换过去，并在下次启动时记住这次选择。",
       "appearance": "外观",
       "language": "语言",
       "languageDesc": "选择应用界面语言",
@@ -1637,6 +1639,7 @@
     },
     "daemonOnboarding": {
       "steps": {
+        "start-daemon": "启动本地服务",
         "mint-invite": "申请凭证",
         "init-daemon": "写入本地配置",
         "restart-daemon": "重启本地服务",
@@ -1644,6 +1647,7 @@
         "cloud-auth": "检查云端连接"
       },
       "slowHint": {
+        "start-daemon": "本地服务还在启动中。",
         "mint-invite": "正在等服务器响应，检查一下网络连接。",
         "init-daemon": "正在往 ~/.amuxd 写入凭证。",
         "restart-daemon": "正在等上一个进程退出。",
@@ -1651,6 +1655,7 @@
         "cloud-auth": "正在向服务器验证这台机器。"
       },
       "recovery": {
+        "start-daemon": "本地服务一直没起来，拿不到本机 ID。看看 ~/.amuxd/logs/amuxd.managed.log。",
         "mint-invite": "连不上服务器。检查网络后重试。",
         "init-daemon": "凭证没能写入。重置可以清掉写了一半的状态。",
         "restart-daemon": "本地服务没能重启。重置可以清掉写了一半的状态。",
@@ -2951,6 +2956,7 @@
     "public": "公开",
     "ungrouped": "其它",
     "lastUsed": "最后使用",
+    "current": "当前",
     "memberCount": "{{count}} 人",
     "memberCount_one": "{{count}} 人",
     "memberCount_other": "{{count}} 人"
@@ -2969,7 +2975,18 @@
     "defaultAgent": "默认 Agent",
     "type": {
       "agent": "智能体",
-      "member": "团队"
+      "member": "团队",
+      "external": "外部成员"
+    },
+    "source": {
+      "wecom": "企业微信",
+      "wechat": "微信",
+      "feishu": "飞书",
+      "discord": "Discord",
+      "kook": "KOOK",
+      "seatalk": "SeaTalk",
+      "email": "邮件",
+      "unknown": "未知来源"
     },
     "role": {
       "owner": "拥有者",
@@ -3009,6 +3026,13 @@
       "email": "邮箱",
       "phone": "手机号",
       "joined": "加入时间",
+      "firstSeen": "首次出现",
+      "source": "来源",
+      "sourceId": "来源 ID",
+      "sessions": "参与的会话",
+      "noSessions": "还没有来自该联系人的会话。",
+      "notFound": "该联系人已不在团队目录中。",
+      "externalNoSession": "外部联系人只能通过他们发消息的渠道联系。",
       "lastActiveLabel": "最近活跃",
       "never": "从未",
       "actorId": "Actor ID",

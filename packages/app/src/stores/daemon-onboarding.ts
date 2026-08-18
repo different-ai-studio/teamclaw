@@ -65,6 +65,7 @@ export type OnboardingStatus = 'unknown' | 'needs-onboard' | 'mismatch' | 'start
  * anything, so this trail is the only account of what the machine is doing.
  */
 export type OnboardingStep =
+  | 'start-daemon'
   | 'mint-invite'
   | 'init-daemon'
   | 'restart-daemon'
@@ -74,6 +75,7 @@ export type OnboardingStep =
 
 /** Ordered for display; `register-workspace` is best-effort and not shown. */
 export const ONBOARDING_STEPS: OnboardingStep[] = [
+  'start-daemon',
   'mint-invite',
   'init-daemon',
   'restart-daemon',
@@ -204,11 +206,52 @@ async function deviceDisplayName(): Promise<string> {
   return host || 'Local daemon'
 }
 
-/** This machine's id, as the daemon reports it. Throws rather than inventing one. */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** Same budget as `ensureHealthy`'s poll — 6s after the spawn attempt returns. */
+const DEVICE_ID_POLL_ATTEMPTS = 12
+const DEVICE_ID_POLL_MS = 500
+
+/**
+ * This machine's id, as the daemon reports it. Throws rather than inventing one.
+ *
+ * Binding is the one path that runs *before* the daemon is known to be up:
+ * `refresh` only auto-recovers a daemon already bound to this team, so a fresh
+ * machine reached `/v1/info` with nothing having started amuxd yet. Asking once
+ * and failing made that a race every first launch could lose — and the loudest
+ * way to lose it is a brand or layout change that moves the daemon home, since
+ * the daemon's first boot in an empty home does real work (bootstrap config,
+ * runtime discovery) before it binds its port. Start it and wait here.
+ *
+ * Under a named step, so a genuine failure names the thing that broke instead
+ * of surfacing as a bare "can't read this machine's id" with no step at all.
+ */
 async function requireDeviceId(): Promise<string> {
   const { fetchDaemonDeviceId } = await import('@/lib/daemon-local-client')
-  const deviceId = await fetchDaemonDeviceId()
-  if (!deviceId) {
+  // Fast path: a daemon that is already up answers the first ask, and the common
+  // case should not pay for a step transition.
+  const ready = await fetchDaemonDeviceId()
+  if (ready) return ready
+
+  return runStep('start-daemon', async () => {
+    const { invoke } = await import('@tauri-apps/api/core')
+    // Both spawn attempts are best-effort — the polling below decides the
+    // outcome — so neither throw is the reported failure. Same shape as
+    // `ensureHealthy`, including the restart fallback for a wedged supervisor.
+    try {
+      await invoke('daemon_ensure_running')
+    } catch {
+      try {
+        await invoke('daemon_restart_managed')
+      } catch {
+        /* fall through to polling */
+      }
+    }
+    for (let i = 0; i < DEVICE_ID_POLL_ATTEMPTS; i++) {
+      const deviceId = await fetchDaemonDeviceId()
+      if (deviceId) return deviceId
+      if (i < DEVICE_ID_POLL_ATTEMPTS - 1) await sleep(DEVICE_ID_POLL_MS)
+    }
     // Deliberately fatal rather than falling back to a generated id: a fresh id
     // means the server sees an unknown machine and provisions a *second* agent
     // for a machine that already has one.
@@ -218,8 +261,7 @@ async function requireDeviceId(): Promise<string> {
         "Can't read this machine's id from the local daemon. Make sure amuxd is running, then retry.",
       ),
     )
-  }
-  return deviceId
+  })
 }
 
 /**
@@ -297,8 +339,6 @@ function bindErrorMessage(e: unknown): string {
     { detail },
   )
 }
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** After re-onboard, wait until `/v1/info` reports a healthy cloud session. */
 async function waitForDaemonCloudAuthOk(timeoutMs = 30_000): Promise<boolean> {

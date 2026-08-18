@@ -35,7 +35,9 @@ pub use merge::{host_shadowed_env_keys, secrets_for_team_provider, tc_api_key_fo
 pub use personal_secrets::{
     count_user_personal_env_keys, diagnose_personal_env_store,
     diagnose_personal_env_store_for_brand, is_internal_personal_blob_key,
-    PersonalEnvStoreDiagnostics,
+    merge_personal_env_index, personal_env_index_path_for_brand,
+    read_personal_env_index_for_brand, write_personal_env_index_for_brand,
+    PersonalEnvIndexEntry, PersonalEnvStoreDiagnostics,
 };
 pub use resolved_env::{
     resolve_runtime_env, EnvOverride, EnvOverrideKind, EnvProvenance, EnvScope, EnvSource,
