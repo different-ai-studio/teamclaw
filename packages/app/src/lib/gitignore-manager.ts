@@ -77,7 +77,8 @@ export async function ensureGitignoreEntries(workspacePath: string): Promise<voi
       newContent += '\n'
     }
     // Only when it isn't already there. This used to be written unconditionally,
-    // which went unnoticed while there was a single entry (`.teamclu/`): every
+    // which went unnoticed while there was a single entry — the workspace
+    // metadata directory, spelled by buildConfig, not here: every
     // workspace already had it, so the append path never ran. Adding a second
     // entry made every existing workspace take it — and get a second copy of the
     // header stapled above the new line.
