@@ -11,7 +11,7 @@ import { apps, workspaces, sessions } from "../../db/schema/index.js";
 import { requireActorForTeam, resolveActorForTeam } from "./authz.js";
 import { isLegalStatusTransition } from "./app-status.js";
 import { isLegalFcTransition } from "../provisioning/app-fc-status.js";
-import { appOssObjectName } from "../provisioning/app-deploy.js";
+import { appOssObjectName, deployUnavailable } from "../provisioning/app-deploy.js";
 import { ApiError } from "../http-utils.js";
 
 type AppsCtx = { userId?: string };
@@ -63,6 +63,12 @@ export type AppsRepoDeps = {
     fcFunctionName: string;
     ossObjectName: string;
   }) => Promise<{ fcEndpoint: string }>;
+  /**
+   * Why deploy provisioning is unavailable, when it is. Named variables beat
+   * the bare "not configured" this replaced: that message reached the user as a
+   * toast and told nobody which of five environment variables was empty.
+   */
+  deployUnavailableReason?: string;
 };
 
 export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps = {}) {
@@ -215,7 +221,7 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
       if (existing.provisionStatus !== "ready") {
         throw new ApiError(409, "app_not_ready", "app must be seeded (provision_status=ready) before deploy");
       }
-      if (!deps.startDeploy) throw new ApiError(503, "deploy_unavailable", "deploy provisioning not configured");
+      if (!deps.startDeploy) throw deployUnavailable(deps.deployUnavailableReason);
       try {
         const r = await deps.startDeploy({ appId, region: process.env.REGION || "cn-hangzhou" });
         const [row] = await db.update(apps).set({
@@ -243,7 +249,7 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
       if (!isLegalFcTransition(existing.fcStatus, "deploying")) {
         throw new ApiError(409, "invalid_deploy_state", `cannot finalize from fc_status ${existing.fcStatus}`);
       }
-      if (!deps.finalizeDeploy) throw new ApiError(503, "deploy_unavailable", "deploy provisioning not configured");
+      if (!deps.finalizeDeploy) throw deployUnavailable(deps.deployUnavailableReason);
       await db.update(apps).set({ fcStatus: "deploying", updatedAt: new Date() }).where(eq(apps.id, appId));
       try {
         const r = await deps.finalizeDeploy({

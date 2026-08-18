@@ -98,6 +98,25 @@ test("fcEndpoint resolves explicit host, then account id, then ROLE_ARN", () => 
   }
 });
 
+test("fcEndpoint composes the host from the APPS region, not the default one", () => {
+  // On self-host REGION labels the MinIO client; the function lives wherever
+  // its code bucket is. Composing the host from REGION would aim every FC call
+  // at a region that holds no function at all.
+  const prev = { region: process.env.REGION, apps: process.env.APPS_REGION, account: process.env.ALIYUN_ACCOUNT_ID, endpoint: process.env.APPS_FC_ENDPOINT };
+  delete process.env.APPS_FC_ENDPOINT;
+  process.env.ALIYUN_ACCOUNT_ID = "1234567890123456";
+  process.env.REGION = "cn-shenzhen";
+  try {
+    assert.equal(fcEndpoint(), "1234567890123456.cn-shenzhen.fc.aliyuncs.com");
+    process.env.APPS_REGION = "cn-hangzhou";
+    assert.equal(fcEndpoint(), "1234567890123456.cn-hangzhou.fc.aliyuncs.com");
+  } finally {
+    for (const [k, v] of [["REGION", prev.region], ["APPS_REGION", prev.apps], ["ALIYUN_ACCOUNT_ID", prev.account], ["APPS_FC_ENDPOINT", prev.endpoint]] as const) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
 test("ensureHttpTrigger returns the public invoke URL", async () => {
   const { client } = fakeClient();
   const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc" });

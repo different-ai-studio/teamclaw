@@ -1,9 +1,13 @@
 import FcClient, * as $fc from "@alicloud/fc20230330";
 import { Config } from "@alicloud/openapi-client";
+import { appsRegion, type AppsOssProfile } from "./apps-oss.js";
 
 type FcClientInstance = InstanceType<typeof FcClient.default>;
 
-const REGION = () => process.env.REGION || "cn-hangzhou";
+// The function's region, which is the apps region — NOT necessarily the
+// deployment's default `REGION`. On self-host that one labels a MinIO client
+// and has nothing to do with where the app function runs.
+const REGION = () => appsRegion();
 
 /** Pull the account id out of a RAM role ARN: `acs:ram::<accountId>:role/<name>`. */
 export function accountIdFromRoleArn(arn: string | undefined): string | null {
@@ -45,12 +49,18 @@ export function fcEndpoint(): string {
   return endpoint;
 }
 
-export function getFcClient(): FcClientInstance {
+/**
+ * `profile` carries the Alibaba credentials the app artifacts live under. It is
+ * optional only so tests and any legacy caller keep working; production passes
+ * the resolved profile, because on a deployment whose default `ACCESS_KEY_ID`
+ * is MinIO's, those credentials do not authenticate against the FC API at all.
+ */
+export function getFcClient(profile?: AppsOssProfile): FcClientInstance {
   const endpoint = fcEndpoint();
   return new FcClient.default(new Config({
-    accessKeyId: process.env.ACCESS_KEY_ID,
-    accessKeySecret: process.env.ACCESS_KEY_SECRET,
-    regionId: REGION(),
+    accessKeyId: profile?.accessKeyId ?? process.env.ACCESS_KEY_ID,
+    accessKeySecret: profile?.accessKeySecret ?? process.env.ACCESS_KEY_SECRET,
+    regionId: profile?.region ?? REGION(),
     endpoint,
   }) as any);
 }

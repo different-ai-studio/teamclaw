@@ -39,7 +39,7 @@ import {
   readEnvelope as readTeamEnvEnvelope,
 } from "./pg-repo/team-env-secrets.js";
 import { isLegalFcTransition } from "./provisioning/app-fc-status.js";
-import { appOssObjectName } from "./provisioning/app-deploy.js";
+import { appOssObjectName, deployUnavailable } from "./provisioning/app-deploy.js";
 import { normalizeAgentTypes } from "./agent-types.js";
 import { isListableAgentStatus, LISTABLE_AGENT_STATUS_OR_FILTER } from "./agent-status.js";
 import { computeRange, getLiteLlmSql, queryTeamUsage } from "./litellm-usage.js";
@@ -280,6 +280,9 @@ export function createSupabaseBusinessRepository(options) {
     fetchLiteLlmModels: fetchLiteLlmModelsOpt,
     startDeploy,
     finalizeDeploy,
+    // Set when the two above are absent: names the environment variable that
+    // made deploy provisioning unavailable (see makeDeployDeps in index.ts).
+    deployUnavailableReason,
     // Injectable for tests; defaults to querying the LiteLLM RDS directly.
     queryLiteLlmUsage = (litellmTeamId, range) => queryTeamUsage(getLiteLlmSql(), litellmTeamId, range),
     // Injectable for tests; defaults to the shared LiteLLM HTTP client.
@@ -3000,7 +3003,7 @@ export function createSupabaseBusinessRepository(options) {
       if (existing.provision_status !== "ready") {
         throw new ApiError(409, "app_not_ready", "app must be seeded (provision_status=ready) before deploy");
       }
-      if (!startDeploy) throw new ApiError(503, "deploy_unavailable", "deploy provisioning not configured");
+      if (!startDeploy) throw deployUnavailable(deployUnavailableReason);
       try {
         const r = await startDeploy({ appId, region: process.env.REGION || "cn-hangzhou" });
         // Persist only fc_function_name / fc_region / fc_status. The app's own
@@ -3050,7 +3053,7 @@ export function createSupabaseBusinessRepository(options) {
       if (!isLegalFcTransition(existing.fc_status, "deploying")) {
         throw new ApiError(409, "invalid_deploy_state", `cannot finalize from fc_status ${existing.fc_status}`);
       }
-      if (!finalizeDeploy) throw new ApiError(503, "deploy_unavailable", "deploy provisioning not configured");
+      if (!finalizeDeploy) throw deployUnavailable(deployUnavailableReason);
       // Mark deploying (RLS-gated UPDATE).
       await supabase.from("apps").update({ fc_status: "deploying", updated_at: new Date().toISOString() }).eq("id", appId);
       try {

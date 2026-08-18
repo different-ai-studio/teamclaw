@@ -73,6 +73,17 @@ resources:
         # the OSS ENDPOINT above. Set one of the two.
         APPS_FC_ENDPOINT: ${env('APPS_FC_ENDPOINT', '')}
         ALIYUN_ACCOUNT_ID: ${env('ALIYUN_ACCOUNT_ID', '')}
+        # Optional dedicated OSS profile for app code artifacts. On THIS target
+        # everything already lives in one Alibaba account, so leaving these
+        # blank keeps using ACCESS_KEY_ID / BUCKET / REGION / ENDPOINT above —
+        # app deploys need no new configuration here. Self-host sets them
+        # because its default S3 config is a box-local MinIO that Function
+        # Compute cannot read code from.
+        APPS_ACCESS_KEY_ID: ${env('APPS_ACCESS_KEY_ID', '')}
+        APPS_ACCESS_KEY_SECRET: ${env('APPS_ACCESS_KEY_SECRET', '')}
+        APPS_OSS_BUCKET: ${env('APPS_OSS_BUCKET', '')}
+        APPS_REGION: ${env('APPS_REGION', '')}
+        APPS_OSS_ENDPOINT: ${env('APPS_OSS_ENDPOINT', '')}
         PUSH_WEBHOOK_SECRET: ${env('PUSH_WEBHOOK_SECRET')}
         CRON_TRIGGER_SECRET: ${env('CRON_TRIGGER_SECRET', '')}
         # Raw-TCP address for clients whose MQTT stack can't do WebSocket (iOS

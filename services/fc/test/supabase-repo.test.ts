@@ -2031,6 +2031,23 @@ test("apps: deployApp rejects 503 when startDeploy dep missing", async () => {
   );
 });
 
+test("apps: the 503 names the missing configuration when one is given", async () => {
+  // Without this the user's toast — and apps.provision_error — read only
+  // "deploy provisioning not configured", which named none of the five
+  // variables that can cause it and took an SSH session to decode.
+  const repo = appsRepo(
+    appsSupabase({ seed: { apps: [{ ...APP_ROW, provision_status: "ready" }] } }),
+    { deployUnavailableReason: "APPS_ACCESS_KEY_ID is set but APPS_OSS_BUCKET is empty" },
+  );
+  await assert.rejects(
+    () => repo.deployApp("app-1"),
+    (err: any) =>
+      err?.code === "deploy_unavailable" &&
+      err?.statusCode === 503 &&
+      /APPS_OSS_BUCKET/.test(err?.message ?? ""),
+  );
+});
+
 test("apps: deployApp on ready app returns awaiting_build + ossObjectName", async () => {
   const repo = appsRepo(
     appsSupabase({ seed: { apps: [{ ...APP_ROW, provision_status: "ready" }] } }),
