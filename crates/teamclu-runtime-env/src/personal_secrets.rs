@@ -4,7 +4,7 @@ use aes_gcm::{
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use tracing::warn;
 
@@ -113,6 +113,101 @@ pub fn load_personal_env_for_brand(
     brand_short_name: &str,
 ) -> anyhow::Result<HashMap<String, String>> {
     load_personal_env_for_storage_dir(resolve_storage_dir_name(brand_short_name))
+}
+
+// ── Personal env index ───────────────────────────────────────────────────────
+//
+// The *values* live in the encrypted blob above, keyed by name and nothing else.
+// Descriptions and categories (`system` / `system-shared`) have nowhere to go in
+// there, so they live in this index — a plain, non-secret JSON file next to the
+// blob, in the same machine-global directory.
+//
+// It used to be an `envVars` array inside every `<workspace>/{meta}/{brand}.json`,
+// which made a machine-global fact per-workspace: the same key described twice
+// with different text in two checkouts, and a fresh workspace showing none of the
+// keys it can actually resolve. `read_personal_env_index_for_brand` still folds in
+// a legacy workspace copy so nothing disappears before the desktop rewrites it.
+
+const ENV_INDEX_FILE: &str = "env-index.json";
+
+/// One index row: a key plus what the UI needs to describe it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalEnvIndexEntry {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// `system` (seeded by the desktop each launch) / `system-shared` (value in
+    /// the team KMS) / absent for a user key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct PersonalEnvIndexFile {
+    #[serde(rename = "envVars", default)]
+    env_vars: Vec<PersonalEnvIndexEntry>,
+}
+
+/// `~/.{brand}/secrets/env-index.json`.
+pub fn personal_env_index_path_for_brand(brand_short_name: &str) -> Option<PathBuf> {
+    let storage_dir = resolve_storage_dir_name(brand_short_name);
+    let home = dirs::home_dir()?;
+    Some(
+        home.join(format!(".{storage_dir}"))
+            .join("secrets")
+            .join(ENV_INDEX_FILE),
+    )
+}
+
+/// The machine-level index. Missing or unparseable reads as empty — it is
+/// metadata, and losing it must never hide a key whose value the blob still has.
+pub fn read_personal_env_index_for_brand(brand_short_name: &str) -> Vec<PersonalEnvIndexEntry> {
+    let Some(path) = personal_env_index_path_for_brand(brand_short_name) else {
+        return Vec::new();
+    };
+    let Ok(body) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    match serde_json::from_str::<PersonalEnvIndexFile>(&body) {
+        Ok(file) => file.env_vars,
+        Err(e) => {
+            warn!(path = %path.display(), error = %e, "personal env index unreadable; treating as empty");
+            Vec::new()
+        }
+    }
+}
+
+pub fn write_personal_env_index_for_brand(
+    brand_short_name: &str,
+    entries: &[PersonalEnvIndexEntry],
+) -> anyhow::Result<()> {
+    let path = personal_env_index_path_for_brand(brand_short_name)
+        .ok_or_else(|| anyhow::anyhow!("no home directory"))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let body = serde_json::to_string_pretty(&PersonalEnvIndexFile {
+        env_vars: entries.to_vec(),
+    })?;
+    std::fs::write(&path, body)?;
+    Ok(())
+}
+
+/// Merge two index lists, first-wins per key (case-insensitive).
+pub fn merge_personal_env_index(
+    preferred: Vec<PersonalEnvIndexEntry>,
+    fallback: Vec<PersonalEnvIndexEntry>,
+) -> Vec<PersonalEnvIndexEntry> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out = Vec::new();
+    for entry in preferred.into_iter().chain(fallback) {
+        if seen.insert(entry.key.to_ascii_lowercase()) {
+            out.push(entry);
+        }
+    }
+    out.sort_by(|a, b| a.key.cmp(&b.key));
+    out
 }
 
 /// Non-secret diagnostics for the encrypted personal env store (paths + counts).

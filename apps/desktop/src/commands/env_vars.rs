@@ -317,6 +317,77 @@ pub(crate) fn write_teamclu_json(
         .map_err(|e| format!("Failed to write {}: {}", super::CONFIG_FILE_NAME, e))
 }
 
+// ── Personal env index ──────────────────────────────────────────────────────
+//
+// The index (key + description + category) is machine-global, next to the
+// encrypted blob it describes: `~/.{brand}/secrets/env-index.json`. It used to be
+// an `envVars` array inside every workspace's meta config, which made one
+// machine-global fact per-workspace — the same key described differently in two
+// checkouts, and a fresh workspace listing none of the keys it can resolve.
+//
+// Reads fold in a legacy workspace copy; the first write drops it, so a workspace
+// migrates the moment the user touches env vars there.
+
+fn brand() -> &'static str {
+    super::APP_SHORT_NAME
+}
+
+fn to_index_entries(entries: Vec<EnvVarEntry>) -> Vec<teamclu_runtime_env::PersonalEnvIndexEntry> {
+    entries
+        .into_iter()
+        .map(|e| teamclu_runtime_env::PersonalEnvIndexEntry {
+            key: e.key,
+            description: e.description,
+            category: e.category,
+        })
+        .collect()
+}
+
+fn from_index_entries(entries: Vec<teamclu_runtime_env::PersonalEnvIndexEntry>) -> Vec<EnvVarEntry> {
+    entries
+        .into_iter()
+        .map(|e| EnvVarEntry {
+            key: e.key,
+            description: e.description,
+            category: e.category,
+        })
+        .collect()
+}
+
+/// The index this workspace should see: machine-level, with a legacy workspace
+/// copy behind it.
+pub(crate) fn read_env_index(workspace_path: &str) -> Result<Vec<EnvVarEntry>, String> {
+    let machine = teamclu_runtime_env::read_personal_env_index_for_brand(brand());
+    let legacy = to_index_entries(get_env_vars_from_json(&read_teamclu_json(workspace_path)?));
+    Ok(from_index_entries(
+        teamclu_runtime_env::merge_personal_env_index(machine, legacy),
+    ))
+}
+
+/// Persist the index at machine level and retire this workspace's copy.
+pub(crate) fn write_env_index(
+    workspace_path: &str,
+    entries: &[EnvVarEntry],
+) -> Result<(), String> {
+    teamclu_runtime_env::write_personal_env_index_for_brand(
+        brand(),
+        &to_index_entries(entries.to_vec()),
+    )
+    .map_err(|e| format!("Failed to write personal env index: {e}"))?;
+
+    // Best-effort: the index is written, so a leftover workspace copy is only a
+    // stale duplicate. Failing the whole operation over it would be worse.
+    if let Ok(mut json) = read_teamclu_json(workspace_path) {
+        if json.get("envVars").is_some() {
+            set_env_vars_in_json(&mut json, &[]);
+            if let Err(err) = write_teamclu_json(workspace_path, &json) {
+                eprintln!("[EnvVars] could not retire workspace envVars index: {err}");
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Read the envVars array from the JSON value.
 fn get_env_vars_from_json(json: &serde_json::Value) -> Vec<EnvVarEntry> {
     json.get("envVars")
@@ -380,8 +451,7 @@ pub(crate) async fn env_var_set_for_workspace(
     .await
     .map_err(|e| e.to_string())??;
 
-    let mut json = read_teamclu_json(workspace_path)?;
-    let mut entries = get_env_vars_from_json(&json);
+    let mut entries = read_env_index(workspace_path)?;
 
     entries.retain(|e| !env_keys_match(&e.key, &key));
     entries.push(EnvVarEntry {
@@ -390,8 +460,7 @@ pub(crate) async fn env_var_set_for_workspace(
         category: None,
     });
 
-    set_env_vars_in_json(&mut json, &entries);
-    write_teamclu_json(workspace_path, &json)
+    write_env_index(workspace_path, &entries)
 }
 
 /// Retrieve an environment variable value from the local encrypted store.
@@ -422,8 +491,7 @@ pub(crate) async fn env_var_delete_for_workspace(
     workspace_path: &str,
     key: String,
 ) -> Result<(), String> {
-    let mut json = read_teamclu_json(workspace_path)?;
-    let mut entries = get_env_vars_from_json(&json);
+    let mut entries = read_env_index(workspace_path)?;
 
     if let Some(entry) = entries.iter().find(|e| env_keys_match(&e.key, &key)) {
         match entry.category.as_deref() {
@@ -447,11 +515,10 @@ pub(crate) async fn env_var_delete_for_workspace(
     .map_err(|e| e.to_string())??;
 
     entries.retain(|e| !env_keys_match(&e.key, &key));
-    set_env_vars_in_json(&mut json, &entries);
-    write_teamclu_json(workspace_path, &json)
+    write_env_index(workspace_path, &entries)
 }
 
-/// Unified env catalog: personal/system defs from `teamclu.json` plus team
+/// Unified env catalog: personal/system defs from the machine index plus team
 /// secrets discovered under the same `_secrets/` paths used by the daemon.
 #[tauri::command]
 pub async fn env_catalog_list(
@@ -653,8 +720,7 @@ pub struct PersonalEnvDiagnostics {
 fn gather_personal_env_diagnostics(workspace_path: &str) -> Result<PersonalEnvDiagnostics, String> {
     let store = teamclu_runtime_env::diagnose_personal_env_store_for_brand(super::APP_SHORT_NAME);
 
-    let json = read_teamclu_json(workspace_path)?;
-    let index_keys: Vec<String> = get_env_vars_from_json(&json)
+    let index_keys: Vec<String> = read_env_index(workspace_path)?
         .into_iter()
         .filter(|entry| entry.category.as_deref() != Some("system"))
         .map(|entry| entry.key)
@@ -965,8 +1031,7 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, actor_id: &str) -> Re
         actor_id: actor_id.to_string(),
     };
     let mut blob = read_env_blob(workspace_path)?;
-    let mut json = read_teamclu_json(workspace_path)?;
-    let mut entries = get_env_vars_from_json(&json);
+    let mut entries = read_env_index(workspace_path)?;
     let mut blob_changed = false;
     let mut index_changed = false;
 
@@ -1059,22 +1124,20 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, actor_id: &str) -> Re
         write_env_blob(&blob)?;
     }
     if index_changed {
-        set_env_vars_in_json(&mut json, &entries);
-        write_teamclu_json(workspace_path, &json)?;
+        write_env_index(workspace_path, &entries)?;
     }
 
     Ok(())
 }
 
-/// Derive workspace `envVars` cache entries for user keys present in the
-/// machine-global personal blob but missing from this workspace's index.
+/// Derive index entries for user keys present in the machine-global personal blob
+/// but missing from the index.
 ///
-/// Does not write secret values into the workspace config — key-only rows.
-/// Internal blob keys (`tc_api_key`, `_team_secret.*`) are skipped.
+/// Key-only rows — never a secret value. Internal blob keys (`tc_api_key`,
+/// `_team_secret.*`) are skipped.
 pub(crate) fn derive_personal_env_index_from_blob(workspace_path: &str) -> Result<usize, String> {
     let blob = read_env_blob(workspace_path)?;
-    let mut json = read_teamclu_json(workspace_path)?;
-    let mut entries = get_env_vars_from_json(&json);
+    let mut entries = read_env_index(workspace_path)?;
     let index_lower: std::collections::HashSet<String> =
         entries.iter().map(|e| e.key.to_ascii_lowercase()).collect();
 
@@ -1106,13 +1169,11 @@ pub(crate) fn derive_personal_env_index_from_blob(workspace_path: &str) -> Resul
     }
 
     if added > 0 {
-        set_env_vars_in_json(&mut json, &entries);
-        write_teamclu_json(workspace_path, &json)?;
+        write_env_index(workspace_path, &entries)?;
         println!(
-            "[EnvVars] Derived {} personal envVars index entr{} from blob for '{}'",
+            "[EnvVars] Derived {} personal env index entr{} from the blob",
             added,
-            if added == 1 { "y" } else { "ies" },
-            workspace_path
+            if added == 1 { "y" } else { "ies" }
         );
     }
 
@@ -1467,12 +1528,23 @@ mod tests {
         let added = derive_personal_env_index_from_blob(&workspace_path).unwrap();
         assert_eq!(added, 1);
 
-        let json = read_teamclu_json(&workspace_path).unwrap();
-        let entries = get_env_vars_from_json(&json);
+        let entries = read_env_index(&workspace_path).unwrap();
         let keys: Vec<_> = entries.iter().map(|e| e.key.as_str()).collect();
+        // The legacy workspace row is folded in, the blob key is added.
         assert!(keys.contains(&"tc_api_key"));
         assert!(keys.contains(&"ANTHROPIC_AUTH_TOKEN"));
         assert!(!keys.iter().any(|k| k.starts_with("_team_secret.")));
+
+        // The index now lives next to the blob, machine-wide…
+        let machine =
+            teamclu_runtime_env::read_personal_env_index_for_brand(super::super::APP_SHORT_NAME);
+        assert!(machine.iter().any(|e| e.key == "ANTHROPIC_AUTH_TOKEN"));
+        // …and the workspace copy is retired rather than kept in sync twice.
+        let json = read_teamclu_json(&workspace_path).unwrap();
+        assert!(
+            json.get("envVars").is_none(),
+            "workspace copy should be gone: {json}"
+        );
 
         // Idempotent — second call adds nothing.
         assert_eq!(
