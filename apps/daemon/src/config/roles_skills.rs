@@ -402,14 +402,19 @@ fn collect_team_skill_paths(workspace_path: &Path) -> Vec<PathBuf> {
         push(extra);
     }
 
-    if let Some(team_id) = team_id.as_deref() {
-        let default_team_skills =
-            super::global_team_store::resolve_team_dir(workspace_path, team_id).join("skills");
-        push(default_team_skills);
-    } else {
-        let default_team_skills = workspace_path.join(TEAM_LINK_NAME).join("skills");
-        push(default_team_skills);
-    }
+    // The team-share drive's own `skills/` used to be a root here. It no longer
+    // has a writer: `skills/` is in the OSS sync's RETIRED_PREFIXES (it moved to
+    // the skills registry), so nothing has landed there since that migration.
+    //
+    // Dropping it is a real behaviour change on machines that synced skills
+    // *before* the migration — the retirement stopped the syncing but never
+    // deleted anything, so those files are still on disk and were still being
+    // scanned. They stop reaching agents now, which is the point: a pack the
+    // registry has since superseded is exactly the "quietly running a version
+    // the team retired" case the registry exists to end.
+    //
+    // Config-declared `/skills/paths` entries pointing into the team drive are
+    // untouched — those are somebody's explicit choice, not a default.
 
     paths
 }
@@ -1153,14 +1158,26 @@ mod tests {
         assert_eq!(state.metrics.roles_count, 0);
     }
 
+    /// Bundle naming for a team root. Declared via `opencode.json` rather than
+    /// the team drive's own `skills/`, which is no longer a root — see
+    /// `collect_team_skill_paths`.
     #[test]
-    fn scan_finds_nested_team_share_bundle_skills() {
+    fn scan_finds_nested_team_bundle_skills() {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path();
 
-        let bundle_dir = ws
-            .join(TEAM_LINK_NAME)
-            .join("skills/superpowers/brainstorming");
+        let team_root = ws.join("team-skills");
+        std::fs::create_dir_all(&team_root).unwrap();
+        std::fs::write(
+            ws.join("opencode.json"),
+            format!(
+                r#"{{"skills":{{"paths":["{}"]}}}}"#,
+                team_root.to_string_lossy()
+            ),
+        )
+        .unwrap();
+
+        let bundle_dir = team_root.join("superpowers/brainstorming");
         std::fs::create_dir_all(&bundle_dir).unwrap();
         std::fs::write(
             bundle_dir.join("SKILL.md"),
@@ -1181,8 +1198,15 @@ mod tests {
         assert_eq!(team_skill.source.as_deref(), Some("team"));
     }
 
+    /// The team drive's `skills/` is deliberately NOT a root any more.
+    ///
+    /// `skills/` is in the OSS sync's RETIRED_PREFIXES — it moved to the skills
+    /// registry — but that retirement only stopped the syncing; it never deleted
+    /// what earlier syncs had already written. Those leftovers kept reaching
+    /// agents through this root, which is how a member ends up running a version
+    /// the team retired.
     #[test]
-    fn scan_finds_team_share_skills_without_config_paths() {
+    fn team_share_leftovers_are_no_longer_scanned() {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path();
 
@@ -1195,12 +1219,10 @@ mod tests {
         .unwrap();
 
         let state = scan_roles_skills_state(ws).unwrap();
-        let team_skill = state
-            .skills
-            .iter()
-            .find(|skill| skill.filename == "shared-skill")
-            .expect("team share skill");
-        assert_eq!(team_skill.source.as_deref(), Some("team"));
+        assert!(
+            !state.skills.iter().any(|s| s.filename == "shared-skill"),
+            "a leftover under the team drive must not reach agents any more"
+        );
     }
 
     #[test]
