@@ -65,8 +65,31 @@ export function getFcClient(profile?: AppsOssProfile): FcClientInstance {
   }) as any);
 }
 
-export interface FcOpsConfig { bucket: string; role: string | undefined; }
+export interface FcOpsConfig { bucket: string; role: string | undefined; region: string; }
 export interface EnsureFunctionArgs { ossObjectName: string; env: Record<string, string>; }
+
+/**
+ * The custom runtime image ships NO node at all — not merely one that is off
+ * PATH. `command: ["node"]` therefore failed EVERY deploy at instance start
+ * with `CAFileNotFound: the file node is not exist`, and `/bin/sh -c 'exec
+ * node …'` failed the same way with `exec: node: not found` (exit 127). The
+ * standard `nodejs20` runtime is not an escape either: it rejects a startup
+ * command outright (`customRuntimeConfig not supported for non-custom
+ * runtime`), because it is handler-based.
+ *
+ * What works is the official Node.js layer. It mounts under `/opt/nodejs20`
+ * and does NOT extend PATH (verified in a live instance: PATH is still
+ * `/usr/local/sbin:…:/bin`), so the start command must name the binary by
+ * absolute path.
+ *
+ * The version is pinned rather than floating: a layer version is immutable, so
+ * pinning is what keeps a redeploy of an untouched app from silently changing
+ * its Node runtime underneath it.
+ */
+export const NODE_BIN = "/opt/nodejs20/bin/node";
+export function nodejsLayerArn(region: string): string {
+  return `acs:fc:${region}:official:layers/Nodejs20/versions/3`;
+}
 
 function isNotFound(e: any): boolean {
   return e?.statusCode === 404 || e?.code === "FunctionNotFound" || e?.data?.Code === "FunctionNotFound";
@@ -94,13 +117,14 @@ export function makeFcOps(client: any, cfg: FcOpsConfig) {
             memorySize: 512, cpu: 0.5, timeout: 60, diskSize: 512,
             role: cfg.role,
             environmentVariables: args.env,
+            layers: [nodejsLayerArn(cfg.region)],
             customRuntimeConfig: new $fc.CustomRuntimeConfig({
               // The daemon zips the CONTENTS of the build's `.output` directory
               // (app_build.rs `zip_dir(workdir.join(".output"))`), so the server
               // entry sits at `server/index.mjs` inside the artifact — a
               // `.output/` prefix here points at a path that is never unpacked
               // and the function never boots.
-              command: ["node"], args: ["server/index.mjs"], port: 9000,
+              command: [NODE_BIN], args: ["server/index.mjs"], port: 9000,
             }),
             code: codeLocation(args.ossObjectName),
           }),
@@ -110,9 +134,18 @@ export function makeFcOps(client: any, cfg: FcOpsConfig) {
       }
     },
     async updateFunctionCode(functionName: string, args: EnsureFunctionArgs): Promise<void> {
+      // The layer and the start command are re-sent on every update, not just
+      // at create. Functions created before the Node layer existed boot with
+      // `command: ["node"]` against an image that has no node, and a code-only
+      // update leaves them broken forever — the redeploy the user reaches for
+      // would report success and change nothing about why the page 500s.
       await client.updateFunction(functionName, new $fc.UpdateFunctionRequest({
         body: new $fc.UpdateFunctionInput({
           environmentVariables: args.env,
+          layers: [nodejsLayerArn(cfg.region)],
+          customRuntimeConfig: new $fc.CustomRuntimeConfig({
+            command: [NODE_BIN], args: ["server/index.mjs"], port: 9000,
+          }),
           code: codeLocation(args.ossObjectName),
         }),
       }));
