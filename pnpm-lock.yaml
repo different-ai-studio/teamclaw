@@ -200,8 +200,8 @@ importers:
         specifier: ^6.12.4
         version: 6.12.4
       '@codemirror/search':
-        specifier: ^6.6.0
-        version: 6.6.0
+        specifier: ^6.7.1
+        version: 6.7.1
       '@codemirror/state':
         specifier: 6.7.0
         version: 6.7.0
@@ -956,8 +956,8 @@ packages:
   '@codemirror/lint@6.9.5':
     resolution: {integrity: sha512-GElsbU9G7QT9xXhpUg1zWGmftA/7jamh+7+ydKRuT0ORpWS3wOSP0yT1FOlIZa7mIJjpVPipErsyvVqB9cfTFA==}
 
-  '@codemirror/search@6.6.0':
-    resolution: {integrity: sha512-koFuNXcDvyyotWcgOnZGmY7LZqEOXZaaxD/j6n18TCLx2/9HieZJ5H6hs1g8FiRxBD0DNfs0nXn17g872RmYdw==}
+  '@codemirror/search@6.7.1':
+    resolution: {integrity: sha512-uMe5UO6PamJtSHrXhhHOzSX3ReWtiJrva6GnPMwSOrZtiExb5X5eExhr2OUZQVvdxPsKpY3Ro2mFbQadpPWmHA==}
 
   '@codemirror/state@6.7.0':
     resolution: {integrity: sha512-Zbl9NyscLMZkfXPQnNAIIAFftidrA1UbcJEIMp24C0Bukc2I5T8wJS0wsXYsnDOqCFJUeJ1BITGNs5CqPDSmSg==}
@@ -967,6 +967,9 @@ packages:
 
   '@codemirror/view@6.43.6':
     resolution: {integrity: sha512-EVunGSYN1wz1p75WY1s3Xg7t3i8Yol0kGZGizNdX9BUFgMFILYVe8/u6EVpo7Ff5PwbZuILb4QAq7IZoKzIEQA==}
+
+  '@codemirror/view@6.43.8':
+    resolution: {integrity: sha512-qtItTDssZ/5GFfi94hrILu9j/VUeFPDPkhovEfmWFj2ipTxnzPB8DdHgfbb8HYTzLTYhrndKmyQxXUz/PDLenw==}
 
   '@csstools/color-helpers@6.1.0':
     resolution: {integrity: sha512-064IFJdjTfUqnjpCVpMOdbr8FLQBhinbZj6yRv2An2E41O/pLEXqfFRWqGq/SxlE5PEUYTlvWsG2r8MswAVvkg==}
@@ -4936,9 +4939,6 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
-
-  crelt@1.0.6:
-    resolution: {integrity: sha512-VQ2MBenTq1fWZUH9DJNGti7kKv6EeAuYr3cLwxUWhIu1baTaXh4Ib5W2CqHVqib4/MqbYGJqiL3Zb8GJZr3l4g==}
 
   crelt@1.0.7:
     resolution: {integrity: sha512-aK6BbWfhf4U/wCcLHKPJl/xa6VkVstRaPywWtMKGwuOLc/wZTyQYuoxgvZnNsBvv7Kg3YTBQYYBCggcviQczuA==}
@@ -9119,11 +9119,11 @@ snapshots:
       '@codemirror/view': 6.43.6
       crelt: 1.0.7
 
-  '@codemirror/search@6.6.0':
+  '@codemirror/search@6.7.1':
     dependencies:
       '@codemirror/state': 6.7.0
-      '@codemirror/view': 6.43.6
-      crelt: 1.0.6
+      '@codemirror/view': 6.43.8
+      crelt: 1.0.7
 
   '@codemirror/state@6.7.0':
     dependencies:
@@ -9137,6 +9137,13 @@ snapshots:
       '@lezer/highlight': 1.2.3
 
   '@codemirror/view@6.43.6':
+    dependencies:
+      '@codemirror/state': 6.7.0
+      crelt: 1.0.7
+      style-mod: 4.1.3
+      w3c-keyname: 2.2.8
+
+  '@codemirror/view@6.43.8':
     dependencies:
       '@codemirror/state': 6.7.0
       crelt: 1.0.7
@@ -13249,8 +13256,6 @@ snapshots:
       parse-json: 5.2.0
     optionalDependencies:
       typescript: 6.0.3
-
-  crelt@1.0.6: {}
 
   crelt@1.0.7: {}
 
