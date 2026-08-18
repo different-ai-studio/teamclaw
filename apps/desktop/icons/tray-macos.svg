@@ -1,0 +1,29 @@
+<!--
+  macOS menu-bar (status item) icon master — the Aperture mark, no plate.
+
+  Regenerate:
+    rsvg-convert -w 36 -h 36 apps/desktop/icons/tray-macos.svg -o apps/desktop/icons/tray-macos.png
+
+  Two things make this a separate file from `icon-master.svg` rather than a
+  reuse of it:
+
+  - No body rect. The app icon's `#faf7f0` rounded square is a Dock affordance;
+    in the menu bar it renders as a white plate no other status item has.
+  - Pure black. It is loaded as an NSImage *template*, so macOS reads only the
+    alpha channel and paints the glyph in the menu-bar's own colour — which is
+    what makes it invert correctly in dark mode, under Reduce Transparency, and
+    while the menu is highlighted. Colour here would be discarded anyway.
+
+  Sizing: tray-icon normalises every status image to 18pt tall
+  (`set_icon_for_ns_status_item_button`), so the glyph must fill the canvas or
+  it renders smaller than its neighbours — the app icon seats the ring at 49%
+  of its canvas, which is exactly why it read as a tiny mark on a white square.
+  The viewBox crops to the artwork (the ring's 88-unit box, centred on 60,60)
+  plus a hair of margin, so the ring lands at ~16.5 of the 18 available points.
+  36px = 18pt @2x.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 12 96 96" width="36" height="36">
+  <path d="M 96.705 50.165 A 38 38 0 1 1 69.835 23.295"
+        fill="none" stroke="#000" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="86.870" cy="33.130" r="9" fill="#000"/>
+</svg>

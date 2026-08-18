@@ -688,8 +688,34 @@ pub fn run() {
                 .item(&quit)
                 .build()?;
 
+            // Menu-bar artwork is not the app icon. The app icon carries the
+            // Dock's `#faf7f0` plate — in the menu bar that reads as a white tile
+            // no other status item has — and it seats the mark at half its
+            // canvas, so it renders visibly smaller than its neighbours once
+            // tray-icon normalises every status image to 18pt tall. Hence
+            // `icons/tray-macos.png`: the same mark, no plate, cropped to the
+            // artwork, black-on-alpha and flagged as an NSImage *template* so
+            // macOS paints it in the menu bar's own colour (and inverts it in
+            // dark mode, under Reduce Transparency, and while highlighted).
+            //
+            // Official brands only. A white-label build's mark is not in this
+            // repo — branding regenerates the icon set from its own logo and
+            // never produces this file — and putting the TeamClu aperture in
+            // someone else's menu bar would be worse than the plate it replaces.
+            #[cfg(target_os = "macos")]
+            let (tray_icon, tray_icon_is_template) =
+                if teamclu_runtime_env::is_official_brand(commands::APP_SHORT_NAME) {
+                    (tauri::include_image!("icons/tray-macos.png"), true)
+                } else {
+                    (app.default_window_icon().unwrap().clone(), false)
+                };
+            #[cfg(not(target_os = "macos"))]
+            let (tray_icon, tray_icon_is_template) =
+                (app.default_window_icon().unwrap().clone(), false);
+
             let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tray_icon)
+                .icon_as_template(tray_icon_is_template)
                 .tooltip(branding::brand_name(app.config().product_name.as_deref()))
                 .menu(&menu)
                 .show_menu_on_left_click(false)
