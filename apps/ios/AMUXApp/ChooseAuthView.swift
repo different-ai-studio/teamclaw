@@ -41,15 +41,6 @@ struct ChooseAuthView: View {
                 }
                 .disabled(coordinator.isBusy)
 
-                actionRow(
-                    icon: "sparkles",
-                    title: "Create a private workspace",
-                    caption: "Start with an AI digital employee. No email needed.",
-                    isPrimary: false
-                ) {
-                    Task { await coordinator.signInAnonymously() }
-                }
-                .accessibilityIdentifier("choose.anonymousButton")
             }
             .padding(.horizontal, 24)
 

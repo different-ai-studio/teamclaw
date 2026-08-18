@@ -1,5 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CloudApiError } from "@/lib/backend/cloud-api/http";
+
+/** What the server sends when self-registration is off and the caller has no org. */
+function registrationDisabled() {
+  return new CloudApiError(403, "registration_disabled", "self-registration is disabled");
+}
 
 const { setLocalCacheTeamGateMock, removeStartupSkeletonMock, isTauriMock, extensionPolicyMock } = vi.hoisted(() => ({
   setLocalCacheTeamGateMock: vi.fn().mockResolvedValue(undefined),
@@ -10,12 +16,6 @@ const { setLocalCacheTeamGateMock, removeStartupSkeletonMock, isTauriMock, exten
     autoCreateTeam: true,
     noTeamMessage: { 'zh-CN': '请联系管理员邀请你加入团队。' } as Record<string, string>,
   },
-}));
-
-const { deviceIdMock } = vi.hoisted(() => ({ deviceIdMock: { value: "device-1" as string | null } }));
-vi.mock("@/lib/backend/cloud-api/device-id", () => ({
-  getDesktopDeviceIdOrNull: () => deviceIdMock.value,
-  getDesktopDeviceId: () => deviceIdMock.value ?? "desktop-unknown",
 }));
 
 const { authState, currentTeamMock, backendMock } = vi.hoisted(() => ({
@@ -45,10 +45,6 @@ const { authState, currentTeamMock, backendMock } = vi.hoisted(() => ({
     teams: {
       listCurrentUserTeams: vi.fn(),
       listAllMyTeams: vi.fn(),
-      // GuestTeamDiscovery calls this on mount. Without it the guest test
-      // renders fine and then rejects unhandled, which vitest reports as an
-      // error with every test still green — green suite, exit code 1.
-      listDiscoverableTeams: vi.fn(),
       createTeam: vi.fn(),
       bootstrapTeam: vi.fn(),
     },
@@ -156,7 +152,6 @@ vi.mock("../TeamPicker", () => ({
 import { AuthGate } from "../AuthGate";
 
 beforeEach(() => {
-  deviceIdMock.value = "device-1";
   authState.session = { user: { id: "user-1" } };
   authState.loading = false;
   authState.authFlow = "idle";
@@ -170,7 +165,6 @@ beforeEach(() => {
   authState.signOut.mockReset();
   backendMock.teams.listCurrentUserTeams.mockReset();
   backendMock.teams.listAllMyTeams.mockReset();
-  backendMock.teams.listDiscoverableTeams.mockReset();
   backendMock.teams.createTeam.mockReset();
   backendMock.teams.bootstrapTeam.mockReset();
   currentTeamMock.reloadAndSwitchTo.mockReset();
@@ -179,7 +173,6 @@ beforeEach(() => {
   currentTeamMock.team = null;
   currentTeamMock.teamUserId = null;
   backendMock.teams.listAllMyTeams.mockResolvedValue([]);
-  backendMock.teams.listDiscoverableTeams.mockResolvedValue([]);
   backendMock.teams.bootstrapTeam.mockResolvedValue({ id: "team-bootstrap", name: "Bootstrap", slug: "bootstrap" });
   setLocalCacheTeamGateMock.mockClear();
   removeStartupSkeletonMock.mockClear();
@@ -244,43 +237,7 @@ describe("AuthGate", () => {
     expect(screen.queryByText("App shell")).not.toBeInTheDocument();
   });
 
-  it("runs team bootstrap for a guest, keyed on the device id", async () => {
-    // Quick trial gives a guest its own throwaway team in the shared default
-    // org, so bootstrap DOES run for anonymous sessions now. The device id is
-    // what stops a second trial on the same machine stacking up another team.
-    authState.session = { user: { id: "anon-1", isAnonymous: true } };
 
-    render(
-      <AuthGate>
-        <div>App shell</div>
-      </AuthGate>,
-    );
-
-    await waitFor(() => expect(backendMock.teams.bootstrapTeam).toHaveBeenCalled());
-    expect(backendMock.teams.bootstrapTeam).toHaveBeenCalledWith(
-      expect.objectContaining({ deviceId: expect.any(String) }),
-    );
-  });
-
-  it("sends no device id when the guest install has no stable one", async () => {
-    // getDesktopDeviceIdOrNull returns null when storage is unavailable. The
-    // plain getter falls back to a shared "desktop-unknown" literal, and every
-    // install that hit it would be handed the SAME guest team — so null (no
-    // reuse, one extra team) is the only safe value here.
-    authState.session = { user: { id: "anon-2", isAnonymous: true } };
-    deviceIdMock.value = null;
-
-    render(
-      <AuthGate>
-        <div>App shell</div>
-      </AuthGate>,
-    );
-
-    await waitFor(() => expect(backendMock.teams.bootstrapTeam).toHaveBeenCalled());
-    expect(backendMock.teams.bootstrapTeam).toHaveBeenCalledWith(
-      expect.objectContaining({ deviceId: null }),
-    );
-  });
 
   it("restores and activates a same-user cached team", async () => {
     // current-team was hydrated from the persisted cache for THIS user.
@@ -416,11 +373,12 @@ describe("AuthGate", () => {
     expect(screen.queryByText(/Team picker/)).not.toBeInTheDocument();
   });
 
-  it("extension: blocks a teamless user without auto-creating a team", async () => {
+  it("blocks a teamless user when the server refuses to create an org", async () => {
+    // Invite-only is a DEPLOYMENT decision now, not a client build policy: the
+    // gate reacts to 403 registration_disabled rather than deciding for itself.
     isTauriMock.mockReturnValue(false);
-    extensionPolicyMock.isExtension = true;
-    extensionPolicyMock.autoCreateTeam = false;
     backendMock.teams.listAllMyTeams.mockResolvedValue([]);
+    backendMock.teams.bootstrapTeam.mockRejectedValueOnce(registrationDisabled());
 
     render(
       <AuthGate>
@@ -431,8 +389,26 @@ describe("AuthGate", () => {
     await waitFor(() => expect(screen.getByText("暂未加入团队")).toBeInTheDocument());
     expect(screen.getByText("请联系管理员邀请你加入团队。")).toBeInTheDocument();
     expect(authState.refreshPendingInvites).toHaveBeenCalled();
-    expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
     expect(screen.queryByText("App shell")).not.toBeInTheDocument();
+  });
+
+  it("still creates a team when the deployment allows self-registration", async () => {
+    isTauriMock.mockReturnValue(false);
+    backendMock.teams.listAllMyTeams.mockResolvedValue([]);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(backendMock.teams.bootstrapTeam).toHaveBeenCalled());
+    // No orgId, no deviceId — the server owns the whole decision now. The
+    // display name is best-effort (undefined when the OS name and email are
+    // both unavailable, as in this environment) and seeds the actor only.
+    expect(Object.keys(backendMock.teams.bootstrapTeam.mock.calls[0][0])).toEqual([
+      "displayName",
+    ]);
   });
 
   it("waits for a pending invite claim before resolving the team gate", async () => {
@@ -463,10 +439,10 @@ describe("AuthGate", () => {
     expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
   });
 
-  it("extension: shows contact-matched invitations before entering a team", async () => {
+  it("shows contact-matched invitations on the no-team screen", async () => {
     isTauriMock.mockReturnValue(false);
-    extensionPolicyMock.isExtension = true;
-    extensionPolicyMock.autoCreateTeam = false;
+    backendMock.teams.listAllMyTeams.mockResolvedValue([]);
+    backendMock.teams.bootstrapTeam.mockRejectedValueOnce(registrationDisabled());
     authState.pendingInvites = [{
       inviteId: "invite-1",
       teamId: "team-invited",
@@ -488,13 +464,12 @@ describe("AuthGate", () => {
 
     await waitFor(() => expect(screen.getByText("你有团队邀请")).toBeInTheDocument());
     expect(screen.getByText("研发协作组")).toBeInTheDocument();
-    expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
   });
 
-  it("extension: enters the invited team after the user accepts", async () => {
+  it("enters the invited team after the user accepts", async () => {
     isTauriMock.mockReturnValue(false);
-    extensionPolicyMock.isExtension = true;
-    extensionPolicyMock.autoCreateTeam = false;
+    backendMock.teams.listAllMyTeams.mockResolvedValue([]);
+    backendMock.teams.bootstrapTeam.mockRejectedValueOnce(registrationDisabled());
     authState.pendingInvites = [{
       inviteId: "invite-1",
       teamId: "team-invited",
@@ -527,40 +502,7 @@ describe("AuthGate", () => {
     expect(authState.acceptPendingInvite).toHaveBeenCalledWith("invite-1");
   });
 
-  it("extension: does not treat public teams or empty org rows as memberships", async () => {
-    isTauriMock.mockReturnValue(false);
-    extensionPolicyMock.isExtension = true;
-    extensionPolicyMock.autoCreateTeam = false;
-    backendMock.teams.listAllMyTeams.mockResolvedValue([
-      { id: "public-team", name: "Public", itemType: "team", isMember: false },
-      { id: "empty-org", name: "Empty org", itemType: "org", isMember: false },
-    ]);
 
-    render(
-      <AuthGate>
-        <div>App shell</div>
-      </AuthGate>,
-    );
-
-    await waitFor(() => expect(screen.getByText("暂未加入团队")).toBeInTheDocument());
-    expect(screen.queryByText(/Team picker/)).not.toBeInTheDocument();
-    expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
-  });
-
-  it("plain web: ignores the extension-only policy and keeps automatic creation", async () => {
-    isTauriMock.mockReturnValue(false);
-    extensionPolicyMock.isExtension = false;
-    extensionPolicyMock.autoCreateTeam = false;
-    backendMock.teams.listAllMyTeams.mockResolvedValue([]);
-
-    render(
-      <AuthGate>
-        <div>App shell</div>
-      </AuthGate>,
-    );
-
-    await waitFor(() => expect(backendMock.teams.bootstrapTeam).toHaveBeenCalled());
-  });
 
   it("extension/web: keeps the shell blocked until myTeams resolves, then removes the skeleton", async () => {
     isTauriMock.mockReturnValue(false);

@@ -48,7 +48,6 @@ function createApiMock(overrides: Partial<OnboardingApi> = {}): OnboardingApi {
       memberActorId: null,
         teamChoices: [],
     } satisfies BootstrapResult),
-    signInAnonymously: vi.fn().mockResolvedValue({}),
     sendEmailOTP: vi.fn().mockImplementation(async (email: string) => ({
       pendingEmail: email,
     })),

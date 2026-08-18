@@ -352,7 +352,7 @@ private actor FailingOnboardingStore: AppOnboardingStore {
     func createTeam(named name: String) async throws -> CreatedTeam {
         throw error
     }
-    func bootstrapTeam(deviceId: String?) async throws -> CreatedTeam { throw error }
+    func bootstrapTeam() async throws -> CreatedTeam { throw error }
     func listAllMyTeams() async throws -> [MembershipTeam] { throw error }
     func switchActiveTeam(teamID: String) async throws -> TeamSwitchResult { throw error }
 
@@ -367,15 +367,8 @@ private actor FailingOnboardingStore: AppOnboardingStore {
     func handleAuthCallback(url: URL) async throws { throw error }
     func accessToken() async throws -> String { throw error }
     func signOut() async throws { throw error }
-    func signInAnonymously() async throws { throw error }
     func isAnonymous() async -> Bool { false }
     func currentUserEmail() async -> String? { nil }
-    func upgradeWithPassword(email: String, password: String) async throws { throw error }
-    func sendUpgradeEmailOTP(email: String) async throws { throw error }
-    func verifyUpgradeEmailOTP(email: String, token: String) async throws { throw error }
-    func sendUpgradePhoneOTP(phone: String) async throws { throw error }
-    func verifyUpgradePhoneOTP(phone: String, token: String) async throws { throw error }
-    func upgradeWithAppleCredential(idToken: String, nonce: String) async throws { throw error }
     func claimInvite(token: String) async throws -> ClaimResult { throw error }
     func setSession(refreshToken: String) async throws { throw error }
     nonisolated func tokenRefreshes() -> AsyncStream<Void> { AsyncStream { $0.finish() } }

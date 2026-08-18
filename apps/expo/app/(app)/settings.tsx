@@ -179,9 +179,7 @@ export default function SettingsRoute() {
   const teamAgents = agents.filter((agent) => agent.visibility === "team");
 
   const displayName =
-    profile?.displayName ??
-    userEmail?.split("@")[0] ??
-    (state.isAnonymous ? "Guest" : "You");
+    profile?.displayName ?? userEmail?.split("@")[0] ?? "You";
   const appVersion = (Constants.expoConfig?.version as string | undefined) ?? "—";
   const buildNumber =
     (Constants.expoConfig?.runtimeVersion as string | undefined) ?? "—";
@@ -285,7 +283,6 @@ export default function SettingsRoute() {
       connectedAgentsError={agentsError}
       currentActorId={currentActorId}
       displayName={displayName}
-      isAnonymous={state.isAnonymous}
       isLoadingConnectedAgents={isLoadingAgents}
       isSavingTeamDefaultAgent={isSavingTeamDefaultAgent}
       isSigningOut={isSigningOut}
@@ -315,7 +312,6 @@ export default function SettingsRoute() {
       onToggleNotifications={(enabled) => {
         void togglePush(enabled);
       }}
-      onUpgrade={() => router.push("/(app)/upgrade-account")}
       team={
         state.currentTeam
           ? {

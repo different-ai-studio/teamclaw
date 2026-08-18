@@ -108,23 +108,18 @@ public protocol AppOnboardingStore: Sendable {
     func ensureSession() async throws
     func loadBootstrap() async throws -> AppBootstrap
     func createTeam(named name: String) async throws -> CreatedTeam
-    /// First-team onboarding via `POST /v1/teams/bootstrap`, which names the
-    /// team server-side rather than taking one.
-    ///
-    /// `deviceId` is the guest-reuse key: an anonymous caller that names its
-    /// device gets back the team that device's previous guest already had,
-    /// instead of another throwaway team per quick-trial sign-in. The server
-    /// ignores it for signed-in callers. Pass nil to opt out of reuse.
-    func bootstrapTeam(deviceId: String?) async throws -> CreatedTeam
+    /// Login onboarding via `POST /v1/teams/bootstrap`. The server resolves
+    /// the caller's org — minting one named after them when they have none —
+    /// and returns that org's public default team, creating it on first use.
+    func bootstrapTeam() async throws -> CreatedTeam
     /// All teams the caller belongs to, across orgs (GET /v1/teams?scope=all).
     /// Backs the org→team login picker.
     func listAllMyTeams() async throws -> [MembershipTeam]
     /// Switch the active team, minting a fresh session for that team's org.
     func switchActiveTeam(teamID: String) async throws -> TeamSwitchResult
-    /// Direct invite-claim entry used by bootstrap so a freshly-anonymous
-    /// user can join the inviter's team before the auto-create-team branch
-    /// fires (otherwise they end up with an orphan team alongside the one
-    /// they actually wanted to join).
+    /// Direct invite-claim entry used by bootstrap so an invitee joins the
+    /// inviter's team before the auto-create-team branch fires (otherwise they
+    /// end up with an orphan team alongside the one they wanted to join).
     func claimInvite(token: String) async throws -> ClaimResult
 
     // Auth sign-in methods
@@ -136,42 +131,28 @@ public protocol AppOnboardingStore: Sendable {
     func verifyPhoneOTP(phone: String, token: String) async throws
     func signInWithAppleCredential(idToken: String, nonce: String) async throws
     func signInWithGoogle() async throws
-    func signInAnonymously() async throws
     func handleAuthCallback(url: URL) async throws
     func accessToken() async throws -> String
     func signOut() async throws
 
     /// Establish a Supabase session from a refresh_token (e.g. one returned
     /// by `claim_team_invite` for an agent claim or member-reinvite claim).
-    /// Used by `claimInviteSmart` to land on the target's existing user_id
-    /// without minting a fresh anonymous user.
+    /// Used by `claimInviteSmart` to land on the target's existing user_id.
     func setSession(refreshToken: String) async throws
 
-    // True iff the current session belongs to an anonymous user
-    // (`auth.users.is_anonymous`). Returns false when no session exists.
+    /// True iff the current session belongs to an anonymous user
+    /// (`auth.users.is_anonymous`). Returns false when no session exists.
+    ///
+    /// Anonymous sign-in has been removed from the product, so on a current
+    /// deployment this is always false. It is kept as a read-only predicate:
+    /// accounts created before the removal still exist, and the branches that
+    /// consult it are the ones that must not treat such a session as a normal
+    /// account.
     func isAnonymous() async -> Bool
 
-    /// Email address for the currently authenticated user, or nil for
-    /// anonymous sessions and Apple Sign-In accounts without an email.
+    /// Email address for the currently authenticated user, or nil for Apple
+    /// Sign-In accounts without one.
     func currentUserEmail() async -> String?
-
-    // Promote the current anonymous session to a permanent account by
-    // attaching credentials. Same auth.users.id, so all team / actor / access
-    // rows the user accumulated as anonymous are preserved.
-    func upgradeWithPassword(email: String, password: String) async throws
-    /// Send an email verification code to attach `email` to the current
-    /// anonymous user (GoTrue email_change flow). Bearer = current session.
-    func sendUpgradeEmailOTP(email: String) async throws
-    /// Confirm the code from `sendUpgradeEmailOTP`, finalizing the upgrade
-    /// while keeping the same user_id.
-    func verifyUpgradeEmailOTP(email: String, token: String) async throws
-    /// Send an SMS verification code to attach `phone` to the current
-    /// anonymous user (GoTrue phone_change flow). Bearer = current session.
-    func sendUpgradePhoneOTP(phone: String) async throws
-    /// Confirm the code from `sendUpgradePhoneOTP`, finalizing the upgrade
-    /// while keeping the same user_id.
-    func verifyUpgradePhoneOTP(phone: String, token: String) async throws
-    func upgradeWithAppleCredential(idToken: String, nonce: String) async throws
 
     /// Emits each time the underlying auth provider rotates the access
     /// token. Consumers (notably the MQTT layer) must rebuild any
@@ -632,23 +613,14 @@ public final class AppOnboardingCoordinator {
             // registered users who were not invited anywhere land directly
             // in the app instead of getting stuck on the manual team screen.
             //
-            // Guests go through the bootstrap endpoint keyed by this device, so
-            // a second quick trial reclaims the team the first one made instead
-            // of abandoning another one in the shared default org — every
-            // signInAnonymously() is a new auth user, so plain creation cannot
-            // recognise a returning guest. Signed-in users keep explicit
-            // creation: bootstrap would name the team after their org, and only
-            // the client knows whether that org is meaningfully theirs.
-            let created: CreatedTeam
-            if isAnonymous {
-                created = try await measureOnboarding("bootstrapTeam.auto") {
-                    try await store.bootstrapTeam(deviceId: deviceID)
-                }
-            } else {
-                let name = RandomTeamName.generate()
-                created = try await measureOnboarding("createTeam.auto") {
-                    try await store.createTeam(named: name)
-                }
+            // Always the bootstrap endpoint now: the server owns the decision
+            // (mint an org named after the caller when they have none, then
+            // enter that org's public default team, creating it on first use).
+            // The client used to pick a random name here, which is what put
+            // every new user's team in the shared default org under a name
+            // nobody recognised.
+            let created = try await measureOnboarding("bootstrapTeam.auto") {
+                try await store.bootstrapTeam()
             }
             pendingCreatedTeam = created
             setCurrentContext(AppContext(team: created.team, memberActorID: created.memberActorID))
@@ -833,66 +805,17 @@ public final class AppOnboardingCoordinator {
         await (store as? CloudAPIAppOnboardingStore)?.oauthAuthorizeURL()
     }
 
-    public func signInAnonymously() async {
-        await performAuth { try await self.store.signInAnonymously() }
-    }
-
-    /// Sign in anonymously and immediately claim an invite token in one go,
-    /// keeping the UI on the current screen on failure. The default
-    /// `signInAnonymously` → `bootstrap` path transitions `route` through
-    /// `.loading`, which rebuilds the whole onboarding view tree (including
-    /// any sheet that was open) — bad UX when the user wants to retry the
-    /// paste without re-navigating. This method only flips `route` once,
-    /// on success, and leaves it unchanged on failure so the calling sheet
-    /// can stay open and surface `errorMessage` inline.
-    public func signInAnonymouslyAndClaim(token: String) async {
-        guard !isBusy else { return }
-        isBusy = true
-        errorMessage = nil
-
-        // Claiming explicitly — drop any cold-launch deeplink stash so the
-        // bootstrap() call after a successful claim doesn't re-claim it.
-        defaults.removeObject(forKey: InviteDeepLink.pendingTokenDefaultsKey)
-
-        do {
-            try await store.signInAnonymously()
-        } catch {
-            errorMessage = error.localizedDescription
-            isBusy = false
-            return
-        }
-
-        do {
-            let result = try await store.claimInvite(token: token)
-            // Agent/member re-invites return a refresh token bound to the TARGET
-            // actor's user. Adopt it before bootstrapping — otherwise we stay
-            // signed in as the throwaway anonymous user we just created, find it
-            // has no team, and auto-create a junk team instead of joining.
-            if let rt = result.refreshToken, !rt.isEmpty {
-                try await store.setSession(refreshToken: rt)
-            }
-            // Success → run bootstrap with the joined team preferred. The
-            // transient `.loading` flicker here is fine because the sheet
-            // is about to be dismissed by the caller anyway.
-            isBusy = false
-            await bootstrap(preferringTeamID: result.teamID)
-        } catch {
-            // Roll back the just-created anonymous session so we don't
-            // strand the user with an authenticated-but-team-less Supabase
-            // user. Critically we DON'T touch `route` here — the calling
-            // sheet stays mounted and re-renders with the new errorMessage.
-            errorMessage = error.localizedDescription
-            try? await store.signOut()
-            isBusy = false
-        }
-    }
-
-    /// Claim an invite without knowing in advance whether it's a fresh
-    /// member invite (needs anonymous signin first) or an agent / member
-    /// re-invite (returns a refresh_token that we use to set the session).
-    /// Tries the refresh-token path first by attempting an unauthenticated
-    /// claim; if the RPC says auth is required, falls back to the existing
-    /// anon-then-claim path.
+    /// Claim an invite without knowing in advance whether it's a fresh member
+    /// invite or an agent / member re-invite (which returns a refresh_token we
+    /// adopt directly). Tries the unauthenticated claim first; if the RPC says
+    /// auth is required, the token is stashed and the user is sent to sign-in —
+    /// `bootstrap()` claims it for them once a real account exists.
+    ///
+    /// That stash-then-sign-in shape replaced "sign in anonymously, then
+    /// claim". A member invite cannot be claimed anonymously anyway
+    /// (claim_team_invite refuses it server-side), so the old path only ever
+    /// worked by minting a throwaway user first — which is exactly what this
+    /// product no longer does.
     public func claimInviteSmart(token: String) async {
         guard !isBusy else { return }
         isBusy = true
@@ -913,9 +836,13 @@ public final class AppOnboardingCoordinator {
             result = try await store.claimInvite(token: token)
         } catch {
             // Most likely: 'member claim requires authentication' (42501).
-            // The token is unconsumed — fall back to anon-then-claim.
+            // The token is unconsumed — keep it and route to sign-in; the
+            // bootstrap() after authentication picks the stash back up and
+            // claims it.
+            defaults.set(token, forKey: InviteDeepLink.pendingTokenDefaultsKey)
+            errorMessage = nil
             isBusy = false
-            await signInAnonymouslyAndClaim(token: token)
+            route = .needsAuth
             return
         }
 
@@ -940,75 +867,6 @@ public final class AppOnboardingCoordinator {
         // unauthenticated (shouldn't normally happen, but bootstrap anyway).
         isBusy = false
         await bootstrap(preferringTeamID: result.teamID)
-    }
-
-    // MARK: - Anonymous account upgrade
-
-    /// Promote the current anonymous session to an email/password account.
-    /// On success the user_id is unchanged, so existing team / actor rows are
-    /// retained. Triggers a re-bootstrap to refresh `isAnonymous`.
-    public func upgradeWithPassword(email: String, password: String) async {
-        await performAuth { try await self.store.upgradeWithPassword(email: email, password: password) }
-    }
-
-    /// Step 1 of the code-based upgrade: email a verification code. Mirrors
-    /// `sendEmailOTP` — stashes `pendingEmailOTPEmail` so the sheet can switch
-    /// to the code-entry step, and does NOT route away on success.
-    public func sendUpgradeEmailOTP(email: String) async {
-        guard !isBusy else { return }
-        isBusy = true
-        errorMessage = nil
-        upgradeCollision = nil
-        defer { isBusy = false }
-        do {
-            try await store.sendUpgradeEmailOTP(email: email)
-            pendingEmailOTPEmail = email
-        } catch let outcome as UpgradeOutcome {
-            upgradeCollision = outcome
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    /// Step 2: confirm the code and finalize the upgrade. On success the
-    /// user_id is unchanged, so existing team / actor rows are retained.
-    public func verifyUpgradeEmailOTP(email: String, token: String) async {
-        await performAuth { try await self.store.verifyUpgradeEmailOTP(email: email, token: token) }
-    }
-
-    /// Step 1 of the phone-based upgrade: text a verification code. Mirrors
-    /// `sendUpgradeEmailOTP` — stashes `pendingPhoneOTPPhone` so the sheet can
-    /// switch to the code-entry step, and does NOT route away on success.
-    public func sendUpgradePhoneOTP(phone: String) async {
-        guard !isBusy else { return }
-        isBusy = true
-        errorMessage = nil
-        upgradeCollision = nil
-        defer { isBusy = false }
-        do {
-            try await store.sendUpgradePhoneOTP(phone: phone)
-            pendingPhoneOTPPhone = phone
-        } catch let outcome as UpgradeOutcome {
-            upgradeCollision = outcome
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    /// Step 2: confirm the SMS code and finalize the upgrade. On success the
-    /// user_id is unchanged, so existing team / actor rows are retained.
-    public func verifyUpgradePhoneOTP(phone: String, token: String) async {
-        await performAuth { try await self.store.verifyUpgradePhoneOTP(phone: phone, token: token) }
-    }
-
-    /// Same as `upgradeWithPassword` but linking an Apple identity instead.
-    public func upgradeWithApple() async {
-#if os(iOS)
-        await performAuth {
-            let (idToken, nonce) = try await AppleSignInHandler.shared.request()
-            try await self.store.upgradeWithAppleCredential(idToken: idToken, nonce: nonce)
-        }
-#endif
     }
 
     public func accessToken() async throws -> String {

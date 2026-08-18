@@ -96,10 +96,6 @@ export function createOnboardingApi(client: CloudAuthClient) {
       return activation.actorId ?? null;
     },
 
-    async signInAnonymously() {
-      return client.auth.signInAnonymously();
-    },
-
     async sendEmailOTP(email: string) {
       await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
       return { pendingEmail: email };

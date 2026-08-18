@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const { authState, hasConfig, saveServerConfig, reload, cloudApiUrlOverride, setCloudApiUrlOverrideMock, probeCloudApi } = vi.hoisted(() => ({
@@ -6,7 +5,6 @@ const { authState, hasConfig, saveServerConfig, reload, cloudApiUrlOverride, set
     loading: false,
     errorMessage: null as string | null,
     otpEmail: null as string | null,
-    signInAnonymously: vi.fn(),
     setPendingInviteToken: vi.fn(),
     sendOtp: vi.fn(),
     verifyOtp: vi.fn(),
@@ -62,7 +60,6 @@ beforeEach(() => {
   authState.loading = false;
   authState.errorMessage = null;
   authState.otpEmail = null;
-  authState.signInAnonymously.mockReset();
   authState.setPendingInviteToken.mockReset();
   authState.sendOtp.mockReset();
   authState.verifyOtp.mockReset();
@@ -86,7 +83,6 @@ describe("DesktopOnboarding", () => {
     const { container } = render(<DesktopOnboarding />);
 
     expect(container.querySelector("[data-tauri-drag-region]")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /quick trial/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign in or register/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /join the team/i })).toBeInTheDocument();
     // The Cloud API URL defaults to the build config, but an explicit override is
@@ -94,16 +90,8 @@ describe("DesktopOnboarding", () => {
     expect(screen.getByRole("button", { name: /custom server/i })).toBeInTheDocument();
   });
 
-  it("quick trial signs in anonymously", async () => {
-    authState.signInAnonymously.mockResolvedValueOnce(true);
-    render(<DesktopOnboarding />);
 
-    fireEvent.click(screen.getByRole("button", { name: /quick trial/i }));
-
-    await waitFor(() => expect(authState.signInAnonymously).toHaveBeenCalled());
-  });
-
-  it("shows quick trial auth errors on the choices screen", () => {
+  it("shows auth errors on the choices screen", () => {
     authState.errorMessage = "Supabase config missing. Configure a server before signing in.";
     render(<DesktopOnboarding />);
 

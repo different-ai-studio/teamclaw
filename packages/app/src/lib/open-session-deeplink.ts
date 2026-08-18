@@ -65,7 +65,7 @@ export function clearPendingSessionDeeplink(): void {
 
 function isAuthedRealUser(): boolean {
   const session = useAuthStore.getState().session
-  return Boolean(session && !session.user?.isAnonymous)
+  return Boolean(session)
 }
 
 function sessionDetailToListEntry(session: SessionDetailRow): SessionListEntry {

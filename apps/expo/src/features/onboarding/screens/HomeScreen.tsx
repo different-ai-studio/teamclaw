@@ -7,7 +7,6 @@ import { colors, radii, spacing, typography } from "../../../ui/theme";
 
 type HomeScreenProps = {
   currentMemberActorId: string | null;
-  isAnonymous: boolean;
   isBusy: boolean;
   isSignOutPending: boolean;
   team: TeamSummary;
@@ -16,7 +15,6 @@ type HomeScreenProps = {
 
 export function HomeScreen({
   currentMemberActorId,
-  isAnonymous,
   isBusy: _isBusy,
   isSignOutPending,
   team,
@@ -41,7 +39,7 @@ export function HomeScreen({
           <Text style={styles.title}>{team.name}</Text>
           <View style={styles.metaRow}>
             <View style={styles.metaPill}>
-              <Text style={styles.metaPillText}>{isAnonymous ? "Guest session" : "Authenticated"}</Text>
+              <Text style={styles.metaPillText}>Authenticated</Text>
             </View>
             <View style={styles.metaPill}>
               <Text style={styles.metaPillText}>{team.role}</Text>
@@ -82,7 +80,7 @@ export function HomeScreen({
         </View>
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Identity</Text>
-          <Text style={styles.detailValue}>{isAnonymous ? "Anonymous guest" : "Verified account"}</Text>
+          <Text style={styles.detailValue}>Verified account</Text>
         </View>
         {localError ? <Text style={styles.error}>{localError}</Text> : null}
       </AppCard>

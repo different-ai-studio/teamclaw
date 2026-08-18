@@ -72,10 +72,6 @@ export function createAuthModule(
       const next = await authClient.loginWithPhoneUser(phone, code, userId);
       return mapSession(next);
     },
-    async signInAnonymously(): Promise<AuthSession | null> {
-      const next = await authClient.signInAnonymously();
-      return mapSession(next);
-    },
     async signInWithPassword(email: string, password: string): Promise<AuthSession | null> {
       const next = await authClient.signInWithPassword(email, password);
       return mapSession(next);
@@ -89,22 +85,6 @@ export function createAuthModule(
     },
     async signOut(): Promise<void> {
       await authClient.signOut();
-    },
-    async sendUpgradeEmailOtp(email: string): Promise<void> {
-      await authClient.updateUser({ email });
-    },
-    async verifyUpgradeEmailOtp(email: string, code: string): Promise<AuthSession | null> {
-      const next = await authClient.verifyOtp(email, code, "email_change");
-      return mapSession(next);
-    },
-    // Phone identity upgrade (partner-aligned): reuse phone send-code, then bind
-    // the phone to the current account (writes public.users in the default org).
-    async sendUpgradePhoneOtp(phone: string): Promise<void> {
-      await authClient.sendPhoneOtp(phone, { shouldCreateUser: false });
-    },
-    async verifyUpgradePhoneOtp(phone: string, code: string): Promise<AuthSession | null> {
-      const next = await authClient.bindPhone(phone, code);
-      return mapSession(next);
     },
     async adoptSession(refreshToken: string): Promise<AuthSession | null> {
       const next = await adoptRefreshToken(refreshToken);

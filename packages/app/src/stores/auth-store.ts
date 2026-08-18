@@ -38,11 +38,6 @@ type StoreAuthSession = AuthSession & {
 interface AuthState {
   session: StoreAuthSession | null;
   loading: boolean;
-  // Dedicated flag for the post-authentication "upgrade account" flow. It must
-  // stay SEPARATE from `loading`: AuthGate tears the whole app subtree down and
-  // shows a splash whenever `loading` is true while a session exists, which
-  // would unmount the upgrade dialog (and reset its open state) mid-request.
-  upgradeLoading: boolean;
   authFlow: AuthFlow;
   // Which OAuth provider is mid-flight (browser open, loopback awaiting), if any.
   // Drives a cancel affordance so a broken provider page doesn't leave every
@@ -60,8 +55,6 @@ interface AuthState {
   /** Stashed OTP token while the multi-user picker is shown. */
   pendingPhoneOTPToken: string;
   selectPhoneUser: (userId: string) => Promise<void>;
-  upgradeEmail: string | null;
-  upgradePhone: string | null;
   /** Invite token to claim once the user signs in with a real account. */
   pendingInviteToken: string | null;
   hydrate: () => Promise<void>;
@@ -70,18 +63,13 @@ interface AuthState {
   sendPhoneOtp: (phone: string) => Promise<boolean>;
   verifyPhoneOtp: (code: string) => Promise<void>;
   resetOtp: () => void;
-  signInAnonymously: () => Promise<boolean>;
   signInWithPassword: (email: string, password: string) => Promise<boolean>;
   signInWithOAuth: (provider: OAuthProvider) => Promise<boolean>;
   cancelOAuth: () => void;
   claimInvite: (token: string) => Promise<AuthClaimResult | null>;
   /** Stash an invite token to claim after the user signs in (real account). */
   setPendingInviteToken: (token: string | null) => void;
-  /**
-   * Claim the pending invite once the user holds a real (non-anonymous)
-   * session. No-op when there's no pending token or the session is anonymous —
-   * member invites require a non-anonymous account (enforced in claim_team_invite).
-   */
+  /** Claim the pending invite once the user holds a session. No-op without one. */
   claimPendingInvite: () => Promise<AuthClaimResult | null>;
   /**
    * Invites the server matched to this user's verified email/phone. Unlike
@@ -90,15 +78,10 @@ interface AuthState {
    */
   pendingInvites: PendingInvite[];
   pendingInvitesLoading: boolean;
-  /** No-op unless the session is real: matching keys off a verified identity. */
+  /** Matching keys off the account's verified email/phone. */
   refreshPendingInvites: () => Promise<void>;
   acceptPendingInvite: (inviteId: string) => Promise<AuthClaimResult | null>;
   declinePendingInvite: (inviteId: string) => Promise<boolean>;
-  sendUpgradeEmailOtp: (email: string) => Promise<boolean>;
-  verifyUpgradeEmailOtp: (code: string) => Promise<boolean>;
-  sendUpgradePhoneOtp: (phone: string) => Promise<boolean>;
-  verifyUpgradePhoneOtp: (code: string) => Promise<boolean>;
-  resetUpgradeOtp: () => void;
   signOut: () => Promise<void>;
 }
 
@@ -182,7 +165,6 @@ async function enterClaimedTeam(teamId: string): Promise<void> {
 export const useAuthStore = create<AuthState>((set, get) => ({
   session: null,
   loading: true,
-  upgradeLoading: false,
   authFlow: "idle",
   oauthPending: null,
   webSsoPending: false,
@@ -191,8 +173,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   otpPhone: null,
   phoneMultiUsers: [],
   pendingPhoneOTPToken: "",
-  upgradeEmail: null,
-  upgradePhone: null,
   pendingInviteToken: readPendingInviteToken(),
   hydrate: async () => {
     set({ loading: true, authFlow: "idle", errorMessage: null });
@@ -322,21 +302,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   resetOtp: () => set({ otpEmail: null, otpPhone: null, phoneMultiUsers: [], pendingPhoneOTPToken: "", errorMessage: null }),
-  signInAnonymously: async () => {
-    if (!hasBackendConfig()) {
-      set({ loading: false, errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
-      return false;
-    }
-    set({ loading: true, authFlow: "idle", errorMessage: null });
-    try {
-      const session = await getBackend().auth.signInAnonymously();
-      set({ session: storeSession(session), loading: false, otpEmail: null });
-    } catch (error) {
-      set({ loading: false, errorMessage: errorMessageFor(error) });
-      return false;
-    }
-    return true;
-  },
   signInWithPassword: async (email, password) => {
     if (!hasBackendConfig()) {
       set({ loading: false, errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
@@ -436,9 +401,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const token = get().pendingInviteToken;
     if (!token) return null;
     const session = get().session;
-    // Member invites require a real account. If the user isn't signed in yet,
-    // or is still anonymous, keep the token pending and wait for a real login.
-    if (!session || session.user?.isAnonymous) return null;
+    // Member invites require an account. Keep the token pending until sign-in.
+    if (!session) return null;
     if (!hasBackendConfig()) {
       set({ errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
       return null;
@@ -469,9 +433,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   pendingInvitesLoading: false,
   refreshPendingInvites: async () => {
     const session = get().session;
-    // An anonymous session has no verified email/phone, so there is nothing the
-    // server could match against — skip the round-trip entirely.
-    if (!session || session.user?.isAnonymous) {
+    if (!session) {
       set({ pendingInvites: [] });
       return;
     }
@@ -519,84 +481,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ pendingInvites: get().pendingInvites.filter((i) => i.inviteId !== inviteId) });
     return true;
   },
-  sendUpgradeEmailOtp: async (email) => {
-    if (!hasBackendConfig()) {
-      set({ errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
-      return false;
-    }
-    // Use `upgradeLoading`, never the global `loading` — see AuthState.
-    set({ upgradeLoading: true, errorMessage: null });
-    try {
-      await getBackend().auth.sendUpgradeEmailOtp(email);
-    } catch (error) {
-      set({ upgradeLoading: false, errorMessage: errorMessageFor(error) });
-      return false;
-    }
-    set({ upgradeLoading: false, upgradeEmail: email });
-    return true;
-  },
-  verifyUpgradeEmailOtp: async (code) => {
-    if (!hasBackendConfig()) {
-      set({ errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
-      return false;
-    }
-    const email = get().upgradeEmail;
-    if (!email) {
-      set({ errorMessage: "No pending upgrade. Re-enter your email." });
-      return false;
-    }
-    // Use `upgradeLoading`, never the global `loading` — see AuthState.
-    set({ upgradeLoading: true, errorMessage: null });
-    try {
-      const session = await getBackend().auth.verifyUpgradeEmailOtp(email, code);
-      set({ session: storeSession(session), upgradeLoading: false, upgradeEmail: null });
-    } catch (error) {
-      set({ upgradeLoading: false, errorMessage: errorMessageFor(error) });
-      return false;
-    }
-    return true;
-  },
-  sendUpgradePhoneOtp: async (phone) => {
-    if (!hasBackendConfig()) {
-      set({ errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
-      return false;
-    }
-    set({ upgradeLoading: true, errorMessage: null });
-    try {
-      await getBackend().auth.sendUpgradePhoneOtp(phone);
-    } catch (error) {
-      set({ upgradeLoading: false, errorMessage: errorMessageFor(error) });
-      return false;
-    }
-    set({ upgradeLoading: false, upgradePhone: phone });
-    return true;
-  },
-  verifyUpgradePhoneOtp: async (code) => {
-    if (!hasBackendConfig()) {
-      set({ errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
-      return false;
-    }
-    const phone = get().upgradePhone;
-    if (!phone) {
-      set({ errorMessage: "No pending upgrade. Re-enter your phone number." });
-      return false;
-    }
-    set({ upgradeLoading: true, errorMessage: null });
-    try {
-      const session = await getBackend().auth.verifyUpgradePhoneOtp(phone, code);
-      set({ session: storeSession(session), upgradeLoading: false, upgradePhone: null });
-    } catch (error) {
-      set({ upgradeLoading: false, errorMessage: errorMessageFor(error) });
-      return false;
-    }
-    return true;
-  },
-  resetUpgradeOtp: () => set({ upgradeEmail: null, upgradePhone: null, upgradeLoading: false, errorMessage: null }),
   signOut: async () => {
     await getBackend().auth.signOut();
-    set({ session: null, authFlow: "idle", otpEmail: null, otpPhone: null, phoneMultiUsers: [], pendingPhoneOTPToken: "", upgradeEmail: null, pendingInvites: [] });
+    set({ session: null, authFlow: "idle", otpEmail: null, otpPhone: null, phoneMultiUsers: [], pendingPhoneOTPToken: "", pendingInvites: [] });
     void clearIntrospectAuthBridge();
-    // Reset the current team so the NEXT (e.g. anonymous) login doesn't inherit
+    // Reset the current team so the NEXT login doesn't inherit
     // the previous user's team. Without this the current-team store kept the old
     // team (its RLS-lag guard preserves it while the new user's team list is
     // momentarily empty), and AuthGate's `if (team) return` then skipped

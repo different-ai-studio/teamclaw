@@ -16,22 +16,23 @@ import { SheetModal } from "../../../ui/SheetModal";
 export type ChooseAuthScreenProps = {
   errorMessage?: string | null;
   isBusy?: boolean;
-  onCreatePrivateWorkspace: () => void;
   onSignInOrRegister: () => void;
   onJoinWithToken: (token: string) => void | Promise<void>;
 };
 
 /**
- * The "set up TeamClu" three-path picker — private workspace / sign-in /
- * invite token. Mirrors `apps/ios/.../ChooseAuthView.swift`:
- *   - Private workspace: anonymous sign-in, auto-create a solo team
+ * The "set up TeamClu" picker — sign in, or join with an invite. Mirrors
+ * `apps/ios/.../ChooseAuthView.swift`:
  *   - Sign in or register: go to the existing email OTP screen
- *   - Join a team: open InviteJoinSheet, paste link, claim invite
+ *   - Join a team: open InviteJoinSheet, paste the link, then sign in — the
+ *     token is stashed and claimed once a real account exists
+ *
+ * The former "private workspace" path was anonymous sign-in; anonymous
+ * accounts have been removed from the product.
  */
 export function ChooseAuthScreen({
   errorMessage,
   isBusy = false,
-  onCreatePrivateWorkspace,
   onSignInOrRegister,
   onJoinWithToken,
 }: ChooseAuthScreenProps) {
@@ -49,18 +50,10 @@ export function ChooseAuthScreen({
 
       <View style={styles.actions}>
         <ActionRow
-          caption="Start with an AI digital employee. No email needed."
-          disabled={isBusy}
-          icon="sparkles"
-          isPrimary
-          onPress={onCreatePrivateWorkspace}
-          testID="choose.anonymousButton"
-          title="Create a private workspace"
-        />
-        <ActionRow
           caption="Use email, Apple, or Google to sync across devices."
           disabled={isBusy}
           icon="mail-outline"
+          isPrimary
           onPress={onSignInOrRegister}
           testID="choose.signInButton"
           title="Sign in or register"

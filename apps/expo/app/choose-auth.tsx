@@ -18,18 +18,16 @@ export default function ChooseAuthRoute() {
     <ChooseAuthScreen
       errorMessage={state.errorMessage}
       isBusy={state.isBusy}
-      onCreatePrivateWorkspace={() => {
-        void controller.signInAnonymously();
-      }}
       onSignInOrRegister={() => {
         router.push("/auth");
       }}
       onJoinWithToken={async (token) => {
-        // Stash the token, then anonymous sign-in. RootLayout's pending-invite
-        // effect picks it up once the route transitions to `ready` and claims
-        // the team — same pipeline iOS uses (AppOnboardingCoordinator.claimInviteSmart).
+        // Stash the token and route to sign-in. Member invites cannot be
+        // claimed without a real account, so the claim happens after auth —
+        // RootLayout's pending-invite effect picks it up once the route
+        // reaches `ready`.
         await savePendingInviteToken(token);
-        await controller.signInAnonymously();
+        router.push("/auth");
       }}
     />
   );

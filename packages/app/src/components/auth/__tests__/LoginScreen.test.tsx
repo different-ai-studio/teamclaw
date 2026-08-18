@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { authState, backendConfig, extensionPolicy } = vi.hoisted(() => ({
@@ -71,17 +71,7 @@ describe("LoginScreen", () => {
     expect(screen.getByRole("button", { name: /send code/i })).toBeInTheDocument();
   });
 
-  it("renders the anonymous trial button", () => {
-    render(<LoginScreen />);
-    expect(screen.getByRole("button", { name: /try anonymously/i })).toBeInTheDocument();
-  });
 
-  it("clicking trial button invokes signInAnonymously", async () => {
-    authState.signInAnonymously.mockResolvedValue(true);
-    render(<LoginScreen />);
-    fireEvent.click(screen.getByRole("button", { name: /try anonymously/i }));
-    await waitFor(() => expect(authState.signInAnonymously).toHaveBeenCalledTimes(1));
-  });
 
   it("hides anonymous trial only in extension builds that disable automatic team creation", () => {
     extensionPolicy.isExtension = true;
@@ -92,14 +82,6 @@ describe("LoginScreen", () => {
     expect(screen.queryByRole("button", { name: /try anonymously/i })).not.toBeInTheDocument();
   });
 
-  it("keeps anonymous trial visible in plain web even when the extension policy disables it", () => {
-    extensionPolicy.isExtension = false;
-    extensionPolicy.autoCreateTeam = false;
-
-    render(<LoginScreen />);
-
-    expect(screen.getByRole("button", { name: /try anonymously/i })).toBeInTheDocument();
-  });
 
   it("shows error message when signInAnonymously fails", () => {
     authState.errorMessage = "Anonymous sign in failed";

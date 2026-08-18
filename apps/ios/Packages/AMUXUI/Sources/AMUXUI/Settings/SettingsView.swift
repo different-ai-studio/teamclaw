@@ -29,7 +29,6 @@ public struct SettingsView: View {
     @State private var teamDefaultAgentSaveError: String?
 
     @State private var showSignOutConfirm = false
-    @State private var showUpgradeSheet = false
     @State private var showEditProfileSheet = false
 
     /// Cached actor row for the current member, used to source the
@@ -84,12 +83,9 @@ public struct SettingsView: View {
         return cachedActors.first(where: { $0.actorId == id })
     }
 
-    /// Friendly display name for the identity card. Falls back to a short
-    /// "Anonymous" label when the user is on a guest session and we don't
-    /// have a directory row yet.
+    /// Friendly display name for the identity card.
     private var displayName: String {
         if let name = currentActor?.displayName, !name.isEmpty { return name }
-        if onboarding?.isAnonymous == true { return "Guest" }
         return "—"
     }
 
@@ -105,7 +101,6 @@ public struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         identityCard
-                        if onboarding?.isAnonymous == true { upgradeBanner }
                         connectedAgentsSection
                         teamSection
                         if let store = notificationPrefsStore {
@@ -130,11 +125,6 @@ public struct SettingsView: View {
                             .foregroundStyle(Color.amux.basalt)
                     }
                     .buttonStyle(.plain)
-                }
-            }
-            .sheet(isPresented: $showUpgradeSheet) {
-                if let onboarding {
-                    UpgradeAccountSheet(coordinator: onboarding)
                 }
             }
             .sheet(isPresented: $showEditProfileSheet) {
@@ -191,10 +181,6 @@ public struct SettingsView: View {
                                 .foregroundStyle(Color.amux.basalt.opacity(0.75))
                                 .lineLimit(1)
                         }
-                    } else if onboarding?.isAnonymous == true {
-                        Text("Anonymous session")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Color.amux.basalt)
                     }
                     if let email = onboarding?.currentUserEmail {
                         Text(email)
@@ -229,37 +215,6 @@ public struct SettingsView: View {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(Color.amux.basalt.opacity(0.14))
             )
-    }
-
-    private var upgradeBanner: some View {
-        Button {
-            showUpgradeSheet = true
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "person.badge.shield.checkmark")
-                    .font(.title2)
-                    .foregroundStyle(Color.amux.cinnabar)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Upgrade your account")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color.amux.onyx)
-                    Text("You're signed in anonymously. Attach an email or Apple ID to keep this workspace.")
-                        .font(.footnote)
-                        .foregroundStyle(Color.amux.basalt)
-                        .multilineTextAlignment(.leading)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.amux.slate)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(SettingsCardBackground())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("settings.upgradeAccountButton")
-        .padding(.horizontal, 16)
     }
 
     // MARK: - Connected agents (was "Daemon" in prototype)

@@ -509,9 +509,11 @@ test("createTeam routes to create_team with the caller's JWT org as fallback", a
   }
 });
 
-test("createTeam falls back to DEFAULT_ORG_ID when the caller carries no org", async () => {
+test("createTeam mints a personal org when the caller carries none — never DEFAULT_ORG_ID", async () => {
   const rpcCalls = [];
   const prev = process.env.DEFAULT_ORG_ID;
+  // Set deliberately: the shared tenant must NOT be picked up here any more.
+  // It serves phone-auth only.
   process.env.DEFAULT_ORG_ID = "org-default";
   try {
     const repo = createRepo(fakeSupabase({
@@ -522,6 +524,7 @@ test("createTeam falls back to DEFAULT_ORG_ID when the caller carries no org", a
         },
       },
       rpcData: {
+        ensure_personal_org: "org-mine",
         create_team: [{
           team_id: "team-solo",
           team_name: "Zesty Falcon",
@@ -534,11 +537,12 @@ test("createTeam falls back to DEFAULT_ORG_ID when the caller carries no org", a
 
     await repo.createTeam({ name: "My Team", slug: "my-team" });
 
-    assert.equal(rpcCalls.length, 1);
-    assert.equal(rpcCalls[0].name, "create_team");
-    assert.equal(rpcCalls[0].args.p_oid, "org-default");
-    assert.equal(rpcCalls[0].args.p_name, "My Team");
-    assert.equal(rpcCalls[0].args.p_slug, "my-team");
+    assert.equal(rpcCalls.length, 2);
+    assert.equal(rpcCalls[0].name, "ensure_personal_org");
+    assert.equal(rpcCalls[1].name, "create_team");
+    assert.equal(rpcCalls[1].args.p_oid, "org-mine");
+    assert.equal(rpcCalls[1].args.p_name, "My Team");
+    assert.equal(rpcCalls[1].args.p_slug, "my-team");
   } finally {
     if (prev === undefined) delete process.env.DEFAULT_ORG_ID;
     else process.env.DEFAULT_ORG_ID = prev;
@@ -573,7 +577,7 @@ test("bootstrapTeam verifies a trusted external JWT without a local GoTrue looku
       },
     },
     rpcData: {
-      bootstrap_current_org_team: [{ team_id: "team-bootstrap", team_name: "Betly", team_slug: "betly" }],
+      bootstrap_login_team: [{ team_id: "team-bootstrap", team_name: "Betly", team_slug: "betly" }],
     },
   }), {
     accessToken: await trustedExternalToken(),
@@ -583,30 +587,57 @@ test("bootstrapTeam verifies a trusted external JWT without a local GoTrue looku
   const team = await repo.bootstrapTeam({ displayName: "Betly User" });
 
   assert.deepEqual(rpcCalls, [{
-    name: "bootstrap_current_org_team",
-    args: { p_fallback_org: "betly-org-1", p_display_name: "Betly User" },
+    name: "bootstrap_login_team",
+    args: {
+      p_allow_new_org: true,
+      p_shared_org: process.env.DEFAULT_ORG_ID || null,
+      p_display_name: "Betly User",
+    },
   }]);
   assert.equal(team.id, "team-bootstrap");
 });
 
-test("bootstrapTeam targets an explicitly selected empty org", async () => {
+test("bootstrapTeam passes the shared tenant so the partner org stays on the old path", async () => {
   const rpcCalls: any[] = [];
+  const prev = process.env.DEFAULT_ORG_ID;
+  process.env.DEFAULT_ORG_ID = "betly-org-1";
+  try {
+    const repo = createRepo(fakeSupabase({
+      rpcCalls,
+      rpcData: {
+        bootstrap_login_team: [{ team_id: "t", team_name: "Betly", team_slug: "betly" }],
+      },
+    }), {
+      accessToken: await trustedExternalToken(),
+      trustedExternalJwtSecret: TRUSTED_SECRET,
+    });
+
+    await repo.bootstrapTeam({ displayName: "Betly User" });
+
+    assert.equal(rpcCalls[0].args.p_shared_org, "betly-org-1");
+  } finally {
+    if (prev === undefined) delete process.env.DEFAULT_ORG_ID;
+    else process.env.DEFAULT_ORG_ID = prev;
+  }
+});
+
+test("bootstrapTeam turns the SQL registration refusal into a 403", async () => {
   const repo = createRepo(fakeSupabase({
-    rpcCalls,
-    rpcData: {
-      bootstrap_selected_org_team: [{ team_id: "team-bootstrap", team_name: "Other Org", team_slug: "other-org" }],
+    rpcErrors: {
+      bootstrap_login_team: {
+        code: "42501",
+        message: "self-registration is disabled on this deployment",
+      },
     },
   }), {
     accessToken: await trustedExternalToken(),
     trustedExternalJwtSecret: TRUSTED_SECRET,
   });
 
-  await repo.bootstrapTeam({ orgId: "selected-org", displayName: "Betly User" });
-
-  assert.deepEqual(rpcCalls, [{
-    name: "bootstrap_selected_org_team",
-    args: { p_org_id: "selected-org", p_display_name: "Betly User" },
-  }]);
+  await assert.rejects(
+    () => repo.bootstrapTeam({ displayName: "Betly User" }),
+    (err: any) => err?.statusCode === 403 && err?.code === "registration_disabled",
+  );
 });
 
 test("bootstrapTeam rejects a token the trust secret does not verify", async () => {

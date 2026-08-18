@@ -76,7 +76,6 @@ export interface AuthBackend {
   verifyPhoneOtpResult(phone: string, code: string): Promise<import("@/lib/auth/auth-client").PhoneLoginResult>;
   /** Log in as a specific user when the phone is linked to multiple accounts. */
   loginWithPhoneUser(phone: string, code: string, userId: string): Promise<AuthSession | null>;
-  signInAnonymously(): Promise<AuthSession | null>;
   signInWithPassword(email: string, password: string): Promise<AuthSession | null>;
   signInWithOAuth(provider: OAuthProvider): Promise<AuthSession | null>;
   signOut(): Promise<void>;
@@ -86,11 +85,6 @@ export interface AuthBackend {
   acceptPendingInvite(inviteId: string): Promise<AuthClaimResult>;
   declinePendingInvite(inviteId: string): Promise<void>;
   /** Attach an email identity to the current (anonymous) user. Triggers an OTP. */
-  sendUpgradePhoneOtp(phone: string): Promise<void>;
-  verifyUpgradePhoneOtp(phone: string, code: string): Promise<AuthSession | null>;
-  sendUpgradeEmailOtp(email: string): Promise<void>;
-  /** Confirm the OTP and finalize the upgrade. */
-  verifyUpgradeEmailOtp(email: string, code: string): Promise<AuthSession | null>;
   /** Install a session minted server-side (e.g. by activateTeam) from its
    *  refresh token, so the client adopts a fresh JWT (new org_id). */
   adoptSession(refreshToken: string): Promise<AuthSession | null>;
@@ -394,14 +388,12 @@ export interface MembershipTeam {
   orgName?: string | null;
   visibility?: "public" | "private";
   /**
-   * `false` marks a PUBLIC team in the shared DEFAULT_ORG that the caller can
-   * join self-service (via `joinTeam`) but is not yet a member of. Absent or
+   * `false` marks a PUBLIC team in the caller's own org that they can join
+   * self-service (via `joinTeam`) but are not yet a member of. Absent or
    * `true` means the caller is already an actor in the team.
    */
   isMember?: boolean;
-  /** An empty org returned by the login picker, not an activatable team. */
-  itemType?: "team" | "org";
-  /** Null for an empty-org picker row; otherwise the same value as `id`. */
+  /** Same value as `id`; kept for callers that read it explicitly. */
   teamId?: string | null;
   /*
    * The next three exist because a team's name is not unique. Every team an org
@@ -519,19 +511,14 @@ export interface TeamsBackend {
   getTeam(teamId: string): Promise<TeamSummary | null>;
   createTeam(input: { name?: string | null; slug?: string | null; displayName?: string | null }): Promise<TeamSummary>;
   /**
-   * First-team onboarding only. Creates an owner team named after the caller's
-   * current organization, together with the member actor, in one transaction.
+   * Login onboarding. Resolves the caller's org — minting one named after them
+   * when they have none — and returns that org's public default team, creating
+   * it on first use. One transaction, server side.
+   *
+   * Throws 403 `registration_disabled` when the deployment has self-registration
+   * turned off and the caller has no org yet.
    */
-  bootstrapTeam(input?: {
-    displayName?: string | null;
-    orgId?: string | null;
-    /**
-     * Guests only. Lets the server hand back the team this device's previous
-     * guest already got, instead of a new one per quick-trial click. Ignored
-     * for signed-in callers.
-     */
-    deviceId?: string | null;
-  }): Promise<TeamSummary>;
+  bootstrapTeam(input?: { displayName?: string | null }): Promise<TeamSummary>;
   renameTeam(teamId: string, name: string): Promise<TeamSummary>;
   /**
    * Graduate the caller out of the shared DEFAULT_ORG into their own org:
@@ -541,12 +528,11 @@ export interface TeamsBackend {
   upgradeAccount(input: { teamId: string; orgName: string; contact?: string | null }): Promise<{ orgId: string; teamId: string; teamName: string }>;
   createTeamInvite(input: TeamInviteInput): Promise<TeamInviteResult>;
   removeTeamActor(teamId: string, actorId: string): Promise<void>;
-  listAllMyTeams(args?: { includeEmptyOrgs?: boolean }): Promise<MembershipTeam[]>;
-  /** Public teams that may be browsed before a user joins one. */
-  listDiscoverableTeams(): Promise<MembershipTeam[]>;
+  listAllMyTeams(): Promise<MembershipTeam[]>;
   /**
-   * Self-service join of a PUBLIC team in the shared DEFAULT_ORG (offered in the
-   * post-login picker alongside the caller's own teams). Idempotent.
+   * Self-service join of a PUBLIC team in the caller's own org (offered in the
+   * post-login picker alongside the caller's own teams). Idempotent, and
+   * refused server-side for a team in another org.
    */
   joinTeam(teamId: string): Promise<TeamSummary>;
   /** Toggle a team's visibility (public | private) via PATCH /v1/teams/:id. */
