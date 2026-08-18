@@ -1,9 +1,6 @@
 {
   "cloudApiUrl": "https://api.teamclu-dev.ucar.cc",
   "mqttWsUrl": "wss://mqtt.teamclu-dev.ucar.cc/mqtt",
-  "team": {
-    "lockLlmConfig": false
-  },
   "app": {
     "name": "TeamClu",
     "displayName": "TeamClu",
@@ -20,20 +17,7 @@
   },
   "features": {
     "updater": true,
-    "channels": {
-      "discord": true,
-      "feishu": true,
-      "email": true,
-      "kook": true,
-      "wecom": true,
-      "wechat": true,
-      "seatalk": true
-    },
     "auth": {
-      "google": false,
-      "wechat": false,
-      "phone": false,
-      "webSSO": false,
       "webSSOHosts": []
     }
   },
