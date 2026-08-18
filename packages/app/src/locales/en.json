@@ -1639,6 +1639,7 @@
     },
     "daemonOnboarding": {
       "steps": {
+        "start-daemon": "Starting the local service",
         "mint-invite": "Requesting credentials",
         "init-daemon": "Writing local config",
         "restart-daemon": "Restarting the local service",
@@ -1646,6 +1647,7 @@
         "cloud-auth": "Checking the cloud connection"
       },
       "slowHint": {
+        "start-daemon": "The local service is still starting up on this machine.",
         "mint-invite": "Waiting on the server. Check your network connection.",
         "init-daemon": "Writing credentials to ~/.amuxd.",
         "restart-daemon": "Waiting for the previous process to exit.",
@@ -1653,6 +1655,7 @@
         "cloud-auth": "Verifying this machine with the server."
       },
       "recovery": {
+        "start-daemon": "The local service never came up, so this machine has no id to bind. See ~/.amuxd/logs/amuxd.managed.log.",
         "mint-invite": "The server could not be reached. Check your connection, then try again.",
         "init-daemon": "Credentials could not be written. A reset clears any half-written state.",
         "restart-daemon": "The local service would not restart. A reset clears any half-written state.",

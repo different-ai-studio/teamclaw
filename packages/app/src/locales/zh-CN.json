@@ -1639,6 +1639,7 @@
     },
     "daemonOnboarding": {
       "steps": {
+        "start-daemon": "启动本地服务",
         "mint-invite": "申请凭证",
         "init-daemon": "写入本地配置",
         "restart-daemon": "重启本地服务",
@@ -1646,6 +1647,7 @@
         "cloud-auth": "检查云端连接"
       },
       "slowHint": {
+        "start-daemon": "本地服务还在启动中。",
         "mint-invite": "正在等服务器响应，检查一下网络连接。",
         "init-daemon": "正在往 ~/.amuxd 写入凭证。",
         "restart-daemon": "正在等上一个进程退出。",
@@ -1653,6 +1655,7 @@
         "cloud-auth": "正在向服务器验证这台机器。"
       },
       "recovery": {
+        "start-daemon": "本地服务一直没起来，拿不到本机 ID。看看 ~/.amuxd/logs/amuxd.managed.log。",
         "mint-invite": "连不上服务器。检查网络后重试。",
         "init-daemon": "凭证没能写入。重置可以清掉写了一半的状态。",
         "restart-daemon": "本地服务没能重启。重置可以清掉写了一半的状态。",

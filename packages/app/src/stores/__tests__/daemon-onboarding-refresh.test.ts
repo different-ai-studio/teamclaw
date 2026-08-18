@@ -266,15 +266,41 @@ describe('daemon-onboarding refresh() orchestration', () => {
     expect(h.ensureCalls).toHaveLength(1)
   })
 
-  it('fails loudly when the daemon cannot report this machine’s id', async () => {
+  it('waits for a still-booting daemon instead of failing the bind', async () => {
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = null
+    h.deviceId = null // amuxd has not bound its HTTP port yet
+
+    vi.useFakeTimers()
+    const p = useDaemonOnboardingStore.getState().refresh()
+    await vi.advanceTimersByTimeAsync(600) // one poll tick, still booting
+    h.deviceId = 'device-1' // …and now it answers
+    await vi.advanceTimersByTimeAsync(600)
+    await p
+
+    const s = useDaemonOnboardingStore.getState()
+    // Started it rather than assuming it was up, then carried on to the prompt.
+    expect(h.invokeCalls).toContain('daemon_ensure_running')
+    expect(s.error).toBeNull()
+    expect(s.pendingName?.deviceId).toBe('device-1')
+  })
+
+  it('fails loudly when the daemon never reports this machine’s id', async () => {
     h.currentTeam = { id: 't1' }
     h.daemonTeam = null
     h.deviceId = null
 
-    await useDaemonOnboardingStore.getState().refresh()
+    vi.useFakeTimers()
+    const p = useDaemonOnboardingStore.getState().refresh()
+    await vi.advanceTimersByTimeAsync(12 * 500 + 100) // drain the start-daemon poll
+    await p
 
     const s = useDaemonOnboardingStore.getState()
     expect(s.status).toBe('error')
+    // The wait is a named step, so the failure screen can say what broke instead
+    // of showing a stepless "can't read this machine's id".
+    expect(s.failedStep).toBe('start-daemon')
+    expect(h.invokeCalls).toContain('daemon_ensure_running')
     // Never fall back to a locally minted id: that provisions a second agent for
     // a machine that already has one.
     expect(h.ensureCalls).toHaveLength(0)
@@ -389,7 +415,10 @@ describe('daemon-onboarding refresh() orchestration', () => {
     h.daemonTeam = 't2'
     h.deviceId = null // bind fails before it reaches the server
 
-    await useDaemonOnboardingStore.getState().refresh()
+    vi.useFakeTimers()
+    const p = useDaemonOnboardingStore.getState().refresh()
+    await vi.advanceTimersByTimeAsync(12 * 500 + 100) // drain the start-daemon poll
+    await p
     await Promise.resolve()
 
     // Registration is team-scoped; it must never run while the daemon is still
