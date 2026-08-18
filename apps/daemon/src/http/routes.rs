@@ -109,6 +109,10 @@ pub fn build(state: HttpState) -> Router {
         // App build: pnpm build + zip `.output`, upload artifact to a presigned
         // OSS PUT URL. Kicked by the cloud deploy orchestration.
         .route("/v1/apps/build", post(apps::build_app))
+        // Where this daemon keeps an app. The desktop asks instead of deriving
+        // the path itself — two copies of that rule drifted apart once and the
+        // agent then edited a directory no deploy ever built.
+        .route("/v1/apps/{app_id}/workdir", get(apps::app_workdir))
         // Device-level provider config (#742). Credentials are per-machine, not
         // per-workspace, so these need no workspace id — which is what lets
         // first-run onboarding configure a model before a project is chosen.

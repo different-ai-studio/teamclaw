@@ -1097,6 +1097,33 @@ export async function seedDaemonApp(
  */
 export type BuildAppOutcome = "built" | "failed" | "unreachable";
 
+/**
+ * Where the local daemon keeps this app's checkout.
+ *
+ * Asked, never derived. The desktop used to compute `~/.amuxd/apps/<id>` from
+ * the home directory; when the daemon moved its app root, the two answers
+ * diverged and the agent edited a directory that no deploy ever built — the
+ * deployed site stayed the seed template with nothing reporting an error.
+ *
+ * Returns null when the daemon is unreachable or too old to answer, so callers
+ * degrade to "no local path" instead of guessing a wrong one.
+ */
+export async function daemonAppWorkdir(appId: string): Promise<string | null> {
+  try {
+    const result = await daemonFetch<{ workdir: string }>(
+      `/v1/apps/${encodeURIComponent(appId)}/workdir`,
+    )
+    if (!result.ok) {
+      console.warn('[daemon-local-client] app workdir unavailable (non-fatal):', result.error)
+      return null
+    }
+    return result.data.workdir?.trim() || null
+  } catch (err) {
+    console.warn('[daemon-local-client] app workdir unavailable:', err)
+    return null
+  }
+}
+
 export async function buildDaemonApp(
   appId: string,
   teamId: string,

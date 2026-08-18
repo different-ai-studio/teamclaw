@@ -31,15 +31,61 @@ use super::auth::{require_scope, Principal};
 use super::errors::HttpError;
 use super::state::HttpState;
 
-/// The daemon's data root for per-app checkouts: `<amuxd home>/apps`.
+/// The daemon's data root for per-app checkouts: `teams/<active>/apps`.
 ///
 /// It used to say it mirrored `DaemonConfig::config_dir()` while actually
 /// re-deriving `$HOME/.amuxd` by hand — so it honoured neither `$AMUXD_HOME`
 /// nor the brand, and a white-label daemon cloned apps into the official
 /// build's home. Call the real thing.
 ///
+/// It then lived under `state/`, which is daemon bookkeeping; an app checkout
+/// is the user's own project. Existing checkouts are moved by
+/// [`migrate_legacy_apps_root`], which the daemon calls once at startup.
+///
+/// This function only computes a path. It briefly did the migration too, and a
+/// plain `cargo test` — which runs against the real `$HOME` — then renamed a
+/// developer's actual app directory as a side effect of asking where apps live.
 pub fn apps_data_root() -> PathBuf {
-    crate::config::layout::active_state_dir().join("apps")
+    crate::config::layout::active_apps_dir()
+}
+
+/// Move `state/apps` to its new home beside it, once. Called at startup.
+///
+/// A rename, so every checkout keeps its identity, its git history and its
+/// `node_modules`. Skipped when the destination already exists: merging two
+/// app roots is not a decision this function can make, and the legacy one is
+/// left untouched for recovery rather than deleted.
+///
+/// Deliberately NOT called from `apps_data_root()`: a path accessor that moves
+/// directories rewrote a developer's home during an ordinary `cargo test`.
+pub fn migrate_legacy_apps_root() {
+    let legacy = crate::config::layout::active_state_dir().join("apps");
+    migrate_legacy_apps_root_from(&legacy, &apps_data_root());
+}
+
+/// [`migrate_legacy_apps_root`] with both paths given, so the rule is testable
+/// without pointing the whole daemon at a temp home.
+fn migrate_legacy_apps_root_from(legacy: &std::path::Path, dest: &std::path::Path) {
+    if dest.exists() {
+        return;
+    }
+    if !legacy.is_dir() {
+        return;
+    }
+    if let Some(parent) = dest.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!(error = %e, "apps: could not create team dir for migration");
+            return;
+        }
+    }
+    match std::fs::rename(legacy, dest) {
+        Ok(()) => {
+            tracing::info!(from = %legacy.display(), to = %dest.display(), "apps: moved app root out of state/")
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, from = %legacy.display(), "apps: could not move app root; leaving it in place")
+        }
+    }
 }
 
 /// Resolve the clone target for a seed request.
@@ -93,6 +139,35 @@ pub struct SeedAppBody {
 #[serde(rename_all = "camelCase")]
 pub struct SeedAppResponse {
     pub status: &'static str,
+    /// Where the app actually lives. Returned so the caller never has to
+    /// compute it: the desktop used to derive `~/.amuxd/apps/<id>` by hand,
+    /// which stopped matching this daemon's answer the moment the layout moved
+    /// — the agent then edited one directory while deploys built another, and
+    /// the deployed site silently stayed the seed template.
+    pub workdir: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppWorkdirResponse {
+    pub workdir: String,
+}
+
+/// `GET /v1/apps/:appId/workdir` — where this daemon keeps that app.
+///
+/// The single source of truth for the path, for callers that did not just seed
+/// (opening the app's session, revealing it in Finder). Answers for an app that
+/// has never been seeded too: the path is derived, not looked up.
+pub async fn app_workdir(
+    principal: Principal,
+    State(_state): State<HttpState>,
+    axum::extract::Path(app_id): axum::extract::Path<String>,
+) -> Result<Json<AppWorkdirResponse>, HttpError> {
+    require_scope(&principal, "workspace:read")?;
+    let path = resolve_workdir("", &app_id)?;
+    Ok(Json(AppWorkdirResponse {
+        workdir: path.to_string_lossy().into_owned(),
+    }))
 }
 
 /// `POST /v1/apps/seed` — write the starter template into the app's checkout
@@ -115,6 +190,7 @@ pub async fn seed_app(
     if let Some(parent) = workdir_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
+    let seeded_at = workdir_path.to_string_lossy().into_owned();
 
     let app_id = body.app_id.trim().to_string();
     let app_name = if body.app_name.trim().is_empty() {
@@ -138,7 +214,10 @@ pub async fn seed_app(
     .map_err(|e| HttpError::internal(format!("seed task panicked: {e}")))?
     .map_err(|e| HttpError::internal(format!("app seed failed: {e}")))?;
 
-    Ok(Json(SeedAppResponse { status: "ready" }))
+    Ok(Json(SeedAppResponse {
+        status: "ready",
+        workdir: seeded_at,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -264,6 +343,59 @@ mod tests {
         let p = resolve_workdir("", "app-xyz").unwrap();
         assert_eq!(p, apps_data_root().join("app-xyz"));
         assert!(p.ends_with("apps/app-xyz"));
+    }
+
+    #[test]
+    fn apps_live_beside_state_not_inside_it() {
+        // An app checkout is the user's own project, not daemon bookkeeping —
+        // and the desktop opens it as an agent session's working directory.
+        let root = apps_data_root();
+        assert!(root.ends_with("apps"), "got {}", root.display());
+        assert!(
+            !root.to_string_lossy().contains("/state/"),
+            "app root must not sit under state/: {}",
+            root.display()
+        );
+    }
+
+    #[test]
+    fn legacy_state_apps_root_is_moved_not_copied() {
+        // The deploy pipeline builds whatever is at the new path. Leaving the
+        // old checkouts behind would ship the seed template forever, with the
+        // user's real work sitting in a directory nothing reads.
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = tmp.path().join("state").join("apps");
+        std::fs::create_dir_all(legacy.join("app-1")).unwrap();
+        std::fs::write(legacy.join("app-1").join("index.html"), b"real work").unwrap();
+
+        let dest = tmp.path().join("apps");
+        migrate_legacy_apps_root_from(&legacy, &dest);
+
+        assert!(!legacy.exists(), "legacy root must be gone, not duplicated");
+        assert_eq!(
+            std::fs::read_to_string(dest.join("app-1").join("index.html")).unwrap(),
+            "real work",
+        );
+    }
+
+    #[test]
+    fn migration_leaves_both_alone_when_the_new_root_already_exists() {
+        // Merging two app roots is not a decision this function can make, so
+        // the legacy one stays put and stays recoverable.
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = tmp.path().join("state").join("apps");
+        std::fs::create_dir_all(legacy.join("app-1")).unwrap();
+        let dest = tmp.path().join("apps");
+        std::fs::create_dir_all(dest.join("app-2")).unwrap();
+
+        migrate_legacy_apps_root_from(&legacy, &dest);
+
+        assert!(
+            legacy.join("app-1").is_dir(),
+            "legacy must survive untouched"
+        );
+        assert!(dest.join("app-2").is_dir());
+        assert!(!dest.join("app-1").exists(), "nothing may be merged in");
     }
 
     #[test]
