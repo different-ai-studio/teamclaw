@@ -8,9 +8,12 @@ import {
 } from "@/stores/session-participant-store";
 
 function soleAgentIdFromRoster(
-  roster: Array<{ isAgent: boolean; actorId: string }>,
+  roster: Array<{ isAgent: boolean; isExternal?: boolean; actorId: string }>,
 ): string | null {
-  if (!isSoloAgentSession(roster.map((p) => ({ isAgent: p.isAgent })))) return null;
+  const solo = isSoloAgentSession(
+    roster.map((p) => ({ isAgent: p.isAgent, isExternal: p.isExternal ?? false })),
+  );
+  if (!solo) return null;
   return roster.find((p) => p.isAgent)?.actorId ?? null;
 }
 
@@ -28,10 +31,16 @@ async function resolveSoleAgentIdIfSoloSession(sessionId: string): Promise<strin
   try {
     const rows = await getBackend().sessionMembers.listParticipants(sessionId);
     const roster = rows
-      .filter((row) => row.actor_type === "member" || isAgentActorType(row.actor_type))
+      .filter(
+        (row) =>
+          row.actor_type === "member" ||
+          row.actor_type === "external" ||
+          isAgentActorType(row.actor_type),
+      )
       .map((row) => ({
         actorId: row.id,
         isAgent: isAgentActorType(row.actor_type),
+        isExternal: row.actor_type === "external",
       }));
     return soleAgentIdFromRoster(roster);
   } catch {

@@ -773,6 +773,17 @@ impl DaemonServer {
             .display_name_for_actor(&message.sender_actor_id)
             .unwrap_or_else(|| message.sender_actor_id.chars().take(8).collect());
 
+        // @-ing the person on the other end of a gateway chat sends them the
+        // message. Runs before runtime routing because it is independent of
+        // it: the push happens whether or not an agent was also mentioned.
+        self.push_message_to_mentioned_externals(
+            session_id,
+            message,
+            mention_actor_ids,
+            &sender_display,
+        )
+        .await;
+
         // Each runtime in this list belongs to this daemon, so a mention of
         // this daemon's actor engages the runtime. The handle's `agent_id`
         // is the 8-char runtime key (per CLAUDE.md glossary), NOT the actor
@@ -1095,6 +1106,104 @@ impl DaemonServer {
         true
     }
 
+    /// Deliver a session message to the chats of the external people it
+    /// @-mentions.
+    ///
+    /// This is the desktop side of a gateway chat: the agent answers inbound
+    /// messages by itself, but a human typing in the session had no way to
+    /// reach the other end at all — the only outbound path in the daemon is
+    /// the `send` MCP tool, which needs a runtime that has MCP and an agent
+    /// willing to call it. Naming someone is the intent, so it is the trigger.
+    ///
+    /// Deliberately narrow:
+    ///
+    /// * Only the session's own binding is used as the target. An external
+    ///   actor is only ever a participant of the chat they wrote from, so the
+    ///   chat is the address; reconstructing a DM route from the actor alone
+    ///   would let a desktop session open a conversation nobody asked for.
+    /// * A message from an external actor never pushes. Otherwise an inbound
+    ///   WeCom message that happened to mention someone would be echoed
+    ///   straight back into the chat it came from.
+    async fn push_message_to_mentioned_externals(
+        &self,
+        session_id: &str,
+        message: &crate::proto::teamclu::Message,
+        mention_actor_ids: &[String],
+        sender_display: &str,
+    ) {
+        if mention_actor_ids.is_empty() || message.content.trim().is_empty() {
+            return;
+        }
+        let Some(mgr) = self.channel_mgr.as_ref() else {
+            return;
+        };
+
+        // One directory read covers both questions: which mentions are
+        // external, and whether the sender is one of them.
+        let mut ids: Vec<String> = mention_actor_ids.to_vec();
+        if !message.sender_actor_id.is_empty() {
+            ids.push(message.sender_actor_id.clone());
+        }
+        let rows = match self.backend.get_actors_by_ids(&ids).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(session_id, error = %e, "external mention: actor lookup failed; not pushed");
+                return;
+            }
+        };
+        let mentioned = externals_to_notify(&rows, mention_actor_ids, &message.sender_actor_id);
+        if mentioned.is_empty() {
+            return;
+        }
+
+        let binding = match self.backend.get_session_binding(session_id).await {
+            Ok(Some(b)) => b,
+            Ok(None) => {
+                warn!(
+                    session_id,
+                    "external mention: session is not bound to a chat; nothing to push to"
+                );
+                return;
+            }
+            Err(e) => {
+                warn!(session_id, error = %e, "external mention: binding lookup failed; not pushed");
+                return;
+            }
+        };
+        let (channel, target) = match crate::daemon::binding_target::parse_binding_to_target(&binding)
+        {
+            Ok((channel, Some(target))) => (channel, target),
+            Ok((channel, None)) => {
+                warn!(
+                    session_id,
+                    channel, "external mention: channel has no outbound target shape yet"
+                );
+                return;
+            }
+            Err(e) => {
+                warn!(session_id, error = %e, "external mention: unparseable binding");
+                return;
+            }
+        };
+
+        // Prefixed with who typed it: this arrives in a chat where every
+        // previous message came from the bot, so an unattributed line reads as
+        // the agent suddenly speaking on its own.
+        let body = outbound_body(sender_display, &message.content);
+        match mgr
+            .dispatch_send(channel, &target, Some(&body), None)
+            .await
+        {
+            Ok(()) => info!(
+                session_id,
+                channel,
+                mentioned = mentioned.len(),
+                "external mention: pushed to chat"
+            ),
+            Err(e) => warn!(session_id, channel, error = %e, "external mention: push failed"),
+        }
+    }
+
     /// Look up a display name for an actor_id from the in-memory peer tracker.
     /// Returns `None` if the actor is unknown; the caller falls back to the
     /// first 8 chars of the actor_id.
@@ -1211,5 +1320,149 @@ mod default_title_tests {
         assert!(!is_default_session_title("Cron: Test"));
         assert!(!is_default_session_title("发布计划 (v2)"));
         assert!(!is_default_session_title("standup (today)"));
+    }
+}
+
+/// Which of a message's mentions name someone reachable only through a chat.
+///
+/// Returns nothing when the sender is themselves external: that message came
+/// *from* a chat, and pushing it back would echo the conversation into itself.
+/// Unknown ids (the directory did not answer for them) are not assumed
+/// external — a lookup gap must not turn into an outbound message.
+fn externals_to_notify(
+    rows: &[crate::backend::records::ActorDirectoryRow],
+    mention_actor_ids: &[String],
+    sender_actor_id: &str,
+) -> Vec<String> {
+    let is_external = |id: &str| {
+        !id.is_empty()
+            && rows
+                .iter()
+                .any(|r| r.id == id && r.kind.as_deref() == Some("external"))
+    };
+    if is_external(sender_actor_id) {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    for id in mention_actor_ids {
+        if is_external(id) && !out.contains(id) {
+            out.push(id.clone());
+        }
+    }
+    out
+}
+
+/// Drop the `[Mentioned agents: …]` / `[Mentioned humans: …]` headers the
+/// composer prepends to a message.
+///
+/// They are routing scaffolding — the desktop renders them as pills and never
+/// shows the raw text — so forwarding them verbatim would put the plumbing in
+/// front of the reader in the one place nothing strips it again.
+fn strip_mention_headers(content: &str) -> &str {
+    let mut rest = content.trim_start();
+    while let Some(body) = rest.strip_prefix("[Mentioned") {
+        let Some(end) = body.find(']') else { break };
+        rest = body[end + 1..].trim_start();
+    }
+    rest
+}
+
+/// What the chat sees. The name is not decoration: every other message in that
+/// conversation came from the bot, so an unattributed line reads as the agent
+/// having spoken on its own.
+fn outbound_body(sender_display: &str, content: &str) -> String {
+    let content = strip_mention_headers(content).trim_end();
+    if sender_display.is_empty() {
+        return content.to_string();
+    }
+    format!("{sender_display}：{content}")
+}
+
+#[cfg(test)]
+mod external_mention_tests {
+    use super::{externals_to_notify, outbound_body};
+    use crate::backend::records::ActorDirectoryRow;
+
+    fn actor(id: &str, kind: &str) -> ActorDirectoryRow {
+        ActorDirectoryRow {
+            id: id.into(),
+            display_name: Some(id.into()),
+            kind: Some(kind.into()),
+        }
+    }
+
+    fn directory() -> Vec<ActorDirectoryRow> {
+        vec![
+            actor("member-1", "member"),
+            actor("agent-1", "agent"),
+            actor("ext-1", "external"),
+            actor("ext-2", "external"),
+        ]
+    }
+
+    #[test]
+    fn a_member_mentioning_an_external_pushes_to_them() {
+        let mentions = vec!["agent-1".to_string(), "ext-1".to_string()];
+        assert_eq!(
+            externals_to_notify(&directory(), &mentions, "member-1"),
+            vec!["ext-1".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_message_from_a_chat_never_pushes_back_into_one() {
+        // The inbound WeCom message is written into the session like any
+        // other. Without this the gateway would answer its own sender.
+        let mentions = vec!["ext-2".to_string()];
+        assert!(externals_to_notify(&directory(), &mentions, "ext-1").is_empty());
+    }
+
+    #[test]
+    fn mentions_that_are_not_external_are_not_pushed() {
+        let mentions = vec!["agent-1".to_string(), "member-1".to_string()];
+        assert!(externals_to_notify(&directory(), &mentions, "member-1").is_empty());
+    }
+
+    #[test]
+    fn an_actor_the_directory_does_not_know_is_left_alone() {
+        // A failed or partial lookup must not become an outbound message.
+        let mentions = vec!["who-1".to_string()];
+        assert!(externals_to_notify(&directory(), &mentions, "member-1").is_empty());
+        // ...and an unknown sender still counts as "not external", so a
+        // desktop message routes normally.
+        let mentions = vec!["ext-1".to_string()];
+        assert_eq!(
+            externals_to_notify(&directory(), &mentions, "who-2"),
+            vec!["ext-1".to_string()]
+        );
+    }
+
+    #[test]
+    fn the_same_person_mentioned_twice_is_notified_once() {
+        let mentions = vec!["ext-1".to_string(), "ext-1".to_string()];
+        assert_eq!(
+            externals_to_notify(&directory(), &mentions, "member-1"),
+            vec!["ext-1".to_string()]
+        );
+    }
+
+    #[test]
+    fn the_pushed_text_says_who_typed_it() {
+        assert_eq!(outbound_body("周金亮", "  下班了吗  "), "周金亮：下班了吗");
+        assert_eq!(outbound_body("", "hi"), "hi");
+    }
+
+    #[test]
+    fn the_composers_routing_headers_do_not_reach_the_chat() {
+        // The desktop renders these as pills; WeCom would render them as text.
+        assert_eq!(
+            outbound_body(
+                "周金亮",
+                "[Mentioned agents: Mac-mini-3]\n\n[Mentioned humans: LiangLiang]\n开会了"
+            ),
+            "周金亮：开会了"
+        );
+        // A bracket that is not a header is content and stays put.
+        assert_eq!(outbound_body("A", "[TODO] ship it"), "A：[TODO] ship it");
     }
 }

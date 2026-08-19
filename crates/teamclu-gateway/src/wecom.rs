@@ -691,7 +691,7 @@ struct WeComWsMessage {
 /// WeCom uses flat lowercase field names (msgid, chatid, msgtype, etc.)
 /// See: https://developer.work.weixin.qq.com/document/path/101463
 #[derive(Debug, Clone, Deserialize)]
-struct WeComMsgCallback {
+pub(crate) struct WeComMsgCallback {
     #[serde(default)]
     msgid: String,
     #[serde(default)]

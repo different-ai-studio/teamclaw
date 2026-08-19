@@ -372,6 +372,10 @@ impl Backend for DeferredBackend {
             .await
     }
 
+    async fn get_session_binding(&self, session_id: &str) -> BackendResult<Option<String>> {
+        self.inner()?.get_session_binding(session_id).await
+    }
+
     async fn rpc_detach_gateway_session(&self, acp_session_id: &str) -> BackendResult<bool> {
         self.inner()?
             .rpc_detach_gateway_session(acp_session_id)

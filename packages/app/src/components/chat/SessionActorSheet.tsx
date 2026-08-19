@@ -464,6 +464,10 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
           displayName: row.display_name?.trim() || row.id,
           avatarUrl: null,
           isAgent: isAgentActorType(row.actor_type),
+          // This sheet manages team membership and filters its rows to
+          // member/agent, so it never carries an external. The store keeps
+          // the ones it already knows rather than reading this as "they left".
+          isExternal: false,
         })),
       )
     }

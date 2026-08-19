@@ -64,12 +64,14 @@ describe("session-participant-store", () => {
         displayName: "Alice",
         avatarUrl: null,
         isAgent: false,
+        isExternal: false,
       },
       {
         actorId: "agent-1",
         displayName: "Agent One",
         avatarUrl: null,
         isAgent: true,
+        isExternal: false,
       },
     ]);
   });
@@ -100,13 +102,34 @@ describe("session-participant-store", () => {
         displayName: "Alice",
         avatarUrl: null,
         isAgent: false,
+        isExternal: false,
       },
       {
         actorId: "daemon-1",
         displayName: "MACPRO",
         avatarUrl: null,
         isAgent: true,
+        isExternal: false,
       },
+    ]);
+  });
+
+  it("keeps the gateway's own sender in the roster", async () => {
+    // The person on the other end of a WeCom chat is an `external` actor. They
+    // were always in session_participants; the mention filter used to drop
+    // them, which is what made them un-@-mentionable from the desktop.
+    mockIsTauri.mockReturnValue(false);
+    mockListParticipants.mockResolvedValue([
+      { id: "daemon-1", actor_type: "agent", display_name: "MACPRO", avatar_url: null },
+      { id: "ext-1", actor_type: "external", display_name: "LiangLiang", avatar_url: null },
+      { id: "bot-1", actor_type: "service", display_name: "not mentionable", avatar_url: null },
+    ]);
+
+    await useSessionParticipantStore.getState().ensureParticipants(["s9"]);
+
+    expect(useSessionParticipantStore.getState().participantsBySession.s9).toEqual([
+      { actorId: "daemon-1", displayName: "MACPRO", avatarUrl: null, isAgent: true, isExternal: false },
+      { actorId: "ext-1", displayName: "LiangLiang", avatarUrl: null, isAgent: false, isExternal: true },
     ]);
   });
 
@@ -133,6 +156,7 @@ describe("session-participant-store", () => {
         displayName: "MACPRO",
         avatarUrl: null,
         isAgent: true,
+        isExternal: false,
       },
     ]);
   });
@@ -169,6 +193,7 @@ describe("session-participant-store", () => {
         displayName: "MACPRO",
         avatarUrl: null,
         isAgent: true,
+        isExternal: false,
       },
     ]);
   });
@@ -181,15 +206,40 @@ describe("session-participant-store", () => {
     });
 
     useSessionParticipantStore.getState().setParticipants("s2", [
-      { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true },
+      { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true, isExternal: false },
     ]);
 
     const state = useSessionParticipantStore.getState();
     expect(state.participantsBySession.s2).toEqual([
-      { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true },
+      { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true, isExternal: false },
     ]);
     expect(state.loadingBySession.s2).toBe(false);
     expect(state.errorBySession.s2).toBeNull();
+  });
+
+  it("setParticipants keeps an external the caller does not manage", async () => {
+    // The actor sheet lists team membership and filters its rows to
+    // member/agent, so publishing from it must not read as "the WeCom user
+    // left" — they would vanish from the mention list on sheet open.
+    useSessionParticipantStore.setState({
+      participantsBySession: {
+        s3: [
+          { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true, isExternal: false },
+          { actorId: "ext-1", displayName: "LiangLiang", avatarUrl: null, isAgent: false, isExternal: true },
+        ],
+      },
+      loadingBySession: {},
+      errorBySession: {},
+    });
+
+    useSessionParticipantStore.getState().setParticipants("s3", [
+      { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true, isExternal: false },
+    ]);
+
+    expect(useSessionParticipantStore.getState().participantsBySession.s3).toEqual([
+      { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true, isExternal: false },
+      { actorId: "ext-1", displayName: "LiangLiang", avatarUrl: null, isAgent: false, isExternal: true },
+    ]);
   });
 
   it("setParticipants keeps an avatar the caller does not carry", async () => {
@@ -197,14 +247,14 @@ describe("session-participant-store", () => {
     // an avatar this store already resolved from the actor cache.
     useSessionParticipantStore.setState({
       participantsBySession: {
-        s2: [{ actorId: "a1", displayName: "Alice", avatarUrl: "https://img/a1.png", isAgent: false }],
+        s2: [{ actorId: "a1", displayName: "Alice", avatarUrl: "https://img/a1.png", isAgent: false, isExternal: false }],
       },
       loadingBySession: {},
       errorBySession: {},
     });
 
     useSessionParticipantStore.getState().setParticipants("s2", [
-      { actorId: "a1", displayName: "Alice", avatarUrl: null, isAgent: false },
+      { actorId: "a1", displayName: "Alice", avatarUrl: null, isAgent: false, isExternal: false },
     ]);
 
     expect(useSessionParticipantStore.getState().participantsBySession.s2[0].avatarUrl).toBe(
@@ -275,12 +325,14 @@ describe("session-participant-store", () => {
         displayName: "Alice",
         avatarUrl: null,
         isAgent: false,
+        isExternal: false,
       },
       {
         actorId: "agent-1",
         displayName: "MACPRO",
         avatarUrl: null,
         isAgent: true,
+        isExternal: false,
       },
     ]);
   });

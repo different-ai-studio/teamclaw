@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { User, Sparkles, Loader2 } from 'lucide-react'
+import { User, Sparkles, Loader2, MessageSquare } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { useSessionSelectionStore } from '@/stores/session-selection-store'
@@ -35,11 +35,14 @@ interface MentionPopoverProps {
 
 type ParticipantRow = {
   id: string
-  actor_type: 'member' | 'agent'
+  actor_type: 'member' | 'agent' | 'external'
   display_name: string
 }
 
-type MentionItem = ParticipantRow & { itemType: 'member' | 'agent' }
+/** `external` selects like a member — it is a person, not a runtime — so the
+ *  composer keeps one insertion path for humans. Where they differ is what the
+ *  mention *does*: the daemon pushes the message out to that person's chat. */
+type MentionItem = ParticipantRow & { itemType: 'member' | 'agent' | 'external' }
 
 type PopoverStep = 'browse' | 'confirm'
 
@@ -56,7 +59,7 @@ export function participantsToMentionRows(
     )
     .map((p) => ({
       id: p.actorId,
-      actor_type: p.isAgent ? 'agent' : 'member',
+      actor_type: p.isAgent ? 'agent' : p.isExternal ? 'external' : 'member',
       display_name: p.displayName,
     }))
 }
@@ -162,12 +165,17 @@ export function MentionPopover({
     () => filtered.filter(r => r.actor_type === 'agent'),
     [filtered],
   )
+  const externals = React.useMemo(
+    () => filtered.filter(r => r.actor_type === 'external'),
+    [filtered],
+  )
   const allItems = React.useMemo<MentionItem[]>(
     () => [
       ...members.map(m => ({ ...m, itemType: 'member' as const })),
       ...agents.map(a => ({ ...a, itemType: 'agent' as const })),
+      ...externals.map(e => ({ ...e, itemType: 'external' as const })),
     ],
-    [members, agents],
+    [members, agents, externals],
   )
 
   allItemsRef.current = allItems
@@ -218,7 +226,7 @@ export function MentionPopover({
   }, [])
 
   const handleSelect = React.useCallback((item: MentionItem) => {
-    if (item.itemType === 'member') {
+    if (item.itemType === 'member' || item.itemType === 'external') {
       const person = { id: item.id, name: item.display_name }
       if (needsAgentClearConfirm) {
         beginMemberConfirm(person)
@@ -474,6 +482,39 @@ export function MentionPopover({
                     {statusLabel ? (
                       <span className="text-[10px] text-faint shrink-0">{statusLabel}</span>
                     ) : null}
+                  </div>
+                )
+              })}
+            </>
+          )}
+          {externals.length > 0 && (
+            <>
+              <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground">
+                {t('chat.mentionGroupExternal')}
+              </div>
+              {externals.map(e => {
+                const index = currentIndex++
+                return (
+                  <div
+                    key={e.id}
+                    data-index={index}
+                    onClick={() => handleSelect({ ...e, itemType: 'external' })}
+                    onMouseEnter={() => {
+                      setHighlightedIndex(index)
+                      highlightedIndexRef.current = index
+                    }}
+                    className={cn(
+                      'flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer select-none transition-colors',
+                      index === highlightedIndex
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-foreground hover:bg-accent/50',
+                    )}
+                  >
+                    <MessageSquare className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-xs font-medium truncate flex-1">{e.display_name}</span>
+                    <span className="text-[10px] text-faint shrink-0">
+                      {t('chat.mentionExternalHint')}
+                    </span>
                   </div>
                 )
               })}
