@@ -22,6 +22,7 @@ describe('ToolCallDisclosure', () => {
 
     expect(disclosure).toHaveAttribute('data-state', 'closed')
     expect(screen.queryByTestId('tool-disclosure-content')).toBeNull()
+    expect(screen.getByText('·')).toHaveClass('text-faint')
     expect(trigger?.className).not.toContain('hover:bg-')
     expect(fireEvent.mouseDown(trigger!)).toBe(false)
     expect(disclosure.className).toContain('border-transparent')

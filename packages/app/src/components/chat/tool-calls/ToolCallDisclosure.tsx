@@ -55,7 +55,7 @@ export function ToolCallDisclosure({
   const header = (
     <div
       className={cn(
-        "group grid min-h-9 w-full grid-cols-[18px_82px_minmax(0,1fr)_auto] items-center gap-2 px-[9px] py-1.5 text-left select-none",
+        "group flex min-h-9 w-full items-center px-[9px] py-1.5 text-left select-none",
         expandable && "cursor-pointer",
       )}
       onMouseDown={(event) => event.preventDefault()}
@@ -79,25 +79,32 @@ export function ToolCallDisclosure({
           />
         ) : null}
       </span>
-      <span className="truncate text-[12.5px] font-semibold text-ink-2">{title}</span>
-      {onTargetClick ? (
-        <button
-          type="button"
-          className="min-w-0 truncate text-left font-mono text-[11.5px] text-muted-foreground underline decoration-faint/70 underline-offset-[3px]"
-          title={targetTitle}
-          onClick={(event) => {
-            event.stopPropagation();
-            onTargetClick();
-          }}
-        >
-          {target}
-        </button>
+      <span className="ml-2 shrink-0 truncate text-[12.5px] font-semibold text-ink-2">{title}</span>
+      {target !== undefined && target !== null ? (
+        <>
+          <span className="mx-[7px] shrink-0 text-[12px] text-faint" aria-hidden="true">·</span>
+          {onTargetClick ? (
+            <button
+              type="button"
+              className="min-w-0 flex-1 truncate text-left font-mono text-[11.5px] text-muted-foreground underline decoration-faint/70 underline-offset-[3px]"
+              title={targetTitle}
+              onClick={(event) => {
+                event.stopPropagation();
+                onTargetClick();
+              }}
+            >
+              {target}
+            </button>
+          ) : (
+            <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted-foreground" title={targetTitle}>
+              {target}
+            </span>
+          )}
+        </>
       ) : (
-        <span className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground" title={targetTitle}>
-          {target}
-        </span>
+        <span className="flex-1" />
       )}
-      <span className="flex items-center justify-end gap-1.5 whitespace-nowrap font-mono text-[10.5px] text-faint">
+      <span className="ml-auto flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap pl-2 font-mono text-[10.5px] text-faint">
         {meta}
         {status}
       </span>
