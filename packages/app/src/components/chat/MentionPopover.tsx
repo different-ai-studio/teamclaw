@@ -144,7 +144,10 @@ export function MentionPopover({
   const stepRef = React.useRef<PopoverStep>('browse')
   const pendingMemberRef = React.useRef<MentionedPerson | null>(null)
 
-  const needsAgentClearConfirm = Boolean(engagedAgent?.id)
+  // Only ask about a pill the user actually engaged. In a solo session the
+  // composer owns it — the "clear" branch cannot remove it and the "keep"
+  // branch promises routing that the message's own mentions decide.
+  const needsAgentClearConfirm = Boolean(engagedAgent?.id && !engagedAgent.auto)
 
   React.useEffect(() => {
     if (!open || !sessionId) return

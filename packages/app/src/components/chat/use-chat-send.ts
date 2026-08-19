@@ -186,19 +186,23 @@ export function useChatSend({
     // WYSIWYG: pill in footer, typed @, or explicit extra on first send.
     const engagedFromStore = useEngagedAgentStore.getState().get(sid);
     const memberIds = mentions.map((m) => m.id);
-    // A message addressed only to a channel contact goes to them alone. The
-    // pill cannot say otherwise here: gateway chats are solo sessions, where
-    // it is re-engaged automatically as fast as it is cleared.
+    // A message addressed only to a channel contact goes to them alone.
+    //
+    // An auto-engaged pill does not object: gateway chats are solo sessions,
+    // where the composer re-engages the agent as fast as it is cleared, so the
+    // pill is a default rather than a decision. A pill the user engaged
+    // themselves does object, and keeps the agent on the message.
+    const pillCandidate =
+      extraMentionAgents[0] ?? engagedAgents[0] ?? engagedFromStore ?? null;
     const externalOnly =
       extraMentionAgents.length === 0 &&
+      (pillCandidate === null || pillCandidate.auto === true) &&
       mentionsOnlyExternals(
         memberIds,
         useSessionParticipantStore.getState().participantsBySession[sid] ?? [],
         text,
       );
-    const agentForSend = externalOnly
-      ? null
-      : extraMentionAgents[0] ?? engagedAgents[0] ?? engagedFromStore ?? null;
+    const agentForSend = externalOnly ? null : pillCandidate;
     const agentIds = agentForSend ? [agentForSend.id] : [];
     const displayMentionActorIds = Array.from(new Set(agentIds.filter(Boolean)));
     const _isPlanMode = !!(message as PromptInputMessage & { _planMode?: boolean })._planMode;
