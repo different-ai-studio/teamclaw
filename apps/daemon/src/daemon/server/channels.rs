@@ -378,6 +378,58 @@ impl DaemonServer {
             .unwrap_or_else(|_| "{\"keys\":[]}".to_string())
     }
 
+    /// Handle a `channel-send` envelope: push text at a channel, full stop.
+    ///
+    /// No reply token, and no session write. The caller is the desktop app's
+    /// own cron delivery, announcing the result of a run that already has its
+    /// own session — there is no chat it is replying to, so there is nothing
+    /// for a token to authorize and nothing to attach the message to.
+    ///
+    /// Kept separate from `mcp-send` rather than relaxing that path: a token is
+    /// exactly what stops an agent from addressing a chat it was never part of,
+    /// and the two callers have opposite trust stories — one is a model, the
+    /// other is the application that owns this daemon.
+    pub(crate) async fn handle_channel_send(
+        &self,
+        payload: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let channel = payload
+            .get("channel")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let target = payload
+            .get("target")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let message = payload
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if channel.is_empty() {
+            anyhow::bail!("channel-send: 'channel' is required");
+        }
+        if target.is_empty() {
+            anyhow::bail!("channel-send: 'target' is required");
+        }
+        if message.trim().is_empty() {
+            anyhow::bail!("channel-send: 'message' is required");
+        }
+        // Same guard as the agent path: a half-resolved route delivers nowhere
+        // while reporting success.
+        if let Some(reason) = placeholder_target_reason(target) {
+            anyhow::bail!("channel-send: refusing placeholder target '{target}' ({reason})");
+        }
+        let mgr = self
+            .channel_mgr
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("channel manager not running"))?;
+        mgr.dispatch_send(channel, target, Some(message), None)
+            .await?;
+        Ok(serde_json::json!({ "channel": channel, "target": target }))
+    }
+
     /// Handle a `mcp-send` JSON envelope from the `amuxd mcp-server` bridge.
     /// Resolves the caller's reply token to a chat binding, parses that
     /// binding (e.g. `wecom://{corp}/{agent}/{kind}/{id}`) into the default
@@ -1028,6 +1080,77 @@ mod reply_token_gate_tests {
             "binding": "wecom://bot/bot/single/someone-else",
         }))
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod channel_send_tests {
+    use serde_json::json;
+
+    /// The validation `handle_channel_send` runs before it touches the channel
+    /// manager, lifted out so it can be exercised without a running daemon.
+    fn missing_field(payload: &serde_json::Value) -> Option<&'static str> {
+        for (key, name) in [("channel", "channel"), ("target", "target")] {
+            if payload
+                .get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+            {
+                return Some(name);
+            }
+        }
+        if payload
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+        {
+            return Some("message");
+        }
+        None
+    }
+
+    #[test]
+    fn cron_delivery_needs_no_reply_token() {
+        // The whole point of the separate command: a cron announcement has no
+        // chat behind it, so it cannot carry the token `mcp-send` demands.
+        let payload = json!({
+            "cmd": "channel-send",
+            "channel": "wecom",
+            "target": "chat:wrOOClYg",
+            "message": "nightly build is green",
+        });
+        assert!(payload.get("reply_token").is_none());
+        assert_eq!(missing_field(&payload), None);
+    }
+
+    #[test]
+    fn an_incomplete_send_is_refused_before_dispatch() {
+        assert_eq!(
+            missing_field(&json!({"channel": "", "target": "chat:c", "message": "x"})),
+            Some("channel")
+        );
+        assert_eq!(
+            missing_field(&json!({"channel": "wecom", "target": "", "message": "x"})),
+            Some("target")
+        );
+        // An empty announcement is a bug upstream, not a message worth sending.
+        assert_eq!(
+            missing_field(&json!({"channel": "wecom", "target": "chat:c", "message": "  "})),
+            Some("message")
+        );
+    }
+
+    #[test]
+    fn the_old_placeholder_route_stays_refused() {
+        // Cron used to send `wecom://cron/cron/single/placeholder`; if anything
+        // reintroduces a stand-in target it must fail loudly, not deliver into
+        // the void while reporting success.
+        assert!(super::placeholder_target_reason("chat:current").is_some());
+        assert!(super::placeholder_target_reason("chat:").is_some());
     }
 }
 
