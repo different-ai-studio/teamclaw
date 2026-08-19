@@ -277,7 +277,8 @@ pub fn get_secret_value(state: &SharedSecretsState, key_id: &str) -> Option<Stri
 ///
 /// Preferred: the workspace's `teamclu-team` entry — a symlink into the
 /// daemon's single global copy. But daemon-owned session workspaces
-/// (`~/.amuxd/apps/<app_id>`) frequently have no such link, so resolving the
+/// (`~/.amuxd/teams/<team_id>/apps/<app_id>`) frequently have no such link — an
+/// app checkout deliberately gets none — so resolving the
 /// team dir purely relative to the workspace yields a non-existent path and the
 /// write fails with `secrets_dir: team dir does not exist`.
 ///

@@ -4792,6 +4792,17 @@ paths:
                 type:
                   $ref: "#/components/schemas/AppType"
                 visibility: { type: string, enum: [personal, team], default: personal }
+                gitRemoteUrl:
+                  type: [string, "null"]
+                  description: >-
+                    Optional repository to import. When given, the local daemon
+                    clones it into the app's checkout and writes no starter
+                    template; `type` then only decides how the app deploys.
+                    Must be an http(s), ssh or git:// address, or the scp-like
+                    `git@host:owner/repo.git` form — anything else is rejected
+                    with 400, since git reads some other forms as commands to
+                    run rather than as addresses.
+                  example: https://github.com/owner/repo.git
       responses:
         "201":
           description: |
@@ -5245,7 +5256,19 @@ components:
         type:
           $ref: "#/components/schemas/AppType"
         visibility: { type: string, enum: [personal, team] }
-        workspaceId: { type: [string, "null"], format: uuid }
+        workspaceId:
+          type: [string, "null"]
+          format: uuid
+          description: >-
+            The app's own workspace, created with the app. Its `path` is filled
+            in by the desktop once the local daemon reports where it put the
+            checkout (`teams/<teamId>/apps/<appId>`); until then the daemon has
+            no directory to resolve for this app.
+        gitRemoteUrl:
+          type: [string, "null"]
+          description: >-
+            The repository this app was imported from, or null for an app seeded
+            from a starter template. Set at creation and not editable.
         provisionStatus:
           type: string
           enum: [pending, repo_created, seeding, ready, error]

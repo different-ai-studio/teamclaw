@@ -898,6 +898,10 @@ export interface WorkspacesBackend {
   listWorkspacesByIds(teamId: string, workspaceIds: string[]): Promise<Array<{ id: string; name: string | null; path: string | null }>>;
   listDaemonWorkspaces(teamId: string, agentId?: string | null): Promise<DaemonWorkspaceBackendRow[]>;
   createDaemonWorkspace(input: {
+    /** Upsert an existing row instead of inserting a new one. An app is created
+     *  with a workspace row of its own, which the desktop fills in with the
+     *  local path once the daemon reports where the checkout landed. */
+     id?: string;
     teamId: string;
     agentId: string;
     createdByMemberId: string | null;
@@ -950,7 +954,15 @@ export interface AppSessionRow {
 
 export interface AppsBackend {
   listApps(teamId: string): Promise<AppRow[]>;
-  createApp(input: { teamId: string; name: string; type: string; visibility: "personal" | "team" }): Promise<AppRow>;
+  createApp(input: {
+    teamId: string;
+    name: string;
+    type: string;
+    visibility: "personal" | "team";
+    /** Optional repo to import. The app is cloned from it instead of being
+     *  seeded with a starter template. */
+    gitRemoteUrl?: string | null;
+  }): Promise<AppRow>;
   getApp(appId: string): Promise<AppRow | null>;
   listAppSessions(appId: string): Promise<AppSessionRow[]>;
   updateAppProvisionStatus(appId: string, provisionStatus: string): Promise<AppRow | null>;

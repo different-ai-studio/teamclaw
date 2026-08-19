@@ -44,6 +44,7 @@ function mapApp(r: any) {
     type: r.type,
     visibility: r.visibility,
     workspaceId: r.workspaceId ?? null,
+    gitRemoteUrl: r.gitRemoteUrl ?? null,
     provisionStatus: r.provisionStatus,
     fcStatus: r.fcStatus ?? null,
     fcEndpoint: r.fcEndpoint ?? null,
@@ -97,7 +98,13 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
   }
 
   return {
-    async createApp(input: { teamId: string; name: string; type: string; visibility?: string }) {
+    async createApp(input: {
+      teamId: string;
+      name: string;
+      type: string;
+      visibility?: string;
+      gitRemoteUrl?: string | null;
+    }) {
       if (!ctx.userId) throw new Error("unauthenticated");
       const createdByActorId = await requireActorForTeam(db, ctx.userId, input.teamId);
       const slug = slugify(input.name);
@@ -121,14 +128,16 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
           type: input.type,
           visibility: input.visibility === "team" ? "team" : "personal",
           workspaceId: ws.id,
+          gitRemoteUrl: input.gitRemoteUrl?.trim() || null,
           provisionStatus: "pending",
         })
         .returning();
 
-      // No repo provisioning: an app's source lives only in the local checkout
-      // the daemon seeds (docs/specs/2026-07-28-app-types-design.md §5). The
-      // row is returned `pending`; the desktop kicks the local seed and writes
-      // back `ready` or `error`.
+      // No repo provisioning here either way: an app's source lives only in the
+      // local checkout the daemon writes (docs/specs/2026-07-28-app-types-design.md
+      // §5) — from the starter template, or cloned from `gitRemoteUrl` when the
+      // user gave one. The row is returned `pending`; the desktop kicks the
+      // local seed and writes back `ready` or `error`.
       return mapApp(row);
     },
 
@@ -145,7 +154,7 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
 
       const rows = await (db as any).execute(sql`
         SELECT id, team_id AS "teamId", name, slug, type, visibility,
-               workspace_id AS "workspaceId",
+               workspace_id AS "workspaceId", git_remote_url AS "gitRemoteUrl",
                provision_status AS "provisionStatus", fc_status AS "fcStatus",
                fc_endpoint AS "fcEndpoint", fc_function_name AS "fcFunctionName", fc_region AS "fcRegion",
                created_at AS "createdAt", updated_at AS "updatedAt"

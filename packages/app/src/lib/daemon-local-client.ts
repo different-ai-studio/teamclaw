@@ -1045,43 +1045,62 @@ export async function putDaemonAllowlist(
 // ─── Apps ─────────────────────────────────────────────────────────────────────
 
 /**
- * Kick the local daemon to seed a new app: write the starter template for its
- * type into `<amuxd home>/apps/<appId>`, `git init`, and commit.
+ * Kick the local daemon to put a new app's files in place, in
+ * `<amuxd home>/teams/<teamId>/apps/<appId>`.
  *
- * Best-effort and **non-fatal**: app creation must succeed even when the daemon
- * is down. There is no remote repo and no credential — the templates are
- * compiled into the daemon, so this needs no network at all. We pass no
- * `workdir`; the daemon resolves the per-app path itself.
+ * With `gitRemoteUrl` the daemon clones that repo and writes no template;
+ * without it, the starter template for the app's type is written. Either way
+ * this is best-effort and **non-fatal**: app creation must succeed even when
+ * the daemon is down. We pass no `workdir` — the daemon owns the path and
+ * reports back where it wrote, so nothing here has to re-derive it.
  *
- * Returns a three-state outcome (never throws):
- * - `"seeded"`    — the daemon accepted and completed the seed.
- * - `"failed"`    — the daemon was reachable but the seed failed (terminal).
+ * Returns a three-state outcome plus that path (never throws):
+ * - `"seeded"`    — the daemon accepted and completed the seed/clone.
+ * - `"failed"`    — the daemon was reachable but it failed (terminal); `error`
+ *   carries what it said, which for a clone is git's own reason.
  * - `"unreachable"` — the daemon is down/unreachable (status 0 or thrown);
  *   the caller should leave the app row untouched so a reseed stays available.
  */
 export type SeedAppOutcome = "seeded" | "failed" | "unreachable";
+
+export interface SeedAppResult {
+  outcome: SeedAppOutcome
+  /** Where the app's files landed. Null unless the seed succeeded. */
+  workdir: string | null
+  /** Why it failed, for the toast. Null unless the outcome is `failed`. */
+  error: string | null
+}
 
 export async function seedDaemonApp(
   appId: string,
   teamId: string,
   appName: string,
   appType: string,
-): Promise<SeedAppOutcome> {
+  gitRemoteUrl?: string | null,
+): Promise<SeedAppResult> {
   try {
-    const result = await daemonFetch<{ status: string }>('/v1/apps/seed', {
+    const result = await daemonFetch<{ status: string; workdir?: string }>('/v1/apps/seed', {
       method: 'POST',
-      body: JSON.stringify({ appId, teamId, appName, appType }),
+      body: JSON.stringify({
+        appId,
+        teamId,
+        appName,
+        appType,
+        ...(gitRemoteUrl?.trim() ? { gitRemoteUrl: gitRemoteUrl.trim() } : {}),
+      }),
     })
-    if (result.ok) return "seeded"
+    if (result.ok) {
+      return { outcome: "seeded", workdir: result.data.workdir?.trim() || null, error: null }
+    }
     if (result.status === 0) {
       console.warn('[daemon-local-client] app seed unreachable (non-fatal):', result.error)
-      return "unreachable"
+      return { outcome: "unreachable", workdir: null, error: null }
     }
     console.warn('[daemon-local-client] app seed failed (non-fatal):', result.error)
-    return "failed"
+    return { outcome: "failed", workdir: null, error: result.error ?? null }
   } catch (err) {
     console.warn('[daemon-local-client] app seed unavailable (non-fatal):', err)
-    return "unreachable"
+    return { outcome: "unreachable", workdir: null, error: null }
   }
 }
 
@@ -1105,13 +1124,21 @@ export type BuildAppOutcome = "built" | "failed" | "unreachable";
  * diverged and the agent edited a directory that no deploy ever built — the
  * deployed site stayed the seed template with nothing reporting an error.
  *
+ * `teamId` names the app's team: apps live under `teams/<teamId>/apps`, and the
+ * daemon falls back to whichever team it is claimed by when the caller omits
+ * it — which is the wrong directory for an app from another team.
+ *
  * Returns null when the daemon is unreachable or too old to answer, so callers
  * degrade to "no local path" instead of guessing a wrong one.
  */
-export async function daemonAppWorkdir(appId: string): Promise<string | null> {
+export async function daemonAppWorkdir(
+  appId: string,
+  teamId?: string | null,
+): Promise<string | null> {
   try {
+    const query = teamId?.trim() ? `?teamId=${encodeURIComponent(teamId.trim())}` : ''
     const result = await daemonFetch<{ workdir: string }>(
-      `/v1/apps/${encodeURIComponent(appId)}/workdir`,
+      `/v1/apps/${encodeURIComponent(appId)}/workdir${query}`,
     )
     if (!result.ok) {
       console.warn('[daemon-local-client] app workdir unavailable (non-fatal):', result.error)
