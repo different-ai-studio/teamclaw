@@ -23,6 +23,7 @@ use teamclu_gateway::driver::{
 
 pub mod adapters;
 pub mod dedup;
+pub mod outbox;
 pub mod sink;
 pub mod turn_attachments;
 
@@ -102,6 +103,10 @@ pub struct PendingUpload {
     pub filename: String,
     pub mime: String,
     pub bytes: Vec<u8>,
+    /// Where the bytes still live on this machine, when they do. A channel that
+    /// uploads media through its own API (WeCom) reads the file again at
+    /// delivery time; inbound attachments have no such copy and leave it None.
+    pub local_path: Option<String>,
 }
 
 /// Runs the turn. Streaming is always offered; whether the *channel* shows the
@@ -262,6 +267,7 @@ impl Core {
                 filename: att.filename.clone(),
                 mime: att.mime.clone(),
                 bytes,
+                local_path: None,
             });
         }
 
@@ -281,10 +287,16 @@ impl Core {
 
         // 7. Drive the turn, streaming only where it can be seen.
         //
-        //    The window for `send` opens here and closes below, including on
-        //    failure: a file attached to a turn that never delivers must not
-        //    wait for the next one.
+        //    Two ways to attach a file, because runtimes differ in what they
+        //    can do: the `send` tool (MCP, so not everywhere) writes into the
+        //    turn window, and the outbox directory (a file write, so anywhere)
+        //    is drained afterwards. Both close on failure too — a file attached
+        //    to a turn that never delivers must not wait for the next one.
         turn_attachments::open(&session.session_id);
+        let prompt = match outbox::prepare(&session.session_id) {
+            Some(dir) => format!("{}\n\n{prompt}", outbox::prompt_note(&dir)),
+            None => prompt,
+        };
         let result = if driver.caps().streaming_edit {
             self.run_streamed(driver, &msg, &session, &display, &prompt)
                 .await
@@ -307,6 +319,39 @@ impl Core {
             session_id: session.session_id,
             deliveries: result?,
         })
+    }
+
+    /// Everything this turn wants to attach, from both routes.
+    ///
+    /// The `send` tool (MCP — only some runtimes have it) has already uploaded
+    /// what it attached; the outbox holds raw files any runtime could write, so
+    /// those are uploaded here. An upload failure keeps the attachment with an
+    /// empty bucket path: the channel can still deliver it from the local copy,
+    /// and the session row still records that a file was part of the reply.
+    async fn collect_attachments(&self, session_id: &str) -> Vec<SessionAttachment> {
+        let mut out = turn_attachments::close(session_id);
+        for upload in outbox::collect(session_id) {
+            match self.writer.upload(session_id, &upload).await {
+                Ok(a) => out.push(a),
+                Err(e) => {
+                    tracing::warn!(session_id, file = %upload.filename, error = %e, "outbox: upload failed; delivering the local copy only");
+                    out.push(SessionAttachment {
+                        filename: upload.filename,
+                        mime: upload.mime,
+                        bucket_path: String::new(),
+                        local_path: upload.local_path,
+                    });
+                }
+            }
+        }
+        if !out.is_empty() {
+            tracing::info!(
+                session_id,
+                count = out.len(),
+                "gateway: reply carries attachments"
+            );
+        }
+        out
     }
 
     /// A one-shot line back to the chat that is not an agent turn (a command
@@ -347,7 +392,7 @@ impl Core {
             .turns
             .run(&session.acp_session_id, display, prompt, None)
             .await?;
-        let attachments = turn_attachments::close(&session.session_id);
+        let attachments = self.collect_attachments(&session.session_id).await;
         self.writer
             .write_reply(&session.session_id, &reply, attachments.clone())
             .await?;
@@ -399,14 +444,7 @@ impl Core {
         let reply = turn
             .await
             .map_err(|e| CoreError::Turn(format!("turn task: {e}")))??;
-        let attachments = turn_attachments::close(&session.session_id);
-        if !attachments.is_empty() {
-            tracing::info!(
-                session_id = %session.session_id,
-                count = attachments.len(),
-                "gateway: reply carries attachments"
-            );
-        }
+        let attachments = self.collect_attachments(&session.session_id).await;
         let outbound = render(driver, &reply, attachments.clone());
 
         // The streaming bubble carries the text; files cannot be edited into
