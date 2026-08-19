@@ -1912,7 +1912,7 @@ test("apps: mapApp exposes exactly the canonical keys", async () => {
   assert.equal(items.length, 1);
   assert.deepEqual(Object.keys(items[0]).sort(), [
     "createdAt", "fcStatus", "fcEndpoint", "fcFunctionName", "fcRegion",
-    "id", "name", "provisionStatus", "publicUrl",
+    "gitRemoteUrl", "id", "name", "provisionStatus", "publicUrl",
     "slug", "teamId", "type", "updatedAt", "visibility", "workspaceId",
   ].sort());
   // Null unless the deployment sets an apps domain — this suite sets none.

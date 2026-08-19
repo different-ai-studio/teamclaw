@@ -2893,7 +2893,13 @@ export function createSupabaseBusinessRepository(options) {
       return data ? mapApp(data) : null;
     },
 
-    async createApp(input: { teamId: string; name: string; type: string; visibility?: string }) {
+    async createApp(input: {
+      teamId: string;
+      name: string;
+      type: string;
+      visibility?: string;
+      gitRemoteUrl?: string | null;
+    }) {
       // Resolve the caller's actor in this team — the RLS insert policy
       // (created_by_actor_id = app.current_actor_id_for_team(team_id)) requires
       // it. Reuse the same mechanism createSession uses (auth.getUser +
@@ -2931,16 +2937,18 @@ export function createSupabaseBusinessRepository(options) {
           type: input.type,
           visibility,
           workspace_id: ws.id,
+          git_remote_url: input.gitRemoteUrl?.trim() || null,
           provision_status: "pending",
         })
         .select(APP_COLUMNS)
         .single();
       if (appErr) throw appErr;
 
-      // No repo provisioning: an app's source lives only in the local checkout
-      // the daemon seeds (docs/specs/2026-07-28-app-types-design.md §5). The
-      // row is returned `pending`; the desktop kicks the local seed and writes
-      // back `ready` or `error`.
+      // No repo provisioning here either way: an app's source lives only in the
+      // local checkout the daemon writes (docs/specs/2026-07-28-app-types-design.md
+      // §5) — from the starter template, or cloned from `gitRemoteUrl` when the
+      // user gave one. The row is returned `pending`; the desktop kicks the
+      // local seed and writes back `ready` or `error`.
       return mapApp(row);
     },
 

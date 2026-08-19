@@ -22,6 +22,39 @@ test("POST /v1/apps creates and returns 201", async () => {
   assert.deepEqual(res.body, created);
 });
 
+test("POST /v1/apps passes an optional gitRemoteUrl through", async () => {
+  const { router, routes } = makeRouter();
+  registerApps(router);
+  const post = routes.find((r) => r[0] === "POST" && r[1] === "/v1/apps")[2];
+  let seen;
+  const repository = { createApp: async (input) => { seen = input; return { id: "app-1" }; } };
+
+  await post({ json: { teamId: "t1", name: "X", type: "static_web", gitRemoteUrl: "  git@github.com:owner/repo.git " }, repository });
+  assert.equal(seen.gitRemoteUrl, "git@github.com:owner/repo.git", "trimmed and forwarded");
+
+  await post({ json: { teamId: "t1", name: "X", type: "static_web" }, repository });
+  assert.equal(seen.gitRemoteUrl, null, "absent means no import, not undefined");
+
+  await post({ json: { teamId: "t1", name: "X", type: "static_web", gitRemoteUrl: "   " }, repository });
+  assert.equal(seen.gitRemoteUrl, null, "an empty field is the same as none");
+});
+
+test("POST /v1/apps rejects a gitRemoteUrl git would not treat as an address", async () => {
+  const { router, routes } = makeRouter();
+  registerApps(router);
+  const post = routes.find((r) => r[0] === "POST" && r[1] === "/v1/apps")[2];
+  const repository = { createApp: async () => ({ id: "app-1" }) };
+  // `ext::` is a git transport helper that runs a command; a leading dash is
+  // read by git as an option. Neither may reach the daemon's clone.
+  for (const gitRemoteUrl of ["ext::sh -c whoami", "--upload-pack=x", "/etc/passwd", "file:///etc/passwd", 42]) {
+    await assert.rejects(
+      () => post({ json: { teamId: "t1", name: "X", type: "static_web", gitRemoteUrl }, repository }),
+      (e) => (e as { statusCode?: number }).statusCode === 400,
+      `accepted ${String(gitRemoteUrl)}`,
+    );
+  }
+});
+
 test("GET /v1/apps requires teamId", async () => {
   const { router, routes } = makeRouter();
   registerApps(router);

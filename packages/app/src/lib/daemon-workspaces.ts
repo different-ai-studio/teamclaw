@@ -86,6 +86,8 @@ export async function listDaemonWorkspaces(teamId: string, agentId?: string | nu
 }
 
 export async function createDaemonWorkspace(input: {
+  /** Fill in an existing row (the app's own workspace) instead of inserting. */
+  id?: string
   teamId: string
   agentId: string
   createdByMemberId: string | null

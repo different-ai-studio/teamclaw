@@ -46,16 +46,30 @@ pub async fn team_share_gate(backend: &dyn Backend, team_id: &str) -> TeamShareG
     }
 }
 
-/// Whether a workspace path is an app checkout (`<amuxd home>/apps/<appId>`).
+/// Whether a workspace path is an app checkout
+/// (`<amuxd home>/teams/<teamId>/apps/<appId>`).
 ///
 /// App workspaces deliberately get NO `teamclu-team` link. An app's workspace
-/// is a real git repo that the user deploys: a link dropped at its root shows
-/// up as untracked content, rides along into the app's own commits and build
-/// artifact, and has nothing to do with the app. Team-shared skills/MCP still
-/// resolve — without a link, `resolve_team_dir` falls back to the global team
-/// dir, the same path a machine without symlink privileges takes.
+/// is the user's own project, which they deploy: a link dropped at its root
+/// shows up as untracked content, rides along into the app's build artifact,
+/// and has nothing to do with the app. Team-shared skills/MCP still resolve —
+/// without a link, `resolve_team_dir` falls back to the global team dir, the
+/// same path a machine without symlink privileges takes.
+///
+/// Asks about *any* team's app root, not just the active one. Keying off the
+/// active team meant an app belonging to another team failed the check and got
+/// a `teamclu-team` directory planted in its source tree.
 pub fn is_app_workspace(ws_path: &str) -> bool {
-    path_is_under(ws_path, &crate::http::apps::apps_data_root())
+    let teams_root = crate::config::layout::teams_dir();
+    if path_is_under(ws_path, &crate::http::apps::apps_data_root()) {
+        return true;
+    }
+    // `teams/<anything>/apps/…` — one level of team id, then the app root.
+    std::fs::read_dir(&teams_root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|entry| path_is_under(ws_path, &entry.path().join("apps")))
 }
 
 /// Whether `ws_path` sits inside `root`. Compares canonicalized paths when both
@@ -273,6 +287,29 @@ mod tests {
             LinkStatus::Fallback
         );
         assert!(!app_ws.join(TEAM_LINK_NAME).exists());
+    }
+
+    #[test]
+    fn an_app_belonging_to_another_team_is_still_an_app_workspace() {
+        let _lock = global_team_store::TEST_HOME_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        // SAFETY: serialized by TEST_HOME_LOCK.
+        unsafe { std::env::set_var("HOME", home.path()) };
+
+        // Apps belong to the team they were created in; this daemon serves one
+        // team at a time. Checking only the active team's root left every other
+        // team's app looking like an ordinary workspace, so team-share planted
+        // a `teamclu-team` directory in the middle of the user's source.
+        let other = crate::config::layout::team_apps_dir("team-other").join("app-1");
+        std::fs::create_dir_all(&other).unwrap();
+        assert!(is_app_workspace(other.to_str().unwrap()));
+
+        // A real workspace under the same team is unaffected.
+        let plain = crate::config::layout::team_dir("team-other").join("workspace");
+        std::fs::create_dir_all(&plain).unwrap();
+        assert!(!is_app_workspace(plain.to_str().unwrap()));
     }
 
     #[test]

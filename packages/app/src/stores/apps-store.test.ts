@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   finalizeDeploy: vi.fn(),
   seedDaemonApp: vi.fn(),
   buildDaemonApp: vi.fn(),
+  bindAppWorkdir: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@/lib/backend", () => ({
@@ -29,7 +31,15 @@ vi.mock("@/lib/daemon-local-client", () => ({
   buildDaemonApp: mocks.buildDaemonApp,
 }));
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError, success: vi.fn() } }));
+
+vi.mock("@/lib/app-session", () => ({ bindAppWorkdir: mocks.bindAppWorkdir }));
+
+/** What the daemon client returns: an outcome plus where it wrote. */
+const seedResult = (
+  outcome: "seeded" | "failed" | "unreachable",
+  over: { workdir?: string | null; error?: string | null } = {},
+) => ({ outcome, workdir: null, error: null, ...over });
 
 const appRow = (over = {}) => ({
   id: "app-1",
@@ -50,7 +60,7 @@ const appRow = (over = {}) => ({
 describe("apps-store", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    mocks.seedDaemonApp.mockResolvedValue("unreachable");
+    mocks.seedDaemonApp.mockResolvedValue(seedResult("unreachable"));
     const { useAppsStore } = await import("./apps-store");
     useAppsStore.setState({
       items: [],
@@ -108,7 +118,7 @@ describe("apps-store", () => {
       type: "slides",
       visibility: "team",
     });
-    expect(mocks.seedDaemonApp).toHaveBeenCalledWith("app-4", "team-1", "Slides", "slides");
+    expect(mocks.seedDaemonApp).toHaveBeenCalledWith("app-4", "team-1", "Slides", "slides", null);
   });
 
   it("create: seeded → PATCH ready", async () => {
@@ -116,7 +126,7 @@ describe("apps-store", () => {
       appRow({ provisionStatus: "pending", teamId: "team-1" }),
     );
     mocks.updateAppProvisionStatus.mockImplementation(async (_id, s) => appRow({ provisionStatus: s }));
-    mocks.seedDaemonApp.mockResolvedValueOnce("seeded");
+    mocks.seedDaemonApp.mockResolvedValueOnce(seedResult("seeded"));
     const { useAppsStore } = await import("./apps-store");
     await useAppsStore.getState().create({
       teamId: "team-1",
@@ -124,7 +134,7 @@ describe("apps-store", () => {
       type: "fullstack_tanstack_postgres",
       visibility: "team",
     });
-    expect(mocks.seedDaemonApp).toHaveBeenCalledWith("app-1", "team-1", "App", "fullstack_tanstack_postgres");
+    expect(mocks.seedDaemonApp).toHaveBeenCalledWith("app-1", "team-1", "App", "fullstack_tanstack_postgres", null);
     expect(mocks.updateAppProvisionStatus.mock.calls.map((c) => c[1])).toEqual(["ready"]);
   });
 
@@ -133,7 +143,7 @@ describe("apps-store", () => {
       appRow({ provisionStatus: "pending", teamId: "team-1" }),
     );
     mocks.updateAppProvisionStatus.mockImplementation(async (_id, s) => appRow({ provisionStatus: s }));
-    mocks.seedDaemonApp.mockResolvedValueOnce("failed");
+    mocks.seedDaemonApp.mockResolvedValueOnce(seedResult("failed"));
     const { useAppsStore } = await import("./apps-store");
     await useAppsStore.getState().create({
       teamId: "team-1",
@@ -149,7 +159,7 @@ describe("apps-store", () => {
       appRow({ provisionStatus: "pending", teamId: "team-1" }),
     );
     mocks.updateAppProvisionStatus.mockImplementation(async (_id, s) => appRow({ provisionStatus: s }));
-    mocks.seedDaemonApp.mockResolvedValueOnce("unreachable");
+    mocks.seedDaemonApp.mockResolvedValueOnce(seedResult("unreachable"));
     const { useAppsStore } = await import("./apps-store");
     await useAppsStore.getState().create({
       teamId: "team-1",
@@ -162,7 +172,7 @@ describe("apps-store", () => {
 
   it("reseed: re-runs seed for an existing app (error → seeded → ready)", async () => {
     mocks.updateAppProvisionStatus.mockImplementation(async (_id, s) => appRow({ provisionStatus: s }));
-    mocks.seedDaemonApp.mockResolvedValueOnce("seeded");
+    mocks.seedDaemonApp.mockResolvedValueOnce(seedResult("seeded"));
     const { useAppsStore } = await import("./apps-store");
     useAppsStore.setState({
       items: [appRow({ provisionStatus: "error", gitRemoteUrl: "https://g/x.git", teamId: "team-1" })],
@@ -172,8 +182,101 @@ describe("apps-store", () => {
       teamId: "team-1",
     });
     await useAppsStore.getState().reseed("app-1");
-    expect(mocks.seedDaemonApp).toHaveBeenCalledWith("app-1", "team-1", "App", "fullstack_tanstack_postgres");
+    expect(mocks.seedDaemonApp).toHaveBeenCalledWith("app-1", "team-1", "App", "fullstack_tanstack_postgres", "https://g/x.git");
     expect(mocks.updateAppProvisionStatus.mock.calls.map((c) => c[1])).toEqual(["ready"]);
+  });
+
+  it("create: an imported app hands the daemon its repo URL", async () => {
+    mocks.createApp.mockResolvedValueOnce(
+      appRow({ provisionStatus: "pending", gitRemoteUrl: "git@github.com:owner/repo.git" }),
+    );
+    mocks.updateAppProvisionStatus.mockImplementation(async (_id, st) => appRow({ provisionStatus: st }));
+    mocks.seedDaemonApp.mockResolvedValueOnce(seedResult("seeded"));
+    const { useAppsStore } = await import("./apps-store");
+    await useAppsStore.getState().create({
+      teamId: "team-1",
+      name: "N",
+      type: "static_web",
+      visibility: "team",
+      gitRemoteUrl: "git@github.com:owner/repo.git",
+    });
+    expect(mocks.seedDaemonApp).toHaveBeenCalledWith(
+      "app-1", "team-1", "App", "fullstack_tanstack_postgres", "git@github.com:owner/repo.git",
+    );
+  });
+
+  it("create: the directory the daemon wrote to is recorded on the app's workspace", async () => {
+    // This is what stops the agent running in whatever workspace the user has
+    // open: the app's cloud workspace row is path-less until someone writes the
+    // local path onto it, and this is the first moment anyone knows it.
+    mocks.createApp.mockResolvedValueOnce(appRow({ provisionStatus: "pending" }));
+    mocks.updateAppProvisionStatus.mockImplementation(async (_id, st) => appRow({ provisionStatus: st }));
+    mocks.seedDaemonApp.mockResolvedValueOnce(
+      seedResult("seeded", { workdir: "/home/.amuxd/teams/team-1/apps/app-1" }),
+    );
+    const { useAppsStore } = await import("./apps-store");
+    await useAppsStore.getState().create({
+      teamId: "team-1",
+      name: "N",
+      type: "static_web",
+      visibility: "team",
+    });
+    expect(mocks.bindAppWorkdir).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "app-1" }),
+      "/home/.amuxd/teams/team-1/apps/app-1",
+    );
+  });
+
+  it("create: a daemon that reports no workdir binds nothing (and still goes ready)", async () => {
+    mocks.createApp.mockResolvedValueOnce(appRow({ provisionStatus: "pending" }));
+    mocks.updateAppProvisionStatus.mockImplementation(async (_id, st) => appRow({ provisionStatus: st }));
+    mocks.seedDaemonApp.mockResolvedValueOnce(seedResult("seeded"));
+    const { useAppsStore } = await import("./apps-store");
+    await useAppsStore.getState().create({
+      teamId: "team-1",
+      name: "N",
+      type: "static_web",
+      visibility: "team",
+    });
+    expect(mocks.bindAppWorkdir).not.toHaveBeenCalled();
+    expect(mocks.updateAppProvisionStatus.mock.calls.map((c) => c[1])).toEqual(["ready"]);
+  });
+
+  it("create: a failed clone tells the user what git said", async () => {
+    mocks.createApp.mockResolvedValueOnce(
+      appRow({ provisionStatus: "pending", gitRemoteUrl: "https://github.com/owner/nope.git" }),
+    );
+    mocks.updateAppProvisionStatus.mockImplementation(async (_id, st) => appRow({ provisionStatus: st }));
+    mocks.seedDaemonApp.mockResolvedValueOnce(
+      seedResult("failed", { error: "git clone failed: repository not found" }),
+    );
+    const { useAppsStore } = await import("./apps-store");
+    await useAppsStore.getState().create({
+      teamId: "team-1",
+      name: "N",
+      type: "static_web",
+      visibility: "team",
+      gitRemoteUrl: "https://github.com/owner/nope.git",
+    });
+    expect(mocks.updateAppProvisionStatus.mock.calls.map((c) => c[1])).toEqual(["error"]);
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "仓库克隆失败",
+      { description: "git clone failed: repository not found" },
+    );
+  });
+
+  it("create: a template app that fails to seed does not toast a clone error", async () => {
+    mocks.createApp.mockResolvedValueOnce(appRow({ provisionStatus: "pending" }));
+    mocks.updateAppProvisionStatus.mockImplementation(async (_id, st) => appRow({ provisionStatus: st }));
+    mocks.seedDaemonApp.mockResolvedValueOnce(seedResult("failed", { error: "disk full" }));
+    const { useAppsStore } = await import("./apps-store");
+    await useAppsStore.getState().create({
+      teamId: "team-1",
+      name: "N",
+      type: "static_web",
+      visibility: "team",
+    });
+    expect(mocks.toastError).not.toHaveBeenCalled();
   });
 
   it("create: a thrown status PATCH does not reject create", async () => {
@@ -181,7 +284,7 @@ describe("apps-store", () => {
       appRow({ provisionStatus: "pending", teamId: "team-1" }),
     );
     mocks.updateAppProvisionStatus.mockRejectedValue(new Error("boom"));
-    mocks.seedDaemonApp.mockResolvedValueOnce("seeded");
+    mocks.seedDaemonApp.mockResolvedValueOnce(seedResult("seeded"));
     const { useAppsStore } = await import("./apps-store");
     const row = await useAppsStore.getState().create({
       teamId: "team-1",

@@ -56,6 +56,9 @@ export function createWorkspacesModule(client: CloudApiClient): WorkspacesBacken
     },
     async createDaemonWorkspace(input) {
       const row = await client.post<CloudWorkspace>("/v1/workspaces", {
+        // POST /v1/workspaces is an upsert: with an id it fills that row in
+        // rather than inserting a second one for the same directory.
+        ...(input.id ? { id: input.id } : {}),
         teamId: input.teamId,
         agentId: input.agentId,
         createdByMemberId: input.createdByMemberId,

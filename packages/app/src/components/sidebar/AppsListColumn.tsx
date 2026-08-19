@@ -103,9 +103,9 @@ function AppItemRow({ app, onClick, onRename }: RowProps) {
 
   const handleReveal = React.useCallback(async (e: React.SyntheticEvent) => {
     e.stopPropagation()
-    const path = await appWorkdirPath(app.id)
+    const path = await appWorkdirPath(app.id, app.teamId)
     if (path) await revealInFinder(path)
-  }, [app.id])
+  }, [app.id, app.teamId])
 
   // The address we hand the user is the vanity one when this deployment has an
   // apps domain — `publicUrl` is null otherwise, and the raw Function Compute
