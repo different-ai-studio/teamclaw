@@ -693,13 +693,20 @@ mod tests {
         assert!(err.contains("no team_id"), "got: {err}");
     }
 
+    // Pins the envelope against the daemon's `channel-send` handler, whose
+    // contract is {cmd, channel, target, message} with no reply_token. This
+    // test kept asserting the old `mcp-send` shape after the impl moved off it,
+    // which is how a red main reached #984.
     #[tokio::test]
-    async fn channel_send_uses_mcp_send_with_overrides() {
+    async fn channel_send_uses_the_tokenless_channel_send_command() {
         let sock_path = mock_server(|req| {
-            assert_eq!(req["cmd"].as_str(), Some("mcp-send"));
-            assert_eq!(req["channel_override"].as_str(), Some("wecom"));
-            assert_eq!(req["target_override"].as_str(), Some("user:alice"));
+            assert_eq!(req["cmd"].as_str(), Some("channel-send"));
+            assert_eq!(req["channel"].as_str(), Some("wecom"));
+            assert_eq!(req["target"].as_str(), Some("user:alice"));
             assert_eq!(req["message"].as_str(), Some("hello"));
+            // The whole reason this is a separate command: a cron announcement
+            // has no chat behind it, so it cannot carry mcp-send's reply token.
+            assert!(req.get("reply_token").is_none());
             serde_json::json!({ "ok": true, "result": {} }).to_string()
         })
         .await;
