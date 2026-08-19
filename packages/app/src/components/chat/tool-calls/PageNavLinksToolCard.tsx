@@ -6,6 +6,8 @@ import { navigateActiveBrowserTab } from '@/lib/remote-tools/browser-navigate'
 import { parsePageNavLinksFromToolCall } from '@/lib/remote-tools/link-utils'
 import { TOOL_SHOW_PAGE_NAV_LINKS } from '@/lib/remote-tools/types'
 import type { ToolCall } from '@/stores/session'
+import { ToolCallDisclosure } from './ToolCallDisclosure'
+import { ToolCallStatusGlyph } from './ToolCallStatusGlyph'
 
 type PageNavLinksToolCardProps = {
   toolCall: ToolCall
@@ -38,28 +40,36 @@ export const PageNavLinksToolCard = React.memo(function PageNavLinksToolCard({
   }
 
   return (
-    <div
-      data-testid="page-nav-links-tool"
-      data-tool-name={TOOL_SHOW_PAGE_NAV_LINKS}
-      className="flex flex-wrap gap-2 px-[10px] py-[8px]"
+    <ToolCallDisclosure
+      testId="page-nav-links-tool"
+      icon={<ExternalLink className="h-3.5 w-3.5" />}
+      title={t('chat.toolCall.pageNav.title', 'Page Links')}
+      target={t('chat.toolCall.pageNav.description', 'Show page navigation links')}
+      meta={`${parsed.links.length}`}
+      status={<ToolCallStatusGlyph status={toolCall.status} />}
     >
-      {parsed.links.map((link, index) => (
-        <button
-          key={`${link}-${index}`}
-          type="button"
-          data-testid="page-nav-link-button"
-          data-nav-url={link}
-          title={link}
-          onClick={() => handleNavigate(link)}
-          className={cn(
-            'inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-paper px-3 py-1.5',
-            'text-[12px] text-ink-2 transition-colors hover:bg-selected',
-          )}
-        >
-          <ExternalLink className="h-3 w-3 shrink-0 text-faint" aria-hidden="true" />
-          <span className="truncate">{parsed.labels[index] ?? link}</span>
-        </button>
-      ))}
-    </div>
+      <div
+        data-tool-name={TOOL_SHOW_PAGE_NAV_LINKS}
+        className="grid grid-cols-2 gap-1.5 p-2.5 max-sm:grid-cols-1"
+      >
+        {parsed.links.map((link, index) => (
+          <button
+            key={`${link}-${index}`}
+            type="button"
+            data-testid="page-nav-link-button"
+            data-nav-url={link}
+            title={link}
+            onClick={() => handleNavigate(link)}
+            className={cn(
+              'inline-flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-2',
+              'text-left text-[11.5px] text-ink-2',
+            )}
+          >
+            <ExternalLink className="h-3 w-3 shrink-0 text-faint" aria-hidden="true" />
+            <span className="truncate">{parsed.labels[index] ?? link}</span>
+          </button>
+        ))}
+      </div>
+    </ToolCallDisclosure>
   )
 })

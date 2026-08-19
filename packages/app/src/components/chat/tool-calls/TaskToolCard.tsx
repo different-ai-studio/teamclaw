@@ -1,12 +1,13 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { entryFromPersistedSubagentSnapshot } from "@/lib/subagent-snapshot";
 import { StreamingAgentBubble } from "@/components/chat/StreamingAgentBubble";
 import { ToolCall, useSessionStore } from "@/stores/session";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 import { ToolCallStatusGlyph } from "./ToolCallStatusGlyph";
+import { ToolCallDisclosure } from "./ToolCallDisclosure";
 
 export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
   const { t } = useTranslation();
@@ -16,23 +17,13 @@ export function SkillToolCard({ toolCall }: { toolCall: ToolCall }) {
   const skillName = args?.name || t("chat.toolCall.skill.unknown", "unknown-skill");
 
   return (
-    <div
-      data-testid="tool-card-skill"
-      className="overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] dark:border-border dark:bg-card"
-    >
-      <div className="flex items-center gap-[10px] px-3 py-[10px]">
-        <span className="text-[12px] text-ink-2">⚡</span>
-        <span className="text-[13px] font-bold text-[#334155] dark:text-foreground">
-          {skillName}
-        </span>
-        <span className="rounded-full border border-coral/25 bg-coral-soft/30 px-2 py-0.5 text-[11px] text-ink-2">
-          {t("chat.toolCall.skill.title", "Skill")}
-        </span>
-        <div className="ml-auto">
-          <ToolCallStatusGlyph status={toolCall.status} />
-        </div>
-      </div>
-    </div>
+    <ToolCallDisclosure
+      testId="tool-card-skill"
+      icon={<Zap className="h-3.5 w-3.5" />}
+      title={t("chat.toolCall.skill.title", "Skill")}
+      target={skillName}
+      status={<ToolCallStatusGlyph status={toolCall.status} />}
+    />
   );
 }
 
@@ -44,21 +35,13 @@ export function RoleSkillToolCard({ toolCall }: { toolCall: ToolCall }) {
   const skillName = args?.name || t("chat.toolCall.roleSkill.unknown", "unknown-role-skill");
 
   return (
-    <div
-      data-testid="tool-row-role-skill"
-      className="grid grid-cols-[18px_minmax(0,1fr)_48px] items-center gap-[10px] px-[10px] py-[6px]"
-    >
-      <span className="text-[12px] text-muted-foreground">⚡</span>
-      <div className="min-w-0 text-[13px] text-[#334155] dark:text-slate-300">
-        <strong className="font-semibold text-foreground">
-          {t("chat.toolCall.roleSkill.title", "Role skill")}
-        </strong>
-        <span className="ml-2 font-mono text-foreground/85">{skillName}</span>
-      </div>
-      <div className="text-right">
-        <ToolCallStatusGlyph status={toolCall.status} />
-      </div>
-    </div>
+    <ToolCallDisclosure
+      testId="tool-row-role-skill"
+      icon={<Zap className="h-3.5 w-3.5" />}
+      title={t("chat.toolCall.roleSkill.title", "Role skill")}
+      target={skillName}
+      status={<ToolCallStatusGlyph status={toolCall.status} />}
+    />
   );
 }
 

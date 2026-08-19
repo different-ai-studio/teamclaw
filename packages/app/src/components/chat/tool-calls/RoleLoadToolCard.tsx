@@ -1,6 +1,8 @@
 import type { ToolCall } from "@/stores/session";
 import { useTranslation } from "react-i18next";
+import { Sparkles } from "lucide-react";
 import { ToolCallStatusGlyph } from "./ToolCallStatusGlyph";
+import { ToolCallDisclosure } from "./ToolCallDisclosure";
 
 function getRoleName(toolCall: ToolCall, fallback: string): string {
   const args = toolCall.arguments as Record<string, unknown> | undefined;
@@ -69,32 +71,22 @@ export function RoleLoadToolCard({ toolCall }: { toolCall: ToolCall }) {
   }
 
   return (
-    <div
-      data-testid="tool-card-role-load"
-      className="overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] dark:border-border dark:bg-card"
+    <ToolCallDisclosure
+      testId="tool-card-role-load"
+      icon={<Sparkles className="h-3.5 w-3.5" />}
+      title={t("chat.toolCall.roleLoad.title", "Role Load")}
+      target={roleName}
+      status={<ToolCallStatusGlyph status={toolCall.status} />}
     >
-      <div className="flex items-center gap-[10px] border-b border-[#eef2f5] px-[14px] py-3 dark:border-border/60">
-        <span className="text-[13px] text-muted-foreground">✦</span>
-        <span className="text-[14px] font-bold text-[#1f2933] dark:text-foreground">
-          {t("chat.toolCall.roleLoad.title", "Role Load")}
-        </span>
-        <span className="rounded-full border border-[#dbe4ea] px-2 py-0.5 text-[11px] text-[#475569] dark:border-border dark:text-foreground/80">
-          {roleName}
-        </span>
-        <div className="ml-auto">
-          <ToolCallStatusGlyph status={toolCall.status} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-2 px-[14px] py-3 text-[12px]">
-        <div className="text-[#94a3b8] dark:text-muted-foreground">
+      <div className="grid grid-cols-[85px_1fr] gap-x-3 gap-y-2 px-3 py-2.5 text-[11.5px]">
+        <div className="text-faint">
           {t("chat.toolCall.roleLoad.ready", "Ready")}
         </div>
-        <div className="text-[#334155] dark:text-foreground/85">{readyText}</div>
-        <div className="text-[#94a3b8] dark:text-muted-foreground">
+        <div className="text-ink-2">{readyText}</div>
+        <div className="text-faint">
           {t("chat.toolCall.roleLoad.context", "Context")}
         </div>
-        <div className="min-w-0 text-[#334155] dark:text-foreground/85">
+        <div className="min-w-0 text-ink-2">
           {context ? (
             renderContextWithCodePill(context)
           ) : (
@@ -104,6 +96,6 @@ export function RoleLoadToolCard({ toolCall }: { toolCall: ToolCall }) {
           )}
         </div>
       </div>
-    </div>
+    </ToolCallDisclosure>
   );
 }

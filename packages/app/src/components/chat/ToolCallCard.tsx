@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
   HelpCircle,
+  ListChecks,
   Loader2,
+  Search,
   Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -17,6 +19,7 @@ import { getCommandText, getToolCallOutputText } from "@/lib/terminal-interactio
 
 // Import sub-cards and utilities from tool-calls/
 import { ToolCallStatusGlyph } from "./tool-calls/ToolCallStatusGlyph";
+import { ToolCallDisclosure } from "./tool-calls/ToolCallDisclosure";
 import { WriteToolCard } from "./tool-calls/WriteToolCard";
 import { EditToolCard } from "./tool-calls/EditToolCard";
 import { ReadToolCard } from "./tool-calls/ReadToolCard";
@@ -62,13 +65,34 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
   const commandOutput = getToolCallOutputText(toolCall.result, toolCall.arguments).trim();
   const commandDescription = (() => {
     const args = toolCall.arguments as Record<string, unknown> | undefined;
-    if (!args) return t("chat.toolCall.command.defaultDescription", "Execute command");
+    const rawOutput =
+      toolCall.rawOutput && typeof toolCall.rawOutput === "object"
+        ? (toolCall.rawOutput as Record<string, unknown>)
+        : undefined;
+    const rawOutputTitle =
+      typeof rawOutput?.title === "string" ? rawOutput.title.trim() : "";
+    const wireName = toolCall.name.trim();
+    const genericWireNames = new Set([
+      "bash",
+      "shell",
+      "terminal",
+      "execute",
+      "command",
+      "unknown",
+    ]);
     const preferred =
-      (typeof args.description === "string" ? args.description : null) ||
-      (typeof args.summary === "string" ? args.summary : null) ||
-      (typeof args.title === "string" ? args.title : null) ||
-      (typeof args.action === "string" ? args.action : null);
-    return preferred?.trim() || t("chat.toolCall.command.defaultDescription", "Execute command");
+      (typeof args?._description === "string" ? args._description : null) ||
+      (typeof args?.description === "string" ? args.description : null) ||
+      (typeof args?.summary === "string" ? args.summary : null) ||
+      (typeof args?.title === "string" ? args.title : null) ||
+      (typeof args?.action === "string" ? args.action : null);
+    return (
+      preferred?.trim() ||
+      rawOutputTitle ||
+      (!genericWireNames.has(wireName.toLowerCase()) ? wireName : "") ||
+      commandText.trim() ||
+      t("chat.toolCall.command.defaultDescription", "Execute command")
+    );
   })();
 
   const formatDuration = (ms: number) => {
@@ -315,53 +339,30 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
 
   if (isCommand) {
     return (
-      <div
-        data-testid="tool-card-bash"
-        className="overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] dark:border-border dark:bg-card"
+      <ToolCallDisclosure
+        testId="tool-card-bash"
+        contentTestId="tool-card-bash-output"
+        icon={<Terminal className="h-3.5 w-3.5" />}
+        title={t("chat.toolCall.command.title", "Bash")}
+        target={commandDescription}
+        meta={
+          <>
+            {commandStatusText ? <span>{commandStatusText}</span> : null}
+            {toolCall.duration ? <span>{formatDuration(toolCall.duration)}</span> : null}
+          </>
+        }
+        status={<ToolCallStatusGlyph status={toolCall.status} />}
       >
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          className="group flex w-full items-center gap-[10px] px-[14px] py-[10px] text-left transition-colors hover:bg-[#f4f7fa] dark:hover:bg-muted/30"
-          aria-expanded={expanded}
-          aria-label={`${commandDescription} ${summary || commandText}`.trim()}
-        >
-          {renderExpandableHeaderSlot(
-            <Terminal size={13} className="text-[#64748b] dark:text-muted-foreground" />,
-          )}
-          <span className="text-[13px] font-semibold text-[#1f2933] shrink-0 dark:text-foreground">{commandDescription}</span>
-          {commandStatusText ? (
-            <span className="text-[11px] text-[#64748b] dark:text-muted-foreground">
-              {commandStatusText}
-            </span>
-          ) : null}
-          <span className="max-w-[20rem] truncate text-[11px] font-mono text-[#64748b] dark:text-muted-foreground">
-            {summary || commandText}
-          </span>
-          <span className="ml-auto" />
-          <ToolCallStatusGlyph status={toolCall.status} className="shrink-0" />
-        </button>
-        {expanded ? (
-          <div
-            data-testid="tool-card-bash-output"
-            className="max-h-[280px] overflow-auto border-t border-[#eef2f5] bg-white px-[16px] py-[14px] dark:border-border/60 dark:bg-[#101318]"
-          >
-            <div className="space-y-4 font-mono">
-              <div>
-                <div className="flex items-start gap-2 text-[12px] leading-6 text-[#1f2937] dark:text-[#f3f4f6]">
-                  <span className="shrink-0 text-[#64748b] dark:text-[#94a3b8]">$</span>
-                  <pre className="min-w-0 whitespace-pre-wrap break-words">{commandText}</pre>
-                </div>
-              </div>
-              <div>
-                <pre className="whitespace-pre-wrap break-words text-[12px] leading-6 text-[#475569] dark:text-[#cbd5e1]">
-                  {commandOutput || t("chat.toolCall.command.noOutput", "No output")}
-                </pre>
-              </div>
-            </div>
+        <div className="max-h-[280px] overflow-auto bg-background/60 font-mono">
+          <div className="flex items-start gap-2 border-b border-border-soft px-3 py-2 text-[11.5px] leading-5 text-ink-2">
+            <span className="shrink-0 text-faint">$</span>
+            <pre className="min-w-0 whitespace-pre-wrap break-words">{commandText}</pre>
           </div>
-        ) : null}
-      </div>
+          <pre className="whitespace-pre-wrap break-words px-3 py-2.5 text-[11.5px] leading-[1.65] text-ink-2">
+            {commandOutput || t("chat.toolCall.command.noOutput", "No output")}
+          </pre>
+        </div>
+      </ToolCallDisclosure>
     )
   }
 
@@ -369,18 +370,49 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
     const rowTestId = `tool-row-${compactToolName.includes("grep") ? "grep" : compactToolName === "glob" ? "glob" : compactToolName.includes("bash") ? "bash" : compactToolName === "role_skill" ? "role-skill" : compactToolName}`
     const primaryText = getCompactPrimary()
     const metaText = getCompactMeta()
+    const compactResult = typeof toolCall.result === "string" ? toolCall.result : ""
+    const todoItems = isTodo
+      ? (() => {
+          try {
+            const parsed = JSON.parse(compactResult) as Array<{ content?: string; text?: string; status?: string }>
+            return Array.isArray(parsed) ? parsed : []
+          } catch {
+            return []
+          }
+        })()
+      : []
 
     return (
-      <div
-        data-testid={rowTestId}
-        className="grid grid-cols-[minmax(0,1fr)] items-center px-[10px] py-[4px]"
+      <ToolCallDisclosure
+        testId={rowTestId}
+        icon={isTodo ? <ListChecks className="h-3.5 w-3.5" /> : <Search className="h-3.5 w-3.5" />}
+        title={getCompactTitle()}
+        target={primaryText}
+        meta={metaText}
+        status={<ToolCallStatusGlyph status={toolCall.status} />}
       >
-        <span className="min-w-0 text-[12px] text-[#475569] dark:text-slate-400">
-          <strong className="font-medium text-foreground/80">{getCompactTitle()}</strong>
-          {primaryText ? <span className="ml-1 font-mono text-foreground/70">{primaryText}</span> : null}
-          {metaText ? <span className="ml-1 text-[#94a3b8] dark:text-muted-foreground">· {metaText}</span> : null}
-        </span>
-      </div>
+        {isTodo && todoItems.length > 0 ? (
+          <div className="space-y-1 px-3 py-2.5">
+            {todoItems.map((item, index) => (
+              <div key={index} className="flex min-h-6 items-center gap-2 text-[11.5px] text-ink-2">
+                <span
+                  className={cn(
+                    "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border border-faint text-[9px]",
+                    item.status === "completed" && "border-green-600 bg-green-600 text-white",
+                  )}
+                >
+                  {item.status === "completed" ? "✓" : ""}
+                </span>
+                <span>{item.content || item.text || `${index + 1}`}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap break-words bg-background/60 px-3 py-2.5 font-mono text-[11.5px] leading-[1.65] text-ink-2">
+            {compactResult || t("chat.toolCall.noDetails", "No details available")}
+          </pre>
+        )}
+      </ToolCallDisclosure>
     )
   }
 
@@ -393,6 +425,104 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
           .find((value): value is string => typeof value === "string" && value.trim().length > 0)
       : null) ||
     null;
+
+  if (routeName !== "think") {
+    const KindIcon = getToolIconByKind(toolCall.toolKind);
+    let resultContent = toolCall.result;
+
+    if (resultContent && typeof resultContent === "object") {
+      const resultObj = resultContent as Record<string, unknown>;
+      if (Array.isArray(resultObj.content)) {
+        const textParts = resultObj.content
+          .filter(
+            (item: unknown) =>
+              item &&
+              typeof item === "object" &&
+              (item as Record<string, unknown>).type === "text",
+          )
+          .map((item: unknown) => (item as Record<string, unknown>).text)
+          .join("\n");
+        if (textParts) resultContent = textParts;
+      } else if (resultObj.text) {
+        resultContent = resultObj.text;
+      } else if (resultObj.output) {
+        resultContent = resultObj.output;
+      }
+    }
+
+    const displayResult =
+      resultContent === undefined || resultContent === null
+        ? null
+        : typeof resultContent === "string"
+          ? resultContent.slice(0, 500) + (resultContent.length > 500 ? "..." : "")
+          : JSON.stringify(resultContent, null, 2);
+
+    return (
+      <ToolCallDisclosure
+        testId="tool-fallback"
+        icon={
+          <span data-testid="tool-fallback-icon">
+            <KindIcon className="h-3.5 w-3.5" />
+          </span>
+        }
+        title={formatToolName(
+          (key, fallback, options) => t(key, { defaultValue: fallback, ...options }),
+          routeName,
+        )}
+        target={fallbackSummary || undefined}
+        meta={
+          <>
+            {fallbackArgCount > 0 ? (
+              <span>{t("chat.toolCall.argCount", "{{count}} args", { count: fallbackArgCount })}</span>
+            ) : null}
+            {toolCall.duration ? <span>{formatDuration(toolCall.duration)}</span> : null}
+          </>
+        }
+        status={<ToolCallStatusGlyph status={toolCall.status} />}
+      >
+        <div className="divide-y divide-border-soft">
+          {toolCall.arguments && Object.keys(toolCall.arguments).length > 0 ? (
+            <div className="grid grid-cols-[88px_minmax(0,1fr)] font-mono text-[10.5px]">
+              <span className="bg-background/70 px-2.5 py-2 text-faint">
+                {t("chat.toolCall.arguments", "Arguments")}
+              </span>
+              <pre className="overflow-x-auto whitespace-pre-wrap break-words px-2.5 py-2 text-ink-2">
+                {JSON.stringify(toolCall.arguments, null, 2)}
+              </pre>
+            </div>
+          ) : null}
+          {displayResult !== null ? (
+            <div className="grid grid-cols-[88px_minmax(0,1fr)] font-mono text-[10.5px]">
+              <span className="bg-background/70 px-2.5 py-2 text-faint">
+                {toolCall.status === "failed"
+                  ? t("chat.toolCall.error", "Error")
+                  : t("chat.toolCall.result", "Result")}
+              </span>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words px-2.5 py-2 text-ink-2">
+                {displayResult}
+              </pre>
+            </div>
+          ) : null}
+          {fallbackArgCount === 0 && displayResult === null ? (
+            <div className="px-3 py-2.5 text-[11.5px] italic text-muted-foreground">
+              {t("chat.toolCall.noDetails", "No details available")}
+            </div>
+          ) : null}
+          {onOpenDetail ? (
+            <div className="px-3 py-2">
+              <button
+                type="button"
+                onClick={() => onOpenDetail(getDetailType(routeName), toolCall)}
+                className="text-[10.5px] text-muted-foreground underline underline-offset-2"
+              >
+                {t("chat.toolCall.viewFullDetails", "View full details")} →
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </ToolCallDisclosure>
+    );
+  }
 
   return (
     <div className="space-y-2">

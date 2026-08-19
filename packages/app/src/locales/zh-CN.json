@@ -505,6 +505,7 @@
       },
       "arguments": "参数",
       "result": "结果",
+      "error": "错误",
       "noDetails": "暂无详情",
       "viewFullDetails": "查看完整详情",
       "search": {
@@ -520,6 +521,7 @@
         "allDone": "全部完成"
       },
       "command": {
+        "title": "Bash",
         "defaultDescription": "执行命令",
         "noOutput": "无输出"
       },
@@ -528,6 +530,8 @@
         "tool": "工具"
       },
       "pageNav": {
+        "title": "页面链接",
+        "description": "显示页面导航入口",
         "invalid": "无效的导航链接"
       },
       "read": {

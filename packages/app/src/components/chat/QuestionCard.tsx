@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSessionStore } from '@/stores/session'
 import type { Question } from '@/stores/session-types'
+import { ToolCallDisclosure } from './tool-calls/ToolCallDisclosure'
 
 interface QuestionCardProps {
   toolCallId: string
@@ -78,35 +79,27 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
   
   // Determine if we should show the interactive UI (options to select)
   const showInteractiveUI = isPending && !hasSubmitted
+  const firstQuestion = questionList[0]
+  const stateLabel = isCompleted
+    ? t('chat.toolCall.question.answered', 'Answered')
+    : isWaitingForCompletion
+      ? t('chat.toolCall.question.processingAnswer', 'Processing answer...')
+      : isPending
+        ? t('chat.toolCall.question.waitingForResponse', 'Waiting for response...')
+        : undefined
 
   return (
-    <div data-testid="question-card" className="rounded-xl border border-border/80 bg-card overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 bg-muted/20 border-b border-border/50">
-        <HelpCircle className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">
-          {t('chat.toolCall.question.title', 'Question')}
-        </span>
-        {isCompleted && (
-          <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1">
-            <Check className="h-3 w-3 text-foreground/60" />
-            {t('chat.toolCall.question.answered', 'Answered')}
-          </span>
-        )}
-        {isWaitingForCompletion && (
-          <span className="ml-auto text-xs text-muted-foreground animate-pulse">
-            {t('chat.toolCall.question.processingAnswer', 'Processing answer...')}
-          </span>
-        )}
-        {isPending && !hasSubmitted && (
-          <span className="ml-auto text-xs text-muted-foreground animate-pulse">
-            {t('chat.toolCall.question.waitingForResponse', 'Waiting for response...')}
-          </span>
-        )}
-      </div>
-
+    <ToolCallDisclosure
+      testId="question-card"
+      icon={<HelpCircle className="h-3.5 w-3.5" />}
+      title={t('chat.toolCall.question.title', 'Question')}
+      target={firstQuestion?.header || firstQuestion?.question}
+      meta={stateLabel}
+      status={isCompleted ? <Check className="h-3 w-3 text-green-600" /> : undefined}
+      defaultOpen={!isCompleted}
+    >
       {/* Questions */}
-      <div className="px-4 py-3 space-y-4 bg-background/20">
+      <div className="space-y-4 px-3 py-3">
         {questionList.map((question, qIndex) => {
           const questionId = question.id || String(qIndex)
           const selectedOption = answers[questionId]
@@ -135,10 +128,10 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
                       key={optIndex}
                       onClick={() => handleOptionSelect(qIndex, optionValue)}
                       className={cn(
-                        'w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md border text-left transition-all',
+                        'w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md border text-left transition-colors',
                         isSelected
                           ? 'border-foreground/20 bg-muted/40 text-foreground'
-                          : 'border-border/70 hover:border-foreground/15 hover:bg-muted/25'
+                          : 'border-border/70 hover:border-foreground/15'
                       )}
                       disabled={isCompleted || isSubmitting}
                     >
@@ -204,7 +197,7 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
 
       {/* Submit button */}
       {showInteractiveUI && (
-        <div className="px-4 pb-3">
+        <div className="px-3 pb-3">
           <Button
             onClick={handleSubmit}
             disabled={!hasAllAnswers || isSubmitting || !hasQuestionId}
@@ -220,6 +213,6 @@ export const QuestionCard = React.memo(function QuestionCard({ toolCallId, quest
           </Button>
         </div>
       )}
-    </div>
+    </ToolCallDisclosure>
   )
 });

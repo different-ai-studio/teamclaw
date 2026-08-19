@@ -34,6 +34,11 @@ describe('PageNavLinksToolCard', () => {
       />,
     )
 
+    const card = screen.getByTestId('page-nav-links-tool')
+    const trigger = card.querySelector('[data-slot="collapsible-trigger"]')
+    expect(trigger).not.toBeNull()
+    fireEvent.click(trigger!)
+
     const button = screen.getByRole('button', { name: /文档/ })
     expect(button).toBeTruthy()
     fireEvent.click(button)

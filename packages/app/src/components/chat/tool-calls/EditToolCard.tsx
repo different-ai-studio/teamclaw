@@ -1,7 +1,6 @@
 import { useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { FilePenLine, Trash2 } from "lucide-react";
 import { ToolCall } from "@/stores/session";
 import { useWorkspaceStore } from "@/stores/workspace";
 import {
@@ -18,6 +17,7 @@ import {
   useToolCallFileOnDisk,
 } from "@/hooks/useToolCallFileOnDisk";
 import { ToolCallStatusGlyph } from "./ToolCallStatusGlyph";
+import { ToolCallDisclosure } from "./ToolCallDisclosure";
 
 function generateNewFileDiff(content: string, filePath: string): string {
   const lines: string[] = [];
@@ -101,87 +101,51 @@ export function EditToolCard({ toolCall }: { toolCall: ToolCall }) {
 
   if (deletedFiles) {
     return (
-      <div
-        data-testid="tool-card-edit"
-        className="overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] transition-all duration-200 dark:border-border dark:bg-card"
+      <ToolCallDisclosure
+        testId="tool-card-edit"
+        icon={<Trash2 className="h-3.5 w-3.5" />}
+        title={t("chat.toolCall.edit.title", "Edit")}
+        target={t("chat.toolCall.edit.deletedFiles", "Deleted {{count}} files", {
+          count: deletedFiles.length,
+        })}
+        status={<ToolCallStatusGlyph status={toolCall.status} />}
       >
-        <div className="flex items-center gap-2 border-b border-[#eef2f5] px-[14px] py-3 dark:border-border/60">
-          <Trash2 size={14} className="text-muted-foreground shrink-0" />
-          <span className="text-sm font-semibold text-foreground">
-            {t("chat.toolCall.edit.title", "Edit")}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {t("chat.toolCall.edit.deletedFiles", "Deleted {{count}} files", {
-              count: deletedFiles.length,
-            })}
-          </span>
-          <span className="flex-1" />
-          <ToolCallStatusGlyph status={toolCall.status} />
-        </div>
-        <div className="border-t border-border/50 px-3 pb-2 pt-2 space-y-0.5">
+        <div className="space-y-0.5 px-3 py-2">
           {deletedFiles.map((f, i) => (
             <div key={i} className="flex items-center gap-2 py-0.5 text-xs text-muted-foreground">
               <span className="text-red-500 dark:text-red-400 text-[10px]">D</span>
-              <span className="font-mono truncate line-through">{getFileName(f)}</span>
+              <span className="truncate font-mono">{getFileName(f)}</span>
             </div>
           ))}
         </div>
-      </div>
+      </ToolCallDisclosure>
     );
   }
 
   return (
-    <div
-      data-testid="tool-card-edit"
-      className="overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] transition-all duration-200 dark:border-border dark:bg-card"
+    <ToolCallDisclosure
+      testId="tool-card-edit"
+      icon={<FilePenLine className="h-3.5 w-3.5" />}
+      title={t("chat.toolCall.edit.title", "Edit")}
+      target={headerPath ? getFileName(headerPath) : undefined}
+      targetTitle={headerPath || undefined}
+      onTargetClick={canOpenFile ? handleOpenFile : undefined}
+      meta={
+        diffData
+          ? `${diffData.deletions > 0 ? `-${diffData.deletions}` : ""}${
+              diffData.deletions > 0 && diffData.additions > 0 ? " " : ""
+            }${diffData.additions > 0 ? `+${diffData.additions}` : ""}`
+          : undefined
+      }
+      status={<ToolCallStatusGlyph status={toolCall.status} />}
     >
-      <div
-        className={cn(
-          "flex items-center gap-2 border-b border-[#eef2f5] px-[14px] py-3 select-none dark:border-border/60",
-          canOpenFile ? "cursor-pointer" : "",
-        )}
-        onClick={canOpenFile ? handleOpenFile : undefined}
-      >
-        <span className="text-[13px] text-muted-foreground shrink-0">~</span>
-        <span className="text-sm font-semibold text-foreground shrink-0">
-          {t("chat.toolCall.edit.title", "Edit")}
-        </span>
-        {headerPath ? (
-          <span
-            className={cn(
-              "text-xs truncate flex-1 font-mono",
-              canOpenFile
-                ? "text-foreground"
-                : "text-muted-foreground line-through",
-            )}
-            title={headerPath}
-          >
-            {getFileName(headerPath)}
-          </span>
-        ) : (
-          <span className="flex-1" />
-        )}
-        {diffData ? (
-          <span className="text-[10px] text-muted-foreground">
-            {diffData.deletions > 0 ? `-${diffData.deletions}` : ""}
-            {diffData.deletions > 0 && diffData.additions > 0 ? " " : ""}
-            {diffData.additions > 0 ? `+${diffData.additions}` : ""}
-          </span>
-        ) : null}
-        <ToolCallStatusGlyph status={toolCall.status} />
-      </div>
-
       {diffData?.lines.length ? (
-        <div className="px-[14px] pb-3 pt-3">
-          <div className="overflow-hidden rounded-[10px] border border-[#eef2f5] bg-[#fcfdff] dark:border-border/60 dark:bg-background/40">
-            <ToolCallDiffBody lines={diffData.lines} variant="snippet" />
-          </div>
-        </div>
+        <ToolCallDiffBody lines={diffData.lines} variant="snippet" />
       ) : patchText ? (
-        <div className="border-t border-border/50 p-3 text-xs text-muted-foreground italic">
+        <div className="px-3 py-2.5 text-[11.5px] italic text-muted-foreground">
           {t("chat.toolCall.diff.unavailable", "Unable to generate diff view")}
         </div>
       ) : null}
-    </div>
+    </ToolCallDisclosure>
   );
 }
