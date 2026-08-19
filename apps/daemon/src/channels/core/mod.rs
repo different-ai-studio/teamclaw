@@ -24,6 +24,7 @@ use teamclu_gateway::driver::{
 pub mod adapters;
 pub mod dedup;
 pub mod sink;
+pub mod turn_attachments;
 
 /// Remembers which channel messages have already been handled.
 ///
@@ -279,17 +280,32 @@ impl Core {
             .await?;
 
         // 7. Drive the turn, streaming only where it can be seen.
-        let deliveries = if driver.caps().streaming_edit {
+        //
+        //    The window for `send` opens here and closes below, including on
+        //    failure: a file attached to a turn that never delivers must not
+        //    wait for the next one.
+        turn_attachments::open(&session.session_id);
+        let result = if driver.caps().streaming_edit {
             self.run_streamed(driver, &msg, &session, &display, &prompt)
-                .await?
+                .await
         } else {
             self.run_buffered(driver, &msg, &session, &display, &prompt)
-                .await?
+                .await
         };
+        if result.is_err() {
+            let orphaned = turn_attachments::close(&session.session_id);
+            if !orphaned.is_empty() {
+                tracing::warn!(
+                    session_id = %session.session_id,
+                    count = orphaned.len(),
+                    "gateway: turn failed with files attached; they were not delivered"
+                );
+            }
+        }
 
         Ok(Outcome::Handled {
             session_id: session.session_id,
-            deliveries,
+            deliveries: result?,
         })
     }
 
@@ -331,16 +347,15 @@ impl Core {
             .turns
             .run(&session.acp_session_id, display, prompt, None)
             .await?;
+        let attachments = turn_attachments::close(&session.session_id);
         self.writer
-            .write_reply(&session.session_id, &reply, Vec::new())
+            .write_reply(&session.session_id, &reply, attachments.clone())
             .await?;
-        self.say(
-            driver,
-            &msg.conversation,
-            msg.reply_context.as_deref(),
-            &reply,
-        )
-        .await?;
+        let outbound = render(driver, &reply, attachments);
+        driver
+            .deliver(&msg.conversation, msg.reply_context.as_deref(), &outbound)
+            .await
+            .map_err(|e| CoreError::Render(e.to_string()))?;
         Ok(1)
     }
 
@@ -384,15 +399,74 @@ impl Core {
         let reply = turn
             .await
             .map_err(|e| CoreError::Turn(format!("turn task: {e}")))??;
+        let attachments = turn_attachments::close(&session.session_id);
+        let outbound = render(driver, &reply, attachments.clone());
+
+        // The streaming bubble carries the text; files cannot be edited into
+        // it, so they go out as their own delivery right after — still one
+        // logical reply, and one row in the session.
         driver
-            .update(&handle, &reply, true)
+            .update(&handle, &outbound.text, true)
             .await
             .map_err(|e| CoreError::Render(e.to_string()))?;
+        let file_deliveries = if outbound.attachments.is_empty() {
+            0
+        } else {
+            driver
+                .deliver(
+                    &msg.conversation,
+                    msg.reply_context.as_deref(),
+                    &OutboundMessage {
+                        text: String::new(),
+                        attachments: outbound.attachments,
+                        question: None,
+                    },
+                )
+                .await
+                .map_err(|e| CoreError::Render(e.to_string()))?;
+            1
+        };
+
         self.writer
-            .write_reply(&session.session_id, &reply, Vec::new())
+            .write_reply(&session.session_id, &reply, attachments)
             .await?;
-        // The opening delivery, every intermediate edit, and the final one.
-        Ok(1 + updates + 1)
+        // The opening delivery, every intermediate edit, the final one, and
+        // any file delivery.
+        Ok(1 + updates + 1 + file_deliveries)
+    }
+}
+
+/// Shape the turn's result for one channel.
+///
+/// A channel that cannot upload does not silently lose the files: their names
+/// are appended to the text, so the reader knows something exists and can find
+/// it in the session. Feishu is in exactly that position today.
+fn render(
+    driver: &dyn ChannelDriver,
+    reply: &str,
+    attachments: Vec<SessionAttachment>,
+) -> OutboundMessage {
+    if attachments.is_empty() {
+        return OutboundMessage {
+            text: reply.to_string(),
+            ..Default::default()
+        };
+    }
+    if driver.caps().media_upload {
+        return OutboundMessage {
+            text: reply.to_string(),
+            attachments,
+            question: None,
+        };
+    }
+    let names = attachments
+        .iter()
+        .map(|a| format!("[附件: {}]", a.filename))
+        .collect::<Vec<_>>()
+        .join("\n");
+    OutboundMessage {
+        text: format!("{reply}\n{names}"),
+        ..Default::default()
     }
 }
 

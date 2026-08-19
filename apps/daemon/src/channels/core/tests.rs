@@ -475,6 +475,106 @@ async fn attachments_are_resolved_and_written_with_the_message() {
     assert_eq!(f.writer.inbound.lock().unwrap()[0].2, 1);
 }
 
+/// A turn that attaches a file part-way through, the way `send` does.
+struct AttachingTurns {
+    session_id: String,
+    filename: &'static str,
+    reply: &'static str,
+}
+
+#[async_trait]
+impl TurnRunner for AttachingTurns {
+    async fn run(
+        &self,
+        _acp: &str,
+        _display: &str,
+        _prompt: &str,
+        _on_delta: Option<tokio::sync::mpsc::Sender<String>>,
+    ) -> Result<String, CoreError> {
+        let attached = super::turn_attachments::attach(
+            &self.session_id,
+            SessionAttachment {
+                filename: self.filename.into(),
+                mime: "text/markdown".into(),
+                bucket_path: format!("bucket/{}", self.filename),
+                local_path: Some(format!("/tmp/{}", self.filename)),
+            },
+        );
+        assert!(attached, "the window must be open while the turn runs");
+        Ok(self.reply.to_string())
+    }
+}
+
+fn attaching_fixture(filename: &'static str, reply: &'static str) -> (Core, Arc<FakeWriter>) {
+    let writer = Arc::new(FakeWriter::default());
+    (
+        Core {
+            dedup: Arc::new(FakeDedup::default()),
+            router: Arc::new(FakeRouter::default()),
+            identity: Arc::new(FakeIdentity::default()),
+            writer: writer.clone(),
+            turns: Arc::new(AttachingTurns {
+                // Matches what FakeRouter builds for the default inbound().
+                session_id: "session-for-wecom://bot-a/single/u-1".into(),
+                filename,
+                reply,
+            }),
+            commands: Arc::new(FakeCommands::default()),
+        },
+        writer,
+    )
+}
+
+#[tokio::test]
+async fn a_file_sent_during_the_turn_rides_out_with_the_reply() {
+    // The duplicate this removes: `send` used to push the file and record its
+    // own message, and then the turn's reply — usually a paragraph describing
+    // the file it had just sent — arrived as a second message.
+    let (core, writer) = attaching_fixture("poem.md", "wrote you a poem");
+    let d = driver(MAIL);
+
+    core.handle(&d, inbound("write me a poem")).await.unwrap();
+
+    let delivered = d.delivered.lock().unwrap();
+    assert_eq!(delivered.len(), 1, "one message, not one per file");
+    // And exactly one row in the session, carrying both.
+    assert_eq!(writer.replies.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_channel_that_cannot_upload_still_names_the_file() {
+    // Feishu today. Dropping the attachment silently is what happens now; the
+    // reader has to at least learn that a file exists.
+    let (core, _w) = attaching_fixture("poem.md", "wrote you a poem");
+    let no_media = ChannelCaps {
+        media_upload: false,
+        ..MAIL
+    };
+    let d = driver(no_media);
+
+    core.handle(&d, inbound("write me a poem")).await.unwrap();
+
+    let delivered = d.delivered.lock().unwrap();
+    assert!(
+        delivered[0].0.contains("poem.md"),
+        "got: {}",
+        delivered[0].0
+    );
+}
+
+#[tokio::test]
+async fn the_attachment_window_is_closed_after_the_turn() {
+    // Left open, the next `send` on this session would attach to a reply that
+    // has already gone out, and the file would never appear anywhere.
+    let (core, _w) = attaching_fixture("poem.md", "done");
+    let d = driver(MAIL);
+    core.handle(&d, inbound("write me a poem")).await.unwrap();
+
+    assert!(!super::turn_attachments::is_open(
+        "session-for-wecom://bot-a/single/u-1"
+    ));
+}
+
 #[tokio::test]
 async fn the_sender_is_the_human_and_falls_back_to_their_id() {
     // WeCom callbacks carry no display name; "" would reach the agent as an
