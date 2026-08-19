@@ -73,7 +73,7 @@ describe('QuestionCard', () => {
     );
 
     const card = screen.getByTestId('question-card');
-    expect(card.className).toContain('rounded-xl');
+    expect(card).toHaveAttribute('data-state', 'open');
     expect(within(card).getByText('What would you like to do?')).toBeTruthy();
     expect(within(card).getByText('Option A')).toBeTruthy();
     expect(within(card).getByText('Option B')).toBeTruthy();

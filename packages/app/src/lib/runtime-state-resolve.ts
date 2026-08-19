@@ -475,19 +475,10 @@ export function providerModelKeyFromOption(
   return formatProviderModelKey(option.provider, option.id);
 }
 
-/**
- * `"unpicked"` is NOT a choice — it means the catalog had entries and nothing
- * else did, so the first advertised model is being shown as a suggestion. It is
- * kept distinct from `"fallback"` (this client's MRU, which IS a past choice)
- * because the send path must refuse to run on it: `available` is ordered by
- * provider probe order, which is not stable, so pinning it would pick a
- * different model on a different day (ADR-0007).
- */
 export type AgentModelSource =
   | "pick"
   | "retain"
   | "fallback"
-  | "unpicked"
   | "none";
 
 export interface SelectedAgentModel {
@@ -608,13 +599,11 @@ export function selectAgentModel(args: {
     };
   }
 
-  // Live catalog is present but nothing else selected. Surface the first
-  // advertised model as a *suggestion* — `source: "unpicked"` marks it as such,
-  // and `requiresExplicitModelPick` turns that into "ask the user before
-  // sending". Callers that pass `available: []` skip this on purpose.
+  // No persisted/session model is available. Use the first model advertised by
+  // the agent catalog so a fresh chat can be created and sent in one action.
   const firstAvailable = args.available[0]?.id?.trim() ?? "";
   if (firstAvailable) {
-    return { modelId: firstAvailable, source: "unpicked" };
+    return { modelId: firstAvailable, source: "fallback" };
   }
 
   return { modelId: "", source: "none" };
@@ -661,21 +650,3 @@ export function backendTypeFromRuntimeEntry(
 // Re-export the runtime-state-store hook so other modules don't need to import
 // it separately just to invalidate selectors.
 export { useRuntimeStateStore };
-
-/**
- * Does this selection still need a human to confirm it before anything runs?
- *
- * True only for `"unpicked"`: a first-advertised suggestion, shown so the pill
- * is not blank, but never good enough to send on. Every other source is either
- * an explicit choice, something the session already ran with, or this client's
- * own history.
- *
- * Exists because the alternative — quietly sending on `available[0]` — is what
- * seeded the wrong model in the first place, and once sent it became the
- * session's established model and stopped looking like a guess (ADR-0007).
- */
-export function requiresExplicitModelPick(
-  selected: Pick<SelectedAgentModel, "source">,
-): boolean {
-  return selected.source === "unpicked";
-}

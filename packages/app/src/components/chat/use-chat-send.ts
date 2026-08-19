@@ -69,9 +69,7 @@ import {
 import { buildEnhancedChip, buildStructuredMentionLines } from "@/lib/outgoing-mention-content";
 import { resolveAgentSessionModel } from '@/lib/resolve-agent-session-model'
 import { resolveAgentBackendType } from '@/lib/agent-backend-type'
-import { useModelPickPromptStore } from '@/stores/model-pick-prompt-store'
 import { getKnownLocalDaemonActorId } from "@/lib/local-daemon-identity";
-import { requiresExplicitModelPick } from "@/lib/runtime-state-resolve";
 import {
   sessionFlowError,
   sessionFlowLog,
@@ -439,28 +437,6 @@ export function useChatSend({
               })
             : null;
           const selectedForSend = resolvedForSend?.selected ?? null;
-          const availableForSend = resolvedForSend?.available ?? [];
-
-          // Nothing chose this model — it is just whatever the catalog listed
-          // first, and that order is provider probe order, not a preference.
-          // Sending would make the guess the session's established model and
-          // hide that it ever was one, so ask instead (ADR-0007).
-          if (selectedForSend && requiresExplicitModelPick(selectedForSend)) {
-            sessionFlowLog("chat_send.blocked_awaiting_model_pick", {
-              sessionId: sid,
-              agentActorId: sendAgentId,
-              suggestedModelId: selectedForSend.modelId,
-              availableModelCount: availableForSend.length,
-            });
-            useModelPickPromptStore.getState().request(sendAgentId);
-            // Deferring, not sending: the composer was already emptied at the
-            // top of this handler, so hand the text back the same way the
-            // other post-clear bail-out does. Without this the prompt is gone
-            // by the time the picker opens and there is nothing to re-send.
-            restoreComposer();
-            return;
-          }
-
           const outgoingModel = selectedForSend?.modelId || "";
           const mentionDeliverySnapshot: Record<string, "offline" | "stale"> = {};
           for (const entry of engagedUiEntries) {

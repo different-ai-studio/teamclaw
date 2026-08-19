@@ -84,10 +84,8 @@ export function resolveAutoPersistModelId(input: {
   // (no entry yet) is as unsettled as `'pending'`.
   if (isLocalAgent && !isSettledLocalCatalog(input.localCatalogStatus)) return null
 
-  // This client's history, or nothing. `availableModelIds[0]` used to close
-  // this out; it no longer does, because a pick is durable and outranks every
-  // later signal, so writing a guess here pinned it for good. With no history
-  // the answer is "ask the user" — `selectAgentModel` reports that case as
-  // `source: "unpicked"` (ADR-0007).
+  // This client's history, or nothing. The resolver may use the first catalog
+  // entry for a fresh send, but this auto-persist path must not turn that
+  // transient default into a durable session pick that outranks later facts.
   return input.localRecentModel.trim() || null
 }

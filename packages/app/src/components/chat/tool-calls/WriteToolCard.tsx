@@ -1,9 +1,9 @@
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  FilePenLine,
   Loader2,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { ToolCall } from "@/stores/session";
 import { useWorkspaceStore } from "@/stores/workspace";
 import {
@@ -17,6 +17,7 @@ import {
   useToolCallFileOnDisk,
 } from "@/hooks/useToolCallFileOnDisk";
 import { ToolCallStatusGlyph } from "./ToolCallStatusGlyph";
+import { ToolCallDisclosure } from "./ToolCallDisclosure";
 
 // Generate unified diff for new file (empty before)
 function generateNewFileDiff(content: string, filePath: string): string {
@@ -95,62 +96,32 @@ export function WriteToolCard({ toolCall }: { toolCall: ToolCall }) {
   }, [canOpenFile, fullPath, selectFile]);
 
   return (
-    <div
-      data-testid="tool-card-write"
-      className="overflow-hidden rounded-[14px] border border-[#e7edf4] bg-[#fbfcfe] transition-all duration-200 dark:border-border dark:bg-card"
+    <ToolCallDisclosure
+      testId="tool-card-write"
+      icon={<FilePenLine className="h-3.5 w-3.5" />}
+      title={t("chat.toolCall.write.title", "Write")}
+      target={filePath ? getFileName(filePath) : undefined}
+      targetTitle={filePath || undefined}
+      onTargetClick={canOpenFile ? handleOpenFile : undefined}
+      meta={diffData && diffData.additions > 0 ? `+${diffData.additions}` : undefined}
+      status={<ToolCallStatusGlyph status={toolCall.status} />}
     >
-      <div
-        className={cn(
-          "flex items-center gap-2 border-b border-[#eef2f5] px-[14px] py-3 select-none dark:border-border/60 dark:bg-transparent",
-          canOpenFile ? "cursor-pointer" : "",
-        )}
-        onClick={canOpenFile ? handleOpenFile : undefined}
-      >
-        <span className="text-[13px] text-muted-foreground shrink-0">+</span>
-        <span className="text-sm font-semibold text-foreground shrink-0">
-          {t("chat.toolCall.write.title", "Write")}
-        </span>
-        {filePath && (
-          <span
-            className={cn(
-              "text-xs truncate flex-1 font-mono",
-              canOpenFile
-                ? "text-foreground"
-                : "text-muted-foreground line-through",
-            )}
-            title={filePath}
-          >
-            {getFileName(filePath)}
-          </span>
-        )}
-        {!filePath && <span className="flex-1" />}
-        {diffData && diffData.additions > 0 && (
-          <span className="text-[10px] text-green-600 dark:text-green-500">+{diffData.additions}</span>
-        )}
-        <ToolCallStatusGlyph status={toolCall.status} />
-      </div>
-
       {diffData && diffData.lines.length > 0 && (
-        <div className="px-[14px] pb-3 pt-3">
-          <div className="overflow-hidden rounded-[10px] border border-[#eef2f5] bg-[#fcfdff] dark:border-border/60 dark:bg-background/40">
-            <ToolCallDiffBody lines={diffData.lines} variant="snippet" previewLineCount={3} />
-          </div>
-        </div>
+        <ToolCallDiffBody lines={diffData.lines} variant="snippet" previewLineCount={3} />
       )}
 
       {!content && toolCall.status === "calling" && (
-        <div className="border-t border-border/50 p-3 flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 px-3 py-2.5 text-[11.5px] text-muted-foreground">
           <Loader2 size={12} className="animate-spin" />
           <span>{t("chat.toolCall.write.writing", "Writing file...")}</span>
         </div>
       )}
 
       {content && !diffData && (
-        <div className="border-t border-border/50 p-3 text-xs text-muted-foreground italic">
+        <div className="px-3 py-2.5 text-[11.5px] italic text-muted-foreground">
           {t("chat.toolCall.diff.unavailable", "Unable to generate diff view")}
         </div>
       )}
-
-    </div>
+    </ToolCallDisclosure>
   );
 }

@@ -505,6 +505,7 @@
       },
       "arguments": "Arguments",
       "result": "Result",
+      "error": "Error",
       "noDetails": "No details available",
       "viewFullDetails": "View full details",
       "search": {
@@ -520,6 +521,7 @@
         "allDone": "all done"
       },
       "command": {
+        "title": "Bash",
         "defaultDescription": "Execute command",
         "noOutput": "No output"
       },
@@ -528,6 +530,8 @@
         "tool": "Tool"
       },
       "pageNav": {
+        "title": "Page Links",
+        "description": "Show page navigation links",
         "invalid": "Invalid navigation links"
       },
       "read": {
