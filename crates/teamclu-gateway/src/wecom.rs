@@ -660,6 +660,14 @@ pub struct WeComGateway {
     shared_ws_sink: Arc<RwLock<Option<WsSink>>>,
     card_metadata: Arc<RwLock<std::collections::HashMap<String, CardMetadata>>>,
     pending_responses: PendingResponses,
+    /// When present, inbound messages are normalized and handed to the core
+    /// pipeline instead of being handled inline
+    /// (`docs/specs/2026-08-18-gateway-transport-architecture.md`).
+    ///
+    /// Absent means the pre-driver path, which is still here so a live bot can
+    /// be switched back without a rebuild. It goes away once the new path has
+    /// been through a real WeCom round trip.
+    inbound_sink: Arc<RwLock<Option<Arc<dyn driver::InboundSink>>>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -906,6 +914,7 @@ pub fn wecom_caps() -> driver::ChannelCaps {
 pub(crate) fn normalize_callback(
     msg: &WeComMsgCallback,
     bot_id: &str,
+    req_id: &str,
 ) -> Option<driver::InboundMessage> {
     let (text, pending_media) = extract_message_parts(msg)?;
 
@@ -977,7 +986,200 @@ pub(crate) fn normalize_callback(
         // core must not have to know that rule per channel.
         addressed_to_bot: true,
         quoted_text,
+        // The websocket request this arrived on. Replies and streaming card
+        // updates go back through it, not through a send-to-chat API.
+        reply_context: (!req_id.is_empty()).then(|| req_id.to_string()),
     })
+}
+
+/// WeCom as a transport driver.
+///
+/// Holds only what rendering needs: the shared websocket sink (set on connect),
+/// the config (for `bot_id`, which is part of the binding), and the pacers for
+/// in-flight streaming replies.
+///
+/// The pacer map is why `update` cannot be stateless: WeCom throttles card
+/// updates, and the gap is measured from the previous frame of *that* reply.
+/// Rebuilding a pacer per update would reset the clock and burst straight
+/// through the limit.
+pub struct WeComDriver {
+    #[allow(dead_code)]
+    config: Arc<RwLock<WeComConfig>>,
+    shared_ws_sink: Arc<RwLock<Option<WsSink>>>,
+    pacers: tokio::sync::Mutex<std::collections::HashMap<String, StreamPacer>>,
+}
+
+impl WeComDriver {
+    pub fn new(
+        config: Arc<RwLock<WeComConfig>>,
+        shared_ws_sink: Arc<RwLock<Option<WsSink>>>,
+    ) -> Self {
+        Self {
+            config,
+            shared_ws_sink,
+            pacers: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    async fn sink(&self) -> Result<WsSink, driver::DriverError> {
+        self.shared_ws_sink
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| driver::DriverError::Transport("WeCom is not connected".into()))
+    }
+
+    /// `(chatid, chat_type)` for the media APIs, which address chats by number
+    /// rather than by the binding's words.
+    fn chat_target(conversation: &driver::Conversation) -> (&str, u32) {
+        match conversation.kind {
+            driver::ConversationKind::Group => (conversation.id.as_str(), 2),
+            _ => (conversation.id.as_str(), 1),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl driver::ChannelDriver for WeComDriver {
+    fn id(&self) -> driver::ChannelId {
+        "wecom"
+    }
+
+    fn caps(&self) -> driver::ChannelCaps {
+        wecom_caps()
+    }
+
+    fn binding(&self, conversation: &driver::Conversation) -> String {
+        // WSS smart-bot only exposes bot_id, so it fills both the corp and the
+        // agent slot — the same shape the pre-driver code built.
+        let bot = conversation.bot_id.clone().unwrap_or_default();
+        match conversation.kind {
+            driver::ConversationKind::Group => {
+                crate::binding::wecom_group(&bot, &bot, &conversation.id)
+            }
+            _ => crate::binding::wecom_dm(&bot, &bot, &conversation.id),
+        }
+    }
+
+    fn sender_urn(
+        &self,
+        conversation: &driver::Conversation,
+        sender: &driver::ExternalSender,
+    ) -> String {
+        let bot = conversation.bot_id.clone().unwrap_or_default();
+        crate::binding::urn_wecom_user(&bot, &sender.external_id)
+    }
+
+    fn session_title(
+        &self,
+        conversation: &driver::Conversation,
+        sender: &driver::ExternalSender,
+    ) -> String {
+        match conversation.kind {
+            driver::ConversationKind::Group => format!("WeCom group: {}", conversation.id),
+            _ => format!("WeCom DM: {}", sender.external_id),
+        }
+    }
+
+    /// An empty text opens a streaming bubble — the core does that before a
+    /// streaming turn and then edits it. A non-empty one is a complete message
+    /// and goes out finished.
+    async fn deliver(
+        &self,
+        to: &driver::Conversation,
+        reply_context: Option<&str>,
+        msg: &driver::OutboundMessage,
+    ) -> Result<driver::DeliveryId, driver::DriverError> {
+        let sink = self.sink().await?;
+
+        // Attachments first: the caption reads as a label for them, and WeCom
+        // renders each file as its own bubble regardless of order.
+        for att in &msg.attachments {
+            let (chatid, chat_type) = Self::chat_target(to);
+            let path = att.local_path.as_deref().unwrap_or_default();
+            let bytes = std::fs::read(path)
+                .map_err(|e| driver::DriverError::Transport(format!("read {path}: {e}")))?;
+            upload_and_send_media(
+                chatid,
+                chat_type,
+                &bytes,
+                &att.filename,
+                media_type_for(&att.mime),
+            )
+            .await
+            .map_err(driver::DriverError::Transport)?;
+        }
+
+        let Some(req_id) = reply_context else {
+            // Nothing to answer: this is proactive, which WeCom does through a
+            // different command entirely.
+            let (chatid, chat_type) = Self::chat_target(to);
+            send_proactive_message(chatid, chat_type, &msg.text)
+                .await
+                .map_err(driver::DriverError::Transport)?;
+            return Ok(driver::DeliveryId(format!("proactive:{chatid}")));
+        };
+
+        let stream_id = uuid::Uuid::new_v4().to_string();
+        let pacer = StreamPacer::new(req_id, &stream_id, &sink);
+        let finished = !msg.text.trim().is_empty();
+        // Same placeholder the pre-driver path showed, so the sender still sees
+        // something the instant the turn starts.
+        let opening = if finished {
+            msg.text.as_str()
+        } else {
+            "💭 正在思考…"
+        };
+        pacer
+            .send(opening, finished)
+            .await
+            .map_err(driver::DriverError::Transport)?;
+
+        let id = driver::DeliveryId(stream_id.clone());
+        if !finished {
+            self.pacers.lock().await.insert(stream_id, pacer);
+        }
+        Ok(id)
+    }
+
+    async fn update(
+        &self,
+        id: &driver::DeliveryId,
+        text: &str,
+        finished: bool,
+    ) -> Result<(), driver::DriverError> {
+        let pacer = {
+            let pacers = self.pacers.lock().await;
+            pacers.get(&id.0).cloned()
+        };
+        let Some(pacer) = pacer else {
+            return Err(driver::DriverError::Transport(format!(
+                "no streaming reply {} to update — it was already finished",
+                id.0
+            )));
+        };
+        pacer
+            .send(text, finished)
+            .await
+            .map_err(driver::DriverError::Transport)?;
+        if finished {
+            self.pacers.lock().await.remove(&id.0);
+        }
+        Ok(())
+    }
+}
+
+/// WeCom's media API takes its own type word, not a mime.
+fn media_type_for(mime: &str) -> &'static str {
+    if mime.starts_with("image/") {
+        "image"
+    } else if mime.starts_with("video/") {
+        "video"
+    } else if mime.starts_with("audio/") {
+        "voice"
+    } else {
+        "file"
+    }
 }
 
 /// `"@蕉你一手 /help"` → `"/help"`.
@@ -1025,6 +1227,7 @@ impl WeComGateway {
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
             shared_ws_sink: Arc::new(RwLock::new(None)),
             card_metadata: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            inbound_sink: Arc::new(RwLock::new(None)),
             pending_responses: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
@@ -1037,6 +1240,19 @@ impl WeComGateway {
     /// route bot-pinned sends and report per-bot status across a multi-bot fleet.
     pub async fn bot_id(&self) -> String {
         self.config.read().await.bot_id.clone()
+    }
+
+    /// Route inbound messages through the core pipeline instead of the inline
+    /// handler. Set by the daemon at boot; unset leaves the pre-driver path.
+    pub async fn use_core_pipeline(&self, sink: Arc<dyn driver::InboundSink>) {
+        *self.inbound_sink.write().await = Some(sink);
+    }
+
+    /// A driver over this gateway's live connection, for the core to render
+    /// replies through. Shares the config and websocket sink rather than
+    /// copying them, so a reconnect is visible to both.
+    pub fn as_driver(&self) -> WeComDriver {
+        WeComDriver::new(self.config.clone(), self.shared_ws_sink.clone())
     }
 
     pub fn workspace_path(&self) -> &str {
@@ -1413,6 +1629,20 @@ impl WeComGateway {
             "[WeCom] Callback: msgid={}, msgtype={}, chattype={}, userid={}",
             msg.msgid, msg.msgtype, msg.chattype, userid
         );
+        // The core pipeline, when the daemon has wired it. Dedup lives inside
+        // it (one store for every channel), so this branch sits ABOVE the
+        // inline tracker rather than after it — claiming here too would make
+        // the core's own claim always lose.
+        let core_sink = self.inbound_sink.read().await.clone();
+        if let Some(sink) = core_sink {
+            let bot_id = self.config.read().await.bot_id.clone();
+            match normalize_callback(&msg, &bot_id, &req_id) {
+                Some(inbound) => sink.accept(inbound).await,
+                None => println!("[WeCom] Unsupported message type: {}", msg.msgtype),
+            }
+            return;
+        }
+
         // Deduplication
         if !self.mark_message_processed(&msg.msgid).await {
             return;
@@ -3183,7 +3413,7 @@ mod normalize_tests {
             "from": { "userid": "u-42" },
             "text": { "content": "hello" },
         }));
-        let inbound = normalize_callback(&msg, "bot-a").unwrap();
+        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
         assert_eq!(inbound.conversation.kind, driver::ConversationKind::Direct);
         assert_eq!(inbound.conversation.id, "u-42");
         assert_eq!(inbound.conversation.bot_id.as_deref(), Some("bot-a"));
@@ -3205,7 +3435,7 @@ mod normalize_tests {
             "from": { "userid": "u-7" },
             "text": { "content": "@蕉你一手 /help" },
         }));
-        let inbound = normalize_callback(&msg, "bot-a").unwrap();
+        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
         assert_eq!(inbound.conversation.kind, driver::ConversationKind::Group);
         assert_eq!(inbound.conversation.id, "chat-9");
         assert_eq!(inbound.text, "/help");
@@ -3222,7 +3452,7 @@ mod normalize_tests {
             "from": { "userid": "u-7" },
             "text": { "content": "@bot" },
         }));
-        let inbound = normalize_callback(&msg, "bot-a").unwrap();
+        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
         assert_eq!(inbound.text, "");
     }
 
@@ -3238,7 +3468,7 @@ mod normalize_tests {
             "text": { "content": "yes" },
             "quote": { "msgtype": "text", "text": { "content": "pick one: a or b" } },
         }));
-        let inbound = normalize_callback(&msg, "bot-a").unwrap();
+        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
         assert_eq!(inbound.quoted_text.as_deref(), Some("pick one: a or b"));
         assert_eq!(inbound.text, "yes");
     }
@@ -3253,7 +3483,10 @@ mod normalize_tests {
             "text": { "content": "hi" },
             "quote": { "msgtype": "text", "text": { "content": "" } },
         }));
-        assert!(normalize_callback(&msg, "bot-a").unwrap().quoted_text.is_none());
+        assert!(normalize_callback(&msg, "bot-a", "req-1")
+            .unwrap()
+            .quoted_text
+            .is_none());
     }
 
     #[test]
@@ -3267,7 +3500,7 @@ mod normalize_tests {
             "from": { "userid": "u-7" },
             "image": { "url": "https://wecom.example/media/1", "aeskey": "k" },
         }));
-        let inbound = normalize_callback(&msg, "bot-a").unwrap();
+        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
         assert_eq!(inbound.attachments.len(), 1);
         assert!(matches!(
             inbound.attachments[0].source,
@@ -3283,7 +3516,7 @@ mod normalize_tests {
             "msgtype": "event",
             "from": { "userid": "u-7" },
         }));
-        assert!(normalize_callback(&msg, "bot-a").is_none());
+        assert!(normalize_callback(&msg, "bot-a", "req-1").is_none());
     }
 
     #[test]
@@ -3297,6 +3530,10 @@ mod normalize_tests {
             "from": { "userid": "u-7" },
             "text": { "content": "hi" },
         }));
-        assert!(normalize_callback(&msg, "").unwrap().conversation.bot_id.is_none());
+        assert!(normalize_callback(&msg, "", "req-1")
+            .unwrap()
+            .conversation
+            .bot_id
+            .is_none());
     }
 }

@@ -99,6 +99,14 @@ pub struct InboundMessage {
     /// Text of the message being replied to, when the channel supports quoting.
     /// Used for context and for matching an answer back to a pending question.
     pub quoted_text: Option<String>,
+    /// Opaque handle back to *this* request, for channels whose reply path is
+    /// bound to the inbound one rather than to the conversation.
+    ///
+    /// WeCom is the reason this exists: its replies and streaming card updates
+    /// go back over the websocket that delivered the callback, keyed by the
+    /// request id — "send to this chat" is a different, weaker operation. The
+    /// core never reads it; it carries it back to the driver untouched.
+    pub reply_context: Option<String>,
 }
 
 /// What the core hands back for rendering. Attachments are already session
@@ -185,15 +193,44 @@ pub enum DriverError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryId(pub String);
 
+/// Where a driver hands a normalized message for the core to act on.
+///
+/// The direction matters: this crate is a leaf, so it cannot call the daemon
+/// that owns the pipeline. The daemon implements this and injects it, and the
+/// gateway's connection loop only ever pushes.
+#[async_trait]
+pub trait InboundSink: Send + Sync {
+    async fn accept(&self, msg: InboundMessage);
+}
+
 #[async_trait]
 pub trait ChannelDriver: Send + Sync {
     fn id(&self) -> ChannelId;
     fn caps(&self) -> ChannelCaps;
 
-    /// Render one outbound message into the conversation.
+    /// The session binding URI for this conversation.
+    ///
+    /// Channel-shaped by nature (`wecom://{corp}/{agent}/{group}/{chat}`), so
+    /// the driver owns it. The core only needs the string to be stable: it is
+    /// what makes the same chat resolve to the same session tomorrow.
+    fn binding(&self, conversation: &Conversation) -> String;
+
+    /// Stable URN for a channel user, used to find or create their actor.
+    fn sender_urn(&self, conversation: &Conversation, sender: &ExternalSender) -> String;
+
+    /// Human-readable session title on first contact ("WeCom group: …").
+    fn session_title(&self, conversation: &Conversation, sender: &ExternalSender) -> String;
+
+    /// Render one outbound message.
+    ///
+    /// `reply_context` is whatever the inbound message carried — a websocket
+    /// request id, a message id to reply to, a mail `Message-ID`. `None` means
+    /// this is proactive: not an answer to anything, which some channels can
+    /// only do through a different API.
     async fn deliver(
         &self,
         to: &Conversation,
+        reply_context: Option<&str>,
         msg: &OutboundMessage,
     ) -> Result<DeliveryId, DriverError>;
 

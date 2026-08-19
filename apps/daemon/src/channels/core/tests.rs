@@ -1,14 +1,12 @@
-//! What the pipeline guarantees, pinned with fakes rather than a live bot.
-//!
-//! Every assertion here corresponds to something that is currently true on
+//! What the pipeline guarantees, pinned with a fake driver rather than a live
+//! bot. Every assertion here corresponds to something that is currently true on
 //! exactly one channel, or true nowhere.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use super::*;
 use teamclu_gateway::driver::{
-    ChannelCaps, ConversationKind, ExternalSender, InboundAttachment, Threading,
+    ChannelCaps, ChannelId, ConversationKind, DriverError, InboundAttachment, Threading,
 };
 
 #[derive(Default)]
@@ -29,25 +27,45 @@ impl DedupStore for FakeDedup {
     }
 }
 
-struct FakeRouter;
+#[derive(Default)]
+struct FakeRouter {
+    bindings: Mutex<Vec<String>>,
+}
+
 #[async_trait]
 impl SessionRouter for FakeRouter {
-    async fn resolve(&self, c: &Conversation) -> Result<String, CoreError> {
-        // Proves bot_id is load-bearing: two bots in one chat must not share.
-        Ok(format!(
-            "session-{}-{}-{}",
-            c.channel,
-            c.bot_id.as_deref().unwrap_or("nobot"),
-            c.id
-        ))
+    async fn resolve(
+        &self,
+        binding: &str,
+        _title: &str,
+        _actor: &str,
+    ) -> Result<SessionRef, CoreError> {
+        self.bindings.lock().unwrap().push(binding.to_string());
+        Ok(SessionRef {
+            session_id: format!("session-for-{binding}"),
+            acp_session_id: format!("acp-for-{binding}"),
+        })
     }
 }
 
-struct FakeIdentity;
+#[derive(Default)]
+struct FakeIdentity {
+    urns: Mutex<Vec<String>>,
+    joined: Mutex<Vec<(String, String)>>,
+}
+
 #[async_trait]
 impl IdentityMapper for FakeIdentity {
-    async fn actor_for(&self, _s: &str, sender: &ExternalSender) -> Result<String, CoreError> {
-        Ok(format!("actor-{}", sender.external_id))
+    async fn actor_for(&self, urn: &str, _display: &str) -> Result<String, CoreError> {
+        self.urns.lock().unwrap().push(urn.to_string());
+        Ok(format!("actor-for-{urn}"))
+    }
+    async fn join(&self, session: &str, actor: &str) -> Result<(), CoreError> {
+        self.joined
+            .lock()
+            .unwrap()
+            .push((session.to_string(), actor.to_string()));
+        Ok(())
     }
 }
 
@@ -55,7 +73,6 @@ impl IdentityMapper for FakeIdentity {
 struct FakeWriter {
     inbound: Mutex<Vec<(String, String, usize)>>, // (text, actor, attachment count)
     replies: Mutex<Vec<String>>,
-    /// Ordering witness: what happened, in the order it happened.
     log: Mutex<Vec<&'static str>>,
 }
 
@@ -87,23 +104,40 @@ impl SessionWriter for FakeWriter {
         self.replies.lock().unwrap().push(text.to_string());
         Ok("msg-out".into())
     }
+
+    async fn upload(
+        &self,
+        _session: &str,
+        upload: &PendingUpload,
+    ) -> Result<SessionAttachment, CoreError> {
+        Ok(SessionAttachment {
+            filename: upload.filename.clone(),
+            mime: upload.mime.clone(),
+            bucket_path: format!("bucket/{}", upload.filename),
+            local_path: None,
+        })
+    }
 }
 
 struct FakeTurns {
     reply: &'static str,
     deltas: Vec<&'static str>,
-    log: Arc<Mutex<Vec<&'static str>>>,
+    log: Arc<Mutex<Vec<String>>>,
 }
 
 #[async_trait]
 impl TurnRunner for FakeTurns {
     async fn run(
         &self,
-        _session: &str,
+        acp: &str,
+        sender_display: &str,
         _prompt: &str,
         on_delta: Option<tokio::sync::mpsc::Sender<String>>,
     ) -> Result<String, CoreError> {
-        self.log.lock().unwrap().push("turn");
+        self.log
+            .lock()
+            .unwrap()
+            .push(format!("turn:{acp}:{sender_display}"));
         if let Some(tx) = on_delta {
             for d in &self.deltas {
                 let _ = tx.send(d.to_string()).await;
@@ -114,84 +148,93 @@ impl TurnRunner for FakeTurns {
 }
 
 #[derive(Default)]
-struct FakeSink {
-    delivered: AtomicUsize,
+struct FakeCommands {
+    /// Commands this fake claims to handle, with their canned reply.
+    handled: Vec<(&'static str, &'static str)>,
+    seen: Mutex<Vec<(String, String)>>, // (name, acp session)
+}
+
+#[async_trait]
+impl CommandRunner for FakeCommands {
+    async fn dispatch(
+        &self,
+        name: &str,
+        _arg: Option<&str>,
+        acp: &str,
+    ) -> Result<Option<String>, CoreError> {
+        self.seen
+            .lock()
+            .unwrap()
+            .push((name.to_string(), acp.to_string()));
+        Ok(self
+            .handled
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, r)| r.to_string()))
+    }
+    fn needs_session(&self, name: &str) -> bool {
+        name != "help"
+    }
+    fn unknown_command_text(&self, name: &str) -> String {
+        format!("unknown: /{name}")
+    }
+}
+
+#[derive(Default)]
+struct FakeDriver {
+    caps: Option<ChannelCaps>,
+    delivered: Mutex<Vec<(String, Option<String>)>>, // (text, reply_context)
     updates: Mutex<Vec<(String, bool)>>,
 }
 
 #[async_trait]
-impl ReplySink for FakeSink {
+impl ChannelDriver for FakeDriver {
+    fn id(&self) -> ChannelId {
+        "wecom"
+    }
+    fn caps(&self) -> ChannelCaps {
+        self.caps.unwrap_or(IM)
+    }
+    fn binding(&self, c: &Conversation) -> String {
+        format!(
+            "wecom://{}/{}/{}",
+            c.bot_id.as_deref().unwrap_or("nobot"),
+            match c.kind {
+                ConversationKind::Group => "group",
+                _ => "single",
+            },
+            c.id
+        )
+    }
+    fn sender_urn(&self, _c: &Conversation, s: &ExternalSender) -> String {
+        format!("urn:wecom:user:{}", s.external_id)
+    }
+    fn session_title(&self, c: &Conversation, _s: &ExternalSender) -> String {
+        format!("WeCom: {}", c.id)
+    }
     async fn deliver(
         &self,
         _to: &Conversation,
+        reply_context: Option<&str>,
         msg: &OutboundMessage,
-    ) -> Result<DeliveryHandle, CoreError> {
-        self.delivered.fetch_add(1, Ordering::SeqCst);
-        self.updates.lock().unwrap().push((msg.text.clone(), true));
-        Ok(DeliveryHandle("d-1".into()))
+    ) -> Result<DeliveryId, DriverError> {
+        self.delivered
+            .lock()
+            .unwrap()
+            .push((msg.text.clone(), reply_context.map(|s| s.to_string())));
+        Ok(DeliveryId("d-1".into()))
     }
-
     async fn update(
         &self,
-        _h: &DeliveryHandle,
+        _id: &DeliveryId,
         text: &str,
         finished: bool,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), DriverError> {
         self.updates
             .lock()
             .unwrap()
             .push((text.to_string(), finished));
         Ok(())
-    }
-}
-
-fn core(turns: FakeTurns) -> (Core, Arc<FakeWriter>) {
-    let writer = Arc::new(FakeWriter::default());
-    (
-        Core {
-            dedup: Arc::new(FakeDedup::default()),
-            router: Arc::new(FakeRouter),
-            identity: Arc::new(FakeIdentity),
-            writer: writer.clone(),
-            turns: Arc::new(turns),
-        },
-        writer,
-    )
-}
-
-fn turns(
-    reply: &'static str,
-    deltas: Vec<&'static str>,
-) -> (FakeTurns, Arc<Mutex<Vec<&'static str>>>) {
-    let log = Arc::new(Mutex::new(Vec::new()));
-    (
-        FakeTurns {
-            reply,
-            deltas,
-            log: log.clone(),
-        },
-        log,
-    )
-}
-
-fn inbound(text: &str) -> InboundMessage {
-    InboundMessage {
-        conversation: Conversation {
-            channel: "wecom",
-            bot_id: Some("bot-a".into()),
-            kind: ConversationKind::Direct,
-            id: "u-1".into(),
-        },
-        sender: ExternalSender {
-            external_id: "u-1".into(),
-            display_name: "Someone".into(),
-            email: None,
-        },
-        external_message_id: "m-1".into(),
-        text: text.into(),
-        attachments: Vec::new(),
-        addressed_to_bot: true,
-        quoted_text: None,
     }
 }
 
@@ -214,59 +257,119 @@ const MAIL: ChannelCaps = ChannelCaps {
     turn_timeout_secs: 900,
 };
 
+struct Fixture {
+    core: Core,
+    writer: Arc<FakeWriter>,
+    identity: Arc<FakeIdentity>,
+    router: Arc<FakeRouter>,
+    commands: Arc<FakeCommands>,
+    turn_log: Arc<Mutex<Vec<String>>>,
+}
+
+fn fixture(reply: &'static str, deltas: Vec<&'static str>, commands: FakeCommands) -> Fixture {
+    let writer = Arc::new(FakeWriter::default());
+    let identity = Arc::new(FakeIdentity::default());
+    let router = Arc::new(FakeRouter::default());
+    let commands = Arc::new(commands);
+    let turn_log = Arc::new(Mutex::new(Vec::new()));
+    Fixture {
+        core: Core {
+            dedup: Arc::new(FakeDedup::default()),
+            router: router.clone(),
+            identity: identity.clone(),
+            writer: writer.clone(),
+            turns: Arc::new(FakeTurns {
+                reply,
+                deltas,
+                log: turn_log.clone(),
+            }),
+            commands: commands.clone(),
+        },
+        writer,
+        identity,
+        router,
+        commands,
+        turn_log,
+    }
+}
+
+fn plain(reply: &'static str) -> Fixture {
+    fixture(reply, vec![], FakeCommands::default())
+}
+
+fn inbound(text: &str) -> InboundMessage {
+    InboundMessage {
+        conversation: Conversation {
+            channel: "wecom",
+            bot_id: Some("bot-a".into()),
+            kind: ConversationKind::Direct,
+            id: "u-1".into(),
+        },
+        sender: ExternalSender {
+            external_id: "u-1".into(),
+            display_name: String::new(),
+            email: None,
+        },
+        external_message_id: "m-1".into(),
+        text: text.into(),
+        attachments: Vec::new(),
+        addressed_to_bot: true,
+        quoted_text: None,
+        reply_context: Some("req-1".into()),
+    }
+}
+
+fn driver(caps: ChannelCaps) -> FakeDriver {
+    FakeDriver {
+        caps: Some(caps),
+        ..Default::default()
+    }
+}
+
 #[tokio::test]
 async fn the_inbound_message_is_written_before_the_turn_runs() {
     // The symptom this prevents: a three-minute turn during which the user's
     // own message exists nowhere, then both rows land 39ms apart.
-    let (t, log) = turns("done", vec![]);
-    let (core, writer) = core(t);
-    let sink = FakeSink::default();
-    core.handle(MAIL, &sink, inbound("hi")).await.unwrap();
+    let f = plain("done");
+    let d = driver(MAIL);
+    f.core.handle(&d, inbound("hi")).await.unwrap();
 
-    let writes = writer.log.lock().unwrap().clone();
-    let turn_ran = log.lock().unwrap().clone();
-    assert_eq!(writes[0], "write_inbound");
-    assert_eq!(turn_ran, vec!["turn"], "the turn ran");
-    assert_eq!(writes[1], "write_reply", "the reply is written too");
+    let writes = f.writer.log.lock().unwrap().clone();
+    assert_eq!(writes, vec!["write_inbound", "write_reply"]);
+    assert_eq!(f.turn_log.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
 async fn a_redelivered_message_produces_no_second_turn() {
-    let (t, log) = turns("done", vec![]);
-    let (core, _w) = core(t);
-    let sink = FakeSink::default();
-
-    let first = core.handle(IM, &sink, inbound("hi")).await.unwrap();
-    let second = core.handle(IM, &sink, inbound("hi")).await.unwrap();
+    let f = plain("done");
+    let d = driver(IM);
+    let first = f.core.handle(&d, inbound("hi")).await.unwrap();
+    let second = f.core.handle(&d, inbound("hi")).await.unwrap();
 
     assert!(matches!(first, Outcome::Handled { .. }));
     assert_eq!(second, Outcome::Duplicate);
-    assert_eq!(log.lock().unwrap().len(), 1, "exactly one turn");
+    assert_eq!(f.turn_log.lock().unwrap().len(), 1, "exactly one turn");
 }
 
 #[tokio::test]
 async fn a_group_message_that_does_not_address_the_bot_is_ignored() {
-    let (t, log) = turns("done", vec![]);
-    let (core, _w) = core(t);
-    let sink = FakeSink::default();
+    let f = plain("done");
+    let d = driver(IM);
     let mut msg = inbound("chatter between humans");
     msg.conversation.kind = ConversationKind::Group;
     msg.addressed_to_bot = false;
 
-    assert_eq!(
-        core.handle(IM, &sink, msg).await.unwrap(),
-        Outcome::NotAddressed
-    );
-    assert!(log.lock().unwrap().is_empty(), "no turn, no write");
+    assert_eq!(f.core.handle(&d, msg).await.unwrap(), Outcome::NotAddressed);
+    assert!(f.turn_log.lock().unwrap().is_empty(), "no turn, no write");
+    assert!(f.writer.log.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn a_bare_mention_says_nothing_and_starts_nothing() {
-    let (t, _log) = turns("done", vec![]);
-    let (core, _w) = core(t);
-    let sink = FakeSink::default();
+    let f = plain("done");
+    let d = driver(IM);
     assert_eq!(
-        core.handle(IM, &sink, inbound("   ")).await.unwrap(),
+        f.core.handle(&d, inbound("   ")).await.unwrap(),
         Outcome::Empty
     );
 }
@@ -275,116 +378,179 @@ async fn a_bare_mention_says_nothing_and_starts_nothing() {
 async fn a_channel_that_cannot_edit_gets_exactly_one_delivery() {
     // Email. The turn still streams internally — the session and the desktop
     // see deltas — the channel just receives the finished text once.
-    let (t, _log) = turns("the whole answer", vec!["the", "the whole"]);
-    let (core, _w) = core(t);
-    let sink = FakeSink::default();
-
-    let outcome = core.handle(MAIL, &sink, inbound("hi")).await.unwrap();
-    assert_eq!(
-        outcome,
-        Outcome::Handled {
-            session_id: "session-wecom-bot-a-u-1".into(),
-            deliveries: 1
-        }
+    let f = fixture(
+        "the whole answer",
+        vec!["the", "the whole"],
+        FakeCommands::default(),
     );
-    let updates = sink.updates.lock().unwrap();
-    assert_eq!(updates.len(), 1);
-    assert_eq!(updates[0].0, "the whole answer");
+    let d = driver(MAIL);
+
+    let outcome = f.core.handle(&d, inbound("hi")).await.unwrap();
+    assert!(matches!(outcome, Outcome::Handled { deliveries: 1, .. }));
+    let delivered = d.delivered.lock().unwrap();
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(delivered[0].0, "the whole answer");
+    assert!(d.updates.lock().unwrap().is_empty(), "nothing to edit");
 }
 
 #[tokio::test]
-async fn a_channel_that_can_edit_sees_every_delta() {
-    let (t, _log) = turns("Hello world", vec!["He", "Hello", "Hello wo"]);
-    let (core, _w) = core(t);
-    let sink = FakeSink::default();
+async fn a_channel_that_can_edit_sees_every_delta_and_a_final_edit() {
+    let f = fixture(
+        "Hello world",
+        vec!["He", "Hello", "Hello wo"],
+        FakeCommands::default(),
+    );
+    let d = driver(IM);
 
-    core.handle(IM, &sink, inbound("hi")).await.unwrap();
+    f.core.handle(&d, inbound("hi")).await.unwrap();
 
-    let updates = sink.updates.lock().unwrap();
-    // opening empty delivery + 3 deltas + final
-    assert_eq!(updates.len(), 5);
+    let updates = d.updates.lock().unwrap();
+    assert_eq!(updates.len(), 4, "3 deltas + the final");
     assert_eq!(updates.last().unwrap().0, "Hello world");
     assert!(updates.last().unwrap().1, "the last edit is marked final");
+    // The opening delivery is what the streaming edits then replace.
+    assert_eq!(d.delivered.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
-async fn the_session_key_separates_two_bots_in_one_chat() {
-    let (t, _log) = turns("done", vec![]);
-    let (core, _w) = core(t);
-    let sink = FakeSink::default();
+async fn the_reply_context_travels_back_to_the_driver_untouched() {
+    // WeCom's reply path is bound to the websocket request that delivered the
+    // message. Losing this means the reply has nowhere to go.
+    let f = plain("done");
+    let d = driver(MAIL);
+    f.core.handle(&d, inbound("hi")).await.unwrap();
+    assert_eq!(d.delivered.lock().unwrap()[0].1.as_deref(), Some("req-1"));
+}
+
+#[tokio::test]
+async fn two_bots_in_one_chat_resolve_to_different_sessions() {
+    let f = plain("done");
+    let d = driver(IM);
 
     let mut a = inbound("hi");
     a.conversation.kind = ConversationKind::Group;
     a.conversation.id = "chat-1".into();
-    let mut b = copy_without_attachments(&a);
+    let mut b = inbound("hi");
+    b.conversation.kind = ConversationKind::Group;
+    b.conversation.id = "chat-1".into();
     b.conversation.bot_id = Some("bot-b".into());
     b.external_message_id = "m-2".into();
 
-    let Outcome::Handled { session_id: sa, .. } = core.handle(IM, &sink, a).await.unwrap() else {
-        panic!("first message not handled")
-    };
-    let Outcome::Handled { session_id: sb, .. } = core.handle(IM, &sink, b).await.unwrap() else {
-        panic!("second message not handled")
-    };
-    assert_ne!(sa, sb, "two bots in one chat must not share a session");
+    f.core.handle(&d, a).await.unwrap();
+    f.core.handle(&d, b).await.unwrap();
+
+    let bindings = f.router.bindings.lock().unwrap();
+    assert_ne!(bindings[0], bindings[1]);
 }
 
 #[tokio::test]
 async fn quoted_context_is_prepended_once_for_every_channel() {
-    let (t, _log) = turns("done", vec![]);
-    let (core, writer) = core(t);
-    let sink = FakeSink::default();
+    let f = plain("done");
+    let d = driver(MAIL);
     let mut msg = inbound("yes");
     msg.quoted_text = Some("pick one: a or b".into());
 
-    core.handle(MAIL, &sink, msg).await.unwrap();
+    f.core.handle(&d, msg).await.unwrap();
 
-    let inbound_writes = writer.inbound.lock().unwrap();
-    assert!(inbound_writes[0].0.contains("[Quoted message]"));
-    assert!(inbound_writes[0].0.ends_with("yes"));
+    let written = f.writer.inbound.lock().unwrap();
+    assert!(written[0].0.contains("[Quoted message]"));
+    assert!(written[0].0.ends_with("yes"));
 }
 
 #[tokio::test]
 async fn attachments_are_resolved_and_written_with_the_message() {
     // Inbound attachments exist on WeCom today and nowhere else. Here they are
     // a property of the pipeline, so a channel gets them by having them.
-    let (t, _log) = turns("done", vec![]);
-    let (core, writer) = core(t);
-    let sink = FakeSink::default();
+    let f = plain("done");
+    let d = driver(MAIL);
     let mut msg = inbound("see attached");
     msg.attachments.push(InboundAttachment {
         filename: "report.pdf".into(),
         mime: "application/pdf".into(),
         size_hint: Some(3),
-        source: teamclu_gateway::driver::AttachmentSource::Ready(vec![1, 2, 3]),
+        source: AttachmentSource::Ready(vec![1, 2, 3]),
     });
 
-    core.handle(MAIL, &sink, msg).await.unwrap();
-
-    let inbound_writes = writer.inbound.lock().unwrap();
-    assert_eq!(inbound_writes[0].2, 1, "the attachment reached the write");
+    f.core.handle(&d, msg).await.unwrap();
+    assert_eq!(f.writer.inbound.lock().unwrap()[0].2, 1);
 }
 
 #[tokio::test]
-async fn the_sender_is_the_human_not_the_bot() {
-    let (t, _log) = turns("done", vec![]);
-    let (core, writer) = core(t);
-    let sink = FakeSink::default();
-    core.handle(MAIL, &sink, inbound("hi")).await.unwrap();
-    assert_eq!(writer.inbound.lock().unwrap()[0].1, "actor-u-1");
+async fn the_sender_is_the_human_and_falls_back_to_their_id() {
+    // WeCom callbacks carry no display name; "" would reach the agent as an
+    // anonymous speaker.
+    let f = plain("done");
+    let d = driver(MAIL);
+    f.core.handle(&d, inbound("hi")).await.unwrap();
+
+    assert_eq!(f.identity.urns.lock().unwrap()[0], "urn:wecom:user:u-1");
+    assert_eq!(
+        f.writer.inbound.lock().unwrap()[0].1,
+        "actor-for-urn:wecom:user:u-1"
+    );
+    assert!(
+        f.turn_log.lock().unwrap()[0].ends_with(":u-1"),
+        "display falls back to the id"
+    );
 }
 
-/// Test-only shallow copy: `InboundAttachment` is deliberately not `Clone` (an
-/// attachment fetch is not something to duplicate by accident), and the type
-/// belongs to another crate, so this is a free function rather than an impl.
-fn copy_without_attachments(msg: &InboundMessage) -> InboundMessage {
-    InboundMessage {
-        conversation: msg.conversation.clone(),
-        sender: msg.sender.clone(),
-        external_message_id: msg.external_message_id.clone(),
-        text: msg.text.clone(),
-        attachments: Vec::new(),
-        addressed_to_bot: msg.addressed_to_bot,
-        quoted_text: msg.quoted_text.clone(),
-    }
+#[tokio::test]
+async fn a_help_command_is_answered_without_creating_a_session() {
+    // Asking for help in a chat the bot has never seen must not leave a
+    // session behind as a side effect.
+    let f = fixture(
+        "unused",
+        vec![],
+        FakeCommands {
+            handled: vec![("help", "here is help")],
+            ..Default::default()
+        },
+    );
+    let d = driver(IM);
+
+    let outcome = f.core.handle(&d, inbound("/help")).await.unwrap();
+
+    assert_eq!(outcome, Outcome::Command { handled: true });
+    assert!(
+        f.router.bindings.lock().unwrap().is_empty(),
+        "no session made"
+    );
+    assert!(f.turn_log.lock().unwrap().is_empty(), "no turn run");
+    assert_eq!(d.delivered.lock().unwrap()[0].0, "here is help");
+}
+
+#[tokio::test]
+async fn a_session_command_runs_against_the_resolved_session() {
+    let f = fixture(
+        "unused",
+        vec![],
+        FakeCommands {
+            handled: vec![("compact", "compacted")],
+            ..Default::default()
+        },
+    );
+    let d = driver(IM);
+
+    let outcome = f.core.handle(&d, inbound("/compact")).await.unwrap();
+
+    assert_eq!(outcome, Outcome::Command { handled: true });
+    let seen = f.commands.seen.lock().unwrap();
+    assert_eq!(seen[0].0, "compact");
+    assert!(seen[0].1.starts_with("acp-for-"), "got a real session id");
+    assert!(
+        f.turn_log.lock().unwrap().is_empty(),
+        "a command is not a turn"
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_command_says_so_instead_of_starting_a_turn() {
+    let f = plain("unused");
+    let d = driver(IM);
+
+    let outcome = f.core.handle(&d, inbound("/nonsense")).await.unwrap();
+
+    assert_eq!(outcome, Outcome::Command { handled: false });
+    assert_eq!(d.delivered.lock().unwrap()[0].0, "unknown: /nonsense");
+    assert!(f.turn_log.lock().unwrap().is_empty());
 }

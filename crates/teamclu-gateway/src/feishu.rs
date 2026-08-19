@@ -403,6 +403,9 @@ pub struct FeishuGateway {
     shutdown_tx: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     status: Arc<RwLock<FeishuGatewayStatusResponse>>,
     is_running: Arc<RwLock<bool>>,
+    /// Set by the daemon to route inbound messages through the core pipeline;
+    /// absent keeps the inline handler. See the WeCom field of the same name.
+    inbound_sink: Arc<RwLock<Option<Arc<dyn crate::driver::InboundSink>>>>,
 }
 
 impl FeishuGateway {
@@ -423,11 +426,24 @@ impl FeishuGateway {
             shutdown_tx: Arc::new(RwLock::new(None)),
             status: Arc::new(RwLock::new(FeishuGatewayStatusResponse::default())),
             is_running: Arc::new(RwLock::new(false)),
+            inbound_sink: Arc::new(RwLock::new(None)),
         }
     }
 
     pub async fn set_config(&self, config: FeishuConfig) {
         *self.config.write().await = config;
+    }
+
+    /// Route inbound messages through the core pipeline. Set by the daemon at
+    /// boot; unset leaves the pre-driver path.
+    pub async fn use_core_pipeline(&self, sink: Arc<dyn crate::driver::InboundSink>) {
+        *self.inbound_sink.write().await = Some(sink);
+    }
+
+    /// A driver for the core to render replies through.
+    pub async fn as_driver(&self) -> FeishuDriver {
+        let cfg = self.config.read().await.clone();
+        FeishuDriver::new(cfg.app_id, cfg.app_secret)
     }
 
     pub async fn get_status(&self) -> FeishuGatewayStatusResponse {
@@ -461,6 +477,9 @@ impl FeishuGateway {
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         *self.shutdown_tx.write().await = Some(shutdown_tx);
 
+        // Read once at start: switching pipelines mid-connection would leave
+        // half a conversation on each path.
+        let inbound_sink = self.inbound_sink.read().await.clone();
         let config_arc = Arc::clone(&self.config);
         let status_arc = Arc::clone(&self.status);
         let is_running_arc = Arc::clone(&self.is_running);
@@ -479,6 +498,7 @@ impl FeishuGateway {
                 team_id,
                 primary_agent_actor_id,
                 agent_owner_actor_ids,
+                inbound_sink,
                 shutdown_rx,
             )
             .await;
@@ -559,6 +579,9 @@ impl Clone for FeishuGateway {
             shutdown_tx: Arc::clone(&self.shutdown_tx),
             status: Arc::clone(&self.status),
             is_running: Arc::clone(&self.is_running),
+            // Shared, not copied: wiring the pipeline on one handle has to be
+            // visible to every clone, or a clone starts on the inline path.
+            inbound_sink: Arc::clone(&self.inbound_sink),
         }
     }
 }
@@ -623,6 +646,320 @@ struct HandlerContext {
     agent_owner_actor_ids: Vec<String>,
     app_id: String,
     app_secret: String,
+    /// When present, inbound messages go to the core pipeline instead of being
+    /// handled inline. See the WeCom field of the same name.
+    inbound_sink: Option<Arc<dyn crate::driver::InboundSink>>,
+}
+
+// ─── Feishu → InboundMessage ────────────────────────────────────────────────
+
+/// What a Feishu bot can do.
+///
+/// `streaming_edit` is true because Feishu *can* edit a sent message
+/// (`update_feishu_message`) — the inline path simply never used it, which is
+/// why Feishu users see a reply appear all at once today. Routing through the
+/// core turns that capability on without any new Feishu code.
+///
+/// `media_upload` stays false until the file/image upload APIs are wired: the
+/// core then renders attachments as links rather than silently dropping them,
+/// which is what happens now.
+pub fn feishu_caps() -> crate::driver::ChannelCaps {
+    crate::driver::ChannelCaps {
+        streaming_edit: true,
+        media_upload: false,
+        interactive: false,
+        threading: crate::driver::Threading::ReplyTo,
+        // Feishu rejects oversized text bodies; the core splits above this.
+        max_chars: 4000,
+        turn_timeout_secs: 180,
+    }
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn event(v: serde_json::Value) -> serde_json::Value {
+        v
+    }
+
+    fn text_event(
+        chat_type: &str,
+        content: &str,
+        mentions: serde_json::Value,
+    ) -> serde_json::Value {
+        event(json!({
+            "sender": { "sender_type": "user", "sender_id": { "open_id": "ou-1" } },
+            "message": {
+                "message_id": "om-1",
+                "chat_id": "oc-1",
+                "chat_type": chat_type,
+                "message_type": "text",
+                "content": json!({ "text": content }).to_string(),
+                "mentions": mentions,
+            }
+        }))
+    }
+
+    #[test]
+    fn a_dm_becomes_a_direct_conversation_keyed_on_the_chat() {
+        let msg = normalize_event(&text_event("p2p", "hello", json!([])), "cli_app").unwrap();
+        assert_eq!(
+            msg.conversation.kind,
+            crate::driver::ConversationKind::Direct
+        );
+        assert_eq!(msg.conversation.id, "oc-1");
+        assert_eq!(msg.conversation.bot_id.as_deref(), Some("cli_app"));
+        assert_eq!(msg.sender.external_id, "ou-1");
+        assert_eq!(msg.text, "hello");
+        assert!(msg.addressed_to_bot);
+    }
+
+    #[test]
+    fn a_group_message_without_a_mention_is_marked_unaddressed() {
+        // Feishu's subscription usually filters these out, but that is
+        // configuration — the guard has to be in the data, not in a hope.
+        let msg = normalize_event(&text_event("group", "chatter", json!([])), "cli_app").unwrap();
+        assert_eq!(
+            msg.conversation.kind,
+            crate::driver::ConversationKind::Group
+        );
+        assert!(!msg.addressed_to_bot);
+    }
+
+    #[test]
+    fn a_group_message_with_a_mention_is_addressed() {
+        let msg = normalize_event(
+            &text_event("group", "@bot do it", json!([{ "key": "@_user_1" }])),
+            "cli_app",
+        )
+        .unwrap();
+        assert!(msg.addressed_to_bot);
+    }
+
+    #[test]
+    fn the_bots_own_message_is_refused_because_it_would_loop() {
+        let mut e = text_event("p2p", "echo", json!([]));
+        e["sender"]["sender_type"] = json!("app");
+        assert!(normalize_event(&e, "cli_app").is_none());
+    }
+
+    #[test]
+    fn the_reply_context_is_the_message_being_answered() {
+        // Feishu replies reference the original, which is what keeps the answer
+        // threaded under it instead of loose in the chat.
+        let msg = normalize_event(&text_event("p2p", "hi", json!([])), "cli_app").unwrap();
+        assert_eq!(msg.reply_context.as_deref(), Some("om-1"));
+    }
+
+    #[test]
+    fn a_media_message_is_reported_as_unusable_rather_than_as_empty_text() {
+        // Feishu file support is not wired yet. Returning None lets the caller
+        // say so; an empty-text message would look like the user sent nothing.
+        let mut e = text_event("p2p", "", json!([]));
+        e["message"]["message_type"] = json!("image");
+        assert!(normalize_event(&e, "cli_app").is_none());
+    }
+
+    #[test]
+    fn an_event_missing_its_ids_is_refused() {
+        let mut e = text_event("p2p", "hi", json!([]));
+        e["message"]["message_id"] = json!("");
+        assert!(normalize_event(&e, "cli_app").is_none());
+    }
+}
+
+/// Feishu as a transport driver.
+///
+/// Stateless apart from its credentials: replies address a message id, and
+/// Feishu's own API is what holds the conversation together — unlike WeCom,
+/// there is no per-connection sink to keep.
+pub struct FeishuDriver {
+    tokens: TokenManager,
+    app_id: String,
+    /// Message id → the reply we are editing, so `update` knows what to patch.
+    /// Feishu's update API addresses the *reply's* id, not the original's.
+    replies: tokio::sync::Mutex<std::collections::HashMap<String, String>>,
+}
+
+impl FeishuDriver {
+    pub fn new(app_id: String, app_secret: String) -> Self {
+        Self {
+            tokens: TokenManager::new(&app_id, &app_secret),
+            app_id,
+            replies: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    async fn token(&self) -> Result<String, crate::driver::DriverError> {
+        self.tokens
+            .get_tenant_token()
+            .await
+            .map_err(crate::driver::DriverError::Transport)
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::driver::ChannelDriver for FeishuDriver {
+    fn id(&self) -> crate::driver::ChannelId {
+        "feishu"
+    }
+
+    fn caps(&self) -> crate::driver::ChannelCaps {
+        feishu_caps()
+    }
+
+    fn binding(&self, conversation: &crate::driver::Conversation) -> String {
+        // Same shape the inline path used, so an existing chat keeps resolving
+        // to the session it already has.
+        format!("feishu://{}/{}", self.app_id, conversation.id)
+    }
+
+    fn sender_urn(
+        &self,
+        _conversation: &crate::driver::Conversation,
+        sender: &crate::driver::ExternalSender,
+    ) -> String {
+        format!("urn:feishu:user:{}", sender.external_id)
+    }
+
+    fn session_title(
+        &self,
+        conversation: &crate::driver::Conversation,
+        sender: &crate::driver::ExternalSender,
+    ) -> String {
+        match conversation.kind {
+            crate::driver::ConversationKind::Group => {
+                format!("Feishu group: {}", conversation.id)
+            }
+            _ => format!("Feishu DM: {}", sender.external_id),
+        }
+    }
+
+    async fn deliver(
+        &self,
+        to: &crate::driver::Conversation,
+        reply_context: Option<&str>,
+        msg: &crate::driver::OutboundMessage,
+    ) -> Result<crate::driver::DeliveryId, crate::driver::DriverError> {
+        let token = self.token().await?;
+
+        // Feishu cannot upload files here yet (`media_upload: false`), so the
+        // core has already degraded attachments into the text. Nothing is
+        // dropped silently — but nothing is uploaded either, which is why the
+        // capability says false.
+        let text = if msg.text.trim().is_empty() {
+            // The opening frame of a streaming reply. Feishu rejects an empty
+            // body, so it carries the same placeholder WeCom shows.
+            "💭 正在思考…"
+        } else {
+            msg.text.as_str()
+        };
+
+        match reply_context {
+            Some(message_id) => {
+                let reply_id = reply_feishu_message(&token, message_id, text)
+                    .await
+                    .map_err(crate::driver::DriverError::Transport)?;
+                self.replies
+                    .lock()
+                    .await
+                    .insert(reply_id.clone(), reply_id.clone());
+                Ok(crate::driver::DeliveryId(reply_id))
+            }
+            None => {
+                send_feishu_message(&token, &to.id, text)
+                    .await
+                    .map_err(crate::driver::DriverError::Transport)?;
+                Ok(crate::driver::DeliveryId(format!("chat:{}", to.id)))
+            }
+        }
+    }
+
+    async fn update(
+        &self,
+        id: &crate::driver::DeliveryId,
+        text: &str,
+        finished: bool,
+    ) -> Result<(), crate::driver::DriverError> {
+        let token = self.token().await?;
+        update_feishu_message(&token, &id.0, text)
+            .await
+            .map_err(crate::driver::DriverError::Transport)?;
+        if finished {
+            self.replies.lock().await.remove(&id.0);
+        }
+        Ok(())
+    }
+}
+
+/// Normalize a Feishu message event. Pure — no token, no network.
+pub(crate) fn normalize_event(
+    event: &serde_json::Value,
+    bot_app_id: &str,
+) -> Option<crate::driver::InboundMessage> {
+    let sender = &event["sender"];
+    // A bot's own message must never start a turn; that is a loop.
+    if sender["sender_type"].as_str().unwrap_or("") == "app" {
+        return None;
+    }
+    let sender_open_id = sender["sender_id"]["open_id"].as_str().unwrap_or("");
+
+    let message = &event["message"];
+    let message_id = message["message_id"].as_str().unwrap_or("");
+    let chat_id = message["chat_id"].as_str().unwrap_or("");
+    let chat_type = message["chat_type"].as_str().unwrap_or("");
+    let msg_type = message["message_type"].as_str().unwrap_or("");
+    if message_id.is_empty() || chat_id.is_empty() {
+        return None;
+    }
+
+    let content_json: serde_json::Value =
+        serde_json::from_str(message["content"].as_str().unwrap_or("{}")).unwrap_or_default();
+    let text = match msg_type {
+        "text" => content_json["text"].as_str().unwrap_or("").to_string(),
+        "post" => extract_post_text(&content_json),
+        // Media arrives as its own message type. Reported as unusable rather
+        // than dropped silently, so the caller can say so.
+        _ => return None,
+    };
+    let text = clean_at_mentions(&text);
+
+    let kind = if chat_type == "group" {
+        crate::driver::ConversationKind::Group
+    } else {
+        crate::driver::ConversationKind::Direct
+    };
+    // Feishu only delivers group messages that mention the bot, but the guard
+    // is explicit: the subscription is configuration, not a guarantee.
+    let addressed_to_bot = kind != crate::driver::ConversationKind::Group
+        || message["mentions"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false);
+
+    Some(crate::driver::InboundMessage {
+        conversation: crate::driver::Conversation {
+            channel: "feishu",
+            bot_id: (!bot_app_id.is_empty()).then(|| bot_app_id.to_string()),
+            kind,
+            id: chat_id.to_string(),
+        },
+        sender: crate::driver::ExternalSender {
+            external_id: sender_open_id.to_string(),
+            display_name: String::new(),
+            email: None,
+        },
+        external_message_id: message_id.to_string(),
+        text,
+        attachments: Vec::new(),
+        addressed_to_bot,
+        quoted_text: None,
+        // Feishu replies reference the message being answered, which keeps the
+        // reply threaded under it instead of loose in the chat.
+        reply_context: Some(message_id.to_string()),
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -634,6 +971,7 @@ async fn run_feishu_gateway(
     team_id: String,
     primary_agent_actor_id: String,
     agent_owner_actor_ids: Vec<String>,
+    inbound_sink: Option<Arc<dyn crate::driver::InboundSink>>,
     mut shutdown_rx: oneshot::Receiver<()>,
 ) -> Result<(), String> {
     let cfg = config.read().await.clone();
@@ -651,6 +989,7 @@ async fn run_feishu_gateway(
         agent_owner_actor_ids,
         app_id: cfg.app_id.clone(),
         app_secret: cfg.app_secret.clone(),
+        inbound_sink,
     };
 
     let processed_messages: Arc<RwLock<ProcessedMessageTracker>> = Arc::new(RwLock::new(
@@ -982,6 +1321,16 @@ async fn handle_binary_frame(
 
 /// Handle an im.message.receive_v1 event
 async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
+    // The core pipeline, when the daemon has wired it. Dedup lives inside it,
+    // so this branch sits above the inline tracker.
+    if let Some(sink) = ctx.inbound_sink.clone() {
+        match normalize_event(event, &ctx.app_id) {
+            Some(inbound) => sink.accept(inbound).await,
+            None => println!("[Feishu] Event carried nothing actionable; ignoring"),
+        }
+        return;
+    }
+
     let sender = &event["sender"];
     let sender_open_id = sender["sender_id"]["open_id"]
         .as_str()
