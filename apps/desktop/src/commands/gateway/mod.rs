@@ -149,6 +149,38 @@ pub async fn list_wecom_chats() -> Result<serde_json::Value, String> {
     }
 }
 
+/// Which credential fields already hold a value, as dotted paths
+/// (`channels.wecom.bots[aibC…].secret`).
+///
+/// Credentials read back empty by design — the daemon keeps them in the team's
+/// encrypted store — but an empty box is also what "never configured" looks
+/// like, so the form needs to be told the difference. Values never travel.
+#[tauri::command]
+pub async fn list_channel_secret_keys() -> Result<Vec<String>, String> {
+    #[cfg(windows)]
+    return Err(amuxd_unavailable());
+    #[cfg(unix)]
+    {
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            #[serde(default)]
+            keys: Vec<String>,
+        }
+        let mut s =
+            UnixStream::connect(sock_path()).map_err(|e| format!("amuxd not reachable: {e}"))?;
+        s.write_all(b"channel-secret-keys\n")
+            .map_err(|e| format!("write failed: {e}"))?;
+        s.shutdown(std::net::Shutdown::Write)
+            .map_err(|e| format!("shutdown write half failed: {e}"))?;
+        let mut buf = String::new();
+        s.read_to_string(&mut buf)
+            .map_err(|e| format!("read failed: {e}"))?;
+        let parsed: Resp = serde_json::from_str(buf.trim())
+            .map_err(|e| format!("bad response from amuxd: {e} (body={buf:?})"))?;
+        Ok(parsed.keys)
+    }
+}
+
 /// Load a persisted channel config from the active team's `team.toml`, so the
 /// settings UI can rehydrate forms after the panel is closed and reopened.
 ///

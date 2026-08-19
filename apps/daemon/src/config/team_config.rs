@@ -462,6 +462,18 @@ fn path_resolves(root: &Value, key: &str) -> bool {
 /// `SecretStore::load` returns `Ok(default)` for a missing file and `Err` only
 /// for real failures (decrypt, parse) — precisely the distinction the save
 /// path's GC depends on, so errors propagate instead of becoming "empty".
+/// Which credential slots have a value stored, by dotted path
+/// (`channels.wecom.bots[aibC…].secret`). Never the values themselves.
+///
+/// The settings form reads secrets back as empty — that is deliberate, the
+/// split moved them out of `team.toml` — but an empty box also looks exactly
+/// like "never configured", so people retype a key they already had, or avoid
+/// pressing save at all. Presence is the part the UI is missing, and it is not
+/// a secret.
+pub fn stored_secret_keys(team_id: &str) -> anyhow::Result<Vec<String>> {
+    Ok(load_secret_map(team_id)?.into_keys().collect())
+}
+
 fn load_secret_map(team_id: &str) -> anyhow::Result<BTreeMap<String, String>> {
     crate::sync::secret_store::SecretStore::new()
         .load(team_id)

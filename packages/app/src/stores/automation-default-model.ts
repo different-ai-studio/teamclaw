@@ -93,6 +93,27 @@ export const useAutomationDefaultModelStore = create<State>()(
  * the effect that builds its initial form state. Never throws: a missing
  * default just means the form opens empty, which is the pre-existing behaviour.
  */
+/**
+ * The first default set for any of `backends` in `teamId`.
+ *
+ * The cron dialog knows which backends its catalog offers but not which one
+ * this device calls "the" backend, and a device that switched runtimes can hold
+ * a default under the old key. Asking across the offered backends answers "is
+ * there a default I can pre-fill with" without the dialog having to re-derive
+ * the device's backend identity — a second derivation is a second thing to get
+ * subtly wrong.
+ */
+export function automationDefaultForBackends(
+  backends: Iterable<string>,
+  teamId: string | null | undefined,
+): string {
+  for (const backend of backends) {
+    const found = automationDefaultModel(backend, teamId);
+    if (found) return found;
+  }
+  return "";
+}
+
 export function automationDefaultModel(
   backendType: string | null | undefined,
   teamId?: string | null,
