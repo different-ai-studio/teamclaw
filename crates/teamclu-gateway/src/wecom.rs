@@ -1029,7 +1029,10 @@ struct InFlightReply {
     pacer: StreamPacer,
     chatid: String,
     chat_type: u32,
-    started: std::time::Instant,
+    /// The last frame actually sent, reused to close the bubble. Closing with
+    /// fresh wording would make the finished bubble say something the reader
+    /// never watched it say.
+    last_frame: String,
 }
 
 impl WeComDriver {
@@ -1175,7 +1178,7 @@ impl driver::ChannelDriver for WeComDriver {
                 pacer,
                 chatid: chatid.to_string(),
                 chat_type,
-                started: std::time::Instant::now(),
+                last_frame: PROGRESS_OPENING.to_string(),
             },
         );
         Ok(driver::DeliveryId(stream_id))
@@ -1194,10 +1197,15 @@ impl driver::ChannelDriver for WeComDriver {
         text: &str,
         finished: bool,
     ) -> Result<(), driver::DriverError> {
-        let (pacer, chatid, chat_type, started) = {
+        let (pacer, chatid, chat_type, last_frame) = {
             let pacers = self.pacers.lock().await;
             match pacers.get(&id.0) {
-                Some(r) => (r.pacer.clone(), r.chatid.clone(), r.chat_type, r.started),
+                Some(r) => (
+                    r.pacer.clone(),
+                    r.chatid.clone(),
+                    r.chat_type,
+                    r.last_frame.clone(),
+                ),
                 None => {
                     return Err(driver::DriverError::Transport(format!(
                         "no streaming reply {} to update — it was already finished",
@@ -1208,17 +1216,24 @@ impl driver::ChannelDriver for WeComDriver {
         };
 
         if !finished {
-            // Elapsed seconds rather than the growing answer: it tells the
-            // sender the turn is alive, which is the whole job of this bubble.
-            let secs = started.elapsed().as_secs();
+            let frame = match newest_line(text) {
+                Some(line) => format!("{PROGRESS_OPENING} {line}"),
+                None => PROGRESS_OPENING.to_string(),
+            };
+            if let Some(entry) = self.pacers.lock().await.get_mut(&id.0) {
+                entry.last_frame = frame.clone();
+            }
             return pacer
-                .send(&format!("{PROGRESS_OPENING}（{secs}s）"), false)
+                .send(&frame, false)
                 .await
                 .map_err(driver::DriverError::Transport);
         }
 
-        // Close the progress bubble, then deliver the real answer as markdown.
-        let _ = pacer.send(PROGRESS_DONE, true).await;
+        // Close the bubble on whatever it was last showing — no "done" wording,
+        // because the finished answer arrives right behind it and saying so
+        // twice is noise. Then send that answer as markdown, which is the only
+        // way WeCom renders code fences and lists (`stream` is plain text).
+        let _ = pacer.send(&last_frame, true).await;
         self.pacers.lock().await.remove(&id.0);
         if text.trim().is_empty() {
             return Ok(());
@@ -1231,8 +1246,35 @@ impl driver::ChannelDriver for WeComDriver {
 
 /// What the progress bubble says while a turn runs.
 const PROGRESS_OPENING: &str = "💭 正在思考…";
-/// …and once it is done, so the bubble does not sit there implying it still is.
-const PROGRESS_DONE: &str = "✅ 已完成";
+
+/// How much of the newest line rides along in the progress frame.
+const PROGRESS_LINE_CHARS: usize = 40;
+
+/// The tail of what the agent has written so far, for the progress bubble.
+///
+/// The turn reports **cumulative** text, so "newest" means the last non-empty
+/// line. Fence markers and heading hashes are dropped: `stream` is plain text,
+/// so they would show up as literal characters in the one place we cannot
+/// render them.
+///
+/// Truncation counts characters, not bytes — a byte slice through a Chinese
+/// reply panics, and this runs on every frame of every turn.
+fn newest_line(text: &str) -> Option<String> {
+    let line = text
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with("```"))?;
+    let line = line.trim_start_matches(['#', '*', '-', '>', ' ']);
+    if line.is_empty() {
+        return None;
+    }
+    let mut out: String = line.chars().take(PROGRESS_LINE_CHARS).collect();
+    if line.chars().count() > PROGRESS_LINE_CHARS {
+        out.push('…');
+    }
+    Some(out)
+}
 
 /// WeCom's media API takes its own type word, not a mime.
 fn media_type_for(mime: &str) -> &'static str {
@@ -3457,6 +3499,45 @@ mod stream_frame_tests {
     fn a_clean_ack_reads_as_success() {
         assert_eq!(ack_errcode(&json!({ "errcode": 0, "body": {}})), 0);
         assert_eq!(ack_errcode(&json!({ "body": { "msgid": "x" }})), 0);
+    }
+}
+
+#[cfg(test)]
+mod progress_line_tests {
+    use super::*;
+
+    #[test]
+    fn the_progress_line_is_the_newest_line_not_the_first() {
+        // The turn reports cumulative text; the reader wants to see where the
+        // agent is now, not where it started.
+        let text = "第一行\n第二行\n第三行";
+        assert_eq!(newest_line(text).unwrap(), "第三行");
+    }
+
+    #[test]
+    fn a_long_line_is_truncated_by_characters_not_bytes() {
+        // Slicing bytes through a Chinese reply panics, and this runs on every
+        // frame of every turn.
+        let line = "中".repeat(100);
+        let out = newest_line(&line).unwrap();
+        assert_eq!(out.chars().count(), PROGRESS_LINE_CHARS + 1, "40 chars + …");
+        assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn fence_and_heading_markers_do_not_leak_into_the_bubble() {
+        // `stream` is plain text, so markdown syntax shows up as characters in
+        // exactly the place it cannot be rendered.
+        assert_eq!(newest_line("答案\n```python").unwrap(), "答案");
+        assert_eq!(newest_line("## 标题").unwrap(), "标题");
+        assert_eq!(newest_line("- 列表项").unwrap(), "列表项");
+    }
+
+    #[test]
+    fn text_with_nothing_showable_falls_back_to_no_line() {
+        assert!(newest_line("").is_none());
+        assert!(newest_line("   \n\n  ").is_none());
+        assert!(newest_line("###").is_none());
     }
 }
 
