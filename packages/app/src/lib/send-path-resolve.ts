@@ -1,6 +1,44 @@
-import { parseAtMentionNames } from "@/lib/resolve-text-mentions";
+import { nameMatchesToken, parseAtMentionNames } from "@/lib/resolve-text-mentions";
 import { useEngagedAgentStore } from "@/stores/engaged-agent-store";
 import { useSessionParticipantStore } from "@/stores/session-participant-store";
+
+/**
+ * Is this message addressed only to people on the other end of a channel?
+ *
+ * A gateway chat is a solo session — one human, one agent — so the composer's
+ * agent pill is put there automatically and put back the moment it is removed.
+ * It therefore says nothing about intent, and the "clear the agent" branch of
+ * the mention confirm is a no-op in exactly the sessions where an external can
+ * be mentioned at all. What the user typed is the only signal left: naming the
+ * person on the WeCom end and nobody else means "send this to them", not "and
+ * also wake the agent up to comment on it".
+ *
+ * Requires the roster to know each mentioned id: an unresolved id could be a
+ * member, and dropping the agent on a guess would silently stop answering.
+ */
+export function mentionsOnlyExternals(
+  mentionIds: string[],
+  roster: Array<{
+    actorId: string;
+    isAgent: boolean;
+    isExternal: boolean;
+    displayName: string;
+  }>,
+  messageText: string,
+): boolean {
+  if (mentionIds.length === 0 || roster.length === 0) return false;
+  const known = new Map(roster.map((p) => [p.actorId, p] as const));
+  for (const id of mentionIds) {
+    const row = known.get(id);
+    if (!row || !row.isExternal) return false;
+  }
+  // A typed `@AgentName` in the body is an explicit ask, even alongside one.
+  const agents = roster.filter((p) => p.isAgent);
+  for (const token of parseAtMentionNames(messageText)) {
+    if (agents.some((a) => nameMatchesToken(a.displayName, token))) return false;
+  }
+  return true;
+}
 
 /**
  * When the composer already has an engaged/preselected agent and the body has
