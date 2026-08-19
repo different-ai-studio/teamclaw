@@ -928,6 +928,7 @@ pub(crate) fn normalize_callback(
     msg: &WeComMsgCallback,
     bot_id: &str,
     req_id: &str,
+    bot_name: Option<&str>,
 ) -> Option<driver::InboundMessage> {
     let (text, pending_media) = extract_message_parts(msg)?;
 
@@ -949,7 +950,7 @@ pub(crate) fn normalize_callback(
         userid.clone()
     };
 
-    let text = strip_group_mention_prefix(&text, kind);
+    let text = strip_group_mention_prefix(&text, kind, bot_name);
 
     let quoted_text = msg.quote.as_ref().and_then(|q| {
         q.get("text")
@@ -1299,7 +1300,22 @@ fn media_type_for(mime: &str) -> &'static str {
 /// WeCom puts the mention in the text itself; nothing downstream should have to
 /// know that. A message that is *only* the mention normalizes to empty, which
 /// the core reads as "addressed, said nothing".
-fn strip_group_mention_prefix(text: &str, kind: driver::ConversationKind) -> String {
+///
+/// The callback has no structured mention field — `@<display name> 正文` in
+/// `text.content` is all there is — so where the name ends is a guess unless
+/// `bot_name` says. Cutting at the first space was that guess, and it is wrong
+/// for every bot whose name contains one: `@Matt chow的机器人 1 /help` came
+/// through as `chow的机器人 1 /help`, which no longer starts with a slash, so
+/// every slash command in every group was quietly handled as a chat message.
+///
+/// Order matters: the configured name is exact, so it wins. Failing that, a
+/// slash token is a strong signal — a message that mentions the bot and then
+/// says `/stop` means the command, and the words in between are the name.
+fn strip_group_mention_prefix(
+    text: &str,
+    kind: driver::ConversationKind,
+    bot_name: Option<&str>,
+) -> String {
     if kind != driver::ConversationKind::Group {
         return text.to_string();
     }
@@ -1307,10 +1323,41 @@ fn strip_group_mention_prefix(text: &str, kind: driver::ConversationKind) -> Str
     let Some(rest) = trimmed.strip_prefix('@') else {
         return text.to_string();
     };
+
+    if let Some(name) = bot_name.map(str::trim).filter(|n| !n.is_empty()) {
+        if let Some(body) = rest.strip_prefix(name) {
+            return body.trim().to_string();
+        }
+    }
+
+    // No name configured (or it did not match — the bot was renamed in WeCom).
+    // A slash token still pins where the mention stops.
+    if let Some(slash) = slash_token_start(rest) {
+        return rest[slash..].trim().to_string();
+    }
+
     match rest.find(' ') {
         Some(space) => rest[space..].trim().to_string(),
         None => String::new(),
     }
+}
+
+/// Byte offset of the first token that is actually one of *our* commands.
+///
+/// Matching any `/word` would take `看看 /tmp/x` apart and send `/tmp/x` as a
+/// command; only the command list can tell a command from a path.
+fn slash_token_start(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    for (i, _) in text.char_indices().filter(|(_, c)| *c == '/') {
+        if i != 0 && bytes.get(i - 1) != Some(&b' ') {
+            continue;
+        }
+        let word = text[i + 1..].split([' ', '/']).next().unwrap_or_default();
+        if !word.is_empty() && crate::commands::is_meta_command_name(word) {
+            return Some(i);
+        }
+    }
+    None
 }
 
 impl WeComGateway {
@@ -1747,8 +1794,11 @@ impl WeComGateway {
         // the core's own claim always lose.
         let core_sink = self.inbound_sink.read().await.clone();
         if let Some(sink) = core_sink {
-            let bot_id = self.config.read().await.bot_id.clone();
-            match normalize_callback(&msg, &bot_id, &req_id) {
+            let (bot_id, bot_name) = {
+                let cfg = self.config.read().await;
+                (cfg.bot_id.clone(), cfg.bot_name.clone())
+            };
+            match normalize_callback(&msg, &bot_id, &req_id, bot_name.as_deref()) {
                 Some(inbound) => sink.accept(inbound).await,
                 None => println!("[WeCom] Unsupported message type: {}", msg.msgtype),
             }
@@ -1771,14 +1821,17 @@ impl WeComGateway {
             }
         };
 
-        // Strip @mention prefix in group messages (e.g. "@蕉你一手 /help" → "/help")
+        // Strip @mention prefix in group messages (e.g. "@蕉你一手 /help" → "/help").
+        // Same rule as the core path — a bot name with spaces in it used to
+        // leave half the name in front of the command.
         if msg.chattype == "group" && !text_content.is_empty() {
-            if let Some(stripped) = text_content.trim().strip_prefix('@') {
-                // Find end of mention (first space after @name)
-                if let Some(space_pos) = stripped.find(' ') {
-                    text_content = stripped[space_pos..].trim().to_string();
-                }
-                // If no space found, the entire message is just "@botname" with no content
+            let bot_name = self.config.read().await.bot_name.clone();
+            {
+                text_content = strip_group_mention_prefix(
+                    &text_content,
+                    driver::ConversationKind::Group,
+                    bot_name.as_deref(),
+                );
             }
         }
 
@@ -3574,7 +3627,7 @@ mod normalize_tests {
             "from": { "userid": "u-42" },
             "text": { "content": "hello" },
         }));
-        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
+        let inbound = normalize_callback(&msg, "bot-a", "req-1", None).unwrap();
         assert_eq!(inbound.conversation.kind, driver::ConversationKind::Direct);
         assert_eq!(inbound.conversation.id, "u-42");
         assert_eq!(inbound.conversation.bot_id.as_deref(), Some("bot-a"));
@@ -3596,11 +3649,54 @@ mod normalize_tests {
             "from": { "userid": "u-7" },
             "text": { "content": "@蕉你一手 /help" },
         }));
-        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
+        let inbound = normalize_callback(&msg, "bot-a", "req-1", None).unwrap();
         assert_eq!(inbound.conversation.kind, driver::ConversationKind::Group);
         assert_eq!(inbound.conversation.id, "chat-9");
         assert_eq!(inbound.text, "/help");
         assert!(inbound.addressed_to_bot);
+    }
+
+    #[test]
+    fn a_multi_word_bot_name_does_not_eat_the_command() {
+        // Real payload from a live group: the bot is called "Matt chow的机器人 1".
+        // Cutting at the first space left "chow的机器人 1 /help", which does not
+        // start with a slash — so every command in every group was answered by
+        // the model as if it were chat.
+        let text = "@Matt chow的机器人 1 /help";
+        let group = driver::ConversationKind::Group;
+        assert_eq!(
+            strip_group_mention_prefix(text, group, Some("Matt chow的机器人 1")),
+            "/help"
+        );
+        // Same result with no name configured: the slash token pins it.
+        assert_eq!(strip_group_mention_prefix(text, group, None), "/help");
+    }
+
+    #[test]
+    fn a_path_in_the_body_is_not_mistaken_for_a_command() {
+        // The slash fallback must not fire on "看看 /tmp/x" — a name-shaped
+        // prefix followed by a path is still a chat message.
+        let group = driver::ConversationKind::Group;
+        assert_eq!(
+            strip_group_mention_prefix("@Bot 看看 /tmp/x", group, Some("Bot")),
+            "看看 /tmp/x"
+        );
+        // Without the name we fall back to the first space, as before.
+        assert_eq!(
+            strip_group_mention_prefix("@Bot 看看 /tmp/x", group, None),
+            "看看 /tmp/x"
+        );
+    }
+
+    #[test]
+    fn a_renamed_bot_still_gets_its_commands() {
+        // The configured name no longer matches what WeCom sends; the slash
+        // token is what keeps `/stop` working until someone fixes the config.
+        let group = driver::ConversationKind::Group;
+        assert_eq!(
+            strip_group_mention_prefix("@New Name Here /stop", group, Some("Old Name")),
+            "/stop"
+        );
     }
 
     #[test]
@@ -3613,7 +3709,7 @@ mod normalize_tests {
             "from": { "userid": "u-7" },
             "text": { "content": "@bot" },
         }));
-        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
+        let inbound = normalize_callback(&msg, "bot-a", "req-1", None).unwrap();
         assert_eq!(inbound.text, "");
     }
 
@@ -3629,7 +3725,7 @@ mod normalize_tests {
             "text": { "content": "yes" },
             "quote": { "msgtype": "text", "text": { "content": "pick one: a or b" } },
         }));
-        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
+        let inbound = normalize_callback(&msg, "bot-a", "req-1", None).unwrap();
         assert_eq!(inbound.quoted_text.as_deref(), Some("pick one: a or b"));
         assert_eq!(inbound.text, "yes");
     }
@@ -3644,7 +3740,7 @@ mod normalize_tests {
             "text": { "content": "hi" },
             "quote": { "msgtype": "text", "text": { "content": "" } },
         }));
-        assert!(normalize_callback(&msg, "bot-a", "req-1")
+        assert!(normalize_callback(&msg, "bot-a", "req-1", None)
             .unwrap()
             .quoted_text
             .is_none());
@@ -3661,7 +3757,7 @@ mod normalize_tests {
             "from": { "userid": "u-7" },
             "image": { "url": "https://wecom.example/media/1", "aeskey": "k" },
         }));
-        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
+        let inbound = normalize_callback(&msg, "bot-a", "req-1", None).unwrap();
         assert_eq!(inbound.attachments.len(), 1);
         assert!(matches!(
             inbound.attachments[0].source,
@@ -3677,7 +3773,7 @@ mod normalize_tests {
             "msgtype": "event",
             "from": { "userid": "u-7" },
         }));
-        assert!(normalize_callback(&msg, "bot-a", "req-1").is_none());
+        assert!(normalize_callback(&msg, "bot-a", "req-1", None).is_none());
     }
 
     #[test]
@@ -3691,7 +3787,7 @@ mod normalize_tests {
             "from": { "userid": "u-7" },
             "text": { "content": "hi" },
         }));
-        assert!(normalize_callback(&msg, "", "req-1")
+        assert!(normalize_callback(&msg, "", "req-1", None)
             .unwrap()
             .conversation
             .bot_id

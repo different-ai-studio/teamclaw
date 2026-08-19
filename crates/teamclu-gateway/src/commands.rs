@@ -43,6 +43,14 @@ enum MetaCommand {
     Ctx(String),
 }
 
+/// Is this the name of a command the gateway itself answers?
+///
+/// Used where a slash has to be told apart from a path: `/stop` is a command,
+/// `/tmp/x` is a filename, and only the command list knows the difference.
+pub fn is_meta_command_name(name: &str) -> bool {
+    parse_meta(&name.to_lowercase(), Some("x")).is_some()
+}
+
 fn parse_meta(name: &str, arg: Option<&str>) -> Option<MetaCommand> {
     match name {
         "help" => Some(MetaCommand::Help),
