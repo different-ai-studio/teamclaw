@@ -376,6 +376,28 @@ impl DaemonServer {
             .channel_mgr
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("channel manager not running"))?;
+
+        // A file sent while this chat's own turn is running belongs TO that
+        // reply, not beside it. Attaching it means the user sees one message —
+        // the answer with its file — instead of the file and then a paragraph
+        // describing the file it just sent.
+        //
+        // Only for the originating chat: an explicit target override is a
+        // deliberate push somewhere else and keeps the direct path.
+        if target_override.is_none() {
+            if let Some(session_id) = payload
+                .get("reply_token")
+                .and_then(|v| v.as_str())
+                .and_then(crate::channels::reply_token::session_for)
+            {
+                if crate::channels::core::turn_attachments::is_open(&session_id) {
+                    return self
+                        .attach_to_running_turn(mgr, &session_id, message, file_path, binding)
+                        .await;
+                }
+            }
+        }
+
         mgr.dispatch_send(channel, target, message, file_path)
             .await?;
 
@@ -403,6 +425,83 @@ impl DaemonServer {
     /// Best-effort by design: the message has already reached the chat, so a
     /// failure here must not turn a delivered send into a reported error. It
     /// only costs the desktop its copy, which is what a warn is for.
+    /// Park a file against the in-flight turn instead of pushing it now.
+    ///
+    /// Nothing is recorded here: the core writes one message when the turn
+    /// finishes, carrying the reply text and every file attached during it.
+    /// Recording separately is what produced two rows — and, with the reply
+    /// text usually describing the file, two copies of the same answer.
+    async fn attach_to_running_turn(
+        &self,
+        mgr: &ChannelManager,
+        session_id: &str,
+        message: Option<&str>,
+        file_path: Option<&str>,
+        binding: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let Some(path) = file_path else {
+            // Text-only, to the chat this turn already answers into: the reply
+            // is on its way there, so sending it again would duplicate it.
+            // Reported as handled so the agent does not retry.
+            return Ok(serde_json::json!({
+                "binding": binding,
+                "message_sent": false,
+                "file_sent": false,
+                "note": "text goes back as this turn's reply; `send` is for files, or for a different chat",
+            }));
+        };
+
+        let bytes = tokio::fs::read(path)
+            .await
+            .map_err(|e| anyhow::anyhow!("read {path}: {e}"))?;
+        let filename = std::path::Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+            .to_string();
+        let mime = teamclu_gateway::wecom::resolve_mime(&bytes, Some(&filename));
+        let bucket_path = format!(
+            "{}/{}/{}-{}",
+            mgr.team_id(),
+            session_id,
+            uuid::Uuid::new_v4(),
+            filename
+        );
+        let stored = mgr
+            .store()
+            .upload_attachment(&bucket_path, bytes, &mime)
+            .await;
+        if let Err(e) = &stored {
+            warn!(session_id, filename, error = %e, "mcp-send: upload failed; attaching local copy only");
+        }
+
+        let attached = crate::channels::core::turn_attachments::attach(
+            session_id,
+            teamclu_gateway::driver::SessionAttachment {
+                filename: filename.clone(),
+                mime,
+                bucket_path: stored.unwrap_or_default(),
+                local_path: Some(path.to_string()),
+            },
+        );
+        // The turn can finish between the check above and here; then there is
+        // no reply left to ride out on and the caller must be told, rather than
+        // having the file disappear.
+        if !attached {
+            anyhow::bail!(
+                "mcp-send: the turn finished before the file was attached — send it again"
+            );
+        }
+
+        let _ = message;
+        Ok(serde_json::json!({
+            "binding": binding,
+            "message_sent": false,
+            "file_sent": true,
+            "note": "attached to this turn's reply",
+        }))
+    }
+
     async fn record_outbound_send(
         &self,
         mgr: &ChannelManager,

@@ -342,9 +342,7 @@ impl AmuxdAgentHandle {
             // scratch dir, which tells us nothing useful about the catalog.
             return Ok(Vec::new());
         };
-        let context = self
-            .assemble_execution_context(Some(&dir))
-            .await?;
+        let context = self.assemble_execution_context(Some(&dir)).await?;
         let catalog = {
             let mut mgr = self.manager.lock().await;
             mgr.probe_catalog_models_with_context(context).await
@@ -683,10 +681,16 @@ pub fn build_first_turn_prompt(
         Some(p) if !p.trim().is_empty() => format!("[SYSTEM] {p}\n\n"),
         _ => String::new(),
     };
+    // What this does NOT say any more: "call `send` to reply". Your reply is
+    // already delivered to the chat — telling the model otherwise made it push
+    // the answer through `send` AND return it as the turn text, so the user
+    // read the same answer twice.
     format!(
-        "{persona}[SYSTEM] You are connected to a {channel} chat via amuxd. To send a follow-up \
-message or upload a file back to this chat without waiting for the user to ask, call the `send` \
-MCP tool (server name `amuxd-send`) with the reply token below.\n\n\
+        "{persona}[SYSTEM] You are connected to a {channel} chat via amuxd. Your reply is \
+delivered to that chat automatically — just answer normally, and do not re-send your own text.\n\
+To attach a FILE to your reply, call the `send` MCP tool (server name `amuxd-send`) with the \
+reply token below and a `file_path`; it rides out with the same message. The same tool, with an \
+explicit target, is also how you reach a DIFFERENT chat.\n\n\
 [{sender_display}] {text}"
     )
 }
@@ -700,9 +704,9 @@ MCP tool (server name `amuxd-send`) with the reply token below.\n\n\
 fn reply_channel_note(token: &str) -> String {
     format!(
         "[SYSTEM] Reply token for this chat: {token}\n\
-Pass it as `reply_token` to send a message or file back here, e.g. \
-`send(reply_token=\"{token}\", file_path=\"/tmp/report.pdf\")`. Without it the \
-`send` tool has no destination."
+Pass it as `reply_token` to attach a FILE to your reply, e.g. \
+`send(reply_token=\"{token}\", file_path=\"/tmp/report.pdf\")`. Your text reply \
+needs no tool — it is delivered on its own."
     )
 }
 
