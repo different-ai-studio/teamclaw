@@ -319,6 +319,14 @@ fn inbound(text: &str) -> InboundMessage {
     }
 }
 
+/// `inbound` for a specific chat, so a test can own its session id.
+fn inbound_from(chat: &str, text: &str) -> InboundMessage {
+    let mut msg = inbound(text);
+    msg.conversation.id = chat.to_string();
+    msg.sender.external_id = chat.to_string();
+    msg
+}
+
 fn driver(caps: ChannelCaps) -> FakeDriver {
     FakeDriver {
         caps: Some(caps),
@@ -505,7 +513,11 @@ impl TurnRunner for AttachingTurns {
     }
 }
 
-fn attaching_fixture(filename: &'static str, reply: &'static str) -> (Core, Arc<FakeWriter>) {
+fn attaching_fixture(
+    chat: &'static str,
+    filename: &'static str,
+    reply: &'static str,
+) -> (Core, Arc<FakeWriter>) {
     let writer = Arc::new(FakeWriter::default());
     (
         Core {
@@ -514,8 +526,11 @@ fn attaching_fixture(filename: &'static str, reply: &'static str) -> (Core, Arc<
             identity: Arc::new(FakeIdentity::default()),
             writer: writer.clone(),
             turns: Arc::new(AttachingTurns {
-                // Matches what FakeRouter builds for the default inbound().
-                session_id: "session-for-wecom://bot-a/single/u-1".into(),
+                // Matches what FakeRouter builds for `inbound_from(chat)`.
+                // Distinct per test: the registry is process-global, so a
+                // shared id would let parallel tests close each other's
+                // windows.
+                session_id: format!("session-for-wecom://bot-a/single/{chat}"),
                 filename,
                 reply,
             }),
@@ -530,10 +545,12 @@ async fn a_file_sent_during_the_turn_rides_out_with_the_reply() {
     // The duplicate this removes: `send` used to push the file and record its
     // own message, and then the turn's reply — usually a paragraph describing
     // the file it had just sent — arrived as a second message.
-    let (core, writer) = attaching_fixture("poem.md", "wrote you a poem");
+    let (core, writer) = attaching_fixture("u-att-1", "poem.md", "wrote you a poem");
     let d = driver(MAIL);
 
-    core.handle(&d, inbound("write me a poem")).await.unwrap();
+    core.handle(&d, inbound_from("u-att-1", "write me a poem"))
+        .await
+        .unwrap();
 
     let delivered = d.delivered.lock().unwrap();
     assert_eq!(delivered.len(), 1, "one message, not one per file");
@@ -545,14 +562,16 @@ async fn a_file_sent_during_the_turn_rides_out_with_the_reply() {
 async fn a_channel_that_cannot_upload_still_names_the_file() {
     // Feishu today. Dropping the attachment silently is what happens now; the
     // reader has to at least learn that a file exists.
-    let (core, _w) = attaching_fixture("poem.md", "wrote you a poem");
+    let (core, _w) = attaching_fixture("u-att-2", "poem.md", "wrote you a poem");
     let no_media = ChannelCaps {
         media_upload: false,
         ..MAIL
     };
     let d = driver(no_media);
 
-    core.handle(&d, inbound("write me a poem")).await.unwrap();
+    core.handle(&d, inbound_from("u-att-2", "write me a poem"))
+        .await
+        .unwrap();
 
     let delivered = d.delivered.lock().unwrap();
     assert!(
@@ -566,12 +585,14 @@ async fn a_channel_that_cannot_upload_still_names_the_file() {
 async fn the_attachment_window_is_closed_after_the_turn() {
     // Left open, the next `send` on this session would attach to a reply that
     // has already gone out, and the file would never appear anywhere.
-    let (core, _w) = attaching_fixture("poem.md", "done");
+    let (core, _w) = attaching_fixture("u-att-3", "poem.md", "done");
     let d = driver(MAIL);
-    core.handle(&d, inbound("write me a poem")).await.unwrap();
+    core.handle(&d, inbound_from("u-att-3", "write me a poem"))
+        .await
+        .unwrap();
 
     assert!(!super::turn_attachments::is_open(
-        "session-for-wecom://bot-a/single/u-1"
+        "session-for-wecom://bot-a/single/u-att-3"
     ));
 }
 

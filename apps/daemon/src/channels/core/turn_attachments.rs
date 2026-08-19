@@ -27,11 +27,19 @@ fn registry() -> &'static Mutex<HashMap<String, Vec<SessionAttachment>>> {
 }
 
 /// Mark a turn as running, so `send` knows there is a reply to attach to.
+///
+/// An already-open window is left alone rather than reset. Two turns can
+/// overlap on one session (a second message arriving while the first is still
+/// running), and clearing here would throw away a file the in-flight turn had
+/// already attached — the reply would go out without it, and nothing would say
+/// so. Worst case the file rides out with the wrong one of two replies, which
+/// is recoverable; losing it is not.
 pub fn open(session_id: &str) {
     registry()
         .lock()
         .unwrap()
-        .insert(session_id.to_string(), Vec::new());
+        .entry(session_id.to_string())
+        .or_default();
 }
 
 /// Whether a turn is running for this session. `send` uses this to choose

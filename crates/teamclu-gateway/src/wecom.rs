@@ -1110,6 +1110,14 @@ impl driver::ChannelDriver for WeComDriver {
             .map_err(driver::DriverError::Transport)?;
         }
 
+        // Files with no text of their own: the caption already went out with
+        // the reply. Opening a streaming bubble here is what left a "thinking…"
+        // placeholder stranded in the chat after the answer had arrived —
+        // empty text means "nothing more to say", not "start a reply".
+        if msg.text.trim().is_empty() && !msg.attachments.is_empty() {
+            return Ok(driver::DeliveryId(format!("files:{}", to.id)));
+        }
+
         let Some(req_id) = reply_context else {
             // Nothing to answer: this is proactive, which WeCom does through a
             // different command entirely.
