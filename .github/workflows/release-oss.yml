@@ -70,6 +70,10 @@ jobs:
           - target: x86_64-apple-darwin
             runner: macos-latest
     runs-on: ${{ matrix.runner }}
+    # Backstop: a hung step must not squat the 360-minute default and
+    # starve publish-manifest. Healthy peak over the last 6 releases was
+    # 33.0 min.
+    timeout-minutes: 90
     # Job-level, not step-level: these used to sit only on the tauri-action step,
     # so the amuxd and teamclu-introspect sidecar builds (and the Cargo.lock
     # sync) compiled with no sccache at all — despite sharing most of their
@@ -426,6 +430,10 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    # Backstop: a hung step must not squat the 360-minute default and
+    # starve publish-manifest. Healthy peak over the last 6 releases was
+    # 42.2 min.
+    timeout-minutes: 90
     # See build-macos: hoisted off the tauri-action step so the amuxd (~495s) and
     # introspect (~87s) sidecar builds get sccache too.
     env:
@@ -690,6 +698,10 @@ jobs:
 
   build-amuxd-linux:
     runs-on: ubuntu-latest
+    # Backstop: a hung step must not squat the 360-minute default and
+    # starve publish-manifest. Healthy peak over the last 6 releases was
+    # 10.2 min.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -709,11 +721,25 @@ jobs:
           oss-endpoint-default: ${{ env.OSS_ENDPOINT_DEFAULT }}
           cdn-base-default: ${{ env.CDN_BASE_DEFAULT }}
 
-      - name: Install Rust target + protoc
-        run: |
-          rustup target add ${{ matrix.target }}
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+      # NOT `apt-get install protobuf-compiler`. The ubuntu runner's
+      # /etc/apt/apt-mirrors.txt puts the Azure-internal mirror first and the
+      # public archive.ubuntu.com second; when the Azure mirror goes bad every
+      # request is Ign:'d, apt falls back to the public archive over HTTPS, and
+      # that fetch hangs with no timeout that ever fires. It hit 5 of the 8
+      # amuxd-linux jobs across the 2026-08-18 and 2026-08-19 nightlies, each
+      # time squatting until cancelled. publish-manifest tolerates a failed
+      # amuxd job (see its `if:`) but still `needs:` it, so the cost is a
+      # release delayed by up to the 360-minute job default and a manifest
+      # shipped one amuxd binary short. arduino/setup-protoc pulls a pinned
+      # protoc from GitHub Releases and never touches an Ubuntu mirror -- the
+      # same action ci.yml's daemon-windows job already builds amuxd with.
+      - name: Install protoc (for prost_build)
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -775,6 +801,9 @@ jobs:
     # artifacts get rendered; any missing platform is simply omitted.
     if: always() && needs.build-macos.result == 'success' && needs.build-windows.result == 'success'
     runs-on: ubuntu-latest
+    # Backstop against a hung step burning the 360-minute job default.
+    # Healthy peak over the last 6 releases was 0.5 min.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 

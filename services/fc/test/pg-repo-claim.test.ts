@@ -300,13 +300,15 @@ test("claimInvite agent with targetActorId: rebinds existing agent, no new agent
   assert.equal(after.ownerMemberId, inviterActorId, "ownerMemberId unchanged");
 });
 
-test("claimInvite agent with targetActorId: rotates actor.userId off the old daemon user", async () => {
+test("claimInvite agent with targetActorId: provisions an account when the actor's old one is gone", async () => {
   const { repo, db } = await setup();
   const { teamId, inviterActorId } = await createTeamAndInviter(db);
   const { agents: agentsTable } = await import("../src/db/schema/index.js");
 
-  // Existing agent already bound to a (stale) daemon user — exercises the
-  // old-user cleanup branch in the rebind path.
+  // The actor points at a user id that is not in the user table (an account an
+  // older rotation already deleted). Reuse is conditional on the row actually
+  // being there, so this claim has to provision a fresh one and collect the
+  // dangling id — the other half of the rebind path.
   const oldUserId = `old-daemon-${randomBytes(4).toString("hex")}`;
   const [agActor] = await db.insert(actors).values({
     teamId,
@@ -340,6 +342,52 @@ test("claimInvite agent with targetActorId: rotates actor.userId off the old dae
   const [after] = await db.select().from(actors).where(eq(actors.id, agActor.id)).limit(1);
   assert.ok(after.userId, "actor has a userId after rebind");
   assert.notEqual(after.userId, oldUserId, "actor.userId rotated off the old daemon user");
+});
+
+test("claimInvite agent with targetActorId: keeps the account the agent already has", async () => {
+  // Rotation replaces the credential, not the identity. The previous body
+  // minted a new account on every rebind and deleted the old one, which reset
+  // everything keyed on that user id (public.users.admin_type above all) —
+  // see 20260819000000_claim_invite_keeps_daemon_user.sql for the SQL twin.
+  const { repo, db } = await setup();
+  const { teamId, inviterActorId } = await createTeamAndInviter(db);
+  const { user } = await import("../src/db/schema/auth.js");
+
+  // First claim mints the daemon account.
+  const firstToken = await createInvite(db, {
+    teamId,
+    invitedByActorId: inviterActorId,
+    kind: "agent",
+    displayName: "Badge Bot",
+  });
+  const first = await repo.claimInvite(firstToken, {});
+  const [bound] = await db.select().from(actors).where(eq(actors.id, first.actorId)).limit(1);
+  const daemonUserId = bound.userId!;
+  assert.ok(daemonUserId, "first claim bound the actor to a daemon account");
+
+  // Rotate: re-invite the same agent actor.
+  const rebindToken = randomBytes(24).toString("base64url");
+  await db.insert(teamInvites).values({
+    teamId,
+    token: rebindToken,
+    kind: "agent",
+    agentKind: "daemon",
+    displayName: "Badge Bot",
+    invitedByActorId: inviterActorId,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    targetActorId: first.actorId,
+  });
+  const second = await repo.claimInvite(rebindToken, {});
+
+  assert.equal(second.actorId, first.actorId, "rebinds the same agent actor");
+  const [after] = await db.select().from(actors).where(eq(actors.id, first.actorId)).limit(1);
+  assert.equal(after.userId, daemonUserId, "actor keeps the account it already had");
+
+  const [stillThere] = await db.select().from(user).where(eq(user.id, daemonUserId)).limit(1);
+  assert.ok(stillThere, "the account row survives the rotation");
+
+  assert.ok(second.refreshToken, "rotation still returns a refresh token");
+  assert.notEqual(second.refreshToken, first.refreshToken, "the credential itself is replaced");
 });
 
 test("claimInvite: expired invite throws not_found/expired", async () => {
