@@ -2193,7 +2193,13 @@
         "wizardCredentialsTitle": "获取机器人凭证",
         "wizardCredentialsDesc": "复制你的 Bot ID 和 Secret。",
         "wizardCompleteTitle": "设置完成！",
-        "wizardCompleteDesc": "你的企业微信机器人已就绪。"
+        "wizardCompleteDesc": "你的企业微信机器人已就绪。",
+        "botName": "机器人名称",
+        "botNamePlaceholder": "企微里的准确名称，例如 Matt chow的机器人 1",
+        "botNameHint": "群消息是「@名称 正文」的形式，填准确名称才能把提及剥干净。",
+        "apiKey": "MCP API Key",
+        "apiKeyPlaceholder": "机器人「消息」授权页里的 apikey",
+        "apiKeyHint": "填了之后，定时任务可以直接从这个机器人的会话列表里挑目标。"
       }
     },
     "team": {
@@ -2719,7 +2725,13 @@
       "selectModel": "选择模型",
       "requiredModel": "必须选择模型",
       "sessionNotFound": "对话不存在或无访问权限 (sessionId: {{id}}...)",
-      "runFailedFallback": "本次运行失败：{{error}}"
+      "runFailedFallback": "本次运行失败：{{error}}",
+      "wecomChats": {
+        "label": "会话",
+        "loading": "正在加载会话列表…",
+        "empty": "没有会话列表 —— 在「渠道」里补上这个机器人的 MCP API Key 就能直接挑。",
+        "unnamedGroup": "群聊"
+      }
     },
     "deps": {
       "copied": "已复制！",

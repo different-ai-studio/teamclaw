@@ -315,6 +315,53 @@ impl DaemonServer {
         serde_json::to_string(&json).unwrap_or_else(|_| "[]".to_string())
     }
 
+    /// Build the JSON response for the `wecom-chat-list` sock command:
+    /// `{"chats":[{botId, chatId, chatName, chatType, lastMsgTime}, ...]}`.
+    ///
+    /// One request per configured bot that has an api key. A bot without one is
+    /// skipped rather than failed: the key is optional, and a second bot that
+    /// has it should still fill the picker. Errors ride along per bot so the
+    /// settings UI can say *which* key was refused.
+    pub(crate) async fn wecom_chat_list_payload(&self) -> String {
+        let bots = self
+            .config
+            .channels
+            .wecom
+            .as_ref()
+            .map(|w| w.resolved_bots())
+            .unwrap_or_default();
+        let mut chats: Vec<serde_json::Value> = Vec::new();
+        let mut errors: Vec<serde_json::Value> = Vec::new();
+        for bot in bots.into_iter().filter(|b| b.enabled) {
+            let Some(key) = bot
+                .api_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|k| !k.is_empty())
+            else {
+                continue;
+            };
+            match crate::channels::wecom_mcp::list_chats(key).await {
+                Ok(rows) => chats.extend(rows.into_iter().map(|c| {
+                    serde_json::json!({
+                        "botId": bot.bot_id,
+                        "botName": bot.bot_name,
+                        "chatId": c.chat_id,
+                        "chatName": c.chat_name,
+                        "chatType": c.chat_type,
+                        "lastMsgTime": c.last_msg_time,
+                    })
+                })),
+                Err(e) => {
+                    tracing::warn!(bot_id = %bot.bot_id, error = %e, "wecom chat list failed");
+                    errors.push(serde_json::json!({ "botId": bot.bot_id, "error": e }));
+                }
+            }
+        }
+        serde_json::to_string(&serde_json::json!({ "chats": chats, "errors": errors }))
+            .unwrap_or_else(|_| "{\"chats\":[],\"errors\":[]}".to_string())
+    }
+
     /// Handle a `mcp-send` JSON envelope from the `amuxd mcp-server` bridge.
     /// Resolves the caller's reply token to a chat binding, parses that
     /// binding (e.g. `wecom://{corp}/{agent}/{kind}/{id}`) into the default

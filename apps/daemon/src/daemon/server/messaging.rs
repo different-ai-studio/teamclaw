@@ -1170,30 +1170,27 @@ impl DaemonServer {
                 return;
             }
         };
-        let (channel, target) = match crate::daemon::binding_target::parse_binding_to_target(&binding)
-        {
-            Ok((channel, Some(target))) => (channel, target),
-            Ok((channel, None)) => {
-                warn!(
-                    session_id,
-                    channel, "external mention: channel has no outbound target shape yet"
-                );
-                return;
-            }
-            Err(e) => {
-                warn!(session_id, error = %e, "external mention: unparseable binding");
-                return;
-            }
-        };
+        let (channel, target) =
+            match crate::daemon::binding_target::parse_binding_to_target(&binding) {
+                Ok((channel, Some(target))) => (channel, target),
+                Ok((channel, None)) => {
+                    warn!(
+                        session_id,
+                        channel, "external mention: channel has no outbound target shape yet"
+                    );
+                    return;
+                }
+                Err(e) => {
+                    warn!(session_id, error = %e, "external mention: unparseable binding");
+                    return;
+                }
+            };
 
         // Prefixed with who typed it: this arrives in a chat where every
         // previous message came from the bot, so an unattributed line reads as
         // the agent suddenly speaking on its own.
         let body = outbound_body(sender_display, &message.content);
-        match mgr
-            .dispatch_send(channel, &target, Some(&body), None)
-            .await
-        {
+        match mgr.dispatch_send(channel, &target, Some(&body), None).await {
             Ok(()) => info!(
                 session_id,
                 channel,

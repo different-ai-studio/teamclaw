@@ -121,6 +121,34 @@ pub async fn list_wecom_bots_status() -> Result<Vec<WeComBotStatus>, String> {
     }
 }
 
+/// Every conversation the configured WeCom bots can be addressed in.
+///
+/// Answered by each bot's MCP endpoint, not by the gateway: the long
+/// connection only ever hears about a chat when someone writes into it, so a
+/// cron job's target used to be a chat id typed in by hand. Bots without an
+/// api key are simply absent from the list; per-bot failures come back in
+/// `errors` so the picker can say which key was refused instead of showing an
+/// empty dropdown.
+#[tauri::command]
+pub async fn list_wecom_chats() -> Result<serde_json::Value, String> {
+    #[cfg(windows)]
+    return Err(amuxd_unavailable());
+    #[cfg(unix)]
+    {
+        let mut s =
+            UnixStream::connect(sock_path()).map_err(|e| format!("amuxd not reachable: {e}"))?;
+        s.write_all(b"wecom-chat-list\n")
+            .map_err(|e| format!("write failed: {e}"))?;
+        s.shutdown(std::net::Shutdown::Write)
+            .map_err(|e| format!("shutdown write half failed: {e}"))?;
+        let mut buf = String::new();
+        s.read_to_string(&mut buf)
+            .map_err(|e| format!("read failed: {e}"))?;
+        serde_json::from_str(buf.trim())
+            .map_err(|e| format!("bad response from amuxd: {e} (body={buf:?})"))
+    }
+}
+
 /// Load a persisted channel config from the active team's `team.toml`, so the
 /// settings UI can rehydrate forms after the panel is closed and reopened.
 ///
