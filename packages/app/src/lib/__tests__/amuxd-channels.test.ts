@@ -63,6 +63,49 @@ describe("amuxd-channels", () => {
     });
   });
 
+  it("round-trips the bot name and MCP key instead of dropping them", async () => {
+    // This mapping is written field by field, so anything not listed here is
+    // silently erased on the next save — which is exactly what happened to a
+    // hand-written bot_name the first time the settings panel was saved.
+    vi.mocked(tauri.invoke).mockResolvedValue(undefined);
+
+    await saveChannelConfig("wecom", {
+      enabled: true,
+      bots: [
+        {
+          enabled: true,
+          botId: "bot",
+          secret: "sec",
+          botName: "Matt chow的机器人 1",
+          apiKey: "k-1",
+        },
+      ],
+    });
+
+    const [, args] = vi.mocked(tauri.invoke).mock.calls[0]!;
+    const sent = JSON.parse((args as { configJson: string }).configJson);
+    expect(sent.bots[0]).toMatchObject({
+      bot_name: "Matt chow的机器人 1",
+      api_key: "k-1",
+    });
+
+    vi.mocked(tauri.invoke).mockResolvedValue({
+      enabled: true,
+      bots: [
+        {
+          enabled: true,
+          bot_id: "bot",
+          secret: "sec",
+          bot_name: "Matt chow的机器人 1",
+          api_key: "k-1",
+        },
+      ],
+    });
+    await expect(loadChannelConfig("wecom")).resolves.toMatchObject({
+      bots: [{ botName: "Matt chow的机器人 1", apiKey: "k-1" }],
+    });
+  });
+
   it("maps daemon WeCom multi-bot config back to app field names on load", async () => {
     vi.mocked(tauri.invoke).mockResolvedValue({
       enabled: true,
