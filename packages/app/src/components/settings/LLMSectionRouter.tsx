@@ -5,6 +5,7 @@ import { OpenCodeLLMSection } from './LLMSection'
 import { PiLLMSection } from './PiLLMSection'
 import { CursorLLMSection } from './CursorLLMSection'
 import { ClaudeLLMSection } from './ClaudeLLMSection'
+import { AgentModelDefaults } from './llm/AgentModelDefaults'
 
 /**
  * LLM settings dispatcher. The local agent runtime determines both the logic
@@ -39,8 +40,23 @@ export function LLMSection() {
 
   // Until the runtime is known, render nothing to avoid flashing the wrong pane.
   if (agent === null) return null
-  if (agent === 'pi') return <PiLLMSection />
-  if (agent === 'cursor') return <CursorLLMSection />
-  if (agent === 'claude-code') return <ClaudeLLMSection />
-  return <OpenCodeLLMSection />
+
+  // The defaults block sits above the runtime pane and is the same for all four:
+  // "which model does each surface run on" is a property of the device, not of
+  // which agent happens to be configured. Rendering it here rather than inside
+  // each pane is what keeps it from drifting into four copies.
+  return (
+    <>
+      <AgentModelDefaults />
+      {agent === 'pi' ? (
+        <PiLLMSection />
+      ) : agent === 'cursor' ? (
+        <CursorLLMSection />
+      ) : agent === 'claude-code' ? (
+        <ClaudeLLMSection />
+      ) : (
+        <OpenCodeLLMSection />
+      )}
+    </>
+  )
 }

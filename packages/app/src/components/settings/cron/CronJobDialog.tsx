@@ -49,6 +49,7 @@ import {
 import { useChannelsStore } from '@/stores/channels'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { automationDefaultForBackends } from '@/stores/automation-default-model'
 import { loadCronDialogModels, type CronModelGroup } from '@/lib/cron-workspace-models'
 import {
   Popover,
@@ -194,6 +195,21 @@ export function CronJobDialog({
       setForm((prev) => ({ ...prev, model: '', backend: '' }))
     }
   }, [open, form.model, modelOptions.length, backendByRef])
+
+  // Pre-fill a new job from the device default (Settings → LLM → Model
+  // defaults). Deliberately a pre-fill and not a run-time fallback: the job
+  // still stores a concrete model, so changing the default later never moves an
+  // existing job (ADR-0007, and the `requiredModel` guard below).
+  //
+  // Runs after the catalog loads rather than on open, so a default naming a
+  // model this workspace cannot run is simply not applied — the effect above
+  // would otherwise clear it a tick later and the field would visibly flicker.
+  React.useEffect(() => {
+    if (!open || editJob || form.model || modelOptions.length === 0) return
+    const preset = automationDefaultForBackends(new Set(backendByRef.values()), teamId)
+    if (!preset || !backendByRef.has(preset)) return
+    setForm((prev) => ({ ...prev, model: preset, backend: backendByRef.get(preset) ?? '' }))
+  }, [open, editJob, form.model, modelOptions.length, backendByRef, teamId])
 
   React.useEffect(() => {
     if (open) {
