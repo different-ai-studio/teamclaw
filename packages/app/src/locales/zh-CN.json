@@ -722,6 +722,7 @@
       "description": "说明"
     },
     "actorSheet": {
+      "externalSection": "外部联系人",
       "title": "成员",
       "loading": "正在加载成员...",
       "empty": "当前会话暂无成员",

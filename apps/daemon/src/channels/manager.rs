@@ -506,6 +506,7 @@ impl ChannelManager {
                 secret: bot.secret.clone(),
                 encoding_aes_key: bot.encoding_aes_key.clone(),
                 owner_id: None,
+                bot_name: bot.bot_name.clone(),
             };
             gw.set_config(cfg).await;
             if crate::channels::core::sink::core_pipeline_enabled() {
