@@ -613,6 +613,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       useEngagedAgentStore.getState().setAgents(activeSessionId, [{
         id: sole.actorId,
         displayName: sole.displayName || "AI",
+        // Nobody chose this: it is the solo-session default, re-applied
+        // whenever the pill is cleared.
+        auto: true,
       }]);
       ensureRuntime(sole.actorId);
       return true;
