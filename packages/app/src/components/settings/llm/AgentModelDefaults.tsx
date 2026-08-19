@@ -191,6 +191,25 @@ export function AgentModelDefaults() {
     </button>
   )
 
+  /** One entry point: what it runs on, and when that value takes effect. */
+  const row = (
+    title: string,
+    effect: string,
+    control: React.ReactNode,
+    extra?: React.ReactNode,
+  ) => (
+    <SettingCard className="mb-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">{title}</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{effect}</p>
+          {extra}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">{control}</div>
+      </div>
+    </SettingCard>
+  )
+
   return (
     <div className="mb-8">
       <SectionHeader
@@ -198,26 +217,53 @@ export function AgentModelDefaults() {
         title={t('settings.modelDefaults.title', 'Model defaults')}
         description={t(
           'settings.modelDefaults.description',
-          'Which model the gateway, scheduled jobs and chat each run on, and which one new items start from.',
+          'Where the gateway, scheduled jobs and chat each get their model from.',
         )}
       />
 
-      <SettingCard className="mb-4">
-        <p className="font-medium">
-          {t('settings.modelDefaults.newJobDefault', 'Default model (used when creating a job)')}
-        </p>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
-          {t(
-            'settings.modelDefaults.newJobDefaultHint',
-            'Pre-fills the model for new scheduled jobs. Existing jobs keep the model pinned when they were created.',
-          )}
-        </p>
-        <div className="mt-2 flex items-center gap-2">
+      {/*
+        One card per entry point, not a "settings" card plus a "status" card.
+        The first cut split them that way and it read as one global default plus
+        a status list — but the editable gateway value, the cron pre-fill and the
+        read-only chat value are three different mechanisms, and the cron pre-fill
+        and its job count ended up in two different cards describing one thing.
+        Grouping by entry point puts each control next to the sentence that says
+        when it takes effect, which is the only question this screen answers.
+      */}
+
+      {/* Gateway — the one real run-time default here. */}
+      {row(
+        t('settings.modelDefaults.gateway', 'Gateway'),
+        t(
+          'settings.modelDefaults.gatewayEffect',
+          'Takes effect immediately: every channel opens its next session on this. A single chat can still switch with /model.',
+        ),
+        <>
+          {savingGateway && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          <Popover open={gatewayOpen} onOpenChange={setGatewayOpen}>
+            <PopoverTrigger asChild>
+              {trigger(gatewayModel, t('settings.modelDefaults.gatewayUnset', 'Let the backend choose'))}
+            </PopoverTrigger>
+            <PopoverContent align="end" sideOffset={6} className="w-[20rem] p-0">
+              {picker(gatewayModel ?? '', (id) => void applyGateway(id))}
+            </PopoverContent>
+          </Popover>
+        </>,
+      )}
+
+      {/* Cron — a pre-fill, with the jobs it does NOT touch stated right below. */}
+      {row(
+        t('settings.modelDefaults.cron', 'Scheduled jobs'),
+        t(
+          'settings.modelDefaults.cronEffect',
+          'Only pre-fills the form for a new job. Each job pins its own model when created, so changing this never moves an existing job.',
+        ),
+        <>
           <Popover open={defaultOpen} onOpenChange={setDefaultOpen}>
             <PopoverTrigger asChild>
-              {trigger(newJobDefault, t('settings.modelDefaults.unset', 'Not set'))}
+              {trigger(newJobDefault, t('settings.modelDefaults.cronUnset', 'Not set'))}
             </PopoverTrigger>
-            <PopoverContent align="start" sideOffset={6} className="w-[20rem] p-0">
+            <PopoverContent align="end" sideOffset={6} className="w-[20rem] p-0">
               {picker(newJobDefault, (id) => {
                 setDefaultOpen(false)
                 if (backend && teamId) setDefault(backend, teamId, id)
@@ -233,86 +279,45 @@ export function AgentModelDefaults() {
               {t('settings.modelDefaults.clear', 'Clear')}
             </button>
           )}
-        </div>
-      </SettingCard>
-
-      <SettingCard>
-        <p className="font-medium">{t('settings.modelDefaults.inEffect', 'In effect now')}</p>
-
-        <div className="mt-3 flex flex-col gap-3">
-          {/* Gateway — a real run-time default, and the only editable one here. */}
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[13px]">{t('settings.modelDefaults.gateway', 'Gateway')}</p>
-              <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-                {t(
-                  'settings.modelDefaults.gatewayHint',
-                  'Every channel starts its sessions on this. A chat can still switch with /model.',
-                )}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {savingGateway && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-              <Popover open={gatewayOpen} onOpenChange={setGatewayOpen}>
-                <PopoverTrigger asChild>
-                  {trigger(
-                    gatewayModel,
-                    t('settings.modelDefaults.gatewayUnset', 'Let the backend choose'),
-                  )}
-                </PopoverTrigger>
-                <PopoverContent align="end" sideOffset={6} className="w-[20rem] p-0">
-                  {picker(gatewayModel ?? '', (id) => void applyGateway(id))}
-                </PopoverContent>
-              </Popover>
-            </div>
-          </div>
-
-          {/* Cron — read-only on purpose: the model lives on each job. */}
-          <div className="flex items-start justify-between gap-3 border-t border-border-soft pt-3">
-            <div className="min-w-0">
-              <p className="text-[13px]">{t('settings.modelDefaults.cron', 'Scheduled jobs')}</p>
-              <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-                {cronJobs.length === 0
-                  ? t('settings.modelDefaults.cronNone', 'No jobs yet')
-                  : t('settings.modelDefaults.cronPinned', {
-                      // Not `count`: i18next reads that as a plural selector and
-                      // goes looking for `_one` / `_other` variants we do not
-                      // define. This is a plain interpolation.
-                      jobs: cronJobs.length,
-                      distinct: cronModels.size,
-                      defaultValue: '{{jobs}} jobs · {{distinct}} model(s), pinned per job',
-                    })}
-              </p>
-            </div>
+        </>,
+        <div className="mt-2 flex items-center gap-2 text-[12.5px] text-muted-foreground">
+          <span>
+            {cronJobs.length === 0
+              ? t('settings.modelDefaults.cronNone', 'No jobs yet')
+              : t('settings.modelDefaults.cronCount', {
+                  // Not `count`: i18next reads that as a plural selector and goes
+                  // looking for `_one` / `_other` variants we do not define.
+                  jobs: cronJobs.length,
+                  distinct: cronModels.size,
+                  defaultValue: '{{jobs}} existing jobs · {{distinct}} model(s)',
+                })}
+          </span>
+          {cronJobs.length > 0 && (
             <button
               type="button"
-              className="shrink-0 text-[12.5px] text-muted-foreground underline-offset-2 hover:underline"
+              className="underline-offset-2 hover:underline"
               onClick={() => openSettings('automation')}
             >
               {t('settings.modelDefaults.view', 'View')}
             </button>
-          </div>
+          )}
+        </div>,
+      )}
 
-          {/* Chat — displayed, never written from here. See the header comment. */}
-          <div className="flex items-start justify-between gap-3 border-t border-border-soft pt-3">
-            <div className="min-w-0">
-              <p className="text-[13px]">{t('settings.modelDefaults.chat', 'New chat session')}</p>
-              <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-                {chatNext
-                  ? t(
-                      'settings.modelDefaults.chatHint',
-                      "This client's most recent pick. Choosing a model in chat updates it.",
-                    )
-                  : t(
-                      'settings.modelDefaults.chatNone',
-                      'Nothing picked yet — the first send will ask you to choose.',
-                    )}
-              </p>
-            </div>
-            <span className="shrink-0 font-mono text-xs text-muted-foreground">{chatNext || '—'}</span>
-          </div>
-        </div>
-      </SettingCard>
+      {/* Chat — displayed only; `client-model-mru` owns it. See the header. */}
+      {row(
+        t('settings.modelDefaults.chat', 'Chat'),
+        chatNext
+          ? t(
+              'settings.modelDefaults.chatEffect',
+              'Follows the model you last picked in chat. Shown here, changed there.',
+            )
+          : t(
+              'settings.modelDefaults.chatNone',
+              'Nothing picked yet — the first send will ask you to choose.',
+            ),
+        <span className="font-mono text-xs text-muted-foreground">{chatNext || '—'}</span>,
+      )}
     </div>
   )
 }
