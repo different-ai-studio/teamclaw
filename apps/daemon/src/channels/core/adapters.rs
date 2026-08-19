@@ -215,7 +215,9 @@ impl SessionWriter for StoreWriter {
             filename: upload.filename.clone(),
             mime: upload.mime.clone(),
             bucket_path: stored,
-            local_path: None,
+            // Carried through so a channel that uploads media itself can read
+            // the bytes back at delivery time.
+            local_path: upload.local_path.clone(),
         })
     }
 }
