@@ -783,6 +783,39 @@ export function WeComChannel() {
                   />
                 </div>
 
+                {/* Bot display name (optional) */}
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">
+                    {t('settings.channels.wecom.botName', 'Bot name')}{' '}
+                    <span className="font-normal">({t('settings.channels.optional', 'optional')})</span>
+                  </label>
+                  <Input
+                    value={bot.botName || ''}
+                    onChange={e => updateBot(i, { botName: e.target.value || undefined })}
+                    placeholder={t('settings.channels.wecom.botNamePlaceholder', 'Exact name in WeCom, e.g. Matt chow的机器人 1')}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('settings.channels.wecom.botNameHint', 'Group messages arrive as "@name text" — the exact name is what strips the mention back off.')}
+                  </p>
+                </div>
+
+                {/* MCP api key (optional) */}
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">
+                    {t('settings.channels.wecom.apiKey', 'MCP API Key')}{' '}
+                    <span className="font-normal">({t('settings.channels.optional', 'optional')})</span>
+                  </label>
+                  <Input
+                    type="password"
+                    value={bot.apiKey || ''}
+                    onChange={e => updateBot(i, { apiKey: e.target.value || undefined })}
+                    placeholder={t('settings.channels.wecom.apiKeyPlaceholder', 'apikey from the bot\u2019s 消息 authorization page')}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('settings.channels.wecom.apiKeyHint', 'Lets a scheduled task pick a chat from this bot\u2019s conversation list.')}
+                  </p>
+                </div>
+
                 {/* Workspace */}
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground">{t('settings.channels.wecom.botWorkspace', 'Workspace')}</label>

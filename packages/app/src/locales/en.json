@@ -2193,7 +2193,13 @@
         "wizardCredentialsTitle": "Get Your Bot Credentials",
         "wizardCredentialsDesc": "Copy your Bot ID and Secret.",
         "wizardCompleteTitle": "Setup Complete!",
-        "wizardCompleteDesc": "Your WeCom bot is ready to use."
+        "wizardCompleteDesc": "Your WeCom bot is ready to use.",
+        "botName": "Bot name",
+        "botNamePlaceholder": "Exact name in WeCom, e.g. Matt chow的机器人 1",
+        "botNameHint": "Group messages arrive as \"@name text\" — the exact name is what strips the mention back off.",
+        "apiKey": "MCP API Key",
+        "apiKeyPlaceholder": "apikey from the bot’s message authorization page",
+        "apiKeyHint": "Lets a scheduled task pick a chat from this bot’s conversation list."
       }
     },
     "team": {
@@ -2719,7 +2725,13 @@
       "selectModel": "Select a model",
       "requiredModel": "Model is required",
       "sessionNotFound": "Session not found or access denied (sessionId: {{id}}...)",
-      "runFailedFallback": "This run failed: {{error}}"
+      "runFailedFallback": "This run failed: {{error}}",
+      "wecomChats": {
+        "label": "Conversation",
+        "loading": "Loading conversations…",
+        "empty": "No conversation list — add this bot’s MCP API key in Channels to pick from a list.",
+        "unnamedGroup": "Group chat"
+      }
     },
     "deps": {
       "copied": "Copied!",

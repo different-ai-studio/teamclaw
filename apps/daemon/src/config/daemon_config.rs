@@ -460,6 +460,13 @@ pub struct WeComBot {
     /// Per-bot system prompt injected into the first turn + CLAUDE.local.md.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<String>,
+    /// The bot's MCP api key, from WeCom's 「消息」能力授权页.
+    ///
+    /// Optional and read-only in practice: it is what lets the desktop list the
+    /// chats this bot is in (the long connection cannot), so a cron job can pick
+    /// a target instead of having a chat id typed in by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
     /// The bot's display name in WeCom (`Matt chow的机器人 1`).
     ///
     /// Group messages arrive as `@<name> 正文` with the mention only in the
@@ -504,6 +511,7 @@ impl WeComChannel {
             agent_type: None,
             system_prompt: None,
             bot_name: None,
+            api_key: None,
         }]
     }
 }

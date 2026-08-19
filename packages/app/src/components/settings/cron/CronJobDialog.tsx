@@ -14,6 +14,7 @@ import {
   Send,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -70,6 +71,112 @@ import {
   DELIVERY_CHANNEL_REGISTRY,
   getRegistryEntry,
 } from '@/lib/cron-utils'
+
+/** One conversation the bot can be addressed in, as amuxd reports it. */
+type WeComChat = {
+  botId: string
+  botName?: string | null
+  chatId: string
+  chatName: string
+  chatType: string
+  lastMsgTime: string
+}
+
+/**
+ * Pick a WeCom target from the bot's own conversation list.
+ *
+ * The ids are otherwise unguessable — a group chatid appears nowhere in the UI,
+ * so setting this up meant reading it out of the gateway log. The list comes
+ * from the bot's MCP endpoint, so it only appears once an API key is configured
+ * for that bot; without one this collapses to the manual fields that were the
+ * only option before.
+ */
+function WeComChatPicker({
+  selected,
+  onPick,
+}: {
+  selected?: string
+  onPick: (chat: WeComChat) => void
+}) {
+  const { t } = useTranslation()
+  const [chats, setChats] = React.useState<WeComChat[] | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [loading, setLoading] = React.useState(false)
+
+  React.useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    invoke<{ chats?: WeComChat[]; errors?: Array<{ botId: string; error: string }> }>(
+      'list_wecom_chats',
+    )
+      .then((res) => {
+        if (cancelled) return
+        setChats(res.chats ?? [])
+        // A refused key is worth showing: the alternative is an empty list with
+        // no reason, which reads as "this bot has no chats".
+        setError(res.errors?.length ? res.errors[0]!.error : null)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (loading) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t('settings.cron.wecomChats.loading', 'Loading conversations…')}
+      </p>
+    )
+  }
+  if (!chats?.length) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {error ||
+          t(
+            'settings.cron.wecomChats.empty',
+            'No conversation list — add this bot\u2019s MCP API key in Channels to pick from a list.',
+          )}
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="text-[13px] font-medium">
+        {t('settings.cron.wecomChats.label', 'Conversation')}
+      </label>
+      <div className="max-h-40 overflow-y-auto rounded-[7px] border border-border">
+        {chats.map((chat) => (
+          <button
+            key={`${chat.botId}:${chat.chatId}`}
+            type="button"
+            onClick={() => onPick(chat)}
+            className={cn(
+              'flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs transition-colors',
+              selected === chat.chatId ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
+            )}
+          >
+            <span className="truncate">
+              {chat.chatName ||
+                (chat.chatType === 'group'
+                  ? t('settings.cron.wecomChats.unnamedGroup', 'Group chat')
+                  : chat.chatId)}
+            </span>
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              {chat.chatType} · {chat.lastMsgTime}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export function CronJobDialog({
   open,
@@ -780,6 +887,24 @@ export function CronJobDialog({
                               </SelectContent>
                             </Select>
                           </div>
+                        )}
+                        {form.deliveryChannel === 'wecom' && (
+                          <WeComChatPicker
+                            selected={
+                              currentMode === 'group'
+                                ? form.deliveryTargetValues.chatId
+                                : form.deliveryTargetValues.userId
+                            }
+                            onPick={(chat) =>
+                              update({
+                                deliveryTargetMode: chat.chatType === 'group' ? 'group' : 'single',
+                                deliveryTargetValues:
+                                  chat.chatType === 'group'
+                                    ? { chatId: chat.chatId }
+                                    : { userId: chat.chatId },
+                              })
+                            }
+                          />
                         )}
                         {fieldDefs.map((field) => (
                           <div key={field.key} className="space-y-2">

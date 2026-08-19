@@ -241,6 +241,13 @@ pub(crate) enum SockCommand {
     WecomBotsStatus {
         reply_tx: oneshot::Sender<String>,
     },
+    /// Reply with `{chats:[...], errors:[...]}` — every conversation the
+    /// configured WeCom bots can be addressed in, asked of each bot's MCP
+    /// endpoint. The long connection cannot answer this, which is why a cron
+    /// job's target had to be typed in by hand.
+    WecomChatList {
+        reply_tx: oneshot::Sender<String>,
+    },
     /// Replace `daemon_config.channels.<platform>` with the JSON in `config_json`,
     /// persist to `daemon.toml`, and reload the channel manager so the change
     /// takes effect. One-way (no reply).
@@ -1812,6 +1819,10 @@ impl DaemonServer {
                                 let body = self.wecom_bots_status_payload().await;
                                 let _ = reply_tx.send(body);
                             }
+                            Some(SockCommand::WecomChatList { reply_tx }) => {
+                                let body = self.wecom_chat_list_payload().await;
+                                let _ = reply_tx.send(body);
+                            }
                             Some(SockCommand::ChannelSave { platform, config_json }) => {
                                 self.save_channel_config(&platform, &config_json).await;
                             }
@@ -2268,6 +2279,10 @@ impl DaemonServer {
                             }
                             Some(SockCommand::WecomBotsStatus { reply_tx }) => {
                                 let body = self.wecom_bots_status_payload().await;
+                                let _ = reply_tx.send(body);
+                            }
+                            Some(SockCommand::WecomChatList { reply_tx }) => {
+                                let body = self.wecom_chat_list_payload().await;
                                 let _ = reply_tx.send(body);
                             }
                             Some(SockCommand::ChannelSave { platform, config_json }) => {
@@ -2859,6 +2874,30 @@ where
                         }
                         Err(_) => {
                             warn!("amuxd.sock: channel-status reply dropped");
+                        }
+                    }
+                }
+                "wecom-chat-list" => {
+                    let (reply_tx, reply_rx) = oneshot::channel();
+                    if tx
+                        .send(SockCommand::WecomChatList { reply_tx })
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    match reply_rx.await {
+                        Ok(body) => {
+                            let mut stream = reader.into_inner();
+                            if let Err(e) = stream.write_all(body.as_bytes()).await {
+                                warn!("amuxd.sock: wecom-chat-list write failed: {e}");
+                                return;
+                            }
+                            let _ = stream.write_all(b"\n").await;
+                            let _ = stream.shutdown().await;
+                        }
+                        Err(_) => {
+                            warn!("amuxd.sock: wecom-chat-list reply dropped");
                         }
                     }
                 }
