@@ -286,6 +286,17 @@ pub(crate) enum SockCommand {
         payload: serde_json::Value,
         reply_tx: oneshot::Sender<String>,
     },
+    /// Push one message straight at a channel, no reply token involved.
+    ///
+    /// The desktop's cron delivery is the caller: it is announcing a run's
+    /// result, not answering anybody, so there is no chat whose token it could
+    /// carry. It used to borrow `mcp-send` with a placeholder binding, which
+    /// stopped working the moment that path started demanding a real token —
+    /// and demanding one is right, because `mcp-send` speaks for an agent.
+    ChannelSend {
+        payload: serde_json::Value,
+        reply_tx: oneshot::Sender<String>,
+    },
     /// Local fast-path RPC from `POST /v1/rpc`. `payload` is the raw
     /// `teamclu.RpcRequest` protobuf bytes (identical to what a client
     /// would publish on `amux/{team}/{actor}/rpc/req`); `reply_tx` receives
@@ -1848,6 +1859,13 @@ impl DaemonServer {
                                 };
                                 let _ = reply_tx.send(resp.to_string());
                             }
+                            Some(SockCommand::ChannelSend { payload, reply_tx }) => {
+                                let resp = match self.handle_channel_send(&payload).await {
+                                    Ok(v) => serde_json::json!({ "ok": true, "result": v }),
+                                    Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+                                };
+                                let _ = reply_tx.send(resp.to_string());
+                            }
                             Some(SockCommand::RemoteToolCall { payload, reply_tx }) => {
                                 self.spawn_remote_tool_sock_handler(payload, reply_tx)
                                     .await;
@@ -2313,6 +2331,13 @@ impl DaemonServer {
                                 };
                                 let _ = reply_tx.send(resp.to_string());
                             }
+                            Some(SockCommand::ChannelSend { payload, reply_tx }) => {
+                                let resp = match self.handle_channel_send(&payload).await {
+                                    Ok(v) => serde_json::json!({ "ok": true, "result": v }),
+                                    Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+                                };
+                                let _ = reply_tx.send(resp.to_string());
+                            }
                             Some(SockCommand::RemoteToolCall { payload, reply_tx }) => {
                                 self.spawn_remote_tool_sock_handler(payload, reply_tx)
                                     .await;
@@ -2717,7 +2742,33 @@ where
                 match parsed {
                     Ok(v) => {
                         let cmd = v.get("cmd").and_then(|c| c.as_str()).unwrap_or("");
-                        if cmd == "mcp-send" {
+                        if cmd == "channel-send" {
+                            let (reply_tx, reply_rx) = oneshot::channel();
+                            if tx
+                                .send(SockCommand::ChannelSend {
+                                    payload: v,
+                                    reply_tx,
+                                })
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            match reply_rx.await {
+                                Ok(body) => {
+                                    let mut stream = reader.into_inner();
+                                    if let Err(e) = stream.write_all(body.as_bytes()).await {
+                                        warn!("amuxd.sock: channel-send write failed: {e}");
+                                        return;
+                                    }
+                                    let _ = stream.write_all(b"\n").await;
+                                    let _ = stream.shutdown().await;
+                                }
+                                Err(_) => {
+                                    warn!("amuxd.sock: channel-send reply dropped");
+                                }
+                            }
+                        } else if cmd == "mcp-send" {
                             let (reply_tx, reply_rx) = oneshot::channel();
                             if tx
                                 .send(SockCommand::McpSend {
