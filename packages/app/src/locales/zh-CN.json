@@ -2213,7 +2213,8 @@
         "apiKey": "MCP API Key",
         "apiKeyPlaceholder": "机器人「消息」授权页里的 apikey",
         "apiKeyHint": "填了之后，定时任务可以直接从这个机器人的会话列表里挑目标。"
-      }
+      },
+      "secretStored": "已配置 · 留空即保持不变"
     },
     "team": {
       "oss": {

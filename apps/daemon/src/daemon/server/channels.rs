@@ -362,6 +362,22 @@ impl DaemonServer {
             .unwrap_or_else(|_| "{\"chats\":[],\"errors\":[]}".to_string())
     }
 
+    /// Which credential fields already have a stored value, as dotted paths.
+    ///
+    /// The settings form reads credentials back empty (they live in the
+    /// encrypted store, not in `team.toml`), which is indistinguishable from
+    /// never having set one. This is the missing half — presence only, never
+    /// the value.
+    pub(crate) fn channel_secret_keys_payload(&self) -> String {
+        let team = crate::config::layout::active_team();
+        let keys = crate::config::team_config::stored_secret_keys(&team).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "channel-secret-keys: secret store unreadable");
+            Vec::new()
+        });
+        serde_json::to_string(&serde_json::json!({ "keys": keys }))
+            .unwrap_or_else(|_| "{\"keys\":[]}".to_string())
+    }
+
     /// Handle a `mcp-send` JSON envelope from the `amuxd mcp-server` bridge.
     /// Resolves the caller's reply token to a chat binding, parses that
     /// binding (e.g. `wecom://{corp}/{agent}/{kind}/{id}`) into the default

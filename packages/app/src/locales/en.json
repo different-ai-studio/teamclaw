@@ -2213,7 +2213,8 @@
         "apiKey": "MCP API Key",
         "apiKeyPlaceholder": "apikey from the bot’s message authorization page",
         "apiKeyHint": "Lets a scheduled task pick a chat from this bot’s conversation list."
-      }
+      },
+      "secretStored": "Configured · leave empty to keep"
     },
     "team": {
       "oss": {
