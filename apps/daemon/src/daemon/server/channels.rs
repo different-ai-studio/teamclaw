@@ -385,12 +385,30 @@ impl DaemonServer {
         // Only for the originating chat: an explicit target override is a
         // deliberate push somewhere else and keeps the direct path.
         if target_override.is_none() {
-            if let Some(session_id) = payload
+            let resolved = payload
                 .get("reply_token")
                 .and_then(|v| v.as_str())
-                .and_then(crate::channels::reply_token::session_for)
-            {
-                if crate::channels::core::turn_attachments::is_open(&session_id) {
+                .and_then(crate::channels::reply_token::session_for);
+            if resolved.is_none() {
+                // Without a session the file cannot join a reply OR be recorded
+                // at all — it reaches the chat and exists nowhere else, which
+                // is the exact hole #933 opened with.
+                tracing::warn!(
+                    binding,
+                    "mcp-send: reply token carries no session; file will not be recorded"
+                );
+            }
+            if let Some(session_id) = resolved {
+                let open = crate::channels::core::turn_attachments::is_open(&session_id);
+                // Which of the two paths ran is otherwise invisible, and they
+                // differ in whether the file ends up on the session message.
+                tracing::info!(
+                    session_id,
+                    turn_open = open,
+                    has_file = file_path.is_some(),
+                    "mcp-send: routing"
+                );
+                if open {
                     return self
                         .attach_to_running_turn(mgr, &session_id, message, file_path, binding)
                         .await;

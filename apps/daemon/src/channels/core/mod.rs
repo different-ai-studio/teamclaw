@@ -400,6 +400,13 @@ impl Core {
             .await
             .map_err(|e| CoreError::Turn(format!("turn task: {e}")))??;
         let attachments = turn_attachments::close(&session.session_id);
+        if !attachments.is_empty() {
+            tracing::info!(
+                session_id = %session.session_id,
+                count = attachments.len(),
+                "gateway: reply carries attachments"
+            );
+        }
         let outbound = render(driver, &reply, attachments.clone());
 
         // The streaming bubble carries the text; files cannot be edited into
