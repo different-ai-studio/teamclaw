@@ -1229,11 +1229,13 @@ impl driver::ChannelDriver for WeComDriver {
                 .map_err(driver::DriverError::Transport);
         }
 
-        // Close the bubble on whatever it was last showing — no "done" wording,
-        // because the finished answer arrives right behind it and saying so
-        // twice is noise. Then send that answer as markdown, which is the only
-        // way WeCom renders code fences and lists (`stream` is plain text).
-        let _ = pacer.send(&last_frame, true).await;
+        // WeCom has no way to delete a message, so this bubble stays in the
+        // chat forever — closing it on the last progress frame left "正在思考…"
+        // sitting above a finished answer. Close it on the answer's own first
+        // line instead: it reads as a heading for the rendered message that
+        // follows, rather than as work still in progress.
+        let closing = headline(text).unwrap_or(last_frame);
+        let _ = pacer.send(&closing, true).await;
         self.pacers.lock().await.remove(&id.0);
         if text.trim().is_empty() {
             return Ok(());
@@ -1249,6 +1251,27 @@ const PROGRESS_OPENING: &str = "💭 正在思考…";
 
 /// How much of the newest line rides along in the progress frame.
 const PROGRESS_LINE_CHARS: usize = 40;
+
+/// The answer's opening line, used to close the progress bubble.
+///
+/// First line rather than last: it is the closest thing the reply has to a
+/// title, and the bubble sits directly above the full rendered answer.
+fn headline(text: &str) -> Option<String> {
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with("```"))?;
+    let line = line.trim_start_matches(['#', '*', '-', '>', ' ']);
+    let line = line.trim_end_matches(['*', ' ']);
+    if line.is_empty() {
+        return None;
+    }
+    let mut out: String = line.chars().take(PROGRESS_LINE_CHARS).collect();
+    if line.chars().count() > PROGRESS_LINE_CHARS {
+        out.push('…');
+    }
+    Some(out)
+}
 
 /// The tail of what the agent has written so far, for the progress bubble.
 ///
@@ -3531,6 +3554,32 @@ mod progress_line_tests {
         assert_eq!(newest_line("答案\n```python").unwrap(), "答案");
         assert_eq!(newest_line("## 标题").unwrap(), "标题");
         assert_eq!(newest_line("- 列表项").unwrap(), "列表项");
+    }
+
+    #[test]
+    fn the_bubble_closes_on_the_answers_first_line_not_on_thinking() {
+        // WeCom cannot delete a message, so this bubble is permanent. Leaving
+        // "正在思考…" on it means the chat shows work in progress above a
+        // finished answer, forever.
+        let answer = "📰 今日头条热榜 Top 10\n\n1. **第一条**\n2. 第二条";
+        assert_eq!(headline(answer).unwrap(), "📰 今日头条热榜 Top 10");
+        assert!(!headline(answer).unwrap().contains("正在思考"));
+    }
+
+    #[test]
+    fn a_headline_strips_markdown_markers_and_truncates_by_characters() {
+        assert_eq!(headline("## **标题**").unwrap(), "标题");
+        let long = "中".repeat(80);
+        assert_eq!(
+            headline(&long).unwrap().chars().count(),
+            PROGRESS_LINE_CHARS + 1
+        );
+    }
+
+    #[test]
+    fn an_answer_that_opens_with_a_code_fence_falls_through_to_its_first_words() {
+        assert_eq!(headline("```python\nprint(1)").unwrap(), "print(1)");
+        assert!(headline("").is_none());
     }
 
     #[test]
