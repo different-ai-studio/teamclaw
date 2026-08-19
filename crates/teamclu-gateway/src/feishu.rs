@@ -671,7 +671,8 @@ pub fn feishu_caps() -> crate::driver::ChannelCaps {
         threading: crate::driver::Threading::ReplyTo,
         // Feishu rejects oversized text bodies; the core splits above this.
         max_chars: 4000,
-        turn_timeout_secs: 180,
+        // Same ten minutes as WeCom: same medium, same kind of task.
+        turn_timeout_secs: 600,
     }
 }
 
@@ -1555,7 +1556,12 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
     // Drive a single agent turn through amuxd.
     let reply = match ctx
         .agent
-        .send_prompt(&outcome.acp_session_id, &sender_display, &clean_text)
+        .send_prompt(
+            &outcome.acp_session_id,
+            &sender_display,
+            &clean_text,
+            feishu_caps().turn_timeout(),
+        )
         .await
     {
         Ok(r) => r,

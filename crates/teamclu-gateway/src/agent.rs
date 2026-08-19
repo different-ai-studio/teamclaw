@@ -88,11 +88,17 @@ pub trait AgentHandle: Send + Sync + 'static {
 
     /// Send a user prompt and wait for the agent's reply text. Equivalent to
     /// v1's `prompt_async` + SSE polling, but synchronous and in-process.
+    ///
+    /// `timeout` is the channel's own patience, from
+    /// [`ChannelCaps::turn_timeout_secs`](crate::driver::ChannelCaps): a mail
+    /// round trip and an IM bubble have nothing in common, and the value used
+    /// to be a constant in the daemon that no channel could influence.
     async fn send_prompt(
         &self,
         session: &AmuxSessionId,
         sender_display: &str,
         text: &str,
+        timeout: std::time::Duration,
     ) -> Result<TurnOutcome, AgentError>;
 
     /// Same as `send_prompt`, but reports the reply as it grows so channels
@@ -114,9 +120,11 @@ pub trait AgentHandle: Send + Sync + 'static {
         sender_display: &str,
         text: &str,
         on_update: mpsc::Sender<String>,
+        timeout: std::time::Duration,
     ) -> Result<TurnOutcome, AgentError> {
         let _ = on_update;
-        self.send_prompt(session, sender_display, text).await
+        self.send_prompt(session, sender_display, text, timeout)
+            .await
     }
 
     /// Inject context without triggering a reply (v1 `noReply: true`).

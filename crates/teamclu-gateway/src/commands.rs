@@ -678,6 +678,7 @@ mod tests {
             _session: &AmuxSessionId,
             _sender_display: &str,
             _text: &str,
+            _timeout: std::time::Duration,
         ) -> Result<TurnOutcome, AgentError> {
             Ok(TurnOutcome {
                 reply_text: "prompt response".to_string(),
