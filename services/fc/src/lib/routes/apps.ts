@@ -1,6 +1,33 @@
 import { ApiError } from "../http-utils.js";
 import { parseLimit, requireString } from "../routing-utils.js";
 
+/**
+ * Normalize the optional repo URL an app is imported from.
+ *
+ * The daemon validates it again before handing it to `git clone` — that check
+ * is the security boundary, since it is the one next to the process spawn. This
+ * one exists so a typo is a 400 at create time instead of a row that can never
+ * be seeded. Same allowlist: http(s) / ssh / git://, or scp-like `git@host:path`.
+ */
+function normalizeGitRemoteUrl(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "string") {
+    throw new ApiError(400, "validation_failed", "gitRemoteUrl must be a string");
+  }
+  const url = raw.trim();
+  if (!url) return null;
+  const schemed = /^(https?|ssh|git):\/\/[^\s]+$/.test(url);
+  const scpLike = /^[^\s:/@]+@[^\s:/@]+:[^\s]+$/.test(url);
+  if (!schemed && !scpLike) {
+    throw new ApiError(
+      400,
+      "validation_failed",
+      "gitRemoteUrl must be an http(s), ssh or git:// address",
+    );
+  }
+  return url;
+}
+
 export function registerApps(router) {
   router.get("/v1/apps", async (ctx) => {
     const teamId = ctx.query.get("teamId");
@@ -15,7 +42,10 @@ export function registerApps(router) {
     requireString(body.teamId, "teamId");
     requireString(body.name, "name");
     requireString(body.type, "type");
-    const out = await ctx.repository.createApp(body);
+    const out = await ctx.repository.createApp({
+      ...body,
+      gitRemoteUrl: normalizeGitRemoteUrl(body.gitRemoteUrl),
+    });
     return { statusCode: 201, body: out };
   });
 

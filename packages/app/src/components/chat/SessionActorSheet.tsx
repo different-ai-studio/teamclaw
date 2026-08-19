@@ -39,7 +39,10 @@ import {
 
 type Row = {
   id: string
-  actor_type: 'member' | 'agent'
+  /// `external` is the person on the other end of a gateway chat (WeCom,
+  /// Feishu). They are participants like anyone else — the panel used to
+  /// filter them out, so its header counted three and its list showed two.
+  actor_type: 'member' | 'agent' | 'external'
   display_name: string
   member_status: string | null
   agent_status: string | null
@@ -140,7 +143,7 @@ function mapCachedActor(a: {
 }): Row {
   return {
     id: a.id,
-    actor_type: (a.actorType as 'member' | 'agent'),
+    actor_type: a.actorType as 'member' | 'agent' | 'external',
     display_name: a.displayName,
     member_status: a.memberStatus ?? null,
     agent_status: a.agentStatus ?? null,
@@ -156,10 +159,15 @@ async function fetchParticipantsFromSupabase(sessionId: string): Promise<{ ids: 
   return {
     ids,
     rows: actors
-      .filter((a) => a.actor_type === 'member' || a.actor_type === 'agent')
+      .filter(
+        (a) =>
+          a.actor_type === 'member' ||
+          a.actor_type === 'agent' ||
+          a.actor_type === 'external',
+      )
       .map((a) => ({
         id: a.id,
-        actor_type: a.actor_type as 'member' | 'agent',
+        actor_type: a.actor_type as 'member' | 'agent' | 'external',
         display_name: a.display_name || '',
         member_status: a.member_status ?? null,
         agent_status: a.agent_status ?? null,
@@ -464,6 +472,10 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
           displayName: row.display_name?.trim() || row.id,
           avatarUrl: null,
           isAgent: isAgentActorType(row.actor_type),
+          // This sheet manages team membership and filters its rows to
+          // member/agent, so it never carries an external. The store keeps
+          // the ones it already knows rather than reading this as "they left".
+          isExternal: false,
         })),
       )
     }
@@ -746,6 +758,7 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
 
   const members = rows.filter((a) => a.actor_type === 'member')
   const agents = rows.filter((a) => a.actor_type === 'agent')
+  const externals = rows.filter((a) => a.actor_type === 'external')
   const normalizedQuery = query.trim().toLowerCase()
   const visibleCandidates = normalizedQuery
     ? candidateActors.filter((a) => {
@@ -791,7 +804,7 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
               </div>
             )}
 
-            {!loading && !error && (members.length > 0 || agents.length > 0 || candidateActors.length > 0) && (
+            {!loading && !error && (members.length > 0 || agents.length > 0 || externals.length > 0 || candidateActors.length > 0) && (
               <>
                 {agents.length > 0 && (
                   <>
@@ -829,6 +842,24 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
                         actor={m}
                         canRemove={!!myActorId && m.id !== myActorId}
                         onRemove={() => setPendingRemove(m)}
+                      />
+                    ))}
+                  </>
+                )}
+                {externals.length > 0 && (
+                  <>
+                    <div className="px-[22px] pb-1.5 pt-[13px] text-[9.5px] font-semibold uppercase tracking-[0.6px] text-faint">
+                      {t('chat.actorSheet.externalSection', '外部联系人')}{' '}
+                      <span className="font-mono">· {externals.length}</span>
+                    </div>
+                    {externals.map((e) => (
+                      <ActorRowView
+                        key={e.id}
+                        actor={e}
+                        // They joined by writing to the bot; removing them here
+                        // would be undone by their next message.
+                        canRemove={false}
+                        onRemove={() => {}}
                       />
                     ))}
                   </>

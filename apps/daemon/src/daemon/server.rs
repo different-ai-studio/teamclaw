@@ -241,6 +241,19 @@ pub(crate) enum SockCommand {
     WecomBotsStatus {
         reply_tx: oneshot::Sender<String>,
     },
+    /// Reply with `{keys:[...]}` — the dotted paths of credential fields that
+    /// already hold a value, so the settings form can show "configured"
+    /// instead of an empty box that looks unset.
+    ChannelSecretKeys {
+        reply_tx: oneshot::Sender<String>,
+    },
+    /// Reply with `{chats:[...], errors:[...]}` — every conversation the
+    /// configured WeCom bots can be addressed in, asked of each bot's MCP
+    /// endpoint. The long connection cannot answer this, which is why a cron
+    /// job's target had to be typed in by hand.
+    WecomChatList {
+        reply_tx: oneshot::Sender<String>,
+    },
     /// Replace `daemon_config.channels.<platform>` with the JSON in `config_json`,
     /// persist to `daemon.toml`, and reload the channel manager so the change
     /// takes effect. One-way (no reply).
@@ -270,6 +283,17 @@ pub(crate) enum SockCommand {
     ///   JSON (`{ "ok": true, "result": ... }` or
     ///   `{ "ok": false, "error": ... }`) the listener writes back.
     McpSend {
+        payload: serde_json::Value,
+        reply_tx: oneshot::Sender<String>,
+    },
+    /// Push one message straight at a channel, no reply token involved.
+    ///
+    /// The desktop's cron delivery is the caller: it is announcing a run's
+    /// result, not answering anybody, so there is no chat whose token it could
+    /// carry. It used to borrow `mcp-send` with a placeholder binding, which
+    /// stopped working the moment that path started demanding a real token —
+    /// and demanding one is right, because `mcp-send` speaks for an agent.
+    ChannelSend {
         payload: serde_json::Value,
         reply_tx: oneshot::Sender<String>,
     },
@@ -1812,6 +1836,13 @@ impl DaemonServer {
                                 let body = self.wecom_bots_status_payload().await;
                                 let _ = reply_tx.send(body);
                             }
+                            Some(SockCommand::WecomChatList { reply_tx }) => {
+                                let body = self.wecom_chat_list_payload().await;
+                                let _ = reply_tx.send(body);
+                            }
+                            Some(SockCommand::ChannelSecretKeys { reply_tx }) => {
+                                let _ = reply_tx.send(self.channel_secret_keys_payload());
+                            }
                             Some(SockCommand::ChannelSave { platform, config_json }) => {
                                 self.save_channel_config(&platform, &config_json).await;
                             }
@@ -1823,6 +1854,13 @@ impl DaemonServer {
                             }
                             Some(SockCommand::McpSend { payload, reply_tx }) => {
                                 let resp = match self.handle_mcp_send(&payload).await {
+                                    Ok(v) => serde_json::json!({ "ok": true, "result": v }),
+                                    Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+                                };
+                                let _ = reply_tx.send(resp.to_string());
+                            }
+                            Some(SockCommand::ChannelSend { payload, reply_tx }) => {
+                                let resp = match self.handle_channel_send(&payload).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
                                 };
@@ -2270,6 +2308,13 @@ impl DaemonServer {
                                 let body = self.wecom_bots_status_payload().await;
                                 let _ = reply_tx.send(body);
                             }
+                            Some(SockCommand::WecomChatList { reply_tx }) => {
+                                let body = self.wecom_chat_list_payload().await;
+                                let _ = reply_tx.send(body);
+                            }
+                            Some(SockCommand::ChannelSecretKeys { reply_tx }) => {
+                                let _ = reply_tx.send(self.channel_secret_keys_payload());
+                            }
                             Some(SockCommand::ChannelSave { platform, config_json }) => {
                                 self.save_channel_config(&platform, &config_json).await;
                             }
@@ -2281,6 +2326,13 @@ impl DaemonServer {
                             }
                             Some(SockCommand::McpSend { payload, reply_tx }) => {
                                 let resp = match self.handle_mcp_send(&payload).await {
+                                    Ok(v) => serde_json::json!({ "ok": true, "result": v }),
+                                    Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+                                };
+                                let _ = reply_tx.send(resp.to_string());
+                            }
+                            Some(SockCommand::ChannelSend { payload, reply_tx }) => {
+                                let resp = match self.handle_channel_send(&payload).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
                                 };
@@ -2690,7 +2742,33 @@ where
                 match parsed {
                     Ok(v) => {
                         let cmd = v.get("cmd").and_then(|c| c.as_str()).unwrap_or("");
-                        if cmd == "mcp-send" {
+                        if cmd == "channel-send" {
+                            let (reply_tx, reply_rx) = oneshot::channel();
+                            if tx
+                                .send(SockCommand::ChannelSend {
+                                    payload: v,
+                                    reply_tx,
+                                })
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            match reply_rx.await {
+                                Ok(body) => {
+                                    let mut stream = reader.into_inner();
+                                    if let Err(e) = stream.write_all(body.as_bytes()).await {
+                                        warn!("amuxd.sock: channel-send write failed: {e}");
+                                        return;
+                                    }
+                                    let _ = stream.write_all(b"\n").await;
+                                    let _ = stream.shutdown().await;
+                                }
+                                Err(_) => {
+                                    warn!("amuxd.sock: channel-send reply dropped");
+                                }
+                            }
+                        } else if cmd == "mcp-send" {
                             let (reply_tx, reply_rx) = oneshot::channel();
                             if tx
                                 .send(SockCommand::McpSend {
@@ -2859,6 +2937,54 @@ where
                         }
                         Err(_) => {
                             warn!("amuxd.sock: channel-status reply dropped");
+                        }
+                    }
+                }
+                "channel-secret-keys" => {
+                    let (reply_tx, reply_rx) = oneshot::channel();
+                    if tx
+                        .send(SockCommand::ChannelSecretKeys { reply_tx })
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    match reply_rx.await {
+                        Ok(body) => {
+                            let mut stream = reader.into_inner();
+                            if let Err(e) = stream.write_all(body.as_bytes()).await {
+                                warn!("amuxd.sock: channel-secret-keys write failed: {e}");
+                                return;
+                            }
+                            let _ = stream.write_all(b"\n").await;
+                            let _ = stream.shutdown().await;
+                        }
+                        Err(_) => {
+                            warn!("amuxd.sock: channel-secret-keys reply dropped");
+                        }
+                    }
+                }
+                "wecom-chat-list" => {
+                    let (reply_tx, reply_rx) = oneshot::channel();
+                    if tx
+                        .send(SockCommand::WecomChatList { reply_tx })
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    match reply_rx.await {
+                        Ok(body) => {
+                            let mut stream = reader.into_inner();
+                            if let Err(e) = stream.write_all(body.as_bytes()).await {
+                                warn!("amuxd.sock: wecom-chat-list write failed: {e}");
+                                return;
+                            }
+                            let _ = stream.write_all(b"\n").await;
+                            let _ = stream.shutdown().await;
+                        }
+                        Err(_) => {
+                            warn!("amuxd.sock: wecom-chat-list reply dropped");
                         }
                     }
                 }

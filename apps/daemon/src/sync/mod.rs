@@ -4,6 +4,7 @@
 //! See docs/superpowers/specs/2026-06-02-daemon-owns-team-sync-design.md.
 
 pub mod app_build;
+pub mod app_clone;
 pub mod app_seed;
 pub mod app_templates;
 pub mod dispatch;

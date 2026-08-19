@@ -1023,7 +1023,12 @@ impl KookGateway {
         // Drive a single agent turn through amuxd.
         let turn = self
             .agent
-            .send_prompt(&outcome.acp_session_id, &sender_display, &content)
+            .send_prompt(
+                &outcome.acp_session_id,
+                &sender_display,
+                &content,
+                crate::driver::ChannelCaps::MINIMAL.turn_timeout(),
+            )
             .await;
 
         match turn {

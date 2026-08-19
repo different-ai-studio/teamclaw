@@ -52,7 +52,7 @@ test("createApp inserts a workspace + app and returns canonical fields", async (
 
   assert.deepEqual(Object.keys(app).sort(), [
     "createdAt", "fcStatus", "fcEndpoint", "fcFunctionName", "fcRegion",
-    "id", "name", "provisionStatus", "publicUrl",
+    "gitRemoteUrl", "id", "name", "provisionStatus", "publicUrl",
     "slug", "teamId", "type", "updatedAt", "visibility", "workspaceId",
   ].sort());
   assert.equal(app.teamId, team.id);
@@ -61,6 +61,27 @@ test("createApp inserts a workspace + app and returns canonical fields", async (
 
   const fetched = await repo.getApp(app.id);
   assert.equal(fetched.id, app.id);
+});
+
+test("createApp keeps the repo URL an imported app was created from", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id);
+  const repo = createPgBusinessRepository({ db, userId: actor.userId });
+
+  // The daemon reads this back to know whether to clone or write the starter
+  // template, so it has to survive the round trip, not just the insert.
+  const imported = await repo.createApp({
+    teamId: team.id, name: "Imported", type: "static_web",
+    gitRemoteUrl: "https://github.com/owner/repo.git",
+  });
+  assert.equal(imported.gitRemoteUrl, "https://github.com/owner/repo.git");
+  assert.equal((await repo.getApp(imported.id)).gitRemoteUrl, "https://github.com/owner/repo.git");
+  const listed = (await repo.listApps({ teamId: team.id })).find((a) => a.id === imported.id);
+  assert.equal(listed.gitRemoteUrl, "https://github.com/owner/repo.git");
+
+  const seeded = await repo.createApp({ teamId: team.id, name: "Seeded", type: "static_web" });
+  assert.equal(seeded.gitRemoteUrl, null, "an app with no repo has no URL");
 });
 
 // ── listApps / updateApp / listAppSessions ────────────────────────────────────

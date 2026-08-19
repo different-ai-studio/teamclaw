@@ -526,6 +526,19 @@ pub trait Backend: Send + Sync {
         acp_session_id: &str,
     ) -> BackendResult<Option<(String, Option<String>)>>;
 
+    /// The chat a session is bound to, by cloud session id.
+    ///
+    /// The by-ACP lookup above cannot answer this: a message arriving over
+    /// `session/{id}/live` carries the cloud id and nothing else, and that is
+    /// exactly when we need to know whether the session has a chat on the
+    /// other end.
+    ///
+    /// Default impl reports "not bound" so a backend with no gateway surface
+    /// treats every session as desktop-only rather than failing the caller.
+    async fn get_session_binding(&self, _session_id: &str) -> BackendResult<Option<String>> {
+        Ok(None)
+    }
+
     /// Release a gateway chat's binding so the next inbound message opens a
     /// new session; the old row keeps its history. Returns whether anything
     /// was detached (`false` for an unknown id or a non-gateway session).
@@ -540,29 +553,36 @@ pub trait Backend: Send + Sync {
     /// plus every session `/new` detached from it. `gateway_key` is the chat's
     /// binding, which — unlike `binding` itself — survives a detach.
     ///
-    /// Default impl reports an empty list so backends without a gateway surface
-    /// answer `/sessions` with "no sessions" rather than an error.
+    /// Required, deliberately. This used to default to `Ok(Vec::new())` on the
+    /// theory that a backend without a gateway surface should answer
+    /// `/sessions` with "no sessions" rather than an error. What it actually
+    /// did was hide a missing forward: `DeferredBackend` wraps the real client
+    /// on *every* startup path and simply never implemented this, so every
+    /// `/sessions` in every chat answered "no sessions" from the default body
+    /// without one packet leaving the daemon — for weeks, with no error and no
+    /// log line. An implementor that genuinely has no gateway surface can
+    /// still return an empty vec; it just has to say so out loud.
     async fn rpc_list_gateway_sessions(
         &self,
-        _team_id: &str,
-        _gateway_key: &str,
-        _limit: u32,
-    ) -> BackendResult<Vec<GatewaySessionRow>> {
-        Ok(Vec::new())
-    }
+        team_id: &str,
+        gateway_key: &str,
+        limit: u32,
+    ) -> BackendResult<Vec<GatewaySessionRow>>;
 
     /// Point a chat's binding at one of that chat's existing sessions — the
     /// inverse of `rpc_detach_gateway_session`. Returns the target's
     /// `acp_session_id` on success, or `None` when the session is unknown or
     /// belongs to a different chat (which the caller must report as such rather
     /// than as a completed switch).
+    ///
+    /// Required for the same reason as `rpc_list_gateway_sessions` above: its
+    /// `Ok(None)` default made `/sessions <n>` report "cannot switch" on a
+    /// perfectly valid session id.
     async fn rpc_attach_gateway_session(
         &self,
-        _binding: &str,
-        _session_id: &str,
-    ) -> BackendResult<Option<String>> {
-        Ok(None)
-    }
+        binding: &str,
+        session_id: &str,
+    ) -> BackendResult<Option<String>>;
 
     /// Resolve (or create) the `sessions` row for a gateway binding.
     /// Returns `(session_id, acp_session_id, created)`.

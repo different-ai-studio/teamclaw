@@ -775,7 +775,12 @@ impl WeChatGateway {
         // Drive a single agent turn through amuxd.
         let reply = self
             .agent
-            .send_prompt(&outcome.acp_session_id, &sender_display_name, text)
+            .send_prompt(
+                &outcome.acp_session_id,
+                &sender_display_name,
+                text,
+                crate::driver::ChannelCaps::MINIMAL.turn_timeout(),
+            )
             .await
             .map_err(|e| format!("agent.send_prompt: {e}"))?;
 

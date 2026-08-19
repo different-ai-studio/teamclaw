@@ -374,7 +374,12 @@ impl DiscordHandler {
         // Drive a single agent turn through amuxd.
         let turn = self
             .agent
-            .send_prompt(&outcome.acp_session_id, &msg.author.name, &content)
+            .send_prompt(
+                &outcome.acp_session_id,
+                &msg.author.name,
+                &content,
+                crate::driver::ChannelCaps::MINIMAL.turn_timeout(),
+            )
             .await;
 
         match turn {

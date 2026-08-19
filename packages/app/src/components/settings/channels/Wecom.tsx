@@ -39,6 +39,7 @@ import { WeComIcon } from './shared'
 import { GatewayStatusCard } from './GatewayStatusCard'
 import { useChannelConfig } from '@/hooks/useChannelConfig'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { botSecretPath, loadChannelSecretKeys } from '@/lib/channel-secret-presence'
 import {
   getCurrentDaemonWorkspaceAgent,
   listDaemonWorkspaces,
@@ -621,6 +622,25 @@ export function WeComChannel() {
 
   const bots = localConfig.bots ?? []
 
+  // Which credential boxes already hold a value. They read back empty by
+  // design, so without this an unset key and a stored one look identical —
+  // and the safe-looking move (retype it) is the one that can break a working
+  // gateway.
+  const [storedSecrets, setStoredSecrets] = React.useState<Set<string>>(new Set())
+  React.useEffect(() => {
+    let cancelled = false
+    void loadChannelSecretKeys().then((keys) => {
+      if (!cancelled) setStoredSecrets(keys)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [wecomIsLoading])
+  const storedHint = (botId: string, field: string) =>
+    botId && storedSecrets.has(botSecretPath('wecom', botId, field))
+      ? t('settings.channels.secretStored', 'Configured · leave empty to keep')
+      : null
+
   const updateBot = (i: number, patch: Partial<WeComBot>) => {
     updateLocalConfig({ bots: bots.map((b, j) => (j === i ? { ...b, ...patch } : b)) })
     setWecomHasChanges(true)
@@ -762,7 +782,11 @@ export function WeComChannel() {
                       type="password"
                       value={bot.secret}
                       onChange={e => updateBot(i, { secret: e.target.value })}
-                      placeholder={t('settings.channels.wecom.secretPlaceholder', 'Enter your WeCom bot secret')}
+                      placeholder={
+                        storedHint(bot.botId, 'secret')
+                          ? '••••••••••••'
+                          : t('settings.channels.wecom.secretPlaceholder', 'Enter your WeCom bot secret')
+                      }
                       className="pr-10"
                     />
                     <Shield className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -779,8 +803,53 @@ export function WeComChannel() {
                     type="password"
                     value={bot.encodingAesKey || ''}
                     onChange={e => updateBot(i, { encodingAesKey: e.target.value || undefined })}
-                    placeholder={t('settings.channels.wecom.encodingAesKeyPlaceholder', '43-character key for attachment decryption')}
+                    placeholder={
+                      storedHint(bot.botId, 'encoding_aes_key')
+                        ? '••••••••••••'
+                        : t('settings.channels.wecom.encodingAesKeyPlaceholder', '43-character key for attachment decryption')
+                    }
                   />
+                  {storedHint(bot.botId, 'encoding_aes_key') && (
+                    <p className="text-[11px] text-muted-foreground">{storedHint(bot.botId, 'encoding_aes_key')}</p>
+                  )}
+                </div>
+
+                {/* Bot display name (optional) */}
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">
+                    {t('settings.channels.wecom.botName', 'Bot name')}{' '}
+                    <span className="font-normal">({t('settings.channels.optional', 'optional')})</span>
+                  </label>
+                  <Input
+                    value={bot.botName || ''}
+                    onChange={e => updateBot(i, { botName: e.target.value || undefined })}
+                    placeholder={t('settings.channels.wecom.botNamePlaceholder', 'Exact name in WeCom, e.g. Matt chow的机器人 1')}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('settings.channels.wecom.botNameHint', 'Group messages arrive as "@name text" — the exact name is what strips the mention back off.')}
+                  </p>
+                </div>
+
+                {/* MCP api key (optional) */}
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">
+                    {t('settings.channels.wecom.apiKey', 'MCP API Key')}{' '}
+                    <span className="font-normal">({t('settings.channels.optional', 'optional')})</span>
+                  </label>
+                  <Input
+                    type="password"
+                    value={bot.apiKey || ''}
+                    onChange={e => updateBot(i, { apiKey: e.target.value || undefined })}
+                    placeholder={
+                      storedHint(bot.botId, 'api_key')
+                        ? '••••••••••••'
+                        : t('settings.channels.wecom.apiKeyPlaceholder', 'apikey from the bot\u2019s 消息 authorization page')
+                    }
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {storedHint(bot.botId, 'api_key') ??
+                      t('settings.channels.wecom.apiKeyHint', 'Lets a scheduled task pick a chat from this bot\u2019s conversation list.')}
+                  </p>
                 </div>
 
                 {/* Workspace */}

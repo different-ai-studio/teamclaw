@@ -1324,6 +1324,31 @@ impl Backend for CloudApiBackend {
         }
     }
 
+    async fn get_session_binding(&self, session_id: &str) -> BackendResult<Option<String>> {
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            #[serde(default)]
+            binding: Option<String>,
+            // `binding` is released when `/new` moves the chat to a fresh
+            // session; `gatewayKey` says which chat the row came from and
+            // survives that. Prefer the live binding, fall back to the key.
+            #[serde(rename = "gatewayKey", default)]
+            gateway_key: Option<String>,
+        }
+        // teamId scopes the read to the caller's actor, as on every session read.
+        match self
+            .get::<Resp>(&format!(
+                "/v1/sessions/{session_id}?teamId={}",
+                self.cfg.team_id
+            ))
+            .await
+        {
+            Ok(r) => Ok(r.binding.or(r.gateway_key).filter(|b| !b.is_empty())),
+            Err(BackendError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     async fn rpc_detach_gateway_session(&self, acp_session_id: &str) -> BackendResult<bool> {
         #[derive(serde::Serialize)]
         struct Body<'a> {

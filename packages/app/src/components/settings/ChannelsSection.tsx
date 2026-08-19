@@ -11,7 +11,6 @@ import { KookChannel } from './channels/Kook'
 import { WeComChannel } from './channels/Wecom'
 import { WeChatChannel } from './channels/Wechat'
 import { SeaTalkChannel } from './channels/Seatalk'
-import { GatewayModelCard } from './channels/GatewayModel'
 import { useFeatures } from '@/lib/remote-features'
 
 // Main Channels Section Component
@@ -61,9 +60,6 @@ export function ChannelsSection() {
           </div>
         </SettingCard>
       )}
-
-      {/* Applies to every channel below, so it sits above them. */}
-      <GatewayModelCard />
 
       {/* Channel Components */}
       {channelsConfig.discord && <DiscordChannel />}

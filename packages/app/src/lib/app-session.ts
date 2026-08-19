@@ -25,10 +25,13 @@ import type { AppRow, AppSessionRow } from '@/lib/backend/types'
  * diverged silently: agent sessions opened one directory while `deploy` built
  * another, so a finished site kept deploying as the untouched seed template.
  */
-export async function appWorkdirPath(appId: string): Promise<string | null> {
+export async function appWorkdirPath(
+  appId: string,
+  teamId?: string | null,
+): Promise<string | null> {
   if (!isTauri()) return null
   const { daemonAppWorkdir } = await import('@/lib/daemon-local-client')
-  return daemonAppWorkdir(appId)
+  return daemonAppWorkdir(appId, teamId)
 }
 
 /**
@@ -96,20 +99,121 @@ async function loadContext(app: AppRow): Promise<AppSessionContext> {
 }
 
 /**
+ * Write the app's local checkout path onto the app's OWN cloud workspace row,
+ * and return that row's id.
+ *
+ * An app is created with a 1:1 workspace (`apps.workspace_id`), and the cloud
+ * API — which never sees a filesystem — creates it with a name and no path. A
+ * path-less workspace is one the daemon cannot resolve: `apply_start_runtime`
+ * falls through to whatever `worktree` the desktop sent, and when the desktop
+ * had nothing to send it used the *currently open* workspace. That is how an
+ * app's files ended up in whatever folder the user happened to have open.
+ *
+ * Filling that row in is what makes the app directory resolvable on its own,
+ * from any of the four routes runtime-start tries, and on a device whose local
+ * cache is cold. It also replaces the second, path-carrying workspace row the
+ * desktop used to create beside it — one app, one workspace, one directory.
+ *
+ * Falls back to the old find-by-path-or-create for an app row old enough to
+ * have no `workspaceId`.
+ */
+async function ensureAppWorkspaceRow(
+  app: AppRow,
+  appWorkdir: string,
+  ctx: AppSessionContext,
+): Promise<string | null> {
+  if (!ctx.localDaemonActorId) return null
+  const { listDaemonWorkspaces, createDaemonWorkspace } = await import('@/lib/daemon-workspaces')
+  const { workspacePathsMatch } = await import('@/stores/session-utils')
+
+  if (app.workspaceId) {
+    try {
+      const [row] = await getBackend().workspaces.listWorkspacesByIds(ctx.teamId, [app.workspaceId])
+      if (row?.path && workspacePathsMatch(row.path, appWorkdir)) return app.workspaceId
+      // Keep the row's existing name: `workspaces` is unique on
+      // (team_id, agent_id, name), and renaming it to the app's name here
+      // could collide with a workspace the user already has.
+      const saved = await createDaemonWorkspace({
+        id: app.workspaceId,
+        teamId: ctx.teamId,
+        // Bound to this machine's daemon, like every other workspace row.
+        // Opening the same app on a second machine re-points the row at that
+        // machine's daemon and its own copy of the checkout — whoever opened
+        // the app last owns the row, and the other machine takes it back the
+        // next time the app is opened there. Nothing is lost either way: the
+        // path is derived from the app, so each machine keeps its own copy at
+        // the same relative place under its own amuxd home.
+        agentId: ctx.localDaemonActorId,
+        createdByMemberId: ctx.creatorActorId,
+        name: row?.name || app.name,
+        path: appWorkdir,
+      })
+      return saved.id
+    } catch (e) {
+      console.warn('[app-session] could not fill in the app workspace path:', e)
+    }
+  }
+
+  try {
+    const existing = (await listDaemonWorkspaces(ctx.teamId, ctx.localDaemonActorId)).find(
+      (w) => !w.archived && w.path && workspacePathsMatch(w.path, appWorkdir),
+    )
+    if (existing) return existing.id
+    const created = await createDaemonWorkspace({
+      teamId: ctx.teamId,
+      agentId: ctx.localDaemonActorId,
+      createdByMemberId: ctx.creatorActorId,
+      name: app.name,
+      path: appWorkdir,
+    })
+    return created.id
+  } catch (e) {
+    console.warn('[app-session] could not register app daemon workspace (non-fatal):', e)
+    return null
+  }
+}
+
+/**
+ * Record where the daemon put an app's files, without needing a session.
+ *
+ * Called the moment the seed (or clone) reports back, so the app's workspace
+ * carries its path from creation onward — the session-open path used to be the
+ * first and only chance to write it, which left a window where runtime-start
+ * had nothing to resolve but the desktop's current workspace.
+ */
+export async function bindAppWorkdir(app: AppRow, workdir: string): Promise<string | null> {
+  const trimmed = workdir.trim()
+  if (!trimmed) return null
+  try {
+    const ctx = await loadContext(app)
+    return await ensureAppWorkspaceRow(app, trimmed, ctx)
+  } catch (e) {
+    console.warn('[app-session] could not record the app workdir (non-fatal):', e)
+    return null
+  }
+}
+
+/**
  * Point a session at the app's checkout, both locally and in the cloud.
  *
  * Two bindings, because two different things read them: the local libsql row
- * drives the desktop UI (file browser, workspace switch), and the cloud daemon
- * workspace is what runtime-start matches by path — without it the daemon falls
- * back to its default workspace and the agent runs in the wrong directory.
+ * drives the desktop UI (file browser, workspace switch), and the cloud
+ * workspace row is what runtime-start resolves to a path — without a path there
+ * the daemon falls back to the desktop's current workspace and the agent runs
+ * in the wrong directory.
+ *
+ * Returns the app's cloud workspace id, so the caller can hand it to
+ * runtime-start directly instead of letting it be inferred.
  */
 async function bindAppWorkspace(
   app: AppRow,
   sessionId: string,
   ctx: AppSessionContext,
-): Promise<void> {
-  const appWorkdir = await appWorkdirPath(app.id)
-  if (!appWorkdir || !ctx.localDaemonActorId) return
+): Promise<string | null> {
+  const appWorkdir = await appWorkdirPath(app.id, app.teamId || ctx.teamId)
+  if (!appWorkdir || !ctx.localDaemonActorId) return app.workspaceId ?? null
+
+  const workspaceId = await ensureAppWorkspaceRow(app, appWorkdir, ctx)
 
   if (ctx.viewerMemberId) {
     try {
@@ -119,7 +223,7 @@ async function bindAppWorkspace(
           teamId: ctx.teamId,
           viewerMemberId: ctx.viewerMemberId,
           agentId: ctx.localDaemonActorId,
-          workspaceId: app.workspaceId ?? null,
+          workspaceId: workspaceId ?? app.workspaceId ?? null,
           workspacePath: appWorkdir,
           updatedAt: new Date().toISOString(),
         },
@@ -129,24 +233,7 @@ async function bindAppWorkspace(
     }
   }
 
-  try {
-    const { listDaemonWorkspaces, createDaemonWorkspace } = await import('@/lib/daemon-workspaces')
-    const { workspacePathsMatch } = await import('@/stores/session-utils')
-    const existing = (await listDaemonWorkspaces(ctx.teamId, ctx.localDaemonActorId)).find(
-      (w) => !w.archived && w.path && workspacePathsMatch(w.path, appWorkdir),
-    )
-    if (!existing) {
-      await createDaemonWorkspace({
-        teamId: ctx.teamId,
-        agentId: ctx.localDaemonActorId,
-        createdByMemberId: ctx.creatorActorId,
-        name: app.name,
-        path: appWorkdir,
-      })
-    }
-  } catch (e) {
-    console.warn('[app-session] could not register app daemon workspace (non-fatal):', e)
-  }
+  return workspaceId ?? app.workspaceId ?? null
 }
 
 /**
@@ -220,7 +307,7 @@ export async function startAppFirstSession(app: AppRow): Promise<string | null> 
 
   // Bind before starting the runtime: runtime-start resolves the session's
   // workspace, and an unbound session lands the agent in the default folder.
-  await bindAppWorkspace(app, sessionId, ctx)
+  const workspaceId = await bindAppWorkspace(app, sessionId, ctx)
 
   if (agentIds.length > 0) {
     const { startAgentRuntimesAsync } = await import('@/lib/session-create')
@@ -228,6 +315,11 @@ export async function startAppFirstSession(app: AppRow): Promise<string | null> 
       sessionId,
       teamId: ctx.teamId,
       agentActorIds: agentIds,
+      // Name the app's workspace outright. This is the session's first runtime,
+      // so there is no prior `agent_runtimes.workspace_id` to resolve from, and
+      // without a hint the fallback chain ends at the desktop's currently open
+      // workspace — the first thing the agent wrote then landed there.
+      workspaceIdHint: workspaceId,
     }).catch((e) => console.warn('[app-session] runtime start failed (non-fatal):', e))
   }
   return sessionId

@@ -212,6 +212,41 @@ async fn seed_app_is_idempotent() {
     assert_seeded_checkout(&workdir);
 }
 
+/// A repo URL means "import this", so the starter template must not be written
+/// — not even when the clone never happens because the URL is unusable.
+///
+/// `ext::` is a git remote-helper that runs a command; the daemon rejects it
+/// before `git` is spawned, and the app is left with nothing rather than with a
+/// template the user did not ask for.
+#[tokio::test]
+async fn seed_with_an_unusable_repo_url_writes_nothing() {
+    let (app, dir) = test_app().await;
+    let workdir = dir.path().join("work");
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/apps/seed", app.base))
+        .bearer_auth(&app.session_token)
+        .json(&serde_json::json!({
+            "appId": "app-test",
+            "appName": "Test App",
+            "appType": "static_web",
+            "workdir": workdir.to_str().unwrap(),
+            "gitRemoteUrl": "ext::sh -c whoami",
+        }))
+        .send()
+        .await
+        .expect("seed response");
+
+    assert_eq!(resp.status(), 422, "expected a validation error");
+    let body: Value = resp.json().await.expect("json body");
+    assert_eq!(body["code"], "validation_failed");
+    assert!(
+        !workdir.join("AGENTS.md").exists(),
+        "an import must never fall back to the template"
+    );
+}
+
 #[tokio::test]
 async fn seed_app_requires_scope() {
     let (app, dir) = test_app().await;

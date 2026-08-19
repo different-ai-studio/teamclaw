@@ -599,6 +599,8 @@
     "mentionEmptyState": "No one to mention in this session yet",
     "mentionGroupAgents": "Agents",
     "mentionGroupMembers": "Members",
+    "mentionGroupExternal": "External contacts",
+    "mentionExternalHint": "pushed to their chat",
     "mentionPopoverError": "Failed to load participants",
     "mentionAgentClearConfirm": {
       "title": "Keep the engaged agent?",
@@ -720,6 +722,7 @@
       "description": "Description"
     },
     "actorSheet": {
+      "externalSection": "External",
       "title": "Actors",
       "loading": "Loading actors...",
       "empty": "No participants in this session",
@@ -1116,6 +1119,11 @@
     "typeSlidesDesc": "Slides you can present and share as-is.",
     "typeDataApp": "Data app",
     "typeDataAppDesc": "Stores, queries and edits data. Comes with a database.",
+    "typeWithRepoHint": "When importing a repo, the type only decides how it deploys — no template files are written.",
+    "repoLabel": "Repository URL (optional)",
+    "repoPlaceholder": "https://github.com/owner/repo.git",
+    "repoHint": "Fill this in and the repo is cloned as the app's code, with no template written.",
+    "repoInvalid": "Must be an http(s), ssh or git@host:owner/repo.git address.",
     "visibilityLabel": "Visibility",
     "visibilityPersonal": "Personal",
     "visibilityTeam": "Team",
@@ -1727,17 +1735,27 @@
       "session": "Session",
       "liveState": "Live state"
     },
+    "modelDefaults": {
+      "title": "Model defaults",
+      "description": "Where the gateway, scheduled jobs and chat each get their model from.",
+      "gateway": "Gateway",
+      "gatewayShort": "Applies immediately to new sessions on every channel",
+      "gatewayUnset": "Let the backend choose",
+      "cron": "Scheduled jobs",
+      "cronShort": "Pre-fills new jobs only; existing jobs keep theirs",
+      "cronUnset": "Not set",
+      "cronJobs": "{{jobs}} existing \u00b7 {{distinct}} model(s)",
+      "clear": "Clear",
+      "chat": "Chat",
+      "chatShort": "Follows your last pick in chat",
+      "chatNone": "Nothing picked yet \u2014 the first send will ask",
+      "retry": "Retry",
+      "noDefaultWorkspace": "Set a default workspace in Daemon settings first.",
+      "daemonUnavailable": "Daemon is not ready yet.",
+      "noModels": "No models available. Configure a provider first.",
+      "loadFailed": "Failed to load models."
+    },
     "channels": {
-      "gatewayModel": "Gateway model",
-      "gatewayModelDescription": "Every channel starts its sessions on this model. A chat can still switch with /model.",
-      "gatewayModelUnset": "Let the backend choose",
-      "modelsNoTeam": "Join a team to load models.",
-      "modelsNoDefault": "Set a default workspace in Daemon settings.",
-      "modelsNoDefaultPath": "Default workspace has no local path on this daemon.",
-      "modelsDaemonUnavailable": "Daemon is not ready. Wait for the app to finish starting, then try again.",
-      "modelsNoConfigured": "No configured models. Add a provider in LLM settings.",
-      "modelsLoadFailed": "Failed to load models.",
-      "noModels": "No models advertised.",
       "seatalk": {
         "gateway": "SeaTalk Gateway",
         "setupTitle": "Set up SeaTalk Bot",
@@ -2190,8 +2208,15 @@
         "wizardCredentialsTitle": "Get Your Bot Credentials",
         "wizardCredentialsDesc": "Copy your Bot ID and Secret.",
         "wizardCompleteTitle": "Setup Complete!",
-        "wizardCompleteDesc": "Your WeCom bot is ready to use."
-      }
+        "wizardCompleteDesc": "Your WeCom bot is ready to use.",
+        "botName": "Bot name",
+        "botNamePlaceholder": "Exact name in WeCom, e.g. Matt chow的机器人 1",
+        "botNameHint": "Group messages arrive as \"@name text\" — the exact name is what strips the mention back off.",
+        "apiKey": "MCP API Key",
+        "apiKeyPlaceholder": "apikey from the bot’s message authorization page",
+        "apiKeyHint": "Lets a scheduled task pick a chat from this bot’s conversation list."
+      },
+      "secretStored": "Configured · leave empty to keep"
     },
     "team": {
       "oss": {
@@ -2716,7 +2741,13 @@
       "selectModel": "Select a model",
       "requiredModel": "Model is required",
       "sessionNotFound": "Session not found or access denied (sessionId: {{id}}...)",
-      "runFailedFallback": "This run failed: {{error}}"
+      "runFailedFallback": "This run failed: {{error}}",
+      "wecomChats": {
+        "label": "Conversation",
+        "loading": "Loading conversations…",
+        "empty": "No conversation list — add this bot’s MCP API key in Channels to pick from a list.",
+        "unnamedGroup": "Group chat"
+      }
     },
     "deps": {
       "copied": "Copied!",

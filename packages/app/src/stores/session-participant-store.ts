@@ -13,10 +13,28 @@ export type SessionParticipantInfo = {
   displayName: string;
   avatarUrl: string | null;
   isAgent: boolean;
+  /**
+   * A person who reached this session through a channel (WeCom, Feishu) rather
+   * than a TeamClu account — `actors.actor_type = 'external'`.
+   *
+   * Kept separate from `isAgent` instead of collapsing into "not an agent":
+   * an external is mentionable like a member, but is NOT a team member, and
+   * routing rules that count humans (solo-session agent fallback) must not
+   * count them or a gateway chat stops looking solo the moment its own sender
+   * joins the roster.
+   */
+  isExternal: boolean;
 };
 
 function isMentionableParticipant(actorType: string | null | undefined): boolean {
-  return actorType === "member" || isAgentActorType(actorType);
+  // `external` is here because @-mentioning the person on the other end of a
+  // gateway chat is how a desktop user pushes a message out to them. They were
+  // in `session_participants` all along — this filter is what hid them.
+  return (
+    actorType === "member" ||
+    actorType === "external" ||
+    isAgentActorType(actorType)
+  );
 }
 
 type State = {
@@ -51,6 +69,7 @@ async function loadParticipantInfoFromCloud(
       displayName: actor.display_name?.trim() || actor.id,
       avatarUrl: actor.avatar_url ?? null,
       isAgent: isAgentActorType(actor.actor_type),
+      isExternal: actor.actor_type === "external",
     }));
 }
 
@@ -71,6 +90,7 @@ async function loadParticipantInfoFromLocalCache(
         displayName: actor.displayName,
         avatarUrl: actor.avatarUrl ?? null,
         isAgent: isAgentActorType(actor.actorType),
+        isExternal: actor.actorType === "external",
       };
     })
     .filter((p): p is SessionParticipantInfo => p !== null);
@@ -201,13 +221,26 @@ export const useSessionParticipantStore = create<State>((set, get) => ({
       const known = new Map(
         (state.participantsBySession[sessionId] ?? []).map((p) => [p.actorId, p] as const),
       );
+      // Externals this store already knows survive a roster that does not
+      // mention them. The one publisher here besides the loaders is the actor
+      // sheet, which manages team membership and filters its rows to
+      // member/agent — so taking its list literally would drop the person on
+      // the other end of a gateway chat out of the mention list the moment
+      // someone opened the sheet.
+      const incoming = new Set(participants.map((p) => p.actorId));
+      const keptExternals = [...known.values()].filter(
+        (p) => p.isExternal && !incoming.has(p.actorId),
+      );
       return {
         participantsBySession: {
           ...state.participantsBySession,
-          [sessionId]: participants.map((p) => ({
-            ...p,
-            avatarUrl: p.avatarUrl ?? known.get(p.actorId)?.avatarUrl ?? null,
-          })),
+          [sessionId]: [
+            ...participants.map((p) => ({
+              ...p,
+              avatarUrl: p.avatarUrl ?? known.get(p.actorId)?.avatarUrl ?? null,
+            })),
+            ...keptExternals,
+          ],
         },
         loadingBySession: { ...state.loadingBySession, [sessionId]: false },
         errorBySession: { ...state.errorBySession, [sessionId]: null },

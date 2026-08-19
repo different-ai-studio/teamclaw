@@ -404,6 +404,8 @@ pub fn run() {
             commands::filewatcher::get_watched_directories,
             commands::gateway::list_channels,
             commands::gateway::list_wecom_bots_status,
+            commands::gateway::list_wecom_chats,
+            commands::gateway::list_channel_secret_keys,
             commands::gateway::load_channel_config,
             commands::gateway::save_channel_config,
             commands::gateway::load_gateway_model,

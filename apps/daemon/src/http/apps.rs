@@ -1,26 +1,35 @@
-//! `POST /v1/apps/seed` — write an app's starter template into its checkout.
+//! `POST /v1/apps/seed` — put an app's files into its checkout.
 //!
-//! Seeding is the blocking write-template → `git init` → first-commit flow in
-//! [`crate::sync::app_seed::seed_app_repo`]. There is no remote and no network:
-//! the templates are compiled into this binary
-//! ([`crate::sync::app_templates`]). The daemon owns it because it is the one
-//! with the filesystem; the desktop kicks it over loopback right after the
-//! cloud API creates the app row.
+//! Seeding is the blocking write-template flow in
+//! [`crate::sync::app_seed::seed_app_repo`]. It needs no network: the templates
+//! are compiled into this binary ([`crate::sync::app_templates`]). The daemon
+//! owns it because it is the one with the filesystem; the desktop kicks it over
+//! loopback right after the cloud API creates the app row.
 //!
 //! ### Body shape — optional `workdir`
 //!
 //! `workdir` is an *optional* explicit absolute path to seed into. When the
 //! caller (the desktop) omits it — which it does, because the desktop does not
 //! know a local path for the app — the daemon resolves a per-app workdir under
-//! its own data root: `<amuxd home>/apps/<appId>`. When `workdir` *is* present
-//! and non-empty, it is used verbatim.
+//! the app's own team: `<amuxd home>/teams/<teamId>/apps/<appId>`. When
+//! `workdir` *is* present and non-empty, it is used verbatim.
+//!
+//! `teamId` is therefore load-bearing, not bookkeeping: it used to be ignored
+//! in favour of whichever team this daemon happened to be claimed by, so an app
+//! created after a team switch landed in another team's directory. `appId` is
+//! load-bearing too when `workdir` is omitted (it names the subdir).
 //!
 //! The daemon's workspace registry only maps ids → paths through the actor
 //! channel (see `register_workspace`), and an app's checkout does not yet exist
 //! in any registry. `workspaceId` is accepted for caller bookkeeping only.
-//! `appId` is load-bearing when `workdir` is omitted (it names the subdir).
-//! The target may already exist — seeding writes over it and commits the
-//! difference.
+//! The target may already exist — seeding writes over it.
+//!
+//! ### Seeding vs cloning
+//!
+//! With `gitRemoteUrl` set, the app is imported instead of seeded: the repo is
+//! cloned and **no template file is written** (see
+//! [`crate::sync::app_clone`]). Without it, the embedded starter template for
+//! the app's type is written, as before.
 
 use std::path::PathBuf;
 
@@ -88,12 +97,31 @@ fn migrate_legacy_apps_root_from(legacy: &std::path::Path, dest: &std::path::Pat
     }
 }
 
-/// Resolve the clone target for a seed request.
+/// `teams/<teamId>/apps` — the app root for one specific team.
+///
+/// Falls back to the active team's root when the caller names no team, which
+/// is what every pre-`teamId` client does.
+fn apps_root_for_team(team_id: &str) -> PathBuf {
+    let team_id = team_id.trim();
+    if team_id.is_empty() {
+        apps_data_root()
+    } else {
+        crate::config::layout::team_apps_dir(team_id)
+    }
+}
+
+/// Resolve the checkout directory for an app.
 ///
 /// If `workdir` is present and non-empty, use it verbatim (legacy explicit
-/// path). Otherwise compute `<apps data root>/<appId>`. `app_id` must be
-/// non-empty in the default-workdir case (it names the subdir).
-fn resolve_workdir(workdir: &str, app_id: &str) -> Result<PathBuf, HttpError> {
+/// path). Otherwise `teams/<teamId>/apps/<appId>`, with one back-compat step:
+/// an app that already has a checkout under the *active* team's root keeps it.
+/// Before this, the root came from the active team alone, so an app created
+/// while the daemon was claimed by another team is sitting there — and moving
+/// it silently is how a user's work goes missing. Both answers are stable, so
+/// the agent, the file browser and `deploy` all keep naming the same directory.
+///
+/// `app_id` must be non-empty in the default-workdir case (it names the subdir).
+fn resolve_workdir(workdir: &str, app_id: &str, team_id: &str) -> Result<PathBuf, HttpError> {
     let workdir = workdir.trim();
     if !workdir.is_empty() {
         return Ok(PathBuf::from(workdir));
@@ -104,7 +132,29 @@ fn resolve_workdir(workdir: &str, app_id: &str) -> Result<PathBuf, HttpError> {
             "appId must not be empty when workdir is omitted",
         ));
     }
-    Ok(apps_data_root().join(app_id))
+    Ok(resolve_workdir_in(
+        &apps_root_for_team(team_id),
+        &apps_data_root(),
+        app_id,
+    ))
+}
+
+/// [`resolve_workdir`]'s rule with both roots given, so it is testable without
+/// pointing the whole daemon at a temp home.
+fn resolve_workdir_in(
+    team_root: &std::path::Path,
+    active_root: &std::path::Path,
+    app_id: &str,
+) -> PathBuf {
+    let by_team = team_root.join(app_id);
+    if by_team.exists() || team_root == active_root {
+        return by_team;
+    }
+    let legacy = active_root.join(app_id);
+    if legacy.exists() {
+        return legacy;
+    }
+    by_team
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,10 +169,15 @@ pub struct SeedAppBody {
     pub app_name: String,
     /// App type (`static_web` / `slides` / `data_app`) — selects the template.
     /// Unknown or empty resolves to `data_app`, which is what every app created
-    /// before types existed actually is.
+    /// before types existed actually is. Ignored when `gitRemoteUrl` is set:
+    /// an imported repo gets no template.
     #[serde(default)]
     pub app_type: String,
-    /// Team id — for caller correlation only.
+    /// Optional repo to import. When set, the app is cloned from it and no
+    /// template is written; when absent, the starter template is written.
+    #[serde(default)]
+    pub git_remote_url: Option<String>,
+    /// Team id — names the app's directory (`teams/<teamId>/apps/<appId>`).
     #[serde(default)]
     pub team_id: String,
     /// Workspace id — for caller correlation only; the target is `workdir`,
@@ -153,32 +208,47 @@ pub struct AppWorkdirResponse {
     pub workdir: String,
 }
 
-/// `GET /v1/apps/:appId/workdir` — where this daemon keeps that app.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppWorkdirQuery {
+    /// The app's team. Optional — omitted by clients older than the per-team
+    /// app root, which then get the active team's answer.
+    pub team_id: Option<String>,
+}
+
+/// `GET /v1/apps/:appId/workdir?teamId=…` — where this daemon keeps that app.
 ///
 /// The single source of truth for the path, for callers that did not just seed
 /// (opening the app's session, revealing it in Finder). Answers for an app that
-/// has never been seeded too: the path is derived, not looked up.
+/// has never been seeded too: the path is derived, not looked up. `teamId` is
+/// optional and falls back to the active team, so an older desktop still gets
+/// the answer it used to.
 pub async fn app_workdir(
     principal: Principal,
     State(_state): State<HttpState>,
     axum::extract::Path(app_id): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<AppWorkdirQuery>,
 ) -> Result<Json<AppWorkdirResponse>, HttpError> {
     require_scope(&principal, "workspace:read")?;
-    let path = resolve_workdir("", &app_id)?;
+    let path = resolve_workdir("", &app_id, query.team_id.as_deref().unwrap_or(""))?;
     Ok(Json(AppWorkdirResponse {
         workdir: path.to_string_lossy().into_owned(),
     }))
 }
 
-/// `POST /v1/apps/seed` — write the starter template into the app's checkout
-/// and commit it.
+/// `POST /v1/apps/seed` — put the app's files in place.
 ///
-/// Requires `workspace:write` (same scope `register_workspace` uses). Returns
-/// `{ "status": "ready" }` on success. The seed runs on a blocking thread.
+/// Two ways in, depending on the body: `gitRemoteUrl` clones that repo and
+/// writes nothing else, everything else writes the starter template for the
+/// app's type. Requires `workspace:write` (same scope `register_workspace`
+/// uses). Returns `{ "status": "ready", "workdir": … }` on success. The work
+/// runs on a blocking thread.
 ///
-/// Re-seeding an existing checkout is safe: the template is written over the
-/// top and the difference is committed, so a wrecked app can be repaired
-/// without losing its history.
+/// Re-seeding an existing template checkout is safe: the template is written
+/// over the top, so a wrecked app can be repaired without losing the agent's
+/// other files. Re-seeding a *cloned* app is refused rather than made safe —
+/// `app_clone` will not clone over a non-empty directory, because the only
+/// thing it could do there is destroy the user's repo.
 pub async fn seed_app(
     principal: Principal,
     State(_state): State<HttpState>,
@@ -186,7 +256,11 @@ pub async fn seed_app(
 ) -> Result<Json<SeedAppResponse>, HttpError> {
     require_scope(&principal, "workspace:write")?;
 
-    let workdir_path = resolve_workdir(body.workdir.as_deref().unwrap_or(""), &body.app_id)?;
+    let workdir_path = resolve_workdir(
+        body.workdir.as_deref().unwrap_or(""),
+        &body.app_id,
+        &body.team_id,
+    )?;
     if let Some(parent) = workdir_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -199,20 +273,37 @@ pub async fn seed_app(
         body.app_name.trim().to_string()
     };
     let app_type = crate::sync::app_templates::AppType::parse(&body.app_type);
+    let git_remote_url = body
+        .git_remote_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .map(str::to_string);
 
-    tokio::task::spawn_blocking(move || {
-        crate::sync::app_seed::seed_app_repo(
+    let cloned = git_remote_url.is_some();
+    tokio::task::spawn_blocking(move || match git_remote_url {
+        Some(url) => crate::sync::app_clone::clone_app_repo(&url, &workdir_path),
+        None => crate::sync::app_seed::seed_app_repo(
             &workdir_path,
             &crate::sync::app_templates::TemplateVars {
                 app_id: &app_id,
                 app_name: &app_name,
                 app_type,
             },
-        )
+        ),
     })
     .await
     .map_err(|e| HttpError::internal(format!("seed task panicked: {e}")))?
-    .map_err(|e| HttpError::internal(format!("app seed failed: {e}")))?;
+    .map_err(|e| {
+        if cloned {
+            // The user typed this URL; the message names what git objected to
+            // and is the only thing that can tell them whether it was a typo,
+            // a private repo or no network.
+            HttpError::validation(format!("{e}"))
+        } else {
+            HttpError::internal(format!("app seed failed: {e}"))
+        }
+    })?;
 
     Ok(Json(SeedAppResponse {
         status: "ready",
@@ -226,13 +317,16 @@ pub struct BuildAppBody {
     /// Cloud app id — names the per-app workdir when `workdir` is omitted.
     #[serde(default)]
     pub app_id: String,
-    /// Team id — for caller correlation only.
+    /// Team id — names the app's directory, exactly as in [`SeedAppBody`]. A
+    /// build that resolved a different directory than the seed did would zip
+    /// the starter template and deploy that.
     #[serde(default)]
     pub team_id: String,
     /// Workspace id — for caller correlation only.
     #[serde(default)]
     pub workspace_id: String,
-    /// Optional explicit workdir path; defaults to `<amuxd home>/apps/<appId>`.
+    /// Optional explicit workdir path; defaults to
+    /// `<amuxd home>/teams/<teamId>/apps/<appId>`.
     #[serde(default)]
     pub workdir: Option<String>,
     /// Presigned OSS PUT URL for the build artifact. Short-lived signed-URL
@@ -263,7 +357,11 @@ pub async fn build_app(
     if presigned_put.is_empty() {
         return Err(HttpError::validation("presignedPut must not be empty"));
     }
-    let workdir_path = resolve_workdir(body.workdir.as_deref().unwrap_or(""), &body.app_id)?;
+    let workdir_path = resolve_workdir(
+        body.workdir.as_deref().unwrap_or(""),
+        &body.app_id,
+        &body.team_id,
+    )?;
     if !workdir_path.exists() {
         return Err(HttpError::validation(format!(
             "workdir does not exist: {}",
@@ -331,18 +429,79 @@ mod tests {
 
     #[test]
     fn resolve_workdir_uses_explicit_path_when_present() {
-        let p = resolve_workdir("/tmp/explicit", "app-1").unwrap();
+        let p = resolve_workdir("/tmp/explicit", "app-1", "").unwrap();
         assert_eq!(p, PathBuf::from("/tmp/explicit"));
         // Whitespace-only workdir is treated as omitted → default path used.
-        let p = resolve_workdir("   ", "app-2").unwrap();
+        let p = resolve_workdir("   ", "app-2", "").unwrap();
         assert_eq!(p, apps_data_root().join("app-2"));
     }
 
     #[test]
     fn resolve_workdir_defaults_to_apps_root_appid() {
-        let p = resolve_workdir("", "app-xyz").unwrap();
+        let p = resolve_workdir("", "app-xyz", "").unwrap();
         assert_eq!(p, apps_data_root().join("app-xyz"));
         assert!(p.ends_with("apps/app-xyz"));
+    }
+
+    #[test]
+    fn workdir_follows_the_apps_own_team_not_the_active_one() {
+        // The daemon serves one team at a time, but apps belong to the team
+        // they were created in. Deriving from the active team put an app
+        // created after a team switch under a different team's directory.
+        let p = resolve_workdir("", "app-1", "team-b").unwrap();
+        assert!(
+            p.ends_with("teams/team-b/apps/app-1"),
+            "got {}",
+            p.display()
+        );
+    }
+
+    #[test]
+    fn an_existing_checkout_under_the_active_team_keeps_its_place() {
+        // Apps seeded before the team id was honoured live under the active
+        // team's root. Their path must not change underneath them — the agent
+        // edits one directory and `deploy` builds whatever this function says.
+        let tmp = tempfile::tempdir().unwrap();
+        let team_root = tmp.path().join("teams/team-b/apps");
+        let active_root = tmp.path().join("teams/team-a/apps");
+        std::fs::create_dir_all(active_root.join("app-1")).unwrap();
+
+        let p = resolve_workdir_in(&team_root, &active_root, "app-1");
+        assert_eq!(p, active_root.join("app-1"));
+
+        // An app with no checkout anywhere gets the new, team-correct path.
+        let fresh = resolve_workdir_in(&team_root, &active_root, "app-2");
+        assert_eq!(fresh, team_root.join("app-2"));
+    }
+
+    #[test]
+    fn a_checkout_under_its_own_team_wins_over_a_stray_legacy_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let team_root = tmp.path().join("teams/team-b/apps");
+        let active_root = tmp.path().join("teams/team-a/apps");
+        std::fs::create_dir_all(team_root.join("app-1")).unwrap();
+        std::fs::create_dir_all(active_root.join("app-1")).unwrap();
+
+        assert_eq!(
+            resolve_workdir_in(&team_root, &active_root, "app-1"),
+            team_root.join("app-1"),
+        );
+    }
+
+    #[test]
+    fn seed_body_carries_an_optional_git_remote() {
+        let body: SeedAppBody = serde_json::from_value(serde_json::json!({
+            "appId": "app-1",
+            "gitRemoteUrl": "https://github.com/owner/repo.git"
+        }))
+        .unwrap();
+        assert_eq!(
+            body.git_remote_url.as_deref(),
+            Some("https://github.com/owner/repo.git")
+        );
+        let body: SeedAppBody =
+            serde_json::from_value(serde_json::json!({"appId": "app-1"})).unwrap();
+        assert!(body.git_remote_url.is_none());
     }
 
     #[test]
@@ -422,7 +581,7 @@ mod tests {
 
     #[test]
     fn resolve_workdir_requires_app_id_when_workdir_omitted() {
-        let err = resolve_workdir("", "  ").unwrap_err();
+        let err = resolve_workdir("", "  ", "").unwrap_err();
         // A validation error (not a path) when neither workdir nor appId given.
         let msg = format!("{err:?}");
         assert!(msg.contains("appId"), "unexpected error: {msg}");

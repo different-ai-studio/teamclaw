@@ -175,6 +175,21 @@ export interface WeComBot {
   encodingAesKey?: string
   workspaceId?: string
   systemPrompt?: string
+  /**
+   * The bot's display name in WeCom. Group messages arrive as `@<name> 正文`
+   * with the mention only in the text, so this is what lets the gateway strip
+   * it back off — without it, a name containing spaces swallows the command.
+   */
+  botName?: string
+  /**
+   * MCP api key from WeCom's 「消息」 authorization page. Optional: it is what
+   * lets the desktop list the chats this bot is in, which is how a cron job
+   * picks a target instead of having a chat id pasted in.
+   *
+   * A credential — the daemon keeps it in the team secret store and reads it
+   * back empty, where empty means "unchanged".
+   */
+  apiKey?: string
 }
 
 export interface WeComConfig {

@@ -14,7 +14,7 @@ export function parseAtMentionNames(text: string): string[] {
   return [...new Set(names)];
 }
 
-function nameMatchesToken(displayName: string, token: string): boolean {
+export function nameMatchesToken(displayName: string, token: string): boolean {
   const dn = displayName.trim().toLowerCase();
   const t = token.trim().toLowerCase();
   if (!dn || !t) return false;

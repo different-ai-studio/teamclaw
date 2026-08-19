@@ -1748,6 +1748,9 @@ fn process_and_reply_sync(
                 &outcome.acp_session_id,
                 &sender_display,
                 &message_content_for_async,
+                // Mail is not an IM: a round trip that takes many minutes is
+                // normal, so this one keeps its own generous bound.
+                std::time::Duration::from_secs(900),
             )
             .await
             .map_err(|e| format!("agent.send_prompt: {e}"))?;

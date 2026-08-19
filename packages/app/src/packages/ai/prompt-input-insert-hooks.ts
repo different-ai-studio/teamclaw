@@ -431,7 +431,18 @@ export function createInsertHashFile(context: PromptInputContextValue) {
   }
 }
 
-export type AttachedAgent = { id: string; displayName: string }
+export type AttachedAgent = {
+  id: string
+  displayName: string
+  /**
+   * The pill was put there by the composer, not by the user.
+   *
+   * Solo sessions (one human, one agent) engage their agent automatically and
+   * re-engage it the moment it is removed, so an auto pill carries no intent —
+   * anything that reads the pill as a decision has to know the difference.
+   */
+  auto?: boolean
+}
 
 export function createInsertAgentMention(
   context: PromptInputContextValue,

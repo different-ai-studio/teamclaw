@@ -1,6 +1,6 @@
 import { create, type StoreApi } from "zustand";
 import { getBackend } from "@/lib/backend";
-import { seedDaemonApp, buildDaemonApp } from "@/lib/daemon-local-client";
+import { seedDaemonApp, buildDaemonApp, type SeedAppResult } from "@/lib/daemon-local-client";
 import type { AppRow } from "@/lib/backend/types";
 
 interface AppsState {
@@ -17,6 +17,9 @@ interface AppsState {
     name: string;
     type: string;
     visibility: "personal" | "team";
+    /** Optional repo to import — the app is cloned from it instead of seeded
+     *  with a starter template. */
+    gitRemoteUrl?: string | null;
   }) => Promise<AppRow>;
   reseed: (appId: string) => Promise<void>;
   /** Full FC deploy: startDeploy → daemon build+upload → finalize. */
@@ -76,16 +79,37 @@ async function reportDeployError(set: SetState, appId: string, reason: string): 
  * Kick the local daemon seed and write back the terminal status. The desktop
  * writes ONLY `ready`/`error`; `unreachable` writes nothing so the row stays
  * `pending` and a reseed remains available.
+ *
+ * The daemon reports the directory it wrote to, and that path is written onto
+ * the app's own cloud workspace row right here — before any session exists.
+ * Leaving it for the session-open path meant the app's workspace stayed
+ * path-less until then, and a path-less workspace is one the daemon resolves by
+ * falling back to whatever folder the desktop had open.
+ *
+ * A clone that fails is the one case worth interrupting the user for: they
+ * typed the URL, and the app is empty until they fix it.
  */
 async function runSeed(set: SetState, app: AppRow): Promise<void> {
-  let outcome: "seeded" | "failed" | "unreachable" = "unreachable";
+  let result: SeedAppResult = { outcome: "unreachable", workdir: null, error: null };
   try {
-    outcome = await seedDaemonApp(app.id, app.teamId, app.name, app.type);
+    result = await seedDaemonApp(app.id, app.teamId, app.name, app.type, app.gitRemoteUrl);
   } catch (e) {
     console.warn("app seed kick failed (non-fatal)", e);
   }
-  if (outcome === "seeded") await patchStatus(set, app.id, "ready");
-  else if (outcome === "failed") await patchStatus(set, app.id, "error");
+  if (result.outcome === "seeded") {
+    if (result.workdir) {
+      // Dynamic: app-session pulls in the session-creation chain, which reads
+      // this store.
+      const { bindAppWorkdir } = await import("@/lib/app-session");
+      await bindAppWorkdir(app, result.workdir);
+    }
+    await patchStatus(set, app.id, "ready");
+  } else if (result.outcome === "failed") {
+    await patchStatus(set, app.id, "error");
+    if (app.gitRemoteUrl) {
+      await toastError("仓库克隆失败", result.error ?? undefined);
+    }
+  }
   // unreachable → no status change; reseed remains available.
 }
 

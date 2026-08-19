@@ -315,6 +315,121 @@ impl DaemonServer {
         serde_json::to_string(&json).unwrap_or_else(|_| "[]".to_string())
     }
 
+    /// Build the JSON response for the `wecom-chat-list` sock command:
+    /// `{"chats":[{botId, chatId, chatName, chatType, lastMsgTime}, ...]}`.
+    ///
+    /// One request per configured bot that has an api key. A bot without one is
+    /// skipped rather than failed: the key is optional, and a second bot that
+    /// has it should still fill the picker. Errors ride along per bot so the
+    /// settings UI can say *which* key was refused.
+    pub(crate) async fn wecom_chat_list_payload(&self) -> String {
+        let bots = self
+            .config
+            .channels
+            .wecom
+            .as_ref()
+            .map(|w| w.resolved_bots())
+            .unwrap_or_default();
+        let mut chats: Vec<serde_json::Value> = Vec::new();
+        let mut errors: Vec<serde_json::Value> = Vec::new();
+        for bot in bots.into_iter().filter(|b| b.enabled) {
+            let Some(key) = bot
+                .api_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|k| !k.is_empty())
+            else {
+                continue;
+            };
+            match crate::channels::wecom_mcp::list_chats(key).await {
+                Ok(rows) => chats.extend(rows.into_iter().map(|c| {
+                    serde_json::json!({
+                        "botId": bot.bot_id,
+                        "botName": bot.bot_name,
+                        "chatId": c.chat_id,
+                        "chatName": c.chat_name,
+                        "chatType": c.chat_type,
+                        "lastMsgTime": c.last_msg_time,
+                    })
+                })),
+                Err(e) => {
+                    tracing::warn!(bot_id = %bot.bot_id, error = %e, "wecom chat list failed");
+                    errors.push(serde_json::json!({ "botId": bot.bot_id, "error": e }));
+                }
+            }
+        }
+        serde_json::to_string(&serde_json::json!({ "chats": chats, "errors": errors }))
+            .unwrap_or_else(|_| "{\"chats\":[],\"errors\":[]}".to_string())
+    }
+
+    /// Which credential fields already have a stored value, as dotted paths.
+    ///
+    /// The settings form reads credentials back empty (they live in the
+    /// encrypted store, not in `team.toml`), which is indistinguishable from
+    /// never having set one. This is the missing half — presence only, never
+    /// the value.
+    pub(crate) fn channel_secret_keys_payload(&self) -> String {
+        let team = crate::config::layout::active_team();
+        let keys = crate::config::team_config::stored_secret_keys(&team).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "channel-secret-keys: secret store unreadable");
+            Vec::new()
+        });
+        serde_json::to_string(&serde_json::json!({ "keys": keys }))
+            .unwrap_or_else(|_| "{\"keys\":[]}".to_string())
+    }
+
+    /// Handle a `channel-send` envelope: push text at a channel, full stop.
+    ///
+    /// No reply token, and no session write. The caller is the desktop app's
+    /// own cron delivery, announcing the result of a run that already has its
+    /// own session — there is no chat it is replying to, so there is nothing
+    /// for a token to authorize and nothing to attach the message to.
+    ///
+    /// Kept separate from `mcp-send` rather than relaxing that path: a token is
+    /// exactly what stops an agent from addressing a chat it was never part of,
+    /// and the two callers have opposite trust stories — one is a model, the
+    /// other is the application that owns this daemon.
+    pub(crate) async fn handle_channel_send(
+        &self,
+        payload: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let channel = payload
+            .get("channel")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let target = payload
+            .get("target")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let message = payload
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if channel.is_empty() {
+            anyhow::bail!("channel-send: 'channel' is required");
+        }
+        if target.is_empty() {
+            anyhow::bail!("channel-send: 'target' is required");
+        }
+        if message.trim().is_empty() {
+            anyhow::bail!("channel-send: 'message' is required");
+        }
+        // Same guard as the agent path: a half-resolved route delivers nowhere
+        // while reporting success.
+        if let Some(reason) = placeholder_target_reason(target) {
+            anyhow::bail!("channel-send: refusing placeholder target '{target}' ({reason})");
+        }
+        let mgr = self
+            .channel_mgr
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("channel manager not running"))?;
+        mgr.dispatch_send(channel, target, Some(message), None)
+            .await?;
+        Ok(serde_json::json!({ "channel": channel, "target": target }))
+    }
+
     /// Handle a `mcp-send` JSON envelope from the `amuxd mcp-server` bridge.
     /// Resolves the caller's reply token to a chat binding, parses that
     /// binding (e.g. `wecom://{corp}/{agent}/{kind}/{id}`) into the default
@@ -376,6 +491,46 @@ impl DaemonServer {
             .channel_mgr
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("channel manager not running"))?;
+
+        // A file sent while this chat's own turn is running belongs TO that
+        // reply, not beside it. Attaching it means the user sees one message —
+        // the answer with its file — instead of the file and then a paragraph
+        // describing the file it just sent.
+        //
+        // Only for the originating chat: an explicit target override is a
+        // deliberate push somewhere else and keeps the direct path.
+        if target_override.is_none() {
+            let resolved = payload
+                .get("reply_token")
+                .and_then(|v| v.as_str())
+                .and_then(crate::channels::reply_token::session_for);
+            if resolved.is_none() {
+                // Without a session the file cannot join a reply OR be recorded
+                // at all — it reaches the chat and exists nowhere else, which
+                // is the exact hole #933 opened with.
+                tracing::warn!(
+                    binding,
+                    "mcp-send: reply token carries no session; file will not be recorded"
+                );
+            }
+            if let Some(session_id) = resolved {
+                let open = crate::channels::core::turn_attachments::is_open(&session_id);
+                // Which of the two paths ran is otherwise invisible, and they
+                // differ in whether the file ends up on the session message.
+                tracing::info!(
+                    session_id,
+                    turn_open = open,
+                    has_file = file_path.is_some(),
+                    "mcp-send: routing"
+                );
+                if open {
+                    return self
+                        .attach_to_running_turn(mgr, &session_id, message, file_path, binding)
+                        .await;
+                }
+            }
+        }
+
         mgr.dispatch_send(channel, target, message, file_path)
             .await?;
 
@@ -403,6 +558,83 @@ impl DaemonServer {
     /// Best-effort by design: the message has already reached the chat, so a
     /// failure here must not turn a delivered send into a reported error. It
     /// only costs the desktop its copy, which is what a warn is for.
+    /// Park a file against the in-flight turn instead of pushing it now.
+    ///
+    /// Nothing is recorded here: the core writes one message when the turn
+    /// finishes, carrying the reply text and every file attached during it.
+    /// Recording separately is what produced two rows — and, with the reply
+    /// text usually describing the file, two copies of the same answer.
+    async fn attach_to_running_turn(
+        &self,
+        mgr: &ChannelManager,
+        session_id: &str,
+        message: Option<&str>,
+        file_path: Option<&str>,
+        binding: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let Some(path) = file_path else {
+            // Text-only, to the chat this turn already answers into: the reply
+            // is on its way there, so sending it again would duplicate it.
+            // Reported as handled so the agent does not retry.
+            return Ok(serde_json::json!({
+                "binding": binding,
+                "message_sent": false,
+                "file_sent": false,
+                "note": "text goes back as this turn's reply; `send` is for files, or for a different chat",
+            }));
+        };
+
+        let bytes = tokio::fs::read(path)
+            .await
+            .map_err(|e| anyhow::anyhow!("read {path}: {e}"))?;
+        let filename = std::path::Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+            .to_string();
+        let mime = teamclu_gateway::wecom::resolve_mime(&bytes, Some(&filename));
+        let bucket_path = format!(
+            "{}/{}/{}-{}",
+            mgr.team_id(),
+            session_id,
+            uuid::Uuid::new_v4(),
+            filename
+        );
+        let stored = mgr
+            .store()
+            .upload_attachment(&bucket_path, bytes, &mime)
+            .await;
+        if let Err(e) = &stored {
+            warn!(session_id, filename, error = %e, "mcp-send: upload failed; attaching local copy only");
+        }
+
+        let attached = crate::channels::core::turn_attachments::attach(
+            session_id,
+            teamclu_gateway::driver::SessionAttachment {
+                filename: filename.clone(),
+                mime,
+                bucket_path: stored.unwrap_or_default(),
+                local_path: Some(path.to_string()),
+            },
+        );
+        // The turn can finish between the check above and here; then there is
+        // no reply left to ride out on and the caller must be told, rather than
+        // having the file disappear.
+        if !attached {
+            anyhow::bail!(
+                "mcp-send: the turn finished before the file was attached — send it again"
+            );
+        }
+
+        let _ = message;
+        Ok(serde_json::json!({
+            "binding": binding,
+            "message_sent": false,
+            "file_sent": true,
+            "note": "attached to this turn's reply",
+        }))
+    }
+
     async fn record_outbound_send(
         &self,
         mgr: &ChannelManager,
@@ -848,6 +1080,77 @@ mod reply_token_gate_tests {
             "binding": "wecom://bot/bot/single/someone-else",
         }))
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod channel_send_tests {
+    use serde_json::json;
+
+    /// The validation `handle_channel_send` runs before it touches the channel
+    /// manager, lifted out so it can be exercised without a running daemon.
+    fn missing_field(payload: &serde_json::Value) -> Option<&'static str> {
+        for (key, name) in [("channel", "channel"), ("target", "target")] {
+            if payload
+                .get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+            {
+                return Some(name);
+            }
+        }
+        if payload
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+        {
+            return Some("message");
+        }
+        None
+    }
+
+    #[test]
+    fn cron_delivery_needs_no_reply_token() {
+        // The whole point of the separate command: a cron announcement has no
+        // chat behind it, so it cannot carry the token `mcp-send` demands.
+        let payload = json!({
+            "cmd": "channel-send",
+            "channel": "wecom",
+            "target": "chat:wrOOClYg",
+            "message": "nightly build is green",
+        });
+        assert!(payload.get("reply_token").is_none());
+        assert_eq!(missing_field(&payload), None);
+    }
+
+    #[test]
+    fn an_incomplete_send_is_refused_before_dispatch() {
+        assert_eq!(
+            missing_field(&json!({"channel": "", "target": "chat:c", "message": "x"})),
+            Some("channel")
+        );
+        assert_eq!(
+            missing_field(&json!({"channel": "wecom", "target": "", "message": "x"})),
+            Some("target")
+        );
+        // An empty announcement is a bug upstream, not a message worth sending.
+        assert_eq!(
+            missing_field(&json!({"channel": "wecom", "target": "chat:c", "message": "  "})),
+            Some("message")
+        );
+    }
+
+    #[test]
+    fn the_old_placeholder_route_stays_refused() {
+        // Cron used to send `wecom://cron/cron/single/placeholder`; if anything
+        // reintroduces a stand-in target it must fail loudly, not deliver into
+        // the void while reporting success.
+        assert!(super::placeholder_target_reason("chat:current").is_some());
+        assert!(super::placeholder_target_reason("chat:").is_some());
     }
 }
 

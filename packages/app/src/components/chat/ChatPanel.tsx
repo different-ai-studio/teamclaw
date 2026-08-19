@@ -475,7 +475,12 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const isSoloAgentSessionActive = React.useMemo(
     () =>
       sessionParticipants && !participantsLoading
-        ? isSoloAgentSession(sessionParticipants.map((p) => ({ isAgent: p.isAgent })))
+        ? isSoloAgentSession(
+            sessionParticipants.map((p) => ({
+              isAgent: p.isAgent,
+              isExternal: p.isExternal,
+            })),
+          )
         : false,
     [sessionParticipants, participantsLoading],
   );
@@ -595,7 +600,12 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     };
 
     const engageFromRoster = (
-      roster: Array<{ isAgent: boolean; actorId: string; displayName: string }>,
+      roster: Array<{
+        isAgent: boolean;
+        isExternal?: boolean;
+        actorId: string;
+        displayName: string;
+      }>,
     ) => {
       if (!isSoloAgentSession(roster)) return false;
       const sole = roster.find((p) => p.isAgent);
@@ -603,6 +613,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       useEngagedAgentStore.getState().setAgents(activeSessionId, [{
         id: sole.actorId,
         displayName: sole.displayName || "AI",
+        // Nobody chose this: it is the solo-session default, re-applied
+        // whenever the pill is cleared.
+        auto: true,
       }]);
       ensureRuntime(sole.actorId);
       return true;
@@ -628,6 +641,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       engageFromRoster(
         actors.map((row) => ({
           isAgent: isAgentActorType(row.actor_type),
+          isExternal: row.actor_type === "external",
           actorId: row.id,
           displayName: row.display_name?.trim() || "AI",
         })),

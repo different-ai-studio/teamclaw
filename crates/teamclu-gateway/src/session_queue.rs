@@ -7,6 +7,10 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 
 const MAX_QUEUE_SIZE: usize = 5;
+/// Default patience for a message that has been waiting its turn. Channels
+/// override it: it has to be at least as long as one of their turns, or a
+/// message queued behind a perfectly healthy 10-minute turn is dropped for
+/// being "late".
 const MESSAGE_TIMEOUT: Duration = Duration::from_secs(180);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -38,12 +42,21 @@ struct SessionQueueState {
 
 pub struct SessionQueue {
     queues: Arc<RwLock<HashMap<String, SessionQueueState>>>,
+    message_timeout: Duration,
 }
 
 impl SessionQueue {
     pub fn new() -> Self {
+        Self::with_message_timeout(MESSAGE_TIMEOUT)
+    }
+
+    /// A queue whose waiting messages are given `message_timeout` before they
+    /// are dropped as stale. Pass the channel's own turn timeout: waiting one
+    /// full turn is normal, waiting several means nobody is coming.
+    pub fn with_message_timeout(message_timeout: Duration) -> Self {
         Self {
             queues: Arc::new(RwLock::new(HashMap::new())),
+            message_timeout,
         }
     }
 
@@ -55,8 +68,15 @@ impl SessionQueue {
                 Ok(_) => {
                     // fetch_add returns old value. With init=1 (first msg being processed),
                     // second msg gets pos=1, third gets pos=2, etc. 1-based queue position.
-                    let pos = state.pending_count.fetch_add(1, Ordering::Relaxed);
-                    return EnqueueResult::Queued { position: pos };
+                    let ahead = state.pending_count.fetch_add(1, Ordering::Relaxed);
+                    // Zero ahead means the consumer is parked on `recv` with
+                    // nothing in flight — this message is picked up now, not
+                    // queued. The chat was being told "0 messages ahead of
+                    // you", which is a wait that is not happening.
+                    if ahead == 0 {
+                        return EnqueueResult::Processing;
+                    }
+                    return EnqueueResult::Queued { position: ahead };
                 }
                 Err(mpsc::error::TrySendError::Closed(returned_msg)) => {
                     queues.remove(session_key);
@@ -65,6 +85,7 @@ impl SessionQueue {
                         session_key,
                         returned_msg,
                         &self.queues,
+                        self.message_timeout,
                     );
                 }
                 Err(mpsc::error::TrySendError::Full(mut returned_msg)) => {
@@ -76,7 +97,13 @@ impl SessionQueue {
             }
         }
 
-        Self::create_and_send(&mut queues, session_key, msg, &self.queues)
+        Self::create_and_send(
+            &mut queues,
+            session_key,
+            msg,
+            &self.queues,
+            self.message_timeout,
+        )
     }
 
     fn create_and_send(
@@ -84,6 +111,7 @@ impl SessionQueue {
         session_key: &str,
         msg: QueuedMessage,
         queues_arc: &Arc<RwLock<HashMap<String, SessionQueueState>>>,
+        message_timeout: Duration,
     ) -> EnqueueResult {
         let (tx, rx) = mpsc::channel(MAX_QUEUE_SIZE);
         // Init to 1: the first message is in the channel, being consumed.
@@ -105,6 +133,7 @@ impl SessionQueue {
             rx,
             pending_count,
             Arc::clone(queues_arc),
+            message_timeout,
         );
 
         EnqueueResult::Processing
@@ -128,12 +157,13 @@ fn spawn_consumer(
     mut rx: mpsc::Receiver<QueuedMessage>,
     pending_count: Arc<AtomicUsize>,
     queues: Arc<RwLock<HashMap<String, SessionQueueState>>>,
+    message_timeout: Duration,
 ) {
     tokio::spawn(async move {
         loop {
             match tokio::time::timeout(IDLE_TIMEOUT, rx.recv()).await {
                 Ok(Some(msg)) => {
-                    if msg.enqueued_at.elapsed() > MESSAGE_TIMEOUT {
+                    if msg.enqueued_at.elapsed() > message_timeout {
                         if let Some(notify) = msg.notify_fn {
                             let _ = notify(RejectReason::Timeout).await;
                         }
@@ -184,6 +214,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_channel_can_outlast_the_default_patience() {
+        // A 10-minute WeCom turn must not make the message behind it "late":
+        // the queue's patience comes from the channel, not from this file.
+        let queue = SessionQueue::with_message_timeout(Duration::from_secs(600));
+        let processed = Arc::new(AtomicBool::new(false));
+        let mut msg = make_msg(Arc::clone(&processed));
+        // Enqueued four minutes ago — stale under the 180s default, fine here.
+        msg.enqueued_at = Instant::now() - Duration::from_secs(240);
+        queue.enqueue("s-long", msg).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            processed.load(Ordering::Relaxed),
+            "message dropped despite the channel allowing a longer wait"
+        );
+    }
+
+    #[tokio::test]
     async fn test_first_enqueue_returns_processing() {
         let queue = SessionQueue::new();
         let processed = Arc::new(AtomicBool::new(false));
@@ -214,6 +261,25 @@ mod tests {
         let processed = Arc::new(AtomicBool::new(false));
         let r2 = queue.enqueue("s1", make_msg(processed.clone())).await;
         assert!(matches!(r2, EnqueueResult::Queued { position: 1 }));
+    }
+
+    #[tokio::test]
+    async fn an_idle_conversation_is_processing_not_queued() {
+        // The consumer outlives the message it just finished, so a second
+        // message arriving into a quiet chat reuses that queue. It is not
+        // waiting for anything, and saying so told the user "0 ahead of you".
+        let queue = SessionQueue::new();
+        let first = Arc::new(AtomicBool::new(false));
+        queue.enqueue("s-idle", make_msg(Arc::clone(&first))).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(first.load(Ordering::Relaxed), "the first message ran");
+
+        let second = Arc::new(AtomicBool::new(false));
+        let result = queue.enqueue("s-idle", make_msg(second)).await;
+        assert!(
+            matches!(result, EnqueueResult::Processing),
+            "nothing was ahead of it"
+        );
     }
 
     #[tokio::test]

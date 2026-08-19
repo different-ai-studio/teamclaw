@@ -16,6 +16,19 @@ import { APP_TYPES, DEFAULT_APP_TYPE, type AppTypeId } from '@/lib/app-types'
 
 type Visibility = 'personal' | 'team'
 
+/**
+ * Whether a repo URL is one `git clone` will treat as an address.
+ *
+ * Mirrors the same allowlist the cloud API and the daemon apply — http(s) /
+ * ssh / git://, or scp-like `git@host:path`. Checked here so a typo is a red
+ * line under the field instead of a 400 after the app row already exists.
+ */
+export function isValidGitRemoteUrl(raw: string): boolean {
+  const url = raw.trim()
+  if (!url) return true // empty means "no import", which is the default
+  return /^(https?|ssh|git):\/\/[^\s]+$/.test(url) || /^[^\s:/@]+@[^\s:/@]+:[^\s]+$/.test(url)
+}
+
 interface CreateAppDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -27,6 +40,7 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
   const [name, setName] = React.useState('')
   const [appType, setAppType] = React.useState<AppTypeId>(DEFAULT_APP_TYPE)
   const [visibility, setVisibility] = React.useState<Visibility>('personal')
+  const [gitRemoteUrl, setGitRemoteUrl] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -35,13 +49,16 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
       setName('')
       setAppType(DEFAULT_APP_TYPE)
       setVisibility('personal')
+      setGitRemoteUrl('')
       setSubmitting(false)
       setError(null)
     }
   }, [open])
 
   const trimmed = name.trim()
-  const canSubmit = !!trimmed && !!teamId && !submitting
+  const trimmedRepo = gitRemoteUrl.trim()
+  const repoValid = isValidGitRemoteUrl(gitRemoteUrl)
+  const canSubmit = !!trimmed && !!teamId && repoValid && !submitting
 
   const submit = async () => {
     if (!canSubmit) return
@@ -53,11 +70,13 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
         name: trimmed,
         type: appType,
         visibility,
+        gitRemoteUrl: trimmedRepo || null,
       })
       onOpenChange(false)
       setName('')
       setAppType(DEFAULT_APP_TYPE)
       setVisibility('personal')
+      setGitRemoteUrl('')
 
       // Drop the user straight into a conversation that is already underway.
       // Only once the files exist — an opening message telling the agent to
@@ -118,6 +137,29 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
           </div>
 
           <div className="flex flex-col gap-1.5">
+            <label htmlFor="create-app-repo" className="text-[12.5px] font-semibold text-muted-foreground">
+              {t('apps.repoLabel', 'Repository URL (optional)')}
+            </label>
+            <Input
+              id="create-app-repo"
+              value={gitRemoteUrl}
+              onChange={(e) => setGitRemoteUrl(e.target.value)}
+              placeholder={t('apps.repoPlaceholder', 'https://github.com/owner/repo.git')}
+              disabled={submitting}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              aria-invalid={!repoValid}
+              className={cn(!repoValid && 'border-amber-500/60')}
+            />
+            <span className={cn('text-[11.5px]', repoValid ? 'text-faint' : 'text-amber-700')}>
+              {repoValid
+                ? t('apps.repoHint', "Fill this in and the repo is cloned as the app's code, with no template written.")
+                : t('apps.repoInvalid', 'Must be an http(s), ssh or git@host:owner/repo.git address.')}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
             <span className="text-[12.5px] font-semibold text-muted-foreground">
               {t('apps.typeLabel', 'Type')}
             </span>
@@ -154,6 +196,11 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
                 )
               })}
             </div>
+            {!!trimmedRepo && (
+              <span className="text-[11.5px] text-faint">
+                {t('apps.typeWithRepoHint', 'When importing a repo, the type only decides how it deploys — no template files are written.')}
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">

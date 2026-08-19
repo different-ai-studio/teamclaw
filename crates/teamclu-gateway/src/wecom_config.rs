@@ -15,6 +15,14 @@ pub struct WeComConfig {
     /// Auto-recorded from the first DM received by the gateway.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_id: Option<String>,
+    /// The bot's display name in WeCom, e.g. `Matt chow的机器人 1`.
+    ///
+    /// Group callbacks carry the mention only as text — `@<name> 正文`, with no
+    /// structured field to read it from — so stripping it back off requires
+    /// knowing the name. Without it the gateway falls back to a heuristic that
+    /// cannot tell where a multi-word name ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

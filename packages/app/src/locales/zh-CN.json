@@ -599,6 +599,8 @@
     "mentionEmptyState": "当前会话还没有可 @ 的人或 agent",
     "mentionGroupAgents": "智能体",
     "mentionGroupMembers": "成员",
+    "mentionGroupExternal": "外部联系人",
+    "mentionExternalHint": "推送到对方的聊天",
     "mentionPopoverError": "加载参与者失败",
     "mentionAgentClearConfirm": {
       "title": "是否保留 Agent？",
@@ -720,6 +722,7 @@
       "description": "说明"
     },
     "actorSheet": {
+      "externalSection": "外部联系人",
       "title": "成员",
       "loading": "正在加载成员...",
       "empty": "当前会话暂无成员",
@@ -1116,6 +1119,11 @@
     "typeSlidesDesc": "一套幻灯片，可以直接放映和分享。",
     "typeDataApp": "数据操作",
     "typeDataAppDesc": "能存数据、能查能改的应用，自带一个数据库。",
+    "typeWithRepoHint": "从仓库导入时类型只决定部署方式，不会写入模板文件。",
+    "repoLabel": "仓库地址（选填）",
+    "repoPlaceholder": "https://github.com/owner/repo.git",
+    "repoHint": "填了就把这个仓库克隆下来当作应用的代码，不再写入模板。",
+    "repoInvalid": "需要是 http(s)、ssh 或 git@host:owner/repo.git 形式的地址。",
     "visibilityLabel": "可见性",
     "visibilityPersonal": "个人",
     "visibilityTeam": "团队",
@@ -1727,17 +1735,27 @@
       "session": "会话",
       "liveState": "实时状态"
     },
+    "modelDefaults": {
+      "title": "模型默认值",
+      "description": "网关、定时任务、聊天各自从哪里拿模型。",
+      "gateway": "网关",
+      "gatewayShort": "改完立刻生效，之后所有渠道新开的会话",
+      "gatewayUnset": "由后端自行选择",
+      "cron": "定时任务",
+      "cronShort": "只预填新建任务，已有任务不动",
+      "cronUnset": "未设置",
+      "cronJobs": "现有 {{jobs}} 个 · {{distinct}} 个模型",
+      "clear": "清除",
+      "chat": "聊天",
+      "chatShort": "跟着你在聊天里最近一次选择",
+      "chatNone": "还没有记录，第一次发送时会问你",
+      "retry": "重试",
+      "noDefaultWorkspace": "请先在 Daemon 设置里指定默认工作区。",
+      "daemonUnavailable": "Daemon 还没就绪。",
+      "noModels": "没有可用模型，请先配置 provider。",
+      "loadFailed": "加载模型失败。"
+    },
     "channels": {
-      "gatewayModel": "网关模型",
-      "gatewayModelDescription": "所有渠道都用这个模型起会话。单个会话仍可以用 /model 切换。",
-      "gatewayModelUnset": "由后端自行选择",
-      "modelsNoTeam": "先加入团队才能加载模型。",
-      "modelsNoDefault": "先在 Daemon 设置里指定默认工作区。",
-      "modelsNoDefaultPath": "默认工作区在这台 daemon 上没有本地路径。",
-      "modelsDaemonUnavailable": "Daemon 还没就绪，等应用启动完成后重试。",
-      "modelsNoConfigured": "没有已配置的模型，请先在 LLM 设置里添加 provider。",
-      "modelsLoadFailed": "加载模型失败。",
-      "noModels": "没有可用模型。",
       "seatalk": {
         "gateway": "SeaTalk 网关",
         "setupTitle": "配置 SeaTalk 机器人",
@@ -2190,8 +2208,15 @@
         "wizardCredentialsTitle": "获取机器人凭证",
         "wizardCredentialsDesc": "复制你的 Bot ID 和 Secret。",
         "wizardCompleteTitle": "设置完成！",
-        "wizardCompleteDesc": "你的企业微信机器人已就绪。"
-      }
+        "wizardCompleteDesc": "你的企业微信机器人已就绪。",
+        "botName": "机器人名称",
+        "botNamePlaceholder": "企微里的准确名称，例如 Matt chow的机器人 1",
+        "botNameHint": "群消息是「@名称 正文」的形式，填准确名称才能把提及剥干净。",
+        "apiKey": "MCP API Key",
+        "apiKeyPlaceholder": "机器人「消息」授权页里的 apikey",
+        "apiKeyHint": "填了之后，定时任务可以直接从这个机器人的会话列表里挑目标。"
+      },
+      "secretStored": "已配置 · 留空即保持不变"
     },
     "team": {
       "oss": {
@@ -2716,7 +2741,13 @@
       "selectModel": "选择模型",
       "requiredModel": "必须选择模型",
       "sessionNotFound": "对话不存在或无访问权限 (sessionId: {{id}}...)",
-      "runFailedFallback": "本次运行失败：{{error}}"
+      "runFailedFallback": "本次运行失败：{{error}}",
+      "wecomChats": {
+        "label": "会话",
+        "loading": "正在加载会话列表…",
+        "empty": "没有会话列表 —— 在「渠道」里补上这个机器人的 MCP API Key 就能直接挑。",
+        "unnamedGroup": "群聊"
+      }
     },
     "deps": {
       "copied": "已复制！",

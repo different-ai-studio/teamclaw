@@ -111,6 +111,8 @@ function toDaemonConfig(platform: ChannelPlatform, config: ChannelConfig): Chann
           encoding_aes_key: b.encodingAesKey || undefined,
           workspace_id: b.workspaceId || undefined,
           system_prompt: b.systemPrompt || undefined,
+          bot_name: b.botName || undefined,
+          api_key: b.apiKey || undefined,
         })),
       };
     }
@@ -182,6 +184,8 @@ function fromDaemonConfig(platform: ChannelPlatform, config: ChannelConfig): Cha
             encodingAesKey: b.encoding_aes_key ?? undefined,
             workspaceId: b.workspace_id ?? undefined,
             systemPrompt: b.system_prompt ?? undefined,
+            botName: b.bot_name ?? undefined,
+            apiKey: b.api_key ?? undefined,
           })),
         };
       }

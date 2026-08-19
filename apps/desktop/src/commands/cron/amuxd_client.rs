@@ -310,13 +310,15 @@ pub async fn channel_send_at(
     target: &str,
     message: &str,
 ) -> Result<(), String> {
+    // `channel-send`, not `mcp-send`: this is the app announcing a run, not an
+    // agent replying to anyone. The old envelope borrowed the agent path with a
+    // placeholder binding, and stopped working the day that path started
+    // requiring a real reply token — silently, because delivery is best-effort.
     let payload = serde_json::json!({
-        "cmd": "mcp-send",
-        // Placeholder binding — cron delivery supplies explicit overrides.
-        "binding": "wecom://cron/cron/single/placeholder",
+        "cmd": "channel-send",
+        "channel": channel,
+        "target": target,
         "message": message,
-        "channel_override": channel,
-        "target_override": target,
     });
     amuxd_json_roundtrip(sock_path, &payload).await
 }

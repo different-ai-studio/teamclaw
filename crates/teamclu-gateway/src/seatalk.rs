@@ -875,7 +875,12 @@ async fn process_inbound(
     );
     let reply = match ctx
         .agent
-        .send_prompt(&outcome.acp_session_id, sender_display, text)
+        .send_prompt(
+            &outcome.acp_session_id,
+            sender_display,
+            text,
+            crate::driver::ChannelCaps::MINIMAL.turn_timeout(),
+        )
         .await
     {
         Ok(r) => r,
