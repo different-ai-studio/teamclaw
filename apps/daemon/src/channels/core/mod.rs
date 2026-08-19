@@ -1,0 +1,426 @@
+//! The one implementation of "a channel message becomes a session turn".
+//!
+//! See `docs/specs/2026-08-18-gateway-transport-architecture.md`. Everything a
+//! session needs happens here, once, for every channel: dedup, routing,
+//! identity, commands, writing, broadcasting, driving the turn, and degrading
+//! the reply to what the channel can actually render.
+//!
+//! Why the daemon and not `teamclu-gateway` (§4.1): everything it needs — the
+//! store, live publishing, the runtime — is daemon-side. The gateway crate is a
+//! leaf that both the daemon and the desktop depend on.
+//!
+//! ```text
+//! dedup → addressed? → route → identity → command? → write → turn → render
+//! ```
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use teamclu_gateway::driver::{
+    AttachmentSource, ChannelDriver, Conversation, DeliveryId, ExternalSender, InboundMessage,
+    OutboundMessage, SessionAttachment,
+};
+
+pub mod adapters;
+pub mod dedup;
+pub mod sink;
+
+/// Remembers which channel messages have already been handled.
+///
+/// One store for every channel, replacing three mechanisms that each forget
+/// differently: an in-memory set (WeCom), nothing at all (Feishu), and a UID
+/// watermark plus a sqlite table (email).
+#[async_trait]
+pub trait DedupStore: Send + Sync {
+    /// True when this is the first sighting. Claims atomically: a webhook
+    /// redelivered while the first copy is still in flight has to lose.
+    async fn claim(&self, channel: &str, external_message_id: &str) -> bool;
+}
+
+/// The session a conversation resolves to, and the agent session behind it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRef {
+    pub session_id: String,
+    /// The agent-side session id, which commands and turns address.
+    pub acp_session_id: String,
+}
+
+/// Finds or creates the session for a binding.
+#[async_trait]
+pub trait SessionRouter: Send + Sync {
+    async fn resolve(
+        &self,
+        binding: &str,
+        title: &str,
+        external_actor_id: &str,
+    ) -> Result<SessionRef, CoreError>;
+}
+
+/// Maps a channel user onto an actor, so a gateway message has a real sender
+/// rather than "the bot".
+#[async_trait]
+pub trait IdentityMapper: Send + Sync {
+    async fn actor_for(&self, urn: &str, display_name: &str) -> Result<String, CoreError>;
+    /// Adds the actor to the session's participants; already-present is fine.
+    async fn join(&self, session_id: &str, actor_id: &str) -> Result<(), CoreError>;
+}
+
+/// The #933 write service: insert, broadcast, and attach — in that order, once.
+#[async_trait]
+pub trait SessionWriter: Send + Sync {
+    async fn write_inbound(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+        text: &str,
+        attachments: Vec<PendingUpload>,
+        external_message_id: &str,
+    ) -> Result<String, CoreError>;
+
+    /// Records the agent's reply the same way, so both directions look alike.
+    async fn write_reply(
+        &self,
+        session_id: &str,
+        text: &str,
+        attachments: Vec<SessionAttachment>,
+    ) -> Result<String, CoreError>;
+
+    /// Uploads bytes to the session's attachment store, returning the record
+    /// the message will carry. Used for BOTH directions — an agent-sent file is
+    /// a session attachment exactly like a received one.
+    async fn upload(
+        &self,
+        session_id: &str,
+        upload: &PendingUpload,
+    ) -> Result<SessionAttachment, CoreError>;
+}
+
+/// An attachment resolved to bytes, ready to upload.
+#[derive(Debug, Clone)]
+pub struct PendingUpload {
+    pub filename: String,
+    pub mime: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Runs the turn. Streaming is always offered; whether the *channel* shows the
+/// intermediate text is decided by caps, not here.
+#[async_trait]
+pub trait TurnRunner: Send + Sync {
+    async fn run(
+        &self,
+        acp_session_id: &str,
+        sender_display: &str,
+        prompt: &str,
+        on_delta: Option<tokio::sync::mpsc::Sender<String>>,
+    ) -> Result<String, CoreError>;
+}
+
+/// Slash commands, dispatched from one place instead of per channel.
+#[async_trait]
+pub trait CommandRunner: Send + Sync {
+    /// `Ok(Some(reply))` when handled; `Ok(None)` when the command is unknown.
+    async fn dispatch(
+        &self,
+        name: &str,
+        arg: Option<&str>,
+        acp_session_id: &str,
+    ) -> Result<Option<String>, CoreError>;
+
+    /// Whether this command can be answered before a session exists (`/help`).
+    fn needs_session(&self, name: &str) -> bool;
+
+    /// Rendered "unknown command" text, in the caller's locale.
+    fn unknown_command_text(&self, name: &str) -> String;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    Duplicate,
+    NotAddressed,
+    /// Addressed, but said nothing (a bare mention, an empty body).
+    Empty,
+    /// A slash command answered without running a turn.
+    Command {
+        handled: bool,
+    },
+    Handled {
+        session_id: String,
+        /// How many times the channel was asked to render. One for a channel
+        /// that cannot edit; more when it streams.
+        deliveries: usize,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CoreError {
+    #[error("route: {0}")]
+    Route(String),
+    #[error("identity: {0}")]
+    Identity(String),
+    #[error("write: {0}")]
+    Write(String),
+    #[error("turn: {0}")]
+    Turn(String),
+    #[error("render: {0}")]
+    Render(String),
+}
+
+pub struct Core {
+    pub dedup: Arc<dyn DedupStore>,
+    pub router: Arc<dyn SessionRouter>,
+    pub identity: Arc<dyn IdentityMapper>,
+    pub writer: Arc<dyn SessionWriter>,
+    pub turns: Arc<dyn TurnRunner>,
+    pub commands: Arc<dyn CommandRunner>,
+}
+
+impl Core {
+    /// One inbound message, start to finish.
+    ///
+    /// The driver is the only channel-shaped thing in sight: it supplies the
+    /// binding, the sender URN, the title, and does the rendering. Nothing in
+    /// this function knows what WeCom or email is.
+    pub async fn handle(
+        &self,
+        driver: &dyn ChannelDriver,
+        msg: InboundMessage,
+    ) -> Result<Outcome, CoreError> {
+        // 1. Dedup first: everything below has side effects, and a redelivered
+        //    webhook must not produce a second turn.
+        if !self
+            .dedup
+            .claim(msg.conversation.channel, &msg.external_message_id)
+            .await
+        {
+            return Ok(Outcome::Duplicate);
+        }
+        if !msg.addressed_to_bot {
+            return Ok(Outcome::NotAddressed);
+        }
+        if msg.text.trim().is_empty() && msg.attachments.is_empty() {
+            return Ok(Outcome::Empty);
+        }
+
+        let reply_ctx = msg.reply_context.clone();
+
+        // 2. A command that needs no session is answered before one is made:
+        //    `/help` in a chat the bot has never seen must not create a
+        //    session as a side effect of being asked for help.
+        let trimmed = msg.text.trim().to_string();
+        let parsed = teamclu_gateway::commands::parse_slash(&trimmed);
+        if let Some((name, _)) = &parsed {
+            if !self.commands.needs_session(name) {
+                let reply = self.commands.dispatch(name, None, "").await?;
+                let text = reply.unwrap_or_else(|| self.commands.unknown_command_text(name));
+                self.say(driver, &msg.conversation, reply_ctx.as_deref(), &text)
+                    .await?;
+                return Ok(Outcome::Command { handled: true });
+            }
+        }
+
+        // 3. Identity, then session — in that order, because the actor is a
+        //    participant of the session being created.
+        let urn = driver.sender_urn(&msg.conversation, &msg.sender);
+        let display = display_name(&msg.sender);
+        let actor_id = self.identity.actor_for(&urn, &display).await?;
+
+        let binding = driver.binding(&msg.conversation);
+        let title = driver.session_title(&msg.conversation, &msg.sender);
+        let session = self.router.resolve(&binding, &title, &actor_id).await?;
+        self.identity.join(&session.session_id, &actor_id).await?;
+
+        // 4. Session-scoped commands, now that there is one to act on.
+        if let Some((name, arg)) = parsed {
+            let reply = self
+                .commands
+                .dispatch(&name, arg.as_deref(), &session.acp_session_id)
+                .await?;
+            let (text, handled) = match reply {
+                Some(t) => (t, true),
+                None => (self.commands.unknown_command_text(&name), false),
+            };
+            self.say(driver, &msg.conversation, reply_ctx.as_deref(), &text)
+                .await?;
+            return Ok(Outcome::Command { handled });
+        }
+
+        // 5. Resolve attachments. Deferred by construction, so a text-only
+        //    message spends nothing here — which is what keeps the common case
+        //    starting its turn immediately.
+        let mut uploads = Vec::new();
+        for att in &msg.attachments {
+            let bytes = match &att.source {
+                AttachmentSource::Ready(b) => b.clone(),
+                AttachmentSource::Deferred(f) => f
+                    .fetch()
+                    .await
+                    .map_err(|e| CoreError::Write(format!("attachment fetch: {e}")))?,
+            };
+            uploads.push(PendingUpload {
+                filename: att.filename.clone(),
+                mime: att.mime.clone(),
+                bytes,
+            });
+        }
+
+        // 6. Write BEFORE the turn, always. Writing after is what made a
+        //    three-minute turn look like a frozen client everywhere else, then
+        //    dropped both rows in 39ms apart.
+        let prompt = compose_prompt(&msg);
+        self.writer
+            .write_inbound(
+                &session.session_id,
+                &actor_id,
+                &prompt,
+                uploads,
+                &msg.external_message_id,
+            )
+            .await?;
+
+        // 7. Drive the turn, streaming only where it can be seen.
+        let deliveries = if driver.caps().streaming_edit {
+            self.run_streamed(driver, &msg, &session, &display, &prompt)
+                .await?
+        } else {
+            self.run_buffered(driver, &msg, &session, &display, &prompt)
+                .await?
+        };
+
+        Ok(Outcome::Handled {
+            session_id: session.session_id,
+            deliveries,
+        })
+    }
+
+    /// A one-shot line back to the chat that is not an agent turn (a command
+    /// answer, an error). Recorded nowhere on purpose: it is gateway chrome,
+    /// not conversation.
+    async fn say(
+        &self,
+        driver: &dyn ChannelDriver,
+        to: &Conversation,
+        reply_context: Option<&str>,
+        text: &str,
+    ) -> Result<DeliveryId, CoreError> {
+        driver
+            .deliver(
+                to,
+                reply_context,
+                &OutboundMessage {
+                    text: text.to_string(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|e| CoreError::Render(e.to_string()))
+    }
+
+    /// Channels that cannot edit a sent message get one delivery, at the end.
+    /// The turn still streams internally — the session and every other client
+    /// see the deltas; the channel just sees the result.
+    async fn run_buffered(
+        &self,
+        driver: &dyn ChannelDriver,
+        msg: &InboundMessage,
+        session: &SessionRef,
+        display: &str,
+        prompt: &str,
+    ) -> Result<usize, CoreError> {
+        let reply = self
+            .turns
+            .run(&session.acp_session_id, display, prompt, None)
+            .await?;
+        self.writer
+            .write_reply(&session.session_id, &reply, Vec::new())
+            .await?;
+        self.say(
+            driver,
+            &msg.conversation,
+            msg.reply_context.as_deref(),
+            &reply,
+        )
+        .await?;
+        Ok(1)
+    }
+
+    async fn run_streamed(
+        &self,
+        driver: &dyn ChannelDriver,
+        msg: &InboundMessage,
+        session: &SessionRef,
+        display: &str,
+        prompt: &str,
+    ) -> Result<usize, CoreError> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
+        let handle = driver
+            .deliver(
+                &msg.conversation,
+                msg.reply_context.as_deref(),
+                &OutboundMessage::default(),
+            )
+            .await
+            .map_err(|e| CoreError::Render(e.to_string()))?;
+
+        let turns = self.turns.clone();
+        let acp = session.acp_session_id.clone();
+        let display_owned = display.to_string();
+        let prompt_owned = prompt.to_string();
+        let turn = tokio::spawn(async move {
+            turns
+                .run(&acp, &display_owned, &prompt_owned, Some(tx))
+                .await
+        });
+
+        let mut updates = 0usize;
+        while let Some(text) = rx.recv().await {
+            driver
+                .update(&handle, &text, false)
+                .await
+                .map_err(|e| CoreError::Render(e.to_string()))?;
+            updates += 1;
+        }
+
+        let reply = turn
+            .await
+            .map_err(|e| CoreError::Turn(format!("turn task: {e}")))??;
+        driver
+            .update(&handle, &reply, true)
+            .await
+            .map_err(|e| CoreError::Render(e.to_string()))?;
+        self.writer
+            .write_reply(&session.session_id, &reply, Vec::new())
+            .await?;
+        // The opening delivery, every intermediate edit, and the final one.
+        Ok(1 + updates + 1)
+    }
+}
+
+/// What the agent is told the sender is called. Channels that carry no display
+/// name (WeCom callbacks do not) fall back to the raw id rather than to "".
+fn display_name(sender: &ExternalSender) -> String {
+    if sender.display_name.trim().is_empty() {
+        sender.external_id.clone()
+    } else {
+        sender.display_name.clone()
+    }
+}
+
+/// The text the agent actually sees.
+///
+/// Quoted context is prepended here — one rule for every channel, instead of
+/// each gateway inventing its own marker format.
+fn compose_prompt(msg: &InboundMessage) -> String {
+    match &msg.quoted_text {
+        Some(q) if !q.is_empty() => {
+            format!(
+                "[Quoted message]\n{q}\n[End quoted message]\n\n{}",
+                msg.text
+            )
+        }
+        _ => msg.text.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests;

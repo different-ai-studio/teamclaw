@@ -88,6 +88,48 @@ impl ChannelManager {
         &self.primary_agent_actor_id
     }
 
+    /// The inbound edge for one channel: its driver plus the shared pipeline.
+    ///
+    /// A fresh `Core` per channel is deliberate — the dedup store is
+    /// per-channel-keyed anyway, and sharing one would make a channel's restart
+    /// silently inherit another's memory of what it had already seen.
+    fn core_sink_for(
+        &self,
+        driver: Arc<dyn teamclu_gateway::driver::ChannelDriver>,
+    ) -> Arc<dyn teamclu_gateway::driver::InboundSink> {
+        use crate::channels::core::{adapters, dedup, sink, Core};
+        let core = Core {
+            dedup: Arc::new(dedup::MemoryDedup::default()),
+            router: Arc::new(adapters::StoreRouter {
+                store: self.store.clone(),
+                team_id: self.team_id.clone(),
+                primary_agent_actor_id: self.primary_agent_actor_id.clone(),
+                agent_owner_actor_ids: self.agent_owner_actor_ids.clone(),
+            }),
+            identity: Arc::new(adapters::StoreIdentity {
+                store: self.store.clone(),
+                team_id: self.team_id.clone(),
+                source: driver.id(),
+            }),
+            writer: Arc::new(adapters::StoreWriter {
+                store: self.store.clone(),
+                agent_actor_id: self.primary_agent_actor_id.clone(),
+                team_id: self.team_id.clone(),
+            }),
+            turns: Arc::new(adapters::AgentTurns {
+                agent: self.acp.clone(),
+            }),
+            commands: Arc::new(adapters::GatewayCommands {
+                agent: self.acp.clone(),
+                store: self.store.clone(),
+            }),
+        };
+        Arc::new(sink::CoreSink {
+            core: Arc::new(core),
+            driver,
+        })
+    }
+
     /// The team these channels belong to. Used to build attachment bucket
     /// paths, which are team-scoped.
     pub fn team_id(&self) -> &str {
@@ -457,6 +499,12 @@ impl ChannelManager {
                 owner_id: None,
             };
             gw.set_config(cfg).await;
+            if crate::channels::core::sink::core_pipeline_enabled() {
+                // One pipeline for every channel; the gateway is left with the
+                // protocol. `TEAMCLU_GATEWAY_CORE=0` keeps the inline handler.
+                gw.use_core_pipeline(self.core_sink_for(Arc::new(gw.as_driver())))
+                    .await;
+            }
             match gw.start().await {
                 Ok(()) => {
                     println!("[ChannelManager] wecom bot {} started", bot.bot_id);
@@ -486,6 +534,12 @@ impl ChannelManager {
             chats: Default::default(),
         };
         gw.set_config(cfg).await;
+        if crate::channels::core::sink::core_pipeline_enabled() {
+            // Feishu gains streaming from this: it always could edit a sent
+            // message, the inline path just never did.
+            gw.use_core_pipeline(self.core_sink_for(Arc::new(gw.as_driver().await)))
+                .await;
+        }
         gw.start().await.map_err(|e| anyhow::anyhow!(e))?;
         Ok(gw)
     }

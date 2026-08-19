@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
-use crate::{commands, AgentHandle, AttachmentRecord, ChannelStore};
+use crate::{commands, driver, AgentHandle, AttachmentRecord, ChannelStore};
 
 /// Global reference to the active WeComGateway for proactive message sending.
 static ACTIVE_GATEWAY: OnceLock<Arc<RwLock<Option<WeComGateway>>>> = OnceLock::new();
@@ -660,6 +660,14 @@ pub struct WeComGateway {
     shared_ws_sink: Arc<RwLock<Option<WsSink>>>,
     card_metadata: Arc<RwLock<std::collections::HashMap<String, CardMetadata>>>,
     pending_responses: PendingResponses,
+    /// When present, inbound messages are normalized and handed to the core
+    /// pipeline instead of being handled inline
+    /// (`docs/specs/2026-08-18-gateway-transport-architecture.md`).
+    ///
+    /// Absent means the pre-driver path, which is still here so a live bot can
+    /// be switched back without a rebuild. It goes away once the new path has
+    /// been through a real WeCom round trip.
+    inbound_sink: Arc<RwLock<Option<Arc<dyn driver::InboundSink>>>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -842,6 +850,357 @@ enum WsExitReason {
     Disconnected,
 }
 
+// ─── Prototype: WeCom → InboundMessage ───────────────────────────────────────
+//
+// The normalizer for the transport-driver design
+// (`docs/specs/2026-08-18-gateway-transport-architecture.md`). Pure: no
+// network, no config, no clock — which is what lets it be tested against real
+// callback shapes instead of only against a live bot.
+//
+// What it deliberately does NOT do, because the core owns it: dedup, matching a
+// quoted reply back to a pending question, slash-command dispatch, session
+// resolve, identity, recording, driving the turn.
+//
+// What stays here, because it IS the wire protocol: msgtype demultiplexing, the
+// `@bot ` prefix WeCom prepends in group chats, and media references (url +
+// per-message aeskey) left undownloaded.
+
+/// Bytes for one WeCom media reference, fetched and decrypted on demand.
+///
+/// Deferred rather than eager so a text-only message still starts its turn
+/// without waiting on a download. That property exists today only as an
+/// ordering accident inside `handle_message_callback`; the type is what keeps
+/// it once the ordering moves into the core.
+struct WeComAttachmentFetch {
+    url: String,
+    aeskey: Option<String>,
+    filename_hint: Option<String>,
+}
+
+#[async_trait::async_trait]
+impl driver::FetchAttachment for WeComAttachmentFetch {
+    async fn fetch(&self) -> Result<Vec<u8>, driver::DriverError> {
+        // The mime the download resolves is dropped here on purpose: it is
+        // sniffed again from the bytes on the core side, so a driver cannot be
+        // the only thing that knows a file's type.
+        download_and_decrypt_wecom_media(
+            &self.url,
+            self.aeskey.as_deref().unwrap_or(""),
+            self.filename_hint.as_deref(),
+        )
+        .await
+        .map(|(bytes, _mime)| bytes)
+        .map_err(driver::DriverError::Transport)
+    }
+}
+
+/// What a WeCom bot can do, for the core's downgrade rules.
+pub fn wecom_caps() -> driver::ChannelCaps {
+    driver::ChannelCaps {
+        // Stream chunks land as template-card updates.
+        streaming_edit: true,
+        media_upload: true,
+        interactive: true,
+        threading: driver::Threading::Inline,
+        max_chars: 2048,
+        turn_timeout_secs: 180,
+    }
+}
+
+/// Normalize a decrypted callback into the canonical inbound shape.
+///
+/// `None` means a msgtype carrying nothing actionable — the caller logs and
+/// drops it, exactly as today.
+pub(crate) fn normalize_callback(
+    msg: &WeComMsgCallback,
+    bot_id: &str,
+    req_id: &str,
+) -> Option<driver::InboundMessage> {
+    let (text, pending_media) = extract_message_parts(msg)?;
+
+    let kind = if msg.chattype == "group" {
+        driver::ConversationKind::Group
+    } else {
+        driver::ConversationKind::Direct
+    };
+    // A group keys on the chat; a DM keys on the user, because a DM has no
+    // chat id to key on.
+    let userid = msg
+        .from
+        .as_ref()
+        .map(|f| f.userid.clone())
+        .unwrap_or_default();
+    let conversation_id = if kind == driver::ConversationKind::Group {
+        msg.chatid.clone()
+    } else {
+        userid.clone()
+    };
+
+    let text = strip_group_mention_prefix(&text, kind);
+
+    let quoted_text = msg.quote.as_ref().and_then(|q| {
+        q.get("text")
+            .and_then(|t| t.get("content"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+    });
+
+    let attachments = pending_media
+        .into_iter()
+        .map(|m| driver::InboundAttachment {
+            filename: m
+                .filename_hint
+                .clone()
+                .unwrap_or_else(|| "file".to_string()),
+            // WeCom does not declare a mime type; it is sniffed after decrypt.
+            mime: String::new(),
+            size_hint: None,
+            source: driver::AttachmentSource::Deferred(Arc::new(WeComAttachmentFetch {
+                url: m.url,
+                aeskey: m.aeskey,
+                filename_hint: m.filename_hint,
+            })),
+        })
+        .collect();
+
+    Some(driver::InboundMessage {
+        conversation: driver::Conversation {
+            channel: "wecom",
+            bot_id: (!bot_id.is_empty()).then(|| bot_id.to_string()),
+            kind,
+            id: conversation_id,
+        },
+        sender: driver::ExternalSender {
+            external_id: userid,
+            // WeCom callbacks carry no display name; the core resolves it when
+            // it maps the external user to an actor.
+            display_name: String::new(),
+            email: None,
+        },
+        external_message_id: msg.msgid.clone(),
+        text,
+        attachments,
+        // WeCom only delivers a group message when the bot is addressed, so
+        // reaching here already means it was. Stated rather than assumed: the
+        // core must not have to know that rule per channel.
+        addressed_to_bot: true,
+        quoted_text,
+        // The websocket request this arrived on. Replies and streaming card
+        // updates go back through it, not through a send-to-chat API.
+        reply_context: (!req_id.is_empty()).then(|| req_id.to_string()),
+    })
+}
+
+/// WeCom as a transport driver.
+///
+/// Holds only what rendering needs: the shared websocket sink (set on connect),
+/// the config (for `bot_id`, which is part of the binding), and the pacers for
+/// in-flight streaming replies.
+///
+/// The pacer map is why `update` cannot be stateless: WeCom throttles card
+/// updates, and the gap is measured from the previous frame of *that* reply.
+/// Rebuilding a pacer per update would reset the clock and burst straight
+/// through the limit.
+pub struct WeComDriver {
+    #[allow(dead_code)]
+    config: Arc<RwLock<WeComConfig>>,
+    shared_ws_sink: Arc<RwLock<Option<WsSink>>>,
+    pacers: tokio::sync::Mutex<std::collections::HashMap<String, StreamPacer>>,
+}
+
+impl WeComDriver {
+    pub fn new(
+        config: Arc<RwLock<WeComConfig>>,
+        shared_ws_sink: Arc<RwLock<Option<WsSink>>>,
+    ) -> Self {
+        Self {
+            config,
+            shared_ws_sink,
+            pacers: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    async fn sink(&self) -> Result<WsSink, driver::DriverError> {
+        self.shared_ws_sink
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| driver::DriverError::Transport("WeCom is not connected".into()))
+    }
+
+    /// `(chatid, chat_type)` for the media APIs, which address chats by number
+    /// rather than by the binding's words.
+    fn chat_target(conversation: &driver::Conversation) -> (&str, u32) {
+        match conversation.kind {
+            driver::ConversationKind::Group => (conversation.id.as_str(), 2),
+            _ => (conversation.id.as_str(), 1),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl driver::ChannelDriver for WeComDriver {
+    fn id(&self) -> driver::ChannelId {
+        "wecom"
+    }
+
+    fn caps(&self) -> driver::ChannelCaps {
+        wecom_caps()
+    }
+
+    fn binding(&self, conversation: &driver::Conversation) -> String {
+        // WSS smart-bot only exposes bot_id, so it fills both the corp and the
+        // agent slot — the same shape the pre-driver code built.
+        let bot = conversation.bot_id.clone().unwrap_or_default();
+        match conversation.kind {
+            driver::ConversationKind::Group => {
+                crate::binding::wecom_group(&bot, &bot, &conversation.id)
+            }
+            _ => crate::binding::wecom_dm(&bot, &bot, &conversation.id),
+        }
+    }
+
+    fn sender_urn(
+        &self,
+        conversation: &driver::Conversation,
+        sender: &driver::ExternalSender,
+    ) -> String {
+        let bot = conversation.bot_id.clone().unwrap_or_default();
+        crate::binding::urn_wecom_user(&bot, &sender.external_id)
+    }
+
+    fn session_title(
+        &self,
+        conversation: &driver::Conversation,
+        sender: &driver::ExternalSender,
+    ) -> String {
+        match conversation.kind {
+            driver::ConversationKind::Group => format!("WeCom group: {}", conversation.id),
+            _ => format!("WeCom DM: {}", sender.external_id),
+        }
+    }
+
+    /// An empty text opens a streaming bubble — the core does that before a
+    /// streaming turn and then edits it. A non-empty one is a complete message
+    /// and goes out finished.
+    async fn deliver(
+        &self,
+        to: &driver::Conversation,
+        reply_context: Option<&str>,
+        msg: &driver::OutboundMessage,
+    ) -> Result<driver::DeliveryId, driver::DriverError> {
+        let sink = self.sink().await?;
+
+        // Attachments first: the caption reads as a label for them, and WeCom
+        // renders each file as its own bubble regardless of order.
+        for att in &msg.attachments {
+            let (chatid, chat_type) = Self::chat_target(to);
+            let path = att.local_path.as_deref().unwrap_or_default();
+            let bytes = std::fs::read(path)
+                .map_err(|e| driver::DriverError::Transport(format!("read {path}: {e}")))?;
+            upload_and_send_media(
+                chatid,
+                chat_type,
+                &bytes,
+                &att.filename,
+                media_type_for(&att.mime),
+            )
+            .await
+            .map_err(driver::DriverError::Transport)?;
+        }
+
+        let Some(req_id) = reply_context else {
+            // Nothing to answer: this is proactive, which WeCom does through a
+            // different command entirely.
+            let (chatid, chat_type) = Self::chat_target(to);
+            send_proactive_message(chatid, chat_type, &msg.text)
+                .await
+                .map_err(driver::DriverError::Transport)?;
+            return Ok(driver::DeliveryId(format!("proactive:{chatid}")));
+        };
+
+        let stream_id = uuid::Uuid::new_v4().to_string();
+        let pacer = StreamPacer::new(req_id, &stream_id, &sink);
+        let finished = !msg.text.trim().is_empty();
+        // Same placeholder the pre-driver path showed, so the sender still sees
+        // something the instant the turn starts.
+        let opening = if finished {
+            msg.text.as_str()
+        } else {
+            "💭 正在思考…"
+        };
+        pacer
+            .send(opening, finished)
+            .await
+            .map_err(driver::DriverError::Transport)?;
+
+        let id = driver::DeliveryId(stream_id.clone());
+        if !finished {
+            self.pacers.lock().await.insert(stream_id, pacer);
+        }
+        Ok(id)
+    }
+
+    async fn update(
+        &self,
+        id: &driver::DeliveryId,
+        text: &str,
+        finished: bool,
+    ) -> Result<(), driver::DriverError> {
+        let pacer = {
+            let pacers = self.pacers.lock().await;
+            pacers.get(&id.0).cloned()
+        };
+        let Some(pacer) = pacer else {
+            return Err(driver::DriverError::Transport(format!(
+                "no streaming reply {} to update — it was already finished",
+                id.0
+            )));
+        };
+        pacer
+            .send(text, finished)
+            .await
+            .map_err(driver::DriverError::Transport)?;
+        if finished {
+            self.pacers.lock().await.remove(&id.0);
+        }
+        Ok(())
+    }
+}
+
+/// WeCom's media API takes its own type word, not a mime.
+fn media_type_for(mime: &str) -> &'static str {
+    if mime.starts_with("image/") {
+        "image"
+    } else if mime.starts_with("video/") {
+        "video"
+    } else if mime.starts_with("audio/") {
+        "voice"
+    } else {
+        "file"
+    }
+}
+
+/// `"@蕉你一手 /help"` → `"/help"`.
+///
+/// WeCom puts the mention in the text itself; nothing downstream should have to
+/// know that. A message that is *only* the mention normalizes to empty, which
+/// the core reads as "addressed, said nothing".
+fn strip_group_mention_prefix(text: &str, kind: driver::ConversationKind) -> String {
+    if kind != driver::ConversationKind::Group {
+        return text.to_string();
+    }
+    let trimmed = text.trim();
+    let Some(rest) = trimmed.strip_prefix('@') else {
+        return text.to_string();
+    };
+    match rest.find(' ') {
+        Some(space) => rest[space..].trim().to_string(),
+        None => String::new(),
+    }
+}
+
 impl WeComGateway {
     pub fn new(
         agent: Arc<dyn AgentHandle>,
@@ -868,6 +1227,7 @@ impl WeComGateway {
             pending_questions: Arc::new(super::PendingQuestionStore::new()),
             shared_ws_sink: Arc::new(RwLock::new(None)),
             card_metadata: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            inbound_sink: Arc::new(RwLock::new(None)),
             pending_responses: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
@@ -880,6 +1240,19 @@ impl WeComGateway {
     /// route bot-pinned sends and report per-bot status across a multi-bot fleet.
     pub async fn bot_id(&self) -> String {
         self.config.read().await.bot_id.clone()
+    }
+
+    /// Route inbound messages through the core pipeline instead of the inline
+    /// handler. Set by the daemon at boot; unset leaves the pre-driver path.
+    pub async fn use_core_pipeline(&self, sink: Arc<dyn driver::InboundSink>) {
+        *self.inbound_sink.write().await = Some(sink);
+    }
+
+    /// A driver over this gateway's live connection, for the core to render
+    /// replies through. Shares the config and websocket sink rather than
+    /// copying them, so a reconnect is visible to both.
+    pub fn as_driver(&self) -> WeComDriver {
+        WeComDriver::new(self.config.clone(), self.shared_ws_sink.clone())
     }
 
     pub fn workspace_path(&self) -> &str {
@@ -1256,6 +1629,20 @@ impl WeComGateway {
             "[WeCom] Callback: msgid={}, msgtype={}, chattype={}, userid={}",
             msg.msgid, msg.msgtype, msg.chattype, userid
         );
+        // The core pipeline, when the daemon has wired it. Dedup lives inside
+        // it (one store for every channel), so this branch sits ABOVE the
+        // inline tracker rather than after it — claiming here too would make
+        // the core's own claim always lose.
+        let core_sink = self.inbound_sink.read().await.clone();
+        if let Some(sink) = core_sink {
+            let bot_id = self.config.read().await.bot_id.clone();
+            match normalize_callback(&msg, &bot_id, &req_id) {
+                Some(inbound) => sink.accept(inbound).await,
+                None => println!("[WeCom] Unsupported message type: {}", msg.msgtype),
+            }
+            return;
+        }
+
         // Deduplication
         if !self.mark_message_processed(&msg.msgid).await {
             return;
@@ -3005,5 +3392,148 @@ mod stream_frame_tests {
     fn a_clean_ack_reads_as_success() {
         assert_eq!(ack_errcode(&json!({ "errcode": 0, "body": {}})), 0);
         assert_eq!(ack_errcode(&json!({ "body": { "msgid": "x" }})), 0);
+    }
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn callback(v: serde_json::Value) -> WeComMsgCallback {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn a_dm_keys_on_the_user_because_there_is_no_chat_id() {
+        let msg = callback(json!({
+            "msgid": "m-1",
+            "chattype": "single",
+            "msgtype": "text",
+            "from": { "userid": "u-42" },
+            "text": { "content": "hello" },
+        }));
+        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
+        assert_eq!(inbound.conversation.kind, driver::ConversationKind::Direct);
+        assert_eq!(inbound.conversation.id, "u-42");
+        assert_eq!(inbound.conversation.bot_id.as_deref(), Some("bot-a"));
+        assert_eq!(inbound.sender.external_id, "u-42");
+        assert_eq!(inbound.text, "hello");
+        assert_eq!(inbound.external_message_id, "m-1");
+    }
+
+    #[test]
+    fn a_group_keys_on_the_chat_and_loses_the_mention_prefix() {
+        // WeCom puts the mention in the text. Leaving it in means every group
+        // turn starts with a bot name the agent has to learn to ignore, and a
+        // slash command in a group would not parse as one.
+        let msg = callback(json!({
+            "msgid": "m-2",
+            "chatid": "chat-9",
+            "chattype": "group",
+            "msgtype": "text",
+            "from": { "userid": "u-7" },
+            "text": { "content": "@蕉你一手 /help" },
+        }));
+        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
+        assert_eq!(inbound.conversation.kind, driver::ConversationKind::Group);
+        assert_eq!(inbound.conversation.id, "chat-9");
+        assert_eq!(inbound.text, "/help");
+        assert!(inbound.addressed_to_bot);
+    }
+
+    #[test]
+    fn a_bare_mention_normalizes_to_empty_rather_than_to_the_bot_name() {
+        let msg = callback(json!({
+            "msgid": "m-3",
+            "chatid": "chat-9",
+            "chattype": "group",
+            "msgtype": "text",
+            "from": { "userid": "u-7" },
+            "text": { "content": "@bot" },
+        }));
+        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
+        assert_eq!(inbound.text, "");
+    }
+
+    #[test]
+    fn quoted_text_is_carried_but_not_interpreted() {
+        // The core decides what a quote means (context, or an answer to a
+        // pending question). The driver only reports that there was one.
+        let msg = callback(json!({
+            "msgid": "m-4",
+            "chattype": "single",
+            "msgtype": "text",
+            "from": { "userid": "u-7" },
+            "text": { "content": "yes" },
+            "quote": { "msgtype": "text", "text": { "content": "pick one: a or b" } },
+        }));
+        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
+        assert_eq!(inbound.quoted_text.as_deref(), Some("pick one: a or b"));
+        assert_eq!(inbound.text, "yes");
+    }
+
+    #[test]
+    fn an_empty_quote_is_absent_not_empty_string() {
+        let msg = callback(json!({
+            "msgid": "m-5",
+            "chattype": "single",
+            "msgtype": "text",
+            "from": { "userid": "u-7" },
+            "text": { "content": "hi" },
+            "quote": { "msgtype": "text", "text": { "content": "" } },
+        }));
+        assert!(normalize_callback(&msg, "bot-a", "req-1")
+            .unwrap()
+            .quoted_text
+            .is_none());
+    }
+
+    #[test]
+    fn attachments_are_referenced_not_downloaded() {
+        // The whole point of deferring: a text-only message must not wait on a
+        // download, and normalization must stay pure enough to unit-test.
+        let msg = callback(json!({
+            "msgid": "m-6",
+            "chattype": "single",
+            "msgtype": "image",
+            "from": { "userid": "u-7" },
+            "image": { "url": "https://wecom.example/media/1", "aeskey": "k" },
+        }));
+        let inbound = normalize_callback(&msg, "bot-a", "req-1").unwrap();
+        assert_eq!(inbound.attachments.len(), 1);
+        assert!(matches!(
+            inbound.attachments[0].source,
+            driver::AttachmentSource::Deferred(_)
+        ));
+    }
+
+    #[test]
+    fn an_unusable_msgtype_is_dropped() {
+        let msg = callback(json!({
+            "msgid": "m-7",
+            "chattype": "single",
+            "msgtype": "event",
+            "from": { "userid": "u-7" },
+        }));
+        assert!(normalize_callback(&msg, "bot-a", "req-1").is_none());
+    }
+
+    #[test]
+    fn a_missing_bot_id_is_absent_rather_than_an_empty_string() {
+        // An empty bot_id would key a distinct conversation from "no bot id",
+        // and the two would drift apart in the router.
+        let msg = callback(json!({
+            "msgid": "m-8",
+            "chattype": "single",
+            "msgtype": "text",
+            "from": { "userid": "u-7" },
+            "text": { "content": "hi" },
+        }));
+        assert!(normalize_callback(&msg, "", "req-1")
+            .unwrap()
+            .conversation
+            .bot_id
+            .is_none());
     }
 }

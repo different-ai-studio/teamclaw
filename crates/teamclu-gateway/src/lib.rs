@@ -13,6 +13,7 @@ pub use channel_store::{AttachmentRecord, ChannelStore, EnsureSessionOutcome, St
 
 pub mod config;
 pub mod discord;
+pub mod driver;
 pub mod email;
 pub mod email_config;
 pub mod email_db;
