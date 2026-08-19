@@ -34,11 +34,13 @@ import {
   MessageKind,
 } from "@/lib/proto/teamclu_pb";
 import {
+  mentionsOnlyExternals,
   resolveAgentRuntimeIdsForSend,
   resolveSendTeamId,
   trySyncMentionActorIds,
 } from "@/lib/send-path-resolve";
 import { resolveCurrentMemberActorId } from "@/lib/current-actor";
+import { useSessionParticipantStore } from "@/stores/session-participant-store";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { AttachedAgent } from "@/packages/ai/prompt-input-insert-hooks";
 import { promoteCreatedSessionToUi } from "@/lib/promote-created-session";
@@ -183,9 +185,20 @@ export function useChatSend({
 
     // WYSIWYG: pill in footer, typed @, or explicit extra on first send.
     const engagedFromStore = useEngagedAgentStore.getState().get(sid);
-    const agentForSend =
-      extraMentionAgents[0] ?? engagedAgents[0] ?? engagedFromStore ?? null;
     const memberIds = mentions.map((m) => m.id);
+    // A message addressed only to a channel contact goes to them alone. The
+    // pill cannot say otherwise here: gateway chats are solo sessions, where
+    // it is re-engaged automatically as fast as it is cleared.
+    const externalOnly =
+      extraMentionAgents.length === 0 &&
+      mentionsOnlyExternals(
+        memberIds,
+        useSessionParticipantStore.getState().participantsBySession[sid] ?? [],
+        text,
+      );
+    const agentForSend = externalOnly
+      ? null
+      : extraMentionAgents[0] ?? engagedAgents[0] ?? engagedFromStore ?? null;
     const agentIds = agentForSend ? [agentForSend.id] : [];
     const displayMentionActorIds = Array.from(new Set(agentIds.filter(Boolean)));
     const _isPlanMode = !!(message as PromptInputMessage & { _planMode?: boolean })._planMode;
@@ -205,10 +218,14 @@ export function useChatSend({
       }),
     );
 
-    const syncMentions = trySyncMentionActorIds(memberIds, agentIds, text);
+    const syncMentions = externalOnly
+      ? memberIds
+      : trySyncMentionActorIds(memberIds, agentIds, text);
     const mentionsPromise: Promise<string[]> = syncMentions
       ? Promise.resolve(syncMentions)
-      : resolveSessionMentionActorIds(sid, memberIds, agentIds, text);
+      : resolveSessionMentionActorIds(sid, memberIds, agentIds, text, {
+          skipSoloAgentFallback: externalOnly,
+        });
 
     // Build outgoing text while network resolves — only needs agentForSend (sync).
     let processedText = expandMemberMentionTokensInText(text, {

@@ -65,6 +65,7 @@ export async function resolveSessionMentionActorIds(
   memberIds: string[],
   agentIds: string[],
   messageText = "",
+  options: { skipSoloAgentFallback?: boolean } = {},
 ): Promise<string[]> {
   const fromText = await resolveActorIdsFromAtText(sessionId, messageText);
 
@@ -88,7 +89,15 @@ export async function resolveSessionMentionActorIds(
   }
 
   let effectiveAgentIds = agentIds.slice(0, 1);
-  if (effectiveAgentIds.length === 0 && fromText.agentIds.length === 0) {
+  // `skipSoloAgentFallback` is the caller saying this message names only
+  // people reachable through a channel. The fallback exists for messages that
+  // name nobody; applying it here would answer an explicit "@ this person"
+  // with "and the agent too".
+  if (
+    !options.skipSoloAgentFallback &&
+    effectiveAgentIds.length === 0 &&
+    fromText.agentIds.length === 0
+  ) {
     const soleAgentId = await resolveSoleAgentIdIfSoloSession(sessionId);
     if (soleAgentId) effectiveAgentIds = [soleAgentId];
   }

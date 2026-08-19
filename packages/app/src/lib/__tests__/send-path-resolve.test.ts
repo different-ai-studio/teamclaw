@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  mentionsOnlyExternals,
   resolveAgentRuntimeIdsForSend,
   resolveSendTeamId,
   trySyncMentionActorIds,
@@ -28,6 +29,39 @@ vi.mock("@/stores/engaged-agent-store", () => ({
     }),
   },
 }));
+
+describe("mentionsOnlyExternals", () => {
+  const roster = [
+    { actorId: "agent-1", displayName: "Mac-mini-3", isAgent: true, isExternal: false },
+    { actorId: "member-1", displayName: "周金亮", isAgent: false, isExternal: false },
+    { actorId: "ext-1", displayName: "LiangLiang", isAgent: false, isExternal: true },
+  ];
+
+  it("is true when the message names only a channel contact", () => {
+    expect(mentionsOnlyExternals(["ext-1"], roster, "下班了吗")).toBe(true);
+  });
+
+  it("is false when a member is named too", () => {
+    expect(mentionsOnlyExternals(["ext-1", "member-1"], roster, "hi")).toBe(false);
+  });
+
+  it("is false when the body also names the agent", () => {
+    // Typing the agent's name is an explicit ask; the mention picker is not
+    // the only way to address it.
+    expect(mentionsOnlyExternals(["ext-1"], roster, "@Mac-mini-3 看一下")).toBe(false);
+  });
+
+  it("is false for an id the roster cannot place", () => {
+    // Guessing "external" for an unknown id would drop the agent from a
+    // message meant for it.
+    expect(mentionsOnlyExternals(["who-1"], roster, "hi")).toBe(false);
+    expect(mentionsOnlyExternals(["ext-1"], [], "hi")).toBe(false);
+  });
+
+  it("is false when nobody is mentioned", () => {
+    expect(mentionsOnlyExternals([], roster, "hi")).toBe(false);
+  });
+});
 
 describe("trySyncMentionActorIds", () => {
   it("returns sync ids when pill agent is set and body has no @Name", () => {
