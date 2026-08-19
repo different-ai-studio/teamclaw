@@ -4,7 +4,9 @@ import { MessageSquare, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getBackend } from '@/lib/backend'
 import { useSessionListStore, type SessionListEntry } from '@/stores/session-list-store'
+import { useCronStore } from '@/stores/cron'
 import { useUIStore } from '@/stores/ui'
+import { isScheduledSession } from '@/lib/session-origin'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 interface Props {
@@ -31,6 +33,7 @@ export function SessionContinueBanner({
 }: Props) {
   const { t } = useTranslation()
   const allRows = useSessionListStore((s) => s.rows)
+  const cronSessionIds = useCronStore((s) => s.cronSessionIds)
   const [matchingIds, setMatchingIds] = React.useState<Set<string> | null>(null)
   const [popoverOpen, setPopoverOpen] = React.useState(false)
 
@@ -53,7 +56,14 @@ export function SessionContinueBanner({
 
   if (!matchingIds || matchingIds.size === 0) return null
 
-  const matching: SessionListEntry[] = allRows.filter((r) => matchingIds.has(r.id))
+  // Scheduled runs are their own surface: NavRail, SessionListColumn and
+  // SessionList all split them out via this same predicate. Continuing a
+  // cron run by hand is not what this affordance is for, and a busy job
+  // buries every real conversation. Filtered before .length is read, so
+  // the trigger count and the popover list agree.
+  const matching: SessionListEntry[] = allRows.filter(
+    (r) => matchingIds.has(r.id) && !isScheduledSession(r, cronSessionIds),
+  )
   if (matching.length === 0) return null
 
   const top5 = matching.slice(0, 5)
