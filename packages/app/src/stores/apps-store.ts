@@ -39,11 +39,6 @@ async function toastError(title: string, description?: string): Promise<void> {
   toast.error(title, description ? { description } : undefined);
 }
 
-async function toastSuccess(title: string, description?: string): Promise<void> {
-  const { toast } = await import("sonner");
-  toast.success(title, description ? { description } : undefined);
-}
-
 /**
  * Write a terminal provision status back to the cloud API and patch the matching
  * row in the store. Non-fatal: a failed writeback must never reject the caller
@@ -179,12 +174,13 @@ export const useAppsStore = create<AppsState>((set, get) => ({
       }
 
       // 3. Cloud: point the function at the uploaded code, get the live endpoint.
+      // No success toast. It showed `fcEndpoint` — the raw FC function URL —
+      // which is not the address the product hands out (that is the app's
+      // vanity domain, and the row already carries it into the UI). A popup
+      // naming the wrong host on every deploy is worse than no popup: the
+      // merged row flips the row to live on its own.
       const finalized = await getBackend().apps.finalizeDeploy(appId);
       mergeRow(set, finalized);
-      await toastSuccess(
-        "部署成功",
-        finalized.fcEndpoint ? finalized.fcEndpoint : undefined,
-      );
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       // The cloud already marks its own failures; this covers the ones it
