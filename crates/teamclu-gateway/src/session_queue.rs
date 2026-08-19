@@ -68,8 +68,15 @@ impl SessionQueue {
                 Ok(_) => {
                     // fetch_add returns old value. With init=1 (first msg being processed),
                     // second msg gets pos=1, third gets pos=2, etc. 1-based queue position.
-                    let pos = state.pending_count.fetch_add(1, Ordering::Relaxed);
-                    return EnqueueResult::Queued { position: pos };
+                    let ahead = state.pending_count.fetch_add(1, Ordering::Relaxed);
+                    // Zero ahead means the consumer is parked on `recv` with
+                    // nothing in flight — this message is picked up now, not
+                    // queued. The chat was being told "0 messages ahead of
+                    // you", which is a wait that is not happening.
+                    if ahead == 0 {
+                        return EnqueueResult::Processing;
+                    }
+                    return EnqueueResult::Queued { position: ahead };
                 }
                 Err(mpsc::error::TrySendError::Closed(returned_msg)) => {
                     queues.remove(session_key);
@@ -254,6 +261,25 @@ mod tests {
         let processed = Arc::new(AtomicBool::new(false));
         let r2 = queue.enqueue("s1", make_msg(processed.clone())).await;
         assert!(matches!(r2, EnqueueResult::Queued { position: 1 }));
+    }
+
+    #[tokio::test]
+    async fn an_idle_conversation_is_processing_not_queued() {
+        // The consumer outlives the message it just finished, so a second
+        // message arriving into a quiet chat reuses that queue. It is not
+        // waiting for anything, and saying so told the user "0 ahead of you".
+        let queue = SessionQueue::new();
+        let first = Arc::new(AtomicBool::new(false));
+        queue.enqueue("s-idle", make_msg(Arc::clone(&first))).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(first.load(Ordering::Relaxed), "the first message ran");
+
+        let second = Arc::new(AtomicBool::new(false));
+        let result = queue.enqueue("s-idle", make_msg(second)).await;
+        assert!(
+            matches!(result, EnqueueResult::Processing),
+            "nothing was ahead of it"
+        );
     }
 
     #[tokio::test]
