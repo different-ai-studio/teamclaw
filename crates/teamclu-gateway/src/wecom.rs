@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
-use crate::{commands, AgentHandle, AttachmentRecord, ChannelStore};
+use crate::{commands, driver, AgentHandle, AttachmentRecord, ChannelStore};
 
 /// Global reference to the active WeComGateway for proactive message sending.
 static ACTIVE_GATEWAY: OnceLock<Arc<RwLock<Option<WeComGateway>>>> = OnceLock::new();
@@ -840,6 +840,163 @@ struct CardMetadata {
 enum WsExitReason {
     Shutdown,
     Disconnected,
+}
+
+// ─── Prototype: WeCom → InboundMessage ───────────────────────────────────────
+//
+// The normalizer for the transport-driver design
+// (`docs/specs/2026-08-18-gateway-transport-architecture.md`). Pure: no
+// network, no config, no clock — which is what lets it be tested against real
+// callback shapes instead of only against a live bot.
+//
+// What it deliberately does NOT do, because the core owns it: dedup, matching a
+// quoted reply back to a pending question, slash-command dispatch, session
+// resolve, identity, recording, driving the turn.
+//
+// What stays here, because it IS the wire protocol: msgtype demultiplexing, the
+// `@bot ` prefix WeCom prepends in group chats, and media references (url +
+// per-message aeskey) left undownloaded.
+
+/// Bytes for one WeCom media reference, fetched and decrypted on demand.
+///
+/// Deferred rather than eager so a text-only message still starts its turn
+/// without waiting on a download. That property exists today only as an
+/// ordering accident inside `handle_message_callback`; the type is what keeps
+/// it once the ordering moves into the core.
+struct WeComAttachmentFetch {
+    url: String,
+    aeskey: Option<String>,
+    filename_hint: Option<String>,
+}
+
+#[async_trait::async_trait]
+impl driver::FetchAttachment for WeComAttachmentFetch {
+    async fn fetch(&self) -> Result<Vec<u8>, driver::DriverError> {
+        // The mime the download resolves is dropped here on purpose: it is
+        // sniffed again from the bytes on the core side, so a driver cannot be
+        // the only thing that knows a file's type.
+        download_and_decrypt_wecom_media(
+            &self.url,
+            self.aeskey.as_deref().unwrap_or(""),
+            self.filename_hint.as_deref(),
+        )
+        .await
+        .map(|(bytes, _mime)| bytes)
+        .map_err(driver::DriverError::Transport)
+    }
+}
+
+/// What a WeCom bot can do, for the core's downgrade rules.
+pub fn wecom_caps() -> driver::ChannelCaps {
+    driver::ChannelCaps {
+        // Stream chunks land as template-card updates.
+        streaming_edit: true,
+        media_upload: true,
+        interactive: true,
+        threading: driver::Threading::Inline,
+        max_chars: 2048,
+        turn_timeout_secs: 180,
+    }
+}
+
+/// Normalize a decrypted callback into the canonical inbound shape.
+///
+/// `None` means a msgtype carrying nothing actionable — the caller logs and
+/// drops it, exactly as today.
+pub(crate) fn normalize_callback(
+    msg: &WeComMsgCallback,
+    bot_id: &str,
+) -> Option<driver::InboundMessage> {
+    let (text, pending_media) = extract_message_parts(msg)?;
+
+    let kind = if msg.chattype == "group" {
+        driver::ConversationKind::Group
+    } else {
+        driver::ConversationKind::Direct
+    };
+    // A group keys on the chat; a DM keys on the user, because a DM has no
+    // chat id to key on.
+    let userid = msg
+        .from
+        .as_ref()
+        .map(|f| f.userid.clone())
+        .unwrap_or_default();
+    let conversation_id = if kind == driver::ConversationKind::Group {
+        msg.chatid.clone()
+    } else {
+        userid.clone()
+    };
+
+    let text = strip_group_mention_prefix(&text, kind);
+
+    let quoted_text = msg.quote.as_ref().and_then(|q| {
+        q.get("text")
+            .and_then(|t| t.get("content"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+    });
+
+    let attachments = pending_media
+        .into_iter()
+        .map(|m| driver::InboundAttachment {
+            filename: m
+                .filename_hint
+                .clone()
+                .unwrap_or_else(|| "file".to_string()),
+            // WeCom does not declare a mime type; it is sniffed after decrypt.
+            mime: String::new(),
+            size_hint: None,
+            source: driver::AttachmentSource::Deferred(Arc::new(WeComAttachmentFetch {
+                url: m.url,
+                aeskey: m.aeskey,
+                filename_hint: m.filename_hint,
+            })),
+        })
+        .collect();
+
+    Some(driver::InboundMessage {
+        conversation: driver::Conversation {
+            channel: "wecom",
+            bot_id: (!bot_id.is_empty()).then(|| bot_id.to_string()),
+            kind,
+            id: conversation_id,
+        },
+        sender: driver::ExternalSender {
+            external_id: userid,
+            // WeCom callbacks carry no display name; the core resolves it when
+            // it maps the external user to an actor.
+            display_name: String::new(),
+            email: None,
+        },
+        external_message_id: msg.msgid.clone(),
+        text,
+        attachments,
+        // WeCom only delivers a group message when the bot is addressed, so
+        // reaching here already means it was. Stated rather than assumed: the
+        // core must not have to know that rule per channel.
+        addressed_to_bot: true,
+        quoted_text,
+    })
+}
+
+/// `"@蕉你一手 /help"` → `"/help"`.
+///
+/// WeCom puts the mention in the text itself; nothing downstream should have to
+/// know that. A message that is *only* the mention normalizes to empty, which
+/// the core reads as "addressed, said nothing".
+fn strip_group_mention_prefix(text: &str, kind: driver::ConversationKind) -> String {
+    if kind != driver::ConversationKind::Group {
+        return text.to_string();
+    }
+    let trimmed = text.trim();
+    let Some(rest) = trimmed.strip_prefix('@') else {
+        return text.to_string();
+    };
+    match rest.find(' ') {
+        Some(space) => rest[space..].trim().to_string(),
+        None => String::new(),
+    }
 }
 
 impl WeComGateway {
@@ -3005,5 +3162,141 @@ mod stream_frame_tests {
     fn a_clean_ack_reads_as_success() {
         assert_eq!(ack_errcode(&json!({ "errcode": 0, "body": {}})), 0);
         assert_eq!(ack_errcode(&json!({ "body": { "msgid": "x" }})), 0);
+    }
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn callback(v: serde_json::Value) -> WeComMsgCallback {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn a_dm_keys_on_the_user_because_there_is_no_chat_id() {
+        let msg = callback(json!({
+            "msgid": "m-1",
+            "chattype": "single",
+            "msgtype": "text",
+            "from": { "userid": "u-42" },
+            "text": { "content": "hello" },
+        }));
+        let inbound = normalize_callback(&msg, "bot-a").unwrap();
+        assert_eq!(inbound.conversation.kind, driver::ConversationKind::Direct);
+        assert_eq!(inbound.conversation.id, "u-42");
+        assert_eq!(inbound.conversation.bot_id.as_deref(), Some("bot-a"));
+        assert_eq!(inbound.sender.external_id, "u-42");
+        assert_eq!(inbound.text, "hello");
+        assert_eq!(inbound.external_message_id, "m-1");
+    }
+
+    #[test]
+    fn a_group_keys_on_the_chat_and_loses_the_mention_prefix() {
+        // WeCom puts the mention in the text. Leaving it in means every group
+        // turn starts with a bot name the agent has to learn to ignore, and a
+        // slash command in a group would not parse as one.
+        let msg = callback(json!({
+            "msgid": "m-2",
+            "chatid": "chat-9",
+            "chattype": "group",
+            "msgtype": "text",
+            "from": { "userid": "u-7" },
+            "text": { "content": "@蕉你一手 /help" },
+        }));
+        let inbound = normalize_callback(&msg, "bot-a").unwrap();
+        assert_eq!(inbound.conversation.kind, driver::ConversationKind::Group);
+        assert_eq!(inbound.conversation.id, "chat-9");
+        assert_eq!(inbound.text, "/help");
+        assert!(inbound.addressed_to_bot);
+    }
+
+    #[test]
+    fn a_bare_mention_normalizes_to_empty_rather_than_to_the_bot_name() {
+        let msg = callback(json!({
+            "msgid": "m-3",
+            "chatid": "chat-9",
+            "chattype": "group",
+            "msgtype": "text",
+            "from": { "userid": "u-7" },
+            "text": { "content": "@bot" },
+        }));
+        let inbound = normalize_callback(&msg, "bot-a").unwrap();
+        assert_eq!(inbound.text, "");
+    }
+
+    #[test]
+    fn quoted_text_is_carried_but_not_interpreted() {
+        // The core decides what a quote means (context, or an answer to a
+        // pending question). The driver only reports that there was one.
+        let msg = callback(json!({
+            "msgid": "m-4",
+            "chattype": "single",
+            "msgtype": "text",
+            "from": { "userid": "u-7" },
+            "text": { "content": "yes" },
+            "quote": { "msgtype": "text", "text": { "content": "pick one: a or b" } },
+        }));
+        let inbound = normalize_callback(&msg, "bot-a").unwrap();
+        assert_eq!(inbound.quoted_text.as_deref(), Some("pick one: a or b"));
+        assert_eq!(inbound.text, "yes");
+    }
+
+    #[test]
+    fn an_empty_quote_is_absent_not_empty_string() {
+        let msg = callback(json!({
+            "msgid": "m-5",
+            "chattype": "single",
+            "msgtype": "text",
+            "from": { "userid": "u-7" },
+            "text": { "content": "hi" },
+            "quote": { "msgtype": "text", "text": { "content": "" } },
+        }));
+        assert!(normalize_callback(&msg, "bot-a").unwrap().quoted_text.is_none());
+    }
+
+    #[test]
+    fn attachments_are_referenced_not_downloaded() {
+        // The whole point of deferring: a text-only message must not wait on a
+        // download, and normalization must stay pure enough to unit-test.
+        let msg = callback(json!({
+            "msgid": "m-6",
+            "chattype": "single",
+            "msgtype": "image",
+            "from": { "userid": "u-7" },
+            "image": { "url": "https://wecom.example/media/1", "aeskey": "k" },
+        }));
+        let inbound = normalize_callback(&msg, "bot-a").unwrap();
+        assert_eq!(inbound.attachments.len(), 1);
+        assert!(matches!(
+            inbound.attachments[0].source,
+            driver::AttachmentSource::Deferred(_)
+        ));
+    }
+
+    #[test]
+    fn an_unusable_msgtype_is_dropped() {
+        let msg = callback(json!({
+            "msgid": "m-7",
+            "chattype": "single",
+            "msgtype": "event",
+            "from": { "userid": "u-7" },
+        }));
+        assert!(normalize_callback(&msg, "bot-a").is_none());
+    }
+
+    #[test]
+    fn a_missing_bot_id_is_absent_rather_than_an_empty_string() {
+        // An empty bot_id would key a distinct conversation from "no bot id",
+        // and the two would drift apart in the router.
+        let msg = callback(json!({
+            "msgid": "m-8",
+            "chattype": "single",
+            "msgtype": "text",
+            "from": { "userid": "u-7" },
+            "text": { "content": "hi" },
+        }));
+        assert!(normalize_callback(&msg, "").unwrap().conversation.bot_id.is_none());
     }
 }
