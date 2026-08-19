@@ -560,7 +560,16 @@ type PendingResponses =
 /// Minimum spacing between two frames of the same streamed reply. See
 /// [`StreamPacer`] for why frames cannot simply be fired as fast as the agent
 /// produces text.
-const STREAM_FRAME_MIN_GAP: std::time::Duration = std::time::Duration::from_millis(900);
+/// Minimum gap between two frames of one streaming reply.
+///
+/// WeCom counts **every** frame against "30 messages/minute, 1000/hour per
+/// conversation" — replies and proactive pushes share that budget, and a stream
+/// is not consolidated into one message
+/// (<https://developer.work.weixin.qq.com/document/path/101463>). At the old
+/// 900ms this burned 66 frames a minute, more than twice the allowance, so a
+/// long answer would start losing frames part-way through and read as a reply
+/// that froze. 2.1s keeps it at ~28/minute with room for the final message.
+const STREAM_FRAME_MIN_GAP: std::time::Duration = std::time::Duration::from_millis(2100);
 
 /// How long to wait for WeCom's verdict on the frame the user is left with.
 const TERMINAL_FRAME_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -1006,7 +1015,21 @@ pub struct WeComDriver {
     #[allow(dead_code)]
     config: Arc<RwLock<WeComConfig>>,
     shared_ws_sink: Arc<RwLock<Option<WsSink>>>,
-    pacers: tokio::sync::Mutex<std::collections::HashMap<String, StreamPacer>>,
+    pacers: tokio::sync::Mutex<std::collections::HashMap<String, InFlightReply>>,
+}
+
+/// A streaming reply being written, and where its finished text has to go.
+///
+/// The conversation is kept because the final answer does NOT go out through
+/// the stream: `stream` carries plain text, so a markdown answer arrives with
+/// its fences and lists as literal characters. The stream shows progress, and
+/// the finished answer is sent once as a `markdown` message, which WeCom
+/// renders.
+struct InFlightReply {
+    pacer: StreamPacer,
+    chatid: String,
+    chat_type: u32,
+    started: std::time::Instant,
 }
 
 impl WeComDriver {
@@ -1128,54 +1151,88 @@ impl driver::ChannelDriver for WeComDriver {
             return Ok(driver::DeliveryId(format!("proactive:{chatid}")));
         };
 
+        let (chatid, chat_type) = Self::chat_target(to);
+
+        // A finished one-shot reply (a command answer, an error). Sent as
+        // markdown so a reply containing a list or a code block renders as one.
+        if !msg.text.trim().is_empty() {
+            send_proactive_message(chatid, chat_type, &msg.text)
+                .await
+                .map_err(driver::DriverError::Transport)?;
+            return Ok(driver::DeliveryId(format!("markdown:{chatid}")));
+        }
+
         let stream_id = uuid::Uuid::new_v4().to_string();
         let pacer = StreamPacer::new(req_id, &stream_id, &sink);
-        let finished = !msg.text.trim().is_empty();
-        // Same placeholder the pre-driver path showed, so the sender still sees
-        // something the instant the turn starts.
-        let opening = if finished {
-            msg.text.as_str()
-        } else {
-            "💭 正在思考…"
-        };
         pacer
-            .send(opening, finished)
+            .send(PROGRESS_OPENING, false)
             .await
             .map_err(driver::DriverError::Transport)?;
 
-        let id = driver::DeliveryId(stream_id.clone());
-        if !finished {
-            self.pacers.lock().await.insert(stream_id, pacer);
-        }
-        Ok(id)
+        self.pacers.lock().await.insert(
+            stream_id.clone(),
+            InFlightReply {
+                pacer,
+                chatid: chatid.to_string(),
+                chat_type,
+                started: std::time::Instant::now(),
+            },
+        );
+        Ok(driver::DeliveryId(stream_id))
     }
 
+    /// Progress while the turn runs; the answer itself at the end.
+    ///
+    /// The intermediate text is deliberately NOT streamed. `stream` carries
+    /// plain text, so a markdown answer would arrive with its fences, tables
+    /// and lists as literal characters, and every frame spends one of the 30
+    /// messages a minute this conversation is allowed. A progress line costs
+    /// the same per frame but does not need to be complete or pretty.
     async fn update(
         &self,
         id: &driver::DeliveryId,
         text: &str,
         finished: bool,
     ) -> Result<(), driver::DriverError> {
-        let pacer = {
+        let (pacer, chatid, chat_type, started) = {
             let pacers = self.pacers.lock().await;
-            pacers.get(&id.0).cloned()
+            match pacers.get(&id.0) {
+                Some(r) => (r.pacer.clone(), r.chatid.clone(), r.chat_type, r.started),
+                None => {
+                    return Err(driver::DriverError::Transport(format!(
+                        "no streaming reply {} to update — it was already finished",
+                        id.0
+                    )))
+                }
+            }
         };
-        let Some(pacer) = pacer else {
-            return Err(driver::DriverError::Transport(format!(
-                "no streaming reply {} to update — it was already finished",
-                id.0
-            )));
-        };
-        pacer
-            .send(text, finished)
-            .await
-            .map_err(driver::DriverError::Transport)?;
-        if finished {
-            self.pacers.lock().await.remove(&id.0);
+
+        if !finished {
+            // Elapsed seconds rather than the growing answer: it tells the
+            // sender the turn is alive, which is the whole job of this bubble.
+            let secs = started.elapsed().as_secs();
+            return pacer
+                .send(&format!("{PROGRESS_OPENING}（{secs}s）"), false)
+                .await
+                .map_err(driver::DriverError::Transport);
         }
-        Ok(())
+
+        // Close the progress bubble, then deliver the real answer as markdown.
+        let _ = pacer.send(PROGRESS_DONE, true).await;
+        self.pacers.lock().await.remove(&id.0);
+        if text.trim().is_empty() {
+            return Ok(());
+        }
+        send_proactive_message(&chatid, chat_type, text)
+            .await
+            .map_err(driver::DriverError::Transport)
     }
 }
+
+/// What the progress bubble says while a turn runs.
+const PROGRESS_OPENING: &str = "💭 正在思考…";
+/// …and once it is done, so the bubble does not sit there implying it still is.
+const PROGRESS_DONE: &str = "✅ 已完成";
 
 /// WeCom's media API takes its own type word, not a mime.
 fn media_type_for(mime: &str) -> &'static str {
