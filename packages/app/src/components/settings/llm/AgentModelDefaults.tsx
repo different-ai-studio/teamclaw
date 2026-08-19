@@ -67,6 +67,22 @@ export function AgentModelDefaults() {
   const [cronOpen, setCronOpen] = React.useState(false)
   const [savingGateway, setSavingGateway] = React.useState(false)
 
+  // Both pickers live inside the Settings dialog, which is a MODAL Radix
+  // dialog: it puts `pointer-events: none` on <body> and scopes interaction to
+  // its own content subtree. A popover portalled to `document.body` (the
+  // default) lands outside that subtree, so it never becomes usable — the
+  // trigger looks normal and clicking it does nothing. `popover.tsx` documents
+  // this and `CronJobDialog` already works around it the same way: portal into
+  // a node inside the dialog. Resolved from our own DOM position rather than a
+  // global query so it stays correct if this card is ever mounted elsewhere
+  // (outside a dialog it resolves to undefined, which is the normal default).
+  const cardRef = React.useRef<HTMLDivElement>(null)
+  const [portalHost, setPortalHost] = React.useState<HTMLElement | undefined>(undefined)
+  React.useEffect(() => {
+    const host = cardRef.current?.closest('[data-slot=dialog-content]')
+    setPortalHost(host instanceof HTMLElement ? host : undefined)
+  }, [])
+
   React.useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -209,7 +225,7 @@ export function AgentModelDefaults() {
   )
 
   return (
-    <div className="mb-8">
+    <div className="mb-8" ref={cardRef}>
       <SectionHeader
         icon={Box}
         title={t('settings.modelDefaults.title', 'Model defaults')}
@@ -253,10 +269,22 @@ export function AgentModelDefaults() {
                     canPickGateway,
                   )}
                 </PopoverTrigger>
-                <PopoverContent align="end" sideOffset={6} className="w-[20rem] p-0">
+                <PopoverContent container={portalHost} align="end" sideOffset={6} className="w-[20rem] p-0">
                   {pickerFor(gatewayModel ?? '', (id) => void applyGateway(id))}
                 </PopoverContent>
               </Popover>
+              {/* Without this there is no way back to unpinned once a model is
+                  picked — `saveGatewayModel('')` is the documented clear and had
+                  no affordance, so the setting was one-way in the UI. */}
+              {gatewayModel && (
+                <button
+                  type="button"
+                  className="text-[12px] text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={() => void applyGateway('')}
+                >
+                  {t('settings.modelDefaults.clear', 'Clear')}
+                </button>
+              )}
             </>,
           )}
 
@@ -291,7 +319,7 @@ export function AgentModelDefaults() {
                 <PopoverTrigger asChild>
                   {trigger(cronDefault, t('settings.modelDefaults.cronUnset', 'Not set'), canPickCron)}
                 </PopoverTrigger>
-                <PopoverContent align="end" sideOffset={6} className="w-[20rem] p-0">
+                <PopoverContent container={portalHost} align="end" sideOffset={6} className="w-[20rem] p-0">
                   {pickerFor(cronDefault, (id) => {
                     setCronOpen(false)
                     if (backend && teamId) setDefault(backend, teamId, id)
