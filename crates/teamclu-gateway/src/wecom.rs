@@ -1194,7 +1194,7 @@ impl driver::ChannelDriver for WeComDriver {
         &self,
         id: &driver::DeliveryId,
         text: &str,
-        finished: bool,
+        end: Option<driver::TurnEnd>,
     ) -> Result<(), driver::DriverError> {
         let (pacer, chatid, chat_type) = {
             let pacers = self.pacers.lock().await;
@@ -1209,7 +1209,7 @@ impl driver::ChannelDriver for WeComDriver {
             }
         };
 
-        if !finished {
+        let Some(end) = end else {
             let frame = match newest_line(text) {
                 Some(line) => format!("{PROGRESS_OPENING} {line}"),
                 None => PROGRESS_OPENING.to_string(),
@@ -1218,7 +1218,7 @@ impl driver::ChannelDriver for WeComDriver {
                 .send(&frame, false)
                 .await
                 .map_err(driver::DriverError::Transport);
-        }
+        };
 
         // WeCom has no delete/recall API, so this bubble is permanent once
         // opened. Close it on a marker that stays true forever rather than on
@@ -1226,7 +1226,15 @@ impl driver::ChannelDriver for WeComDriver {
         // an answer that finished long ago. The answer itself then goes out as
         // `markdown` — the only way WeCom renders fences and lists, since
         // `stream` content is plain text.
-        let _ = pacer.send(PROGRESS_DONE, true).await;
+        //
+        // A turn that ended with nothing to show closes on "cancelled": saying
+        // "done" after the user typed `/stop` reports that the thing they
+        // stopped finished anyway.
+        let closing = match end {
+            driver::TurnEnd::Answered => PROGRESS_DONE,
+            driver::TurnEnd::NoAnswer => PROGRESS_CANCELLED,
+        };
+        let _ = pacer.send(closing, true).await;
         self.pacers.lock().await.remove(&id.0);
         if text.trim().is_empty() {
             return Ok(());
@@ -1241,6 +1249,8 @@ impl driver::ChannelDriver for WeComDriver {
 const PROGRESS_OPENING: &str = "💭 正在思考…";
 /// …and once it is done, so the bubble does not sit there implying it still is.
 const PROGRESS_DONE: &str = "✅ 已完成";
+/// …or once it was stopped, which is a different thing from finishing.
+const PROGRESS_CANCELLED: &str = "⏹️ 已取消";
 
 /// How much of the newest line rides along in the progress frame.
 const PROGRESS_LINE_CHARS: usize = 40;
@@ -3527,6 +3537,15 @@ mod progress_line_tests {
         assert_eq!(newest_line("答案\n```python").unwrap(), "答案");
         assert_eq!(newest_line("## 标题").unwrap(), "标题");
         assert_eq!(newest_line("- 列表项").unwrap(), "列表项");
+    }
+
+    #[test]
+    fn a_stopped_turn_and_a_finished_one_close_differently() {
+        // WeCom cannot delete this bubble, so whatever it says is what the
+        // chat keeps. "Done" above a turn the user cancelled is a lie it keeps
+        // telling.
+        assert_ne!(PROGRESS_DONE, PROGRESS_CANCELLED);
+        assert!(PROGRESS_CANCELLED.contains("已取消"));
     }
 
     #[test]

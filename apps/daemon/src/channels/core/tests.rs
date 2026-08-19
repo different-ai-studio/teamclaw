@@ -185,6 +185,8 @@ struct FakeDriver {
     caps: Option<ChannelCaps>,
     delivered: Mutex<Vec<(String, Option<String>)>>, // (text, reply_context)
     updates: Mutex<Vec<(String, bool)>>,
+    /// How each update reported the turn's state — `None` while streaming.
+    ends: Mutex<Vec<Option<TurnEnd>>>,
 }
 
 #[async_trait]
@@ -228,12 +230,13 @@ impl ChannelDriver for FakeDriver {
         &self,
         _id: &DeliveryId,
         text: &str,
-        finished: bool,
+        end: Option<TurnEnd>,
     ) -> Result<(), DriverError> {
         self.updates
             .lock()
             .unwrap()
-            .push((text.to_string(), finished));
+            .push((text.to_string(), end.is_some()));
+        self.ends.lock().unwrap().push(end);
         Ok(())
     }
 }
@@ -399,6 +402,29 @@ async fn a_channel_that_cannot_edit_gets_exactly_one_delivery() {
     assert_eq!(delivered.len(), 1);
     assert_eq!(delivered[0].0, "the whole answer");
     assert!(d.updates.lock().unwrap().is_empty(), "nothing to edit");
+}
+
+#[tokio::test]
+async fn a_turn_that_produced_nothing_closes_as_cancelled_and_writes_no_message() {
+    // `/stop` ends the turn with no text. Closing the bubble on "answered"
+    // told the user the thing they had just cancelled finished anyway, and
+    // writing the empty reply made the store reject it ("content is
+    // required") — an error log for a turn that did exactly as asked.
+    let f = fixture("", vec![], FakeCommands::default());
+    let d = driver(IM);
+
+    f.core.handle(&d, inbound("top10 体育新闻")).await.unwrap();
+
+    let ends = d.ends.lock().unwrap();
+    assert_eq!(
+        ends.last().copied().flatten(),
+        Some(TurnEnd::NoAnswer),
+        "a cancelled turn must not close as answered"
+    );
+    assert!(
+        f.writer.replies.lock().unwrap().is_empty(),
+        "nothing was said, so nothing belongs in the session"
+    );
 }
 
 #[tokio::test]

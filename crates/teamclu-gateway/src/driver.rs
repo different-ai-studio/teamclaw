@@ -165,6 +165,19 @@ impl ChannelCaps {
     }
 }
 
+/// How a streamed reply ended.
+///
+/// The distinction is not cosmetic: a bubble that closes on "done" after the
+/// user typed `/stop` tells them the thing they cancelled finished anyway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnEnd {
+    /// The turn produced this text — show it as the answer.
+    Answered,
+    /// The turn ended with nothing to show: cancelled, or stopped before it
+    /// wrote anything.
+    NoAnswer,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Threading {
     /// Replies land in the conversation, unattached to a specific message.
@@ -244,11 +257,13 @@ pub trait ChannelDriver: Send + Sync {
     /// Update a previously delivered message. Only called when
     /// [`ChannelCaps::streaming_edit`] is set, so the default is unreachable
     /// for channels that never opt in.
+    ///
+    /// `end` is `None` while the turn is still running.
     async fn update(
         &self,
         _id: &DeliveryId,
         _text: &str,
-        _finished: bool,
+        _end: Option<TurnEnd>,
     ) -> Result<(), DriverError> {
         Err(DriverError::Transport(
             "this channel cannot edit a delivered message".into(),

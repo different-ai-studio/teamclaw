@@ -882,13 +882,13 @@ impl crate::driver::ChannelDriver for FeishuDriver {
         &self,
         id: &crate::driver::DeliveryId,
         text: &str,
-        finished: bool,
+        end: Option<crate::driver::TurnEnd>,
     ) -> Result<(), crate::driver::DriverError> {
         let token = self.token().await?;
         update_feishu_message(&token, &id.0, text)
             .await
             .map_err(crate::driver::DriverError::Transport)?;
-        if finished {
+        if end.is_some() {
             self.replies.lock().await.remove(&id.0);
         }
         Ok(())

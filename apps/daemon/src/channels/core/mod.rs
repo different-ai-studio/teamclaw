@@ -18,7 +18,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use teamclu_gateway::driver::{
     AttachmentSource, ChannelDriver, Conversation, DeliveryId, ExternalSender, InboundMessage,
-    OutboundMessage, SessionAttachment,
+    OutboundMessage, SessionAttachment, TurnEnd,
 };
 
 pub mod adapters;
@@ -435,7 +435,7 @@ impl Core {
         let mut updates = 0usize;
         while let Some(text) = rx.recv().await {
             driver
-                .update(&handle, &text, false)
+                .update(&handle, &text, None)
                 .await
                 .map_err(|e| CoreError::Render(e.to_string()))?;
             updates += 1;
@@ -447,11 +447,21 @@ impl Core {
         let attachments = self.collect_attachments(&session.session_id).await;
         let outbound = render(driver, &reply, attachments.clone());
 
+        // A cancelled turn comes back with nothing: no text, no files. Ending
+        // the bubble on "done" would tell the user the thing they just stopped
+        // finished anyway.
+        let produced_nothing = outbound.text.trim().is_empty() && outbound.attachments.is_empty();
+        let end = if produced_nothing {
+            TurnEnd::NoAnswer
+        } else {
+            TurnEnd::Answered
+        };
+
         // The streaming bubble carries the text; files cannot be edited into
         // it, so they go out as their own delivery right after — still one
         // logical reply, and one row in the session.
         driver
-            .update(&handle, &outbound.text, true)
+            .update(&handle, &outbound.text, Some(end))
             .await
             .map_err(|e| CoreError::Render(e.to_string()))?;
         let file_deliveries = if outbound.attachments.is_empty() {
@@ -472,9 +482,14 @@ impl Core {
             1
         };
 
-        self.writer
-            .write_reply(&session.session_id, &reply, attachments)
-            .await?;
+        // Nothing to record: the store rejects an empty message outright
+        // ("content is required"), so a cancelled turn used to end on an error
+        // log for a turn that did exactly what was asked of it.
+        if !produced_nothing {
+            self.writer
+                .write_reply(&session.session_id, &reply, attachments)
+                .await?;
+        }
         // The opening delivery, every intermediate edit, the final one, and
         // any file delivery.
         Ok(1 + updates + 1 + file_deliveries)
