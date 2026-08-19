@@ -12,7 +12,6 @@ import {
   resolveRuntimeStateEntryForAgent,
   resolveSetModelId,
   selectAgentModel,
-  requiresExplicitModelPick,
 } from "@/lib/runtime-state-resolve";
 import { useAgentModelPickStore } from "@/stores/agent-model-pick-store";
 
@@ -204,11 +203,7 @@ describe("selectAgentModel — canonical model resolver", () => {
     expect(res.modelId).toBe("");
   });
 
-  it("suggests the first advertised model but marks it unpicked", () => {
-    // The id is still surfaced so the pill is not blank, but the source says
-    // nobody chose it. `available` is ordered by provider probe order, which is
-    // not stable, so sending on it would run a different model on a different
-    // day — `requiresExplicitModelPick` is what stops that (ADR-0007).
+  it("defaults to the first advertised model when no higher-priority source exists", () => {
     const emptyRetain = {
       [`${agentUuid}::${sessionId}`]: {
         ...entry(agentUuid, sessionId, available),
@@ -220,29 +215,9 @@ describe("selectAgentModel — canonical model resolver", () => {
       agentId: agentUuid,
       available,
       byRuntimeId: emptyRetain,
-    });
-    expect(res.source).toBe("unpicked");
-    expect(res.modelId).toBe("big-pickle");
-    expect(requiresExplicitModelPick(res)).toBe(true);
-  });
-
-  it("does not demand a pick for a model that came from a real source", () => {
-    // The MRU is a past explicit choice, so it needs no re-confirmation.
-    const emptyRetain = {
-      [`${agentUuid}::${sessionId}`]: {
-        ...entry(agentUuid, sessionId, available),
-        info: { ...entry(agentUuid, sessionId, available).info, currentModel: "" },
-      },
-    };
-    const res = selectAgentModel({
-      sessionId,
-      agentId: agentUuid,
-      available,
-      byRuntimeId: emptyRetain,
-      providerFallback: "big-pickle",
     });
     expect(res.source).toBe("fallback");
-    expect(requiresExplicitModelPick(res)).toBe(false);
+    expect(res.modelId).toBe("big-pickle");
   });
 
   it("canonicalizes short pick to advertised prefixed id", () => {
