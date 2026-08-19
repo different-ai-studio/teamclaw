@@ -118,6 +118,7 @@ impl ChannelManager {
             }),
             turns: Arc::new(adapters::AgentTurns {
                 agent: self.acp.clone(),
+                turn_timeout: std::time::Duration::from_secs(driver.caps().turn_timeout_secs),
             }),
             commands: Arc::new(adapters::GatewayCommands {
                 agent: self.acp.clone(),
@@ -126,6 +127,14 @@ impl ChannelManager {
         };
         Arc::new(sink::CoreSink {
             core: Arc::new(core),
+            // A queued message is given one full turn to reach the front. Any
+            // shorter and a message waiting behind a healthy long turn gets
+            // dropped for being late.
+            queue: Arc::new(
+                teamclu_gateway::session_queue::SessionQueue::with_message_timeout(
+                    std::time::Duration::from_secs(driver.caps().turn_timeout_secs),
+                ),
+            ),
             driver,
         })
     }

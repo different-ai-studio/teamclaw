@@ -766,6 +766,26 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                                     &err,
                                 );
                                 warn!(acp_session_id, error = %err, "pi abort failed");
+                                // `abort` is a request on the same stdin the
+                                // turn is streaming over, and a mid-turn child
+                                // does not answer it — which is precisely when
+                                // someone asks to cancel. Nothing else can free
+                                // the session: the wedged turn keeps refusing
+                                // every switch ("child is mid-turn") until the
+                                // daemon is restarted by hand.
+                                //
+                                // So take the child down. `pool.get` drops a
+                                // dead process and the next message spawns a
+                                // fresh one, which reloads the conversation
+                                // from its jsonl — only in-flight work is lost.
+                                // The blast radius is every session on this
+                                // worktree, which is the same set the wedged
+                                // child was already blocking.
+                                proc.kill();
+                                warn!(
+                                    acp_session_id,
+                                    "pi ignored abort while mid-turn; killed the child so the session is not wedged"
+                                );
                             }
                         }
                     }

@@ -32,9 +32,10 @@ use teamclu_gateway::{
 /// hundreds of them is unreadable — the newest are the ones anyone switches
 /// back to.
 const GATEWAY_SESSION_LIST_LIMIT: u32 = 20;
-/// Bound how long a channel/gateway turn may wait for Active→Idle. Long enough
-/// for real tool use; short enough that a wedged permission/provider wait does
-/// not look like a permanently stuck SeaTalk/WeCom bot.
+/// Fallback for a caller that does not state its own patience. The real bound
+/// comes from the channel's `ChannelCaps::turn_timeout_secs`: 120s was a
+/// daemon-wide constant that a WeCom "search the top 10 headlines" turn blew
+/// through every time, and no channel could say otherwise.
 const GATEWAY_TURN_TIMEOUT_SECS: u64 = 120;
 
 use crate::backend::Backend;
@@ -783,6 +784,7 @@ impl AmuxdAgentHandle {
         sender_display: &str,
         text: &str,
         on_update: Option<tokio::sync::mpsc::Sender<String>>,
+        turn_timeout: std::time::Duration,
     ) -> Result<TurnOutcome, AgentError> {
         let outcome = self.resolve_or_spawn(session).await?;
 
@@ -889,8 +891,7 @@ impl AmuxdAgentHandle {
         let mut last_update = std::time::Instant::now();
         let mut sent_update = String::new();
 
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_secs(GATEWAY_TURN_TIMEOUT_SECS);
+        let deadline = std::time::Instant::now() + turn_timeout;
         // On a turn-level timeout, salvage any reply text the agent already
         // produced instead of failing the whole turn (issue #555): OpenCode can
         // finish and persist its final assistant text while the ACP adapter
@@ -906,9 +907,11 @@ impl AmuxdAgentHandle {
             }
             out
         };
+        let mut timed_out = false;
         let result: Result<String, AgentError> = loop {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
             if remaining.is_zero() {
+                timed_out = true;
                 break salvage_on_timeout(&segments, &live);
             }
             let next = tokio::time::timeout(remaining, event_rx.recv()).await;
@@ -990,6 +993,19 @@ impl AmuxdAgentHandle {
             mgr.checkin_turn(crate::runtime::CheckedOutTurn { agent_id, event_rx });
         }
 
+        // The gateway has stopped waiting; the runtime has not. A turn left
+        // running keeps the session's lock, so every following message queues
+        // behind work whose answer nobody will ever see and times out in turn —
+        // one slow question used to take the chat down until the daemon was
+        // restarted.
+        if timed_out {
+            if let Err(e) = self.cancel(session).await {
+                tracing::warn!(session = %session, error = %e, "gateway turn timed out; cancel failed");
+            } else {
+                tracing::warn!(session = %session, "gateway turn timed out; runtime cancelled");
+            }
+        }
+
         let reply_text = result?;
         Ok(TurnOutcome {
             reply_text,
@@ -1019,8 +1035,10 @@ impl AgentHandle for AmuxdAgentHandle {
         session: &AmuxSessionId,
         sender_display: &str,
         text: &str,
+        timeout: std::time::Duration,
     ) -> Result<TurnOutcome, AgentError> {
-        self.run_turn(session, sender_display, text, None).await
+        self.run_turn(session, sender_display, text, None, timeout)
+            .await
     }
 
     async fn send_prompt_streamed(
@@ -1029,8 +1047,9 @@ impl AgentHandle for AmuxdAgentHandle {
         sender_display: &str,
         text: &str,
         on_update: tokio::sync::mpsc::Sender<String>,
+        timeout: std::time::Duration,
     ) -> Result<TurnOutcome, AgentError> {
-        self.run_turn(session, sender_display, text, Some(on_update))
+        self.run_turn(session, sender_display, text, Some(on_update), timeout)
             .await
     }
 
@@ -1354,7 +1373,15 @@ impl AgentHandle for AmuxdAgentHandle {
             Some(inp) if !inp.is_empty() => format!("/{name} {inp}"),
             _ => format!("/{name}"),
         };
-        self.send_prompt(session, "user", &text).await
+        // A slash command the runtime handles itself is a turn like any
+        // other; give it the same fallback patience as a plain prompt.
+        self.send_prompt(
+            session,
+            "user",
+            &text,
+            std::time::Duration::from_secs(GATEWAY_TURN_TIMEOUT_SECS),
+        )
+        .await
     }
 
     /// This chat's own session history, from the cloud store.

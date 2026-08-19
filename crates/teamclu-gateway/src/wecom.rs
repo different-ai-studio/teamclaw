@@ -912,7 +912,11 @@ pub fn wecom_caps() -> driver::ChannelCaps {
         interactive: true,
         threading: driver::Threading::Inline,
         max_chars: 2048,
-        turn_timeout_secs: 180,
+        // Ten minutes. A chat bot that searches, reads files and writes an
+        // answer routinely runs past the old two-minute cap — and when it did,
+        // the sender got "timed out, please retry" for a turn that was working
+        // fine, while the runtime kept going and starved the next message.
+        turn_timeout_secs: 600,
     }
 }
 
@@ -2333,6 +2337,7 @@ impl WeComGateway {
                 &sender_display_name,
                 &prompt_text,
                 update_tx,
+                wecom_caps().turn_timeout(),
             )
             .await;
 

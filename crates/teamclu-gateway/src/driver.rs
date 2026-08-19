@@ -158,6 +158,13 @@ pub struct ChannelCaps {
     pub turn_timeout_secs: u64,
 }
 
+impl ChannelCaps {
+    /// `turn_timeout_secs` as a `Duration`, for the agent call that enforces it.
+    pub fn turn_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.turn_timeout_secs)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Threading {
     /// Replies land in the conversation, unattached to a specific message.

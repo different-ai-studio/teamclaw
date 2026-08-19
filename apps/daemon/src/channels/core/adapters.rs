@@ -234,6 +234,9 @@ fn human_size(bytes: usize) -> String {
 
 /// Drives the turn through the agent handle the gateways already share.
 pub struct AgentTurns {
+    /// The channel's own patience, from its caps. Held here because the core
+    /// is built per driver, so there is exactly one value in play per channel.
+    pub turn_timeout: std::time::Duration,
     pub agent: Arc<dyn AgentHandle>,
 }
 
@@ -249,12 +252,23 @@ impl TurnRunner for AgentTurns {
         let outcome = match on_delta {
             Some(tx) => {
                 self.agent
-                    .send_prompt_streamed(&acp_session_id.to_string(), sender_display, prompt, tx)
+                    .send_prompt_streamed(
+                        &acp_session_id.to_string(),
+                        sender_display,
+                        prompt,
+                        tx,
+                        self.turn_timeout,
+                    )
                     .await
             }
             None => {
                 self.agent
-                    .send_prompt(&acp_session_id.to_string(), sender_display, prompt)
+                    .send_prompt(
+                        &acp_session_id.to_string(),
+                        sender_display,
+                        prompt,
+                        self.turn_timeout,
+                    )
                     .await
             }
         }

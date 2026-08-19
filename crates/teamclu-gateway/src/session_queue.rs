@@ -7,6 +7,10 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 
 const MAX_QUEUE_SIZE: usize = 5;
+/// Default patience for a message that has been waiting its turn. Channels
+/// override it: it has to be at least as long as one of their turns, or a
+/// message queued behind a perfectly healthy 10-minute turn is dropped for
+/// being "late".
 const MESSAGE_TIMEOUT: Duration = Duration::from_secs(180);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -38,12 +42,21 @@ struct SessionQueueState {
 
 pub struct SessionQueue {
     queues: Arc<RwLock<HashMap<String, SessionQueueState>>>,
+    message_timeout: Duration,
 }
 
 impl SessionQueue {
     pub fn new() -> Self {
+        Self::with_message_timeout(MESSAGE_TIMEOUT)
+    }
+
+    /// A queue whose waiting messages are given `message_timeout` before they
+    /// are dropped as stale. Pass the channel's own turn timeout: waiting one
+    /// full turn is normal, waiting several means nobody is coming.
+    pub fn with_message_timeout(message_timeout: Duration) -> Self {
         Self {
             queues: Arc::new(RwLock::new(HashMap::new())),
+            message_timeout,
         }
     }
 
@@ -65,6 +78,7 @@ impl SessionQueue {
                         session_key,
                         returned_msg,
                         &self.queues,
+                        self.message_timeout,
                     );
                 }
                 Err(mpsc::error::TrySendError::Full(mut returned_msg)) => {
@@ -76,7 +90,13 @@ impl SessionQueue {
             }
         }
 
-        Self::create_and_send(&mut queues, session_key, msg, &self.queues)
+        Self::create_and_send(
+            &mut queues,
+            session_key,
+            msg,
+            &self.queues,
+            self.message_timeout,
+        )
     }
 
     fn create_and_send(
@@ -84,6 +104,7 @@ impl SessionQueue {
         session_key: &str,
         msg: QueuedMessage,
         queues_arc: &Arc<RwLock<HashMap<String, SessionQueueState>>>,
+        message_timeout: Duration,
     ) -> EnqueueResult {
         let (tx, rx) = mpsc::channel(MAX_QUEUE_SIZE);
         // Init to 1: the first message is in the channel, being consumed.
@@ -105,6 +126,7 @@ impl SessionQueue {
             rx,
             pending_count,
             Arc::clone(queues_arc),
+            message_timeout,
         );
 
         EnqueueResult::Processing
@@ -128,12 +150,13 @@ fn spawn_consumer(
     mut rx: mpsc::Receiver<QueuedMessage>,
     pending_count: Arc<AtomicUsize>,
     queues: Arc<RwLock<HashMap<String, SessionQueueState>>>,
+    message_timeout: Duration,
 ) {
     tokio::spawn(async move {
         loop {
             match tokio::time::timeout(IDLE_TIMEOUT, rx.recv()).await {
                 Ok(Some(msg)) => {
-                    if msg.enqueued_at.elapsed() > MESSAGE_TIMEOUT {
+                    if msg.enqueued_at.elapsed() > message_timeout {
                         if let Some(notify) = msg.notify_fn {
                             let _ = notify(RejectReason::Timeout).await;
                         }
@@ -181,6 +204,23 @@ mod tests {
             }),
             notify_fn: None,
         }
+    }
+
+    #[tokio::test]
+    async fn a_channel_can_outlast_the_default_patience() {
+        // A 10-minute WeCom turn must not make the message behind it "late":
+        // the queue's patience comes from the channel, not from this file.
+        let queue = SessionQueue::with_message_timeout(Duration::from_secs(600));
+        let processed = Arc::new(AtomicBool::new(false));
+        let mut msg = make_msg(Arc::clone(&processed));
+        // Enqueued four minutes ago — stale under the 180s default, fine here.
+        msg.enqueued_at = Instant::now() - Duration::from_secs(240);
+        queue.enqueue("s-long", msg).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            processed.load(Ordering::Relaxed),
+            "message dropped despite the channel allowing a longer wait"
+        );
     }
 
     #[tokio::test]

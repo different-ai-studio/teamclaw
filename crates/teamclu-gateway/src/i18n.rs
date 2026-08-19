@@ -150,6 +150,9 @@ pub enum MsgKey<'a> {
     NewSessionNotDetached,
     MetaStopped,
     NothingRunning,
+    /// Someone wrote again while the previous turn was still running.
+    /// Pairs with the existing `QueueFull` / `QueueTimeout` above.
+    QueuedBehind(usize),
     ContextInjected,
 
     // === /reset ===
@@ -453,6 +456,16 @@ pub fn t(key: MsgKey, locale: Locale) -> String {
 
         (NothingRunning, En) => "Nothing running.".into(),
         (NothingRunning, ZhCN) => "当前没有正在运行的任务。".into(),
+
+        (QueuedBehind(n), En) => format!(
+            "Still working on the previous message — yours is queued ({} ahead). `/stop` cancels the current one.",
+            n
+        ),
+        (QueuedBehind(n), ZhCN) => format!(
+            "上一条还在处理，这条已排队（前面还有 {} 条）。想取消当前这条可以发 `/stop`。",
+            n
+        ),
+
 
         (ContextInjected, En) => "Context injected.".into(),
         (ContextInjected, ZhCN) => "已注入上下文。".into(),
