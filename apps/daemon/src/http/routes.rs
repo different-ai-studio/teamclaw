@@ -112,7 +112,11 @@ pub fn build(state: HttpState) -> Router {
         // Where this daemon keeps an app. The desktop asks instead of deriving
         // the path itself — two copies of that rule drifted apart once and the
         // agent then edited a directory no deploy ever built.
-        .route("/v1/apps/{app_id}/workdir", get(apps::app_workdir))
+        // `:app_id`, not `{app_id}`: this is axum 0.7 (matchit 0.7), where the
+        // brace form is a LITERAL segment. Written that way, the route only
+        // matched the path `/v1/apps/%7Bapp_id%7D/workdir` and answered 404 for
+        // every real app — which is exactly what it did, from the day it landed.
+        .route("/v1/apps/:app_id/workdir", get(apps::app_workdir))
         // Device-level provider config (#742). Credentials are per-machine, not
         // per-workspace, so these need no workspace id — which is what lets
         // first-run onboarding configure a model before a project is chosen.
@@ -352,4 +356,31 @@ async fn info_handler(State(state): State<HttpState>) -> Json<InfoBody> {
             .mqtt_connected
             .load(std::sync::atomic::Ordering::Relaxed),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    /// Every capture in this router must use axum 0.7's `:name` form.
+    ///
+    /// matchit 0.7 treats `{name}` as a LITERAL path segment, so a route
+    /// written that way compiles, registers, and then 404s for every real
+    /// value. One route shipped like that — `/v1/apps/{app_id}/workdir` — and
+    /// nothing failed loudly: the desktop asks the daemon where an app's files
+    /// live, got 404 every single time, and each caller quietly fell back to
+    /// ambient state, so the agent ran in whichever app happened to be open
+    /// before. Guard the syntax itself; there is no other symptom to test for.
+    #[test]
+    fn routes_use_axum_capture_syntax() {
+        let offenders: Vec<&str> = include_str!("routes.rs")
+            .lines()
+            .filter(|line| line.contains(".route(\""))
+            .filter(|line| line.split('"').nth(1).is_some_and(|p| p.contains('{')))
+            .collect();
+        assert!(
+            offenders.is_empty(),
+            "these routes use the `{{name}}` capture form, which matchit 0.7 \
+             matches literally (use `:name`):\n{}",
+            offenders.join("\n")
+        );
+    }
 }
