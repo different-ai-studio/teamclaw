@@ -599,6 +599,8 @@
     "mentionEmptyState": "当前会话还没有可 @ 的人或 agent",
     "mentionGroupAgents": "智能体",
     "mentionGroupMembers": "成员",
+    "mentionGroupExternal": "外部联系人",
+    "mentionExternalHint": "推送到对方的聊天",
     "mentionPopoverError": "加载参与者失败",
     "mentionAgentClearConfirm": {
       "title": "是否保留 Agent？",

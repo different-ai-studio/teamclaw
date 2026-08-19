@@ -11,7 +11,7 @@ export type EmptyThreadRoutingKind = 'soloAgent' | 'singleAgent' | 'multiAgent'
 
 export type SoloSessionParticipant =
   | { actor_type?: string | null }
-  | Pick<EmptyThreadParticipant, 'isAgent'>
+  | (Pick<EmptyThreadParticipant, 'isAgent'> & { isExternal?: boolean })
 
 function isAgentParticipant(p: SoloSessionParticipant): boolean {
   if ('isAgent' in p && typeof p.isAgent === 'boolean') return p.isAgent
@@ -19,11 +19,23 @@ function isAgentParticipant(p: SoloSessionParticipant): boolean {
   return false
 }
 
+/** People who reached the session through a channel rather than an account.
+ *  They joined the roster the moment the chat did, so counting them would make
+ *  every gateway chat look like a group the instant it was created. */
+function isExternalParticipant(p: SoloSessionParticipant): boolean {
+  if ('isExternal' in p && typeof p.isExternal === 'boolean') return p.isExternal
+  if ('actor_type' in p) return p.actor_type === 'external'
+  return false
+}
+
 /** Exactly one agent and one other participant (solo human + agent pair).
- *  Adding another agent or member makes this false → agent pill becomes removable. */
+ *  Adding another agent or member makes this false → agent pill becomes removable.
+ *  External participants do not count: a WeCom DM is one human talking to one
+ *  agent whether or not the person on the WeCom end is listed in the roster. */
 export function isSoloAgentSession(participants: SoloSessionParticipant[]): boolean {
-  const agents = participants.filter(isAgentParticipant)
-  return agents.length === 1 && participants.length === 2
+  const counted = participants.filter((p) => !isExternalParticipant(p))
+  const agents = counted.filter(isAgentParticipant)
+  return agents.length === 1 && counted.length === 2
 }
 
 export function resolveEmptyThreadRoutingKind(

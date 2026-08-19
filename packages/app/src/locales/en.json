@@ -599,6 +599,8 @@
     "mentionEmptyState": "No one to mention in this session yet",
     "mentionGroupAgents": "Agents",
     "mentionGroupMembers": "Members",
+    "mentionGroupExternal": "External contacts",
+    "mentionExternalHint": "pushed to their chat",
     "mentionPopoverError": "Failed to load participants",
     "mentionAgentClearConfirm": {
       "title": "Keep the engaged agent?",

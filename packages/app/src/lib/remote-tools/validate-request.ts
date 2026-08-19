@@ -87,6 +87,7 @@ export async function authorizeRemoteToolRequest(
       displayName: actor.display_name ?? actor.id,
       avatarUrl: actor.avatar_url ?? null,
       isAgent: actor.actor_type === 'agent',
+      isExternal: actor.actor_type === 'external',
     }))
   }
 

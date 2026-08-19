@@ -526,6 +526,19 @@ pub trait Backend: Send + Sync {
         acp_session_id: &str,
     ) -> BackendResult<Option<(String, Option<String>)>>;
 
+    /// The chat a session is bound to, by cloud session id.
+    ///
+    /// The by-ACP lookup above cannot answer this: a message arriving over
+    /// `session/{id}/live` carries the cloud id and nothing else, and that is
+    /// exactly when we need to know whether the session has a chat on the
+    /// other end.
+    ///
+    /// Default impl reports "not bound" so a backend with no gateway surface
+    /// treats every session as desktop-only rather than failing the caller.
+    async fn get_session_binding(&self, _session_id: &str) -> BackendResult<Option<String>> {
+        Ok(None)
+    }
+
     /// Release a gateway chat's binding so the next inbound message opens a
     /// new session; the old row keeps its history. Returns whether anything
     /// was detached (`false` for an unknown id or a non-gateway session).
