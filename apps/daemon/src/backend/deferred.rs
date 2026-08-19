@@ -23,8 +23,8 @@ use async_trait::async_trait;
 use std::sync::{Arc, OnceLock};
 
 use super::records::{
-    ActorDirectoryRow, BackendSessionAndParticipants, ClaimResult, StoredMessage, WorkspaceRow,
-    WorkspaceUpsert,
+    ActorDirectoryRow, BackendSessionAndParticipants, ClaimResult, GatewaySessionRow,
+    StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BootstrapMqttOverride, CloudAuthSnapshot,
@@ -382,6 +382,27 @@ impl Backend for DeferredBackend {
             .await
     }
 
+    async fn rpc_list_gateway_sessions(
+        &self,
+        team_id: &str,
+        gateway_key: &str,
+        limit: u32,
+    ) -> BackendResult<Vec<GatewaySessionRow>> {
+        self.inner()?
+            .rpc_list_gateway_sessions(team_id, gateway_key, limit)
+            .await
+    }
+
+    async fn rpc_attach_gateway_session(
+        &self,
+        binding: &str,
+        session_id: &str,
+    ) -> BackendResult<Option<String>> {
+        self.inner()?
+            .rpc_attach_gateway_session(binding, session_id)
+            .await
+    }
+
     async fn rpc_ensure_gateway_session(
         &self,
         team_id: &str,
@@ -615,5 +636,60 @@ mod tests {
         let b = DeferredBackend::claimed(Arc::new(MockBackend::with_identity("team-9", "actor-9")));
         assert!(b.is_claimed());
         assert_eq!(b.team_id(), "team-9");
+    }
+
+    /// `/sessions` and `/sessions <n>` go through this wrapper, and both used
+    /// to inherit a trait default instead of reaching the client: the list
+    /// answered "no sessions" and the switch answered "cannot switch", in every
+    /// chat, without one packet leaving the daemon. `install_captures_identity_
+    /// and_delegates` above did not catch it because it only exercises
+    /// `heartbeat`. Both trait methods are required now, so a future forward
+    /// that goes missing is a compile error — this test is the belt to that
+    /// braces, and pins the values through rather than just the plumbing.
+    #[tokio::test]
+    async fn gateway_session_lineage_reaches_the_inner_backend() {
+        let mock = Arc::new(MockBackend::with_identity("team-1", "actor-1"));
+        let key = "wecom://bot/bot/single/LiangLiang";
+        mock.state().gateway_sessions_by_key.insert(
+            key.to_string(),
+            vec![
+                GatewaySessionRow {
+                    session_id: "sess-current".into(),
+                    acp_session_id: Some("acp-current".into()),
+                    title: "WeCom DM: LiangLiang".into(),
+                    is_current: true,
+                },
+                GatewaySessionRow {
+                    session_id: "sess-older".into(),
+                    acp_session_id: Some("acp-older".into()),
+                    title: "WeCom DM: LiangLiang (2026-08-19 01:15)".into(),
+                    is_current: false,
+                },
+            ],
+        );
+        let b = DeferredBackend::claimed(mock.clone());
+
+        let listed = b
+            .rpc_list_gateway_sessions("team-1", key, 20)
+            .await
+            .unwrap();
+        assert_eq!(
+            listed.len(),
+            2,
+            "the chat's lineage must survive the wrapper"
+        );
+        assert_eq!(listed[0].session_id, "sess-current");
+        assert!(listed[0].is_current);
+
+        let attached = b
+            .rpc_attach_gateway_session(key, "sess-older")
+            .await
+            .unwrap();
+        assert_eq!(attached.as_deref(), Some("acp-older"));
+        assert_eq!(
+            mock.state().gateway_sessions_attached,
+            vec![(key.to_string(), "sess-older".to_string())],
+            "the switch must be recorded by the inner backend, not swallowed"
+        );
     }
 }
