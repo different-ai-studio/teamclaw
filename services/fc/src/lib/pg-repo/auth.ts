@@ -512,33 +512,76 @@ export function createPgAuthRepository(
       }
 
       if (kind === "agent") {
-        // Create a daemon Better-Auth user via internalAdapter.createUser
-        // (same surface used by mintSession for createSession)
         const ctx2 = await (auth as any).$context;
-        const daemonEmail = `daemon.${randomUUID()}@amuxd.run`;
-        const daemonUser = await ctx2.internalAdapter.createUser({
-          email: daemonEmail,
-          name: invite.displayName,
-          emailVerified: false,
-        });
-        if (!daemonUser?.id) throw new Error("failed to create daemon Better-Auth user");
 
-        const minted = await mintSession(daemonUser.id, auth);
+        // Which account do these credentials belong to? A rebind
+        // (invite.targetActorId) keeps the one the agent actor already has:
+        // rotation is supposed to replace the *credential*, not the identity,
+        // and everything durable is keyed on that user id (public.users and its
+        // admin_type, user_metadata, grants). Anything else provisions one.
+        // Resolved before any write — the SQL twin is
+        // 20260819000000_claim_invite_keeps_daemon_user.sql.
+        let oldDaemonUserId: string | null = null;
+        let reusedUserId: string | null = null;
+        if (invite.targetActorId) {
+          const [old] = await db
+            .select({ userId: actors.userId })
+            .from(actors)
+            .where(eq(actors.id, invite.targetActorId))
+            .limit(1);
+          oldDaemonUserId = old?.userId ?? null;
+          if (oldDaemonUserId) {
+            // Conditional on the row still being there: actors.userId can point
+            // at an account an older rotation already deleted, and that one
+            // cannot be reused.
+            const [existing] = await db
+              .select({ id: user.id })
+              .from(user)
+              .where(eq(user.id, oldDaemonUserId))
+              .limit(1);
+            reusedUserId = existing?.id ?? null;
+          }
+        }
+
+        let daemonUserId: string;
+        if (reusedUserId) {
+          daemonUserId = reusedUserId;
+          // Revoke what the previous device still holds. Deleting the account
+          // used to do this as a side effect; reuse has to say it.
+          try {
+            await ctx2.internalAdapter.deleteSessions(daemonUserId);
+          } catch { /* best-effort */ }
+        } else {
+          // Create a daemon Better-Auth user via internalAdapter.createUser
+          // (same surface used by mintSession for createSession)
+          const daemonEmail = `daemon.${randomUUID()}@amuxd.run`;
+          const daemonUser = await ctx2.internalAdapter.createUser({
+            email: daemonEmail,
+            name: invite.displayName,
+            emailVerified: false,
+          });
+          if (!daemonUser?.id) throw new Error("failed to create daemon Better-Auth user");
+          daemonUserId = daemonUser.id;
+        }
+
+        const minted = await mintSession(daemonUserId, auth);
 
         // Compensation helper: if the DB transaction fails, clean up the orphaned
         // Better-Auth user + session so no zombie credentials are left behind.
+        // Only for an account this call created — a reused one predates the
+        // claim and must outlive a failed one.
         async function compensate() {
+          if (reusedUserId) return;
           try {
-            await ctx2.internalAdapter.deleteSessions(daemonUser.id);
+            await ctx2.internalAdapter.deleteSessions(daemonUserId);
           } catch { /* best-effort */ }
           try {
             if (typeof ctx2.internalAdapter.deleteUser === "function") {
-              await ctx2.internalAdapter.deleteUser(daemonUser.id);
+              await ctx2.internalAdapter.deleteUser(daemonUserId);
             }
           } catch { /* best-effort */ }
         }
 
-        let oldDaemonUserId: string | null = null;
         let result!: { actorId: string; teamId: string; actorType: "agent"; displayName: string; refreshToken: string | null };
         try {
           result = await (db as any).transaction(async (tx: any) => {
@@ -546,11 +589,8 @@ export function createPgAuthRepository(
 
           if (invite.targetActorId) {
             // Rebind path: reuse the existing actor + agent rows, just update them.
-            const [old] = await tx.select({ userId: actors.userId }).from(actors).where(eq(actors.id, invite.targetActorId)).limit(1);
-            oldDaemonUserId = old?.userId ?? null;
-
             await (tx.update(actors) as any)
-              .set({ userId: daemonUser.id, invitedByActorId: invite.invitedByActorId, lastActiveAt: null, updatedAt: new Date() })
+              .set({ userId: daemonUserId, invitedByActorId: invite.invitedByActorId, lastActiveAt: null, updatedAt: new Date() })
               .where(eq(actors.id, invite.targetActorId));
 
             await (tx.update(agents) as any)
@@ -568,7 +608,7 @@ export function createPgAuthRepository(
               teamId: invite.teamId,
               actorType: "agent",
               displayName: invite.displayName,
-              userId: daemonUser.id,
+              userId: daemonUserId,
               invitedByActorId: invite.invitedByActorId,
             }).returning();
 
@@ -611,7 +651,9 @@ export function createPgAuthRepository(
         // Best-effort cleanup of the previous daemon user the agent was bound to.
         // Done AFTER commit and OUTSIDE the drizzle tx: pglite is single-connection, so a
         // Better-Auth adapter query issued inside the open tx would deadlock. Idempotent.
-        if (oldDaemonUserId && oldDaemonUserId !== daemonUser.id) {
+        // A reused account fails this guard, which is the point: it IS the
+        // account the agent is now bound to.
+        if (oldDaemonUserId && oldDaemonUserId !== daemonUserId) {
           try { await ctx2.internalAdapter.deleteSessions(oldDaemonUserId); } catch { /* ignore */ }
           try {
             if (typeof ctx2.internalAdapter.deleteUser === "function") {

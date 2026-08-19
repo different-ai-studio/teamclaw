@@ -116,7 +116,13 @@ select pg_temp.as_user((select user_id from daemon1));
 select ok(exists (select 1 from amux.teams where id = (select team from ctx)),
           'daemon JWT without org claim resolves its org from the public.users fallback');
 
--- ── 4. Rebind (target_actor_id) rotates to a new user that keeps the claim ──
+-- ── 4. Rebind (target_actor_id) keeps the account, refreshes the claim ──────
+-- This used to assert the opposite: the agent branch minted a new auth user on
+-- every rotation and deleted the old one. 20260819000000 stopped that — a
+-- rotation replaces the credential, and everything keyed on the daemon's user
+-- id (public.users.admin_type, user_metadata, grants) has to survive it. The
+-- org stamp is refreshed on the account rather than baked into a new one, which
+-- is what the following assertion now covers.
 select pg_temp.as_user('aa110000-0000-4000-8000-000000000001');
 create temp table ri as
   select * from amux.create_team_invite(
@@ -136,8 +142,8 @@ create temp table daemon2 as
   select a.user_id from amux.actors a where a.id = (select actor_id from rc);
 grant select on daemon2 to anon, authenticated;
 
-select isnt((select user_id from daemon2), (select user_id from daemon1),
-            'rebind rotates the actor onto a new daemon auth user');
+select is((select user_id from daemon2), (select user_id from daemon1),
+          'rebind leaves the actor on the daemon auth user it already had');
 -- auth.users is not readable by anon; these are observations about what the
 -- claim minted, not RLS scenarios, so make them as the session role.
 reset role;
