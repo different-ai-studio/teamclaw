@@ -3135,6 +3135,7 @@
     "descriptionPlaceholder": "约束是什么？预期收益是什么？",
     "createButton": "创建",
     "createFailed": "创建失败：{{msg}}",
+    "detailEmpty": "选择一个想法查看，或新建一个",
     "contextMenu": {
       "statusOpen": "暂搁置",
       "statusInProgress": "进行中",
@@ -3142,7 +3143,6 @@
     },
     "detail": {
       "edit": "编辑",
-      "description": "编辑想法详情和动态。",
       "summary": "{{count}} 条动态 · {{when}} 更新",
       "summaryWithCreator": "{{creator}} · {{count}} 条动态 · {{when}} 更新",
       "priorityPlaceholder": "--- 优先级",

@@ -1,15 +1,14 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Filter, Lightbulb, Loader2, Plus, Search } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Filter, Lightbulb, Loader2, Plus, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { CreateIdeaDialog } from '@/components/sidebar/CreateIdeaDialog'
-import { IdeaDetailDialog } from '@/components/sidebar/IdeaDetailDialog'
 import { SidebarCollapseToggle } from '@/components/app-sidebar'
 import { TrafficLights } from '@/components/ui/traffic-lights'
 import { useSidebar } from '@/components/ui/sidebar'
 import { getBackend } from '@/lib/backend'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { useIdeaDetailStore } from '@/stores/idea-detail'
 import { formatRelativeTime } from '@/lib/date-format'
 import { cn, isTauri } from '@/lib/utils'
 import * as localCache from '@/lib/local-cache'
@@ -162,6 +161,8 @@ function StatusBadge({ status }: { status: IdeaRow['status'] }) {
 
 type IdeaStatusFilter = 'all' | 'in_progress' | 'open' | 'done'
 
+const IDEAS_PAGE_SIZE = 20
+
 type DragOverlay = {
   left: number
   top: number
@@ -191,6 +192,7 @@ function IdeaRowView({
   onPointerMove,
   onPointerUp,
   onView,
+  selected,
 }: {
   canReorder: boolean
   creatorName: string | undefined
@@ -203,6 +205,7 @@ function IdeaRowView({
   onPointerMove: (event: React.PointerEvent<HTMLButtonElement>) => void
   onPointerUp: () => void
   onView: (idea: IdeaRow) => void
+  selected: boolean
 }) {
   const relative = formatRelativeTime(new Date(idea.updated_at))
   return (
@@ -227,6 +230,7 @@ function IdeaRowView({
         : undefined}
       className={cn(
         'relative flex w-full items-start gap-2.5 border-b border-border-soft px-4 py-2.5 text-left transition-[background-color,box-shadow,transform] duration-150 hover:bg-selected focus:outline-none focus-visible:bg-selected',
+        selected && 'bg-selected',
         canReorder && 'touch-none select-none cursor-grab active:cursor-grabbing',
         dragging && 'z-50 pointer-events-none bg-paper shadow-[0_18px_34px_-24px_rgba(26,26,20,0.5)] ring-1 ring-border transition-none',
       )}
@@ -282,8 +286,13 @@ export function IdeasView() {
   const [query, setQuery] = React.useState('')
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [filter, setFilter] = React.useState<IdeaStatusFilter>('all')
-  const [createOpen, setCreateOpen] = React.useState(false)
-  const [detailFor, setDetailFor] = React.useState<IdeaRow | null>(null)
+  const [page, setPage] = React.useState(0)
+  const openCreate = useIdeaDetailStore((s) => s.openCreate)
+  const openEdit = useIdeaDetailStore((s) => s.openEdit)
+  const selectedIdeaId = useIdeaDetailStore((s) =>
+    s.target?.kind === 'edit' ? s.target.idea.id : null,
+  )
+  const mutationTick = useIdeaDetailStore((s) => s.mutationTick)
   const [draggingId, setDraggingId] = React.useState<string | null>(null)
   const [dragOverlay, setDragOverlay] = React.useState<DragOverlay | null>(null)
   const [dragOffsetY, setDragOffsetY] = React.useState(0)
@@ -300,6 +309,15 @@ export function IdeasView() {
   React.useEffect(() => {
     latestDraggingIdRef.current = draggingId
   }, [draggingId])
+
+  // The detail pane lives in the main content column; when it creates or edits
+  // an idea it bumps this tick so the list refetches.
+  const lastMutationTickRef = React.useRef(mutationTick)
+  React.useEffect(() => {
+    if (mutationTick === lastMutationTickRef.current) return
+    lastMutationTickRef.current = mutationTick
+    refetch()
+  }, [mutationTick, refetch])
 
   const counts = React.useMemo(() => ({
     all: orderedIdeas.length,
@@ -320,6 +338,18 @@ export function IdeasView() {
       return `${idea.title} ${creator}`.toLowerCase().includes(normalizedQuery)
     })
   }, [creators, filter, orderedIdeas, query])
+
+  // Reset to the first page whenever the visible set changes shape.
+  React.useEffect(() => {
+    setPage(0)
+  }, [filter, query])
+
+  const pageCount = Math.max(1, Math.ceil(visibleIdeas.length / IDEAS_PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount - 1)
+  const pagedIdeas = React.useMemo(
+    () => visibleIdeas.slice(currentPage * IDEAS_PAGE_SIZE, (currentPage + 1) * IDEAS_PAGE_SIZE),
+    [currentPage, visibleIdeas],
+  )
 
   const canReorder = filter === 'all' && query.trim().length === 0
 
@@ -403,8 +433,8 @@ export function IdeasView() {
       suppressNextClickRef.current = false
       return
     }
-    setDetailFor(idea)
-  }, [])
+    openEdit(idea)
+  }, [openEdit])
 
   React.useEffect(() => {
     if (!draggingId || !canReorder) return
@@ -455,7 +485,7 @@ export function IdeasView() {
 
     return (
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        {visibleIdeas.map(idea => (
+        {pagedIdeas.map(idea => (
           <IdeaRowView
             key={idea.id}
             canReorder={canReorder}
@@ -469,6 +499,7 @@ export function IdeasView() {
             onPointerMove={handleDragMove}
             onPointerUp={finishDrag}
             onView={handleViewIdea}
+            selected={selectedIdeaId === idea.id}
           />
         ))}
       </div>
@@ -525,7 +556,8 @@ export function IdeasView() {
             size="icon-sm"
             className="h-7 w-7 rounded-[8px] text-muted-foreground hover:bg-selected hover:text-foreground"
             aria-label={t('ideas.create', 'Create idea')}
-            onClick={() => setCreateOpen(true)}
+            disabled={!teamId}
+            onClick={() => { if (teamId) openCreate(teamId) }}
           >
             <Plus className="h-4 w-4" />
           </Button>
@@ -540,12 +572,35 @@ export function IdeasView() {
         )}
       </div>
       {renderBody()}
-      <CreateIdeaDialog open={createOpen} onOpenChange={setCreateOpen} teamId={teamId} onCreated={refetch} />
-      <IdeaDetailDialog
-        idea={detailFor}
-        onOpenChange={(open) => { if (!open) setDetailFor(null) }}
-        onChanged={refetch}
-      />
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between border-t border-border px-3 py-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="h-7 w-7 rounded-[8px] text-muted-foreground hover:bg-selected hover:text-foreground"
+            aria-label={t('common.previous', 'Previous')}
+            disabled={currentPage === 0}
+            onClick={() => setPage(Math.max(0, currentPage - 1))}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="font-mono text-[11.5px] text-faint">
+            {currentPage + 1} / {pageCount}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="h-7 w-7 rounded-[8px] text-muted-foreground hover:bg-selected hover:text-foreground"
+            aria-label={t('common.next', 'Next')}
+            disabled={currentPage >= pageCount - 1}
+            onClick={() => setPage(Math.min(pageCount - 1, currentPage + 1))}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

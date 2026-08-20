@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { IdeasView } from '../IdeasView'
+import { useIdeaDetailStore } from '@/stores/idea-detail'
 
 const listIdeasMock = vi.fn()
 const listActorDirectoryMock = vi.fn()
@@ -52,17 +53,12 @@ vi.mock('@/lib/date-format', () => ({
   formatRelativeTime: () => 'just now',
 }))
 
-vi.mock('@/components/sidebar/IdeaDetailDialog', () => ({
-  IdeaDetailDialog: ({ idea }: { idea: { title: string } | null }) => (
-    idea ? <div data-testid="idea-detail-panel">{idea.title}</div> : null
-  ),
-}))
-
 beforeEach(() => {
   listIdeasMock.mockReset()
   listActorDirectoryMock.mockReset()
   updateIdeaMock.mockReset()
   updateIdeaMock.mockResolvedValue(undefined)
+  useIdeaDetailStore.setState({ target: null, mutationTick: 0 })
   vi.useRealTimers()
 })
 
@@ -95,7 +91,7 @@ describe('IdeasView', () => {
     await waitFor(() => expect(screen.getByText(/no ideas yet/i)).toBeInTheDocument())
   })
 
-  it('opens idea detail panel when an idea row is clicked', async () => {
+  it('selects the idea for the main-column detail pane when a row is clicked', async () => {
     mockIdeasResponse(
       [
         { id: 'i-1', title: 'Launch beta', status: 'open', created_by_actor_id: 'a-1', sort_order: 1000, updated_at: '2026-05-10T00:00:00Z' },
@@ -107,7 +103,44 @@ describe('IdeasView', () => {
 
     fireEvent.click(screen.getByLabelText('Drag idea Launch beta'))
 
-    expect(screen.getByTestId('idea-detail-panel')).toHaveTextContent('Launch beta')
+    const target = useIdeaDetailStore.getState().target
+    expect(target).toMatchObject({ kind: 'edit', idea: { id: 'i-1', title: 'Launch beta' } })
+    expect(screen.getByLabelText('Drag idea Launch beta').className).toContain('bg-selected')
+  })
+
+  it('opens the create surface in the main column from the + button', async () => {
+    mockIdeasResponse([], [])
+    render(<IdeasView />)
+    await waitFor(() => expect(screen.getByText(/no ideas yet/i)).toBeInTheDocument())
+
+    fireEvent.click(screen.getByLabelText('Create idea'))
+
+    expect(useIdeaDetailStore.getState().target).toEqual({ kind: 'create', teamId: 'team-1' })
+  })
+
+  it('paginates the list and pages through it', async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      id: `i-${i + 1}`,
+      title: `Idea ${i + 1}`,
+      status: 'open',
+      created_by_actor_id: 'a-1',
+      sort_order: (i + 1) * 1000,
+      updated_at: '2026-05-10T00:00:00Z',
+    }))
+    mockIdeasResponse(many, [{ id: 'a-1', display_name: 'Alice' }])
+    render(<IdeasView />)
+    await waitFor(() => expect(screen.getByText('Idea 1')).toBeInTheDocument())
+
+    expect(screen.getByText('Idea 20')).toBeInTheDocument()
+    expect(screen.queryByText('Idea 21')).not.toBeInTheDocument()
+    expect(screen.getByText('1 / 2')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Next'))
+
+    expect(screen.getByText('Idea 21')).toBeInTheDocument()
+    expect(screen.getByText('Idea 25')).toBeInTheDocument()
+    expect(screen.queryByText('Idea 1')).not.toBeInTheDocument()
+    expect(screen.getByText('2 / 2')).toBeInTheDocument()
   })
 
   it('long-press drag reorders ideas and persists sort order', async () => {
