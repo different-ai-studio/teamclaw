@@ -1,16 +1,17 @@
 import { useState } from "react";
-import { ArrowLeft, Link2, LogIn, Server } from "lucide-react";
+import { AlertCircle, ArrowLeft, Link2, LogIn, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { hasBackendConfig } from "@/lib/backend";
 import { probeCloudApi } from "@/lib/bootstrap";
 import { parseInviteTokenInput } from "@/lib/invite-deeplink";
 import {
+  displayHost,
   getCloudApiUrlOverride,
   getDefaultCloudApiUrl,
   getEffectiveServerConfigSync,
+  normalizeCloudApiUrl,
   setCloudApiUrlOverride,
 } from "@/lib/server-config";
 import { useAppVersion } from "@/lib/version";
@@ -19,16 +20,26 @@ import { LoginScreen } from "./LoginScreen";
 
 type Step = "choose" | "login" | "invite" | "server";
 
-/** A Cloud API URL as this screen shows it: no scheme, no trailing slash. */
-function displayHost(url: string): string {
-  return url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+/**
+ * Everything this screen needs to know about the backend, read once.
+ *
+ * `hasBackendConfig()` answers the same question as `!cloudApiUrl` — both reduce
+ * to `Boolean(getCloudApiUrlOverride() ?? env.cloudApiUrl)` — but reaching for
+ * it here meant resolving the whole server config twice per render.
+ */
+function readServerSummary(): {
+  cloudApiUrl: string | undefined;
+  override: string | null;
+  unconfigured: boolean;
+} {
+  const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl;
+  return { cloudApiUrl, override: getCloudApiUrlOverride(), unconfigured: !cloudApiUrl };
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   const appVersion = useAppVersion();
-  const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl;
-  const isOverride = Boolean(getCloudApiUrlOverride());
+  const { cloudApiUrl, override } = readServerSummary();
   return (
     <div className="relative flex min-h-screen flex-col bg-background px-6 py-8 text-foreground">
       <div className="absolute inset-x-0 top-0 h-12" data-tauri-drag-region />
@@ -40,13 +51,13 @@ function Shell({ children }: { children: React.ReactNode }) {
         <p
           className={[
             "mt-0.5 text-center font-mono text-[10px]",
-            cloudApiUrl && !isOverride ? "text-faint/70" : "text-coral",
+            override ? "text-coral" : "text-faint/70",
           ].join(" ")}
         >
           {cloudApiUrl ? (
             <>
               {displayHost(cloudApiUrl)}
-              {isOverride && ` · ${t("auth.onboarding.serverCustomTag", "custom")}`}
+              {override && ` · ${t("auth.onboarding.serverCustomTag", "custom")}`}
             </>
           ) : (
             t("auth.onboarding.serverUnset", "no server configured")
@@ -102,8 +113,9 @@ function ChoiceRow({
   title: string;
   caption: React.ReactNode;
   primary?: boolean;
-  /** This row describes the state the app is already in — drawn in the accent
-   *  so it reads as "this is what you are on", not as another thing to pick. */
+  /** This row describes the state the app is already in. Drawn in `--selected`
+   *  ("selected row in panel sections"), not coral: AGENTS.md caps a frame at
+   *  two coral spots, and the sign-in chip and the footer already spend both. */
   active?: boolean;
   badge?: string;
   disabled?: boolean;
@@ -115,18 +127,14 @@ function ChoiceRow({
       disabled={disabled}
       onClick={onClick}
       className={[
-        "flex w-full items-center gap-3 rounded-[14px] border p-3 text-left transition-colors hover:bg-selected/45 disabled:cursor-not-allowed disabled:opacity-60",
-        active ? "border-coral bg-coral-soft/25" : "border-border bg-paper",
+        "flex w-full items-center gap-3 rounded-[14px] border border-border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+        active ? "bg-selected/70" : "bg-paper hover:bg-selected/45",
       ].join(" ")}
     >
       <span
         className={[
           "flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]",
-          primary
-            ? "bg-coral text-coral-foreground"
-            : active
-              ? "bg-coral-soft text-coral"
-              : "bg-panel text-ink-2",
+          primary ? "bg-coral text-coral-foreground" : "bg-panel text-ink-2",
         ].join(" ")}
       >
         {icon}
@@ -136,7 +144,7 @@ function ChoiceRow({
         <span className="mt-0.5 block text-[12px] leading-5 text-muted-foreground">{caption}</span>
       </span>
       {badge && (
-        <span className="shrink-0 rounded-[6px] bg-coral-soft px-2 py-0.5 text-[11px] font-medium text-coral">
+        <span className="shrink-0 rounded-[6px] bg-panel px-2 py-0.5 text-[11px] font-medium text-ink-2">
           {badge}
         </span>
       )}
@@ -158,12 +166,12 @@ function ChooseStep({
   // The footer already prints the effective URL in coral, but it is 10px type
   // at the bottom of the window — easy to miss, and it says nothing about which
   // of these three entries put the app there. Mark the entry itself too.
-  const override = getCloudApiUrlOverride();
-  // No Cloud API at all — none baked into the build, none set by hand. Signing
-  // in and joining a team both dead-end in that state (the login screen refuses
-  // to send a code), so say it once up top and point everything at the one
-  // entry that can fix it.
-  const unconfigured = !hasBackendConfig();
+  //
+  // `unconfigured` means no Cloud API at all: none baked into the build, none
+  // set by hand. Signing in and joining a team both dead-end in that state (the
+  // login screen refuses to send a code), so say it once up top and point
+  // everything at the one entry that can fix it.
+  const { override, unconfigured } = readServerSummary();
   return (
     <Shell>
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center">
@@ -174,16 +182,19 @@ function ChooseStep({
           <p className="mt-2 text-[13px] leading-6 text-muted-foreground">
             {t(
               "auth.onboarding.setupDesc",
-              "Try it first, sign in, join a team, or connect a self-hosted server.",
+              "Sign in, join a team, or connect a self-hosted server.",
             )}
           </p>
         </div>
         {unconfigured && (
-          <div className="mb-4 rounded-[12px] border border-coral/40 bg-coral-soft/25 px-3.5 py-3 text-[12px] leading-5 text-foreground">
-            {t(
-              "auth.onboarding.noServerNotice",
-              "No server address is configured yet. Set your company's Cloud API below — signing in and joining a team both need one.",
-            )}
+          <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-border bg-panel px-3.5 py-3 text-[12px] leading-5 text-ink-2">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-coral" />
+            <span>
+              {t(
+                "auth.onboarding.noServerNotice",
+                "No server address is configured yet. Set your company's Cloud API below — signing in and joining a team both need one.",
+              )}
+            </span>
           </div>
         )}
         <div className="space-y-3">
@@ -191,7 +202,10 @@ function ChooseStep({
             primary={!unconfigured}
             icon={<LogIn className="h-4 w-4" />}
             title={t("auth.onboarding.signInOrRegister", "Sign in or register")}
-            caption={t("auth.onboarding.signInOrRegisterDesc", "Continue with an email code, matching the iOS flow.")}
+            caption={t(
+              "auth.onboarding.signInOrRegisterDesc",
+              "Sign in directly with a verification code and bind a valid contact method.",
+            )}
             disabled={loading || unconfigured}
             onClick={onLogin}
           />
@@ -216,8 +230,15 @@ function ChooseStep({
             caption={
               override ? (
                 // Which server, not just that there is one: the address is the
-                // whole answer to "what am I about to sign in against".
-                <span className="font-mono text-[11.5px] text-coral">{displayHost(override)}</span>
+                // whole answer to "what am I about to sign in against". Kept to
+                // one line — an internal host with a port and a path wraps to
+                // three and leaves this card taller than the two above it.
+                <span
+                  className="block truncate font-mono text-[11.5px] text-ink-2"
+                  title={displayHost(override)}
+                >
+                  {displayHost(override)}
+                </span>
               ) : unconfigured ? (
                 t(
                   "auth.onboarding.customServerRequiredDesc",
@@ -315,6 +336,16 @@ function ServerStep({ onBack }: { onBack: () => void }) {
   // a Cloud API before persisting anything.
   const verifyAndApply = async (value: string) => {
     setLocalError(null);
+    // Shape first. A scheme-less `api.mycorp.com` is fetched as a URL relative
+    // to tauri://localhost, fails, and comes back as "could not reach that
+    // address" — sending the user off to check a server that was never asked.
+    // The real problem only surfaced later, when setCloudApiUrlOverride threw.
+    if (!normalizeCloudApiUrl(value)) {
+      setLocalError(
+        t("auth.onboarding.serverUrlInvalid", "Enter a valid http(s) URL, e.g. https://api.example.com"),
+      );
+      return;
+    }
     setChecking(true);
     try {
       const probe = await probeCloudApi(value);

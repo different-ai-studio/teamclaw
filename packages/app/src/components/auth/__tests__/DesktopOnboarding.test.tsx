@@ -43,9 +43,17 @@ vi.mock("@/stores/auth-store", () => ({
     selector ? selector(authState) : authState,
 }));
 
-vi.mock("@/lib/server-config", () => ({
+// Only the resolved values are faked; displayHost / normalizeCloudApiUrl stay
+// real so the screen formats and validates addresses the way production does.
+vi.mock("@/lib/server-config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/server-config")>()),
   saveServerConfig,
-  getEffectiveServerConfigSync: () => ({ cloudApiUrl: effectiveCloudApiUrl.value }),
+  // Mirrors production: `resolve()` returns the override when there is one, so
+  // a test that sets an override and a different effective URL is describing a
+  // state the app cannot be in.
+  getEffectiveServerConfigSync: () => ({
+    cloudApiUrl: cloudApiUrlOverride.value ?? effectiveCloudApiUrl.value,
+  }),
   getCloudApiUrlOverride: () => cloudApiUrlOverride.value,
   getDefaultCloudApiUrl: () => defaultCloudApiUrl.value,
   setCloudApiUrlOverride: setCloudApiUrlOverrideMock,
@@ -53,7 +61,7 @@ vi.mock("@/lib/server-config", () => ({
 
 vi.mock("@/lib/backend", () => ({
   hasBackendConfig: () => hasConfig.value,
-  getBackendKind: () => "supabase",
+  getBackendKind: () => "cloud_api",
 }));
 
 vi.mock("@/lib/version", () => ({
@@ -106,11 +114,11 @@ describe("DesktopOnboarding", () => {
 
 
   it("shows auth errors on the choices screen", () => {
-    authState.errorMessage = "Supabase config missing. Configure a server before signing in.";
+    authState.errorMessage = "Sign-in failed. Try again in a moment.";
     render(<DesktopOnboarding />);
 
 
-    expect(screen.getByText(/supabase config missing/i)).toBeInTheDocument();
+    expect(screen.getByText(/sign-in failed/i)).toBeInTheDocument();
   });
 
   it("join team stashes a bare token and routes to sign-in", async () => {
@@ -259,6 +267,22 @@ describe("DesktopOnboarding", () => {
     expect(screen.queryByRole("button", { name: /save it anyway/i })).toBeNull();
   });
 
+  // A scheme-less address is fetched relative to tauri://localhost, so probing
+  // it first reports a healthy server as unreachable.
+  it("names a malformed address as malformed instead of probing it", async () => {
+    render(<DesktopOnboarding />);
+
+    fireEvent.click(screen.getByRole("button", { name: /custom server/i }));
+    fireEvent.change(screen.getByLabelText(/cloud api url/i), {
+      target: { value: "api.mycorp.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save and reload/i }));
+
+    await waitFor(() => expect(screen.getByText(/enter a valid http\(s\) url/i)).toBeInTheDocument());
+    expect(probeCloudApi).not.toHaveBeenCalled();
+    expect(setCloudApiUrlOverrideMock).not.toHaveBeenCalled();
+  });
+
   it("custom server offers a reset only when an override is active", () => {
     cloudApiUrlOverride.value = "https://self-hosted.example.com";
     render(<DesktopOnboarding />);
@@ -287,10 +311,9 @@ describe("DesktopOnboarding", () => {
     cloudApiUrlOverride.value = "https://self-hosted.example.com";
     render(<DesktopOnboarding />);
 
-    // An override must never pass as the baked build config. Anchored on the
-    // host: the entry row carries the same "custom" tag now, so a bare /custom$/
-    // matches in two places.
-    expect(screen.getByText(/ucar\.cc · custom$/)).toBeInTheDocument();
+    // An override must never pass as the baked build config — so this has to
+    // anchor on the override's own host, not on the baked default.
+    expect(screen.getByText(/self-hosted\.example\.com · custom$/)).toBeInTheDocument();
   });
 
   // The footer is 10px type at the bottom of the window, and it says nothing

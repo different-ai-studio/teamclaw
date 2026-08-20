@@ -77,6 +77,15 @@ export function normalizeCloudApiUrl(raw: string): string | null {
   return trimmed;
 }
 
+/**
+ * A Cloud API URL as the UI prints it: no scheme, no trailing slash. Lives here
+ * next to `normalizeCloudApiUrl` because both onboarding footers and the
+ * server-entry row have to agree on what "the address" looks like.
+ */
+export function displayHost(url: string): string {
+  return url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+}
+
 // Broadcast whenever the effective Cloud API URL changes. Anything keyed by
 // backend identity (the remote feature snapshots, today) listens for it.
 //
