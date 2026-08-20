@@ -75,6 +75,9 @@ function makeMockStorage(state: MockStorageState): BlobStorage {
       const size = state.objects.get(objectPath);
       return size === undefined ? null : { size };
     },
+    async remove(objectPath) {
+      state.objects.delete(objectPath);
+    },
   };
 }
 

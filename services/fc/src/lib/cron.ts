@@ -15,6 +15,12 @@ import {
   amuxcFileVersions,
   amuxcFiles,
 } from "../db/schema/oss-sync.js";
+import { getTeamBlobStorage, type BlobStorage } from "./team-blob-storage.js";
+
+/** What the cron tasks need injected; everything defaults to the real thing. */
+export interface CronDeps {
+  storage?: BlobStorage;
+}
 
 // ---------------------------------------------------------------------------
 // ossSyncAbandonExpiredSessions
@@ -71,10 +77,33 @@ export async function ossSyncAbandonExpiredSessions(
 //         JOIN amuxc_files f ON f.id = v.file_id
 //         WHERE f.team_id = b.team_id AND v.content_hash = b.content_hash
 //       );
+//
+// ...and then deletes the bytes. The pg_cron original could only reach the
+// registry, so "garbage collection" meant forgetting where the garbage was:
+// every collected blob left its object behind with nothing left pointing at it.
+//
+// Order is deliberate. The row goes first, the object second:
+//
+//   * row deleted, object delete fails  → a leaked object. Exactly the old
+//     behaviour, and the next `prepare` for that hash simply re-uploads.
+//   * object deleted, row survives      → `prepare` would see a `verified` row,
+//     tell the client to skip the upload, and `complete` would then 422 on a
+//     blob that is not there. That one is a broken client, not just waste.
+//
+// A failure to delete an object is counted and logged, never thrown: one
+// unhappy key must not abandon the rest of the sweep.
+//
+// `objectsDeleted` counts delete calls that came back clean, which is not quite
+// the same as bytes reclaimed: deleting an absent key succeeds too. It has to
+// work that way — a collector must be able to finish after a half-done previous
+// run — but it does mean a deployment whose objects sit under a key layout the
+// current storage config no longer produces will report happy deletes while the
+// real bytes stay put. Those need a one-off sweep by prefix, not this task.
 // ---------------------------------------------------------------------------
 export async function ossSyncGcOrphanBlobs(
-  db: Db
-): Promise<{ deleted: number }> {
+  db: Db,
+  deps: CronDeps = {}
+): Promise<{ deleted: number; objectsDeleted: number; objectsFailed: number }> {
   const deleteResult = await db
     .delete(amuxcBlobs)
     .where(
@@ -94,9 +123,36 @@ export async function ossSyncGcOrphanBlobs(
         )
       )
     )
-    .returning({ teamId: amuxcBlobs.teamId });
+    .returning({ teamId: amuxcBlobs.teamId, ossKey: amuxcBlobs.ossKey });
 
-  return { deleted: deleteResult.length };
+  if (deleteResult.length === 0) {
+    return { deleted: 0, objectsDeleted: 0, objectsFailed: 0 };
+  }
+
+  // Resolved only once there is something to delete: building the real store
+  // reads env a caller with nothing to collect should not have to provide.
+  const storage = deps.storage ?? getTeamBlobStorage();
+
+  let objectsDeleted = 0;
+  let objectsFailed = 0;
+  for (const { teamId, ossKey } of deleteResult) {
+    try {
+      await storage.remove(ossKey);
+      objectsDeleted++;
+    } catch (e) {
+      objectsFailed++;
+      // The row is already gone, so this line is the only remaining record of
+      // which bytes leaked. Carry the team id with it.
+      console.error(
+        "[cron/oss-gc-blobs] failed to delete object:",
+        teamId,
+        ossKey,
+        e,
+      );
+    }
+  }
+
+  return { deleted: deleteResult.length, objectsDeleted, objectsFailed };
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +162,8 @@ export type CronTask = "oss-abandon-sessions" | "oss-gc-blobs";
 
 export async function runCronTask(
   db: Db,
-  task: string
+  task: string,
+  deps: CronDeps = {}
 ): Promise<{ task: string; result: Record<string, number> }> {
   switch (task) {
     case "oss-abandon-sessions": {
@@ -114,7 +171,7 @@ export async function runCronTask(
       return { task, result };
     }
     case "oss-gc-blobs": {
-      const result = await ossSyncGcOrphanBlobs(db);
+      const result = await ossSyncGcOrphanBlobs(db, deps);
       return { task, result };
     }
     default:
