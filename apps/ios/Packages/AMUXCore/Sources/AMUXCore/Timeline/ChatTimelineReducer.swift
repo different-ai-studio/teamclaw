@@ -289,6 +289,16 @@ public enum ChatTimelineReducer {
             return .entriesChanged
 
         case .permissionRequest(let pr):
+            // Identity dedupe by requestID: a turn-history replay carries
+            // the same request again (daemon restarts renumber sequences,
+            // so the sequence guard can miss). Re-appending would duplicate
+            // the card at the feed's tail — and clobber the original's
+            // resolved state.
+            if state.entries.contains(where: {
+                $0.eventType == "permission_request" && $0.toolID == pr.requestID
+            }) {
+                return .noop
+            }
             state.entries.append(makeEntry(
                 sequence: input.envelopeSequence,
                 eventType: "permission_request",

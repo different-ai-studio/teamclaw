@@ -1790,6 +1790,9 @@ public final class SessionDetailViewModel {
                               sequence: Int(env.sequence),
                               runtimeID: env.actorID,
                               turnID: env.turnID.isEmpty ? nil : env.turnID,
+                              timestamp: env.timestamp > 0
+                                  ? Date(timeIntervalSince1970: TimeInterval(env.timestamp))
+                                  : .now,
                               modelContext: modelContext) {
                 try? modelContext.save()
                 recomputeGroups()
@@ -1873,6 +1876,7 @@ public final class SessionDetailViewModel {
                                 sequence: Int,
                                 runtimeID: String? = nil,
                                 turnID: String? = nil,
+                                timestamp: Date = .now,
                                 isHistoryReplay: Bool = false,
                                 modelContext: ModelContext) -> Bool {
         // Heartbeat: any live ACP event arrival means the runtime is busy.
@@ -1929,7 +1933,12 @@ public final class SessionDetailViewModel {
             .acp(AcpInput(
                 envelopeSequence: UInt64(sequence),
                 agentBucketKey: bucket,
-                timestamp: .now,
+                // The envelope's original publish time, NOT .now: replayed
+                // history stamped with the replay moment used to sort past
+                // the turn's close — resolved permission cards sank to the
+                // bottom of the feed and replayed runtime events re-opened
+                // the turn (phantom "agent working" card).
+                timestamp: timestamp,
                 turnID: turnID,
                 acpEvent: acp
             )),
@@ -2110,8 +2119,19 @@ public final class SessionDetailViewModel {
             if case .acpEvent(let acp) = envelope.payload {
                 if handleAcpEvent(acp,
                                   sequence: seq,
-                                  runtimeID: envelope.runtimeID,
+                                  // Bucket by actor_id like the live path
+                                  // (ADR-0004) — the per-spawn runtime id
+                                  // matches no agent, so replayed events
+                                  // used to land in a ghost bucket whose
+                                  // turn never closed (phantom "agent
+                                  // working" card after visiting 过程).
+                                  runtimeID: envelope.actorID.isEmpty
+                                      ? envelope.runtimeID
+                                      : envelope.actorID,
                                   turnID: envelope.turnID.isEmpty ? nil : envelope.turnID,
+                                  timestamp: envelope.timestamp > 0
+                                      ? Date(timeIntervalSince1970: TimeInterval(envelope.timestamp))
+                                      : .now,
                                   isHistoryReplay: true,
                                   modelContext: modelContext) {
                     anyDirty = true

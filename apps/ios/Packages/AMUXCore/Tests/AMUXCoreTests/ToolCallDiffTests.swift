@@ -124,3 +124,35 @@ struct ReducerToolDiffTests {
         #expect(state.entries[0].isComplete)
     }
 }
+
+// MARK: - Permission replay dedupe
+
+@Suite("ChatTimelineReducer — permission request replay dedupe")
+struct ReducerPermissionDedupeTests {
+    private func makePermission(requestID: String) -> Amux_AcpEvent {
+        var pr = Amux_AcpPermissionRequest()
+        pr.requestID = requestID
+        pr.toolName = "WebSearch"
+        pr.description_p = "search"
+        var acp = Amux_AcpEvent()
+        acp.event = .permissionRequest(pr)
+        return acp
+    }
+
+    @Test("a replayed request with a renumbered sequence does not duplicate the card")
+    func replayDoesNotDuplicate() {
+        var state = TimelineState()
+        ChatTimelineReducer.apply(
+            .acp(AcpInput(envelopeSequence: 5, agentBucketKey: "agent-1", timestamp: .now,
+                          acpEvent: makePermission(requestID: "perm-1"))),
+            to: &state
+        )
+        // Same request replayed after a daemon restart renumbered sequences.
+        ChatTimelineReducer.apply(
+            .acp(AcpInput(envelopeSequence: 42, agentBucketKey: "agent-1", timestamp: .now,
+                          acpEvent: makePermission(requestID: "perm-1"))),
+            to: &state
+        )
+        #expect(state.entries.filter { $0.eventType == "permission_request" }.count == 1)
+    }
+}
