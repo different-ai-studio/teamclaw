@@ -2,15 +2,24 @@ import SwiftUI
 import AMUXCore
 import AMUXSharedUI
 
-/// Sits between WelcomeView and LoginView. Two paths (anonymous sign-in was
-/// removed from the product):
+/// Sits between WelcomeView and LoginView. Three paths (anonymous sign-in
+/// was removed from the product):
 ///   - "Sign in or register" → push the existing LoginView
 ///   - join a team → paste an invite token, then sign in; the token replays
 ///     through the invite-claim pipeline once RootTabView mounts
+///   - custom server → point the app at a self-hosted Cloud API before
+///     signing in (mirrors the desktop's server entry)
 struct ChooseAuthView: View {
     @Bindable var coordinator: AppOnboardingCoordinator
+    /// Called after the user saves a different server address so the app
+    /// shell can rebuild the Cloud API stack against it.
+    var onServerChanged: () -> Void = {}
     @State private var showLogin = false
     @State private var showInviteSheet = false
+    @State private var showServerSettings = false
+    /// Bumped after every server-sheet save so the row's caption re-reads
+    /// the stored address.
+    @State private var serverEpoch = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,6 +50,16 @@ struct ChooseAuthView: View {
                 }
                 .disabled(coordinator.isBusy)
 
+                actionRow(
+                    icon: "server.rack",
+                    title: "Custom server",
+                    caption: serverCaption,
+                    isPrimary: false
+                ) {
+                    showServerSettings = true
+                }
+                .accessibilityIdentifier("choose.customServerButton")
+
             }
             .padding(.horizontal, 24)
 
@@ -59,6 +78,12 @@ struct ChooseAuthView: View {
         .navigationDestination(isPresented: $showLogin) {
             LoginView(coordinator: coordinator)
         }
+        .sheet(isPresented: $showServerSettings) {
+            ServerSettingsSheet(onSaved: {
+                serverEpoch += 1
+                onServerChanged()
+            })
+        }
         .sheet(isPresented: $showInviteSheet) {
             InviteJoinSheet(coordinator: coordinator) { token in
                 // "I already have an account": stash the token and route to
@@ -72,6 +97,18 @@ struct ChooseAuthView: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
+    }
+
+    /// Names the server the app currently points at, so a self-host user
+    /// can tell at a glance whether their override took.
+    private var serverCaption: String {
+        _ = serverEpoch
+        if CloudAPIConfigurationStore.hasCloudAPIURLOverride(),
+           let raw = CloudAPIConfigurationStore.storedCloudAPIURL(),
+           let host = URL(string: raw)?.host {
+            return "Connected to \(host)."
+        }
+        return "Point the app at your own deployment."
     }
 
     private var header: some View {

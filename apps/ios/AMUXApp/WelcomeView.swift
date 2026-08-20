@@ -87,7 +87,7 @@ struct WelcomeView: View {
                 ServerSettingsSheet(onSaved: onServerChanged)
             }
             .navigationDestination(isPresented: $showChoose) {
-                ChooseAuthView(coordinator: coordinator)
+                ChooseAuthView(coordinator: coordinator, onServerChanged: onServerChanged)
             }
         }
     }
