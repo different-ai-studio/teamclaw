@@ -1,0 +1,7 @@
+{
+  "name": "@earendil-works/pi-coding-agent",
+  "version": "0.0.0-stub",
+  "description": "Stub pi SDK used by amuxd's pi-host integration tests. Mimics the small surface host.mjs consumes.",
+  "type": "module",
+  "main": "./dist/index.js"
+}

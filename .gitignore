@@ -4,6 +4,8 @@ node_modules/
 
 # Build outputs
 dist/
+# …except the pi-host stub SDK fixture, which host.mjs imports as <pkg>/dist/index.js
+!apps/daemon/tests/fixtures/pi-host-stub/dist/
 target/
 .cargo-target/
 .cargo-target-fix/

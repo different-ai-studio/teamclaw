@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { ToggleSwitch } from '@/components/settings/shared'
 import { useTeamShareBrowserStore, type TeamMcpItem } from '@/stores/team-share-browser'
 import { findLiteralSecretKeys, type TeamMcpServerWrite } from '@/lib/backend/cloud-api/team-mcp'
 import { CloudApiError } from '@/lib/backend/cloud-api/http'
@@ -27,6 +28,16 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 
 function StatusBadge({ item }: { item: TeamMcpItem }) {
   const { t } = useTranslation()
+  // Disabled beats every probe state: the daemon does not spawn a disabled
+  // server, so whatever the last probe said is history, not status.
+  if (item.installed && item.config.enabled === false) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[11.5px] font-medium text-muted-foreground">
+        <span className="h-1.5 w-1.5 rounded-full bg-current" />
+        {t('teamShare.mcpDetail.disabled', 'Disabled')}
+      </span>
+    )
+  }
   // An uninstalled server has nothing to probe — saying "Idle" would imply it is
   // wired up and merely quiet, which is the opposite of the truth.
   if (!item.installed) {
@@ -87,14 +98,20 @@ export function McpEditForm({
   onSubmit: (input: TeamMcpServerWrite) => Promise<void>
 }) {
   const { t } = useTranslation()
+  // Catalog row when the server came from the team; otherwise fall back to the
+  // daemon's workspace config so personal and built-in entries are editable too.
   const cat = initial?.catalog
+  const cfg = initial?.config
+  const cfgCommand = (cfg?.command ?? []).filter(Boolean)
   const [name, setName] = React.useState(cat?.name ?? initial?.name ?? '')
-  const [transport, setTransport] = React.useState<'local' | 'remote'>(cat?.transport ?? 'local')
-  const [command, setCommand] = React.useState(cat?.command ?? '')
-  const [args, setArgs] = React.useState((cat?.args ?? []).join(' '))
-  const [url, setUrl] = React.useState(cat?.url ?? '')
-  const [envText, setEnvText] = React.useState(mapToLines(cat?.env))
-  const [headersText, setHeadersText] = React.useState(mapToLines(cat?.headers))
+  const [transport, setTransport] = React.useState<'local' | 'remote'>(
+    cat?.transport ?? (cfg?.type === 'remote' ? 'remote' : 'local'),
+  )
+  const [command, setCommand] = React.useState(cat?.command ?? cfgCommand[0] ?? '')
+  const [args, setArgs] = React.useState((cat?.args ?? cfgCommand.slice(1)).join(' '))
+  const [url, setUrl] = React.useState(cat?.url ?? cfg?.url ?? '')
+  const [envText, setEnvText] = React.useState(mapToLines(cat?.env ?? cfg?.environment))
+  const [headersText, setHeadersText] = React.useState(mapToLines(cat?.headers ?? cfg?.headers))
   const [description, setDescription] = React.useState(cat?.description ?? '')
   const [busy, setBusy] = React.useState(false)
 
@@ -271,6 +288,8 @@ export function McpDetail({ name }: { name: string }) {
   const installMcp = useTeamShareBrowserStore((s) => s.installMcp)
   const uninstallMcp = useTeamShareBrowserStore((s) => s.uninstallMcp)
   const updateMcp = useTeamShareBrowserStore((s) => s.updateMcp)
+  const updateWorkspaceMcp = useTeamShareBrowserStore((s) => s.updateWorkspaceMcp)
+  const toggleMcp = useTeamShareBrowserStore((s) => s.toggleMcp)
   const deleteMcp = useTeamShareBrowserStore((s) => s.deleteMcp)
   const sharePersonalMcp = useTeamShareBrowserStore((s) => s.sharePersonalMcp)
   const [refreshing, setRefreshing] = React.useState(false)
@@ -334,14 +353,21 @@ export function McpDetail({ name }: { name: string }) {
   const envKeys = Object.keys(cfg.environment ?? {})
   const headerKeys = Object.keys(cfg.headers ?? {})
   const isPersonal = item.kind === 'personal'
+  const isBuiltin = item.kind === 'builtin'
   const isAvailable = item.kind === 'team-available'
-  const editable = item.catalog !== null && !isPersonal
+  /** Team-catalog rows edit the catalog; personal/built-in edit the daemon map. */
+  const editsCatalog = item.catalog !== null && !isPersonal && !isBuiltin
+  const editable = editsCatalog || isPersonal || isBuiltin
+  const canToggle = isPersonal || isBuiltin
+  const enabled = item.config.enabled !== false
   const scopeLabel =
-    item.kind === 'personal'
-      ? t('teamShare.mcpGroupPersonal', 'Personal')
-      : item.kind === 'team-available'
-        ? t('teamShare.mcpGroupAvailable', 'Team · Available')
-        : t('teamShare.mcpGroupInstalled', 'Team · Installed')
+    item.kind === 'builtin'
+      ? t('teamShare.mcpGroupBuiltin', 'Built-in')
+      : item.kind === 'personal'
+        ? t('teamShare.mcpGroupPersonal', 'Personal')
+        : item.kind === 'team-available'
+          ? t('teamShare.mcpGroupAvailable', 'Team · Available')
+          : t('teamShare.mcpGroupInstalled', 'Team · Installed')
   const secretKeys = findLiteralSecretKeys(cfg.environment)
 
   return (
@@ -417,32 +443,56 @@ export function McpDetail({ name }: { name: string }) {
           )}
 
           {editable && !editing && (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setEditing(true)}
-                className="h-8 gap-1.5 text-[13px]"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                {t('teamShare.edit', 'Edit')}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditing(true)}
+              className="h-8 gap-1.5 text-[13px]"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {t('teamShare.edit', 'Edit')}
+            </Button>
+          )}
+          {editsCatalog && !editing && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() =>
+                void run(
+                  () => deleteMcp(item.name),
+                  t('teamShare.mcpDetail.deleted', 'Removed from the team catalog'),
+                  t('teamShare.mcpDetail.deleteFailed', 'Delete failed'),
+                )
+              }
+              className="h-8 gap-1.5 text-[13px] text-red-600 hover:text-red-700"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+
+          {canToggle && (
+            <div
+              className="ml-1 flex items-center"
+              title={
+                enabled
+                  ? t('teamShare.mcpDetail.disableHint', 'Disable — the daemon stops offering this server')
+                  : t('teamShare.mcpDetail.enableHint', 'Enable this server for this workspace')
+              }
+            >
+              <ToggleSwitch
+                enabled={enabled}
+                onChange={(next) =>
                   void run(
-                    () => deleteMcp(item.name),
-                    t('teamShare.mcpDetail.deleted', 'Removed from the team catalog'),
-                    t('teamShare.mcpDetail.deleteFailed', 'Delete failed'),
+                    () => toggleMcp(item.id, next),
+                    next
+                      ? t('teamShare.mcpDetail.enabled', 'Enabled')
+                      : t('teamShare.mcpDetail.disabledToast', 'Disabled'),
+                    t('teamShare.mcpDetail.toggleFailed', 'Toggle failed'),
                   )
                 }
-                className="h-8 gap-1.5 text-[13px] text-red-600 hover:text-red-700"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </>
+              />
+            </div>
           )}
 
           {!isAvailable && (
@@ -461,13 +511,14 @@ export function McpDetail({ name }: { name: string }) {
       </div>
 
       <div className="space-y-6 px-6 py-5">
-        {editing && item.catalog ? (
+        {editing && editable ? (
           <McpEditForm
             initial={item}
             submitLabel={t('teamShare.mcpDetail.save', 'Save')}
             onCancel={() => setEditing(false)}
             onSubmit={async (input) => {
-              await updateMcp(item.name, input)
+              if (editsCatalog) await updateMcp(item.name, input)
+              else await updateWorkspaceMcp(item.id, input)
               setEditing(false)
               toast.success(t('teamShare.mcpDetail.saved', 'Saved'))
             }}
@@ -487,6 +538,14 @@ export function McpDetail({ name }: { name: string }) {
                 {t(
                   'teamShare.mcpDetail.personalHint',
                   'This server only runs on this machine. It is not in the team catalog. Uninstall removes it locally; Share publishes it to the team and installs it for you.',
+                )}
+              </div>
+            )}
+            {isBuiltin && (
+              <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-[13px] text-muted-foreground">
+                {t(
+                  'teamShare.mcpDetail.builtinHint',
+                  'Ships with the app and cannot be removed. You can disable it for this workspace, or edit how it starts.',
                 )}
               </div>
             )}

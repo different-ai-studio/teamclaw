@@ -693,15 +693,23 @@ impl DaemonServer {
                 AgentLaunchConfig::new(codex.binary.clone(), codex.default_flags.clone(), "codex"),
             );
         }
-        // pi runs its own per-worktree `pi --mode rpc` process (the pi_rpc
-        // backend builds that command itself), so this entry only carries the
-        // binary name. Without it, launch_config_for(Pi) falls back to the
-        // ClaudeCode config and the pi backend would spawn `claude` instead of
-        // `pi`. The literal "pi" lets pi_rpc's resolve_binary find it on PATH /
-        // ~/.pi/bin rather than treating it as an explicit path override.
+        // pi runs its own per-worktree process (the pi_rpc backend builds that
+        // command itself), so this entry only carries the binary name. Without
+        // it, launch_config_for(Pi) falls back to the ClaudeCode config and the
+        // pi backend would spawn `claude` instead of `pi`. The literal "pi"
+        // lets pi_rpc's resolve_binary find it on PATH / ~/.pi/bin rather than
+        // treating it as an explicit path override; a configured
+        // `[agents.pi].binary` becomes exactly such an override.
+        let pi_binary = config
+            .agents
+            .pi
+            .as_ref()
+            .and_then(|pi| pi.binary.clone())
+            .filter(|b| !b.is_empty())
+            .unwrap_or_else(|| "pi".to_string());
         launch_configs.insert(
             amux::AgentType::Pi,
-            AgentLaunchConfig::new("pi", Vec::new(), "pi"),
+            AgentLaunchConfig::new(pi_binary, Vec::new(), "pi"),
         );
         if config.agents.local_agent == "cursor" {
             launch_configs.insert(

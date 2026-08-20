@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plug, Box } from 'lucide-react'
 import { toast } from 'sonner'
+import { useCurrentTeamStore } from '@/stores/current-team'
 import { useTeamShareBrowserStore } from '@/stores/team-share-browser'
 import { type TeamShareTarget } from '@/lib/tabs/teamshare-target'
 import { SkillDetail } from './SkillDetail'
@@ -20,8 +21,13 @@ function CreatePane({ section }: { section: 'mcp' | 'env' }) {
   // it reports back rather than the header guessing.
   const [envScope, setEnvScope] = React.useState<'team' | 'personal'>('team')
   const createMcp = useTeamShareBrowserStore((s) => s.createMcp)
+  const createPersonalMcp = useTeamShareBrowserStore((s) => s.createPersonalMcp)
   const loadCounts = useTeamShareBrowserStore((s) => s.loadCounts)
   const clearDetail = useTeamShareBrowserStore((s) => s.clearDetail)
+  const hasTeam = useCurrentTeamStore((s) => Boolean(s.team?.id))
+  // Where a new MCP server lands: the team catalog (share it) or just this
+  // machine's workspace config. Without a team only the local option exists.
+  const [mcpScope, setMcpScope] = React.useState<'team' | 'personal'>(hasTeam ? 'team' : 'personal')
   const Icon = section === 'mcp' ? Plug : Box
 
   const close = React.useCallback(() => {
@@ -52,20 +58,53 @@ function CreatePane({ section }: { section: 'mcp' | 'env' }) {
 
       <div className="px-6 py-5">
         {section === 'mcp' ? (
-          <McpEditForm
-            submitLabel={t('teamShare.mcpAddSubmit', 'Add to team')}
-            onCancel={close}
-            onSubmit={async (input) => {
-              await createMcp(input)
-              close()
-              toast.success(
-                t(
-                  'teamShare.mcpAdded',
-                  'Added to the team catalog. Install it to run it on this machine.',
-                ),
-              )
-            }}
-          />
+          <div className="space-y-4">
+            {hasTeam && (
+              <div className="flex items-center gap-1 rounded-lg bg-muted p-1 text-[12.5px]" role="radiogroup">
+                {(['team', 'personal'] as const).map((scope) => (
+                  <button
+                    key={scope}
+                    type="button"
+                    role="radio"
+                    aria-checked={mcpScope === scope}
+                    onClick={() => setMcpScope(scope)}
+                    className={
+                      mcpScope === scope
+                        ? 'flex-1 rounded-md bg-background px-3 py-1.5 font-semibold text-foreground shadow-sm'
+                        : 'flex-1 rounded-md px-3 py-1.5 text-muted-foreground hover:text-foreground'
+                    }
+                  >
+                    {scope === 'team'
+                      ? t('teamShare.mcpScopeTeam', 'Team catalog')
+                      : t('teamShare.mcpScopePersonal', 'This machine only')}
+                  </button>
+                ))}
+              </div>
+            )}
+            <McpEditForm
+              submitLabel={
+                mcpScope === 'team'
+                  ? t('teamShare.mcpAddSubmit', 'Add to team')
+                  : t('teamShare.mcpAddPersonalSubmit', 'Add to this machine')
+              }
+              onCancel={close}
+              onSubmit={async (input) => {
+                if (mcpScope === 'team') {
+                  await createMcp(input)
+                  toast.success(
+                    t(
+                      'teamShare.mcpAdded',
+                      'Added to the team catalog. Install it to run it on this machine.',
+                    ),
+                  )
+                } else {
+                  await createPersonalMcp(input)
+                  toast.success(t('teamShare.mcpAddedPersonal', 'Added to this workspace.'))
+                }
+                close()
+              }}
+            />
+          </div>
         ) : (
           <EnvCreateForm
             onScopeChange={setEnvScope}

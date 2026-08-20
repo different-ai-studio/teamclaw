@@ -327,6 +327,26 @@ pub struct AgentsConfig {
     pub cursor: Option<CursorAgentConfig>,
     #[serde(default)]
     pub claude: Option<ClaudeAgentConfig>,
+    #[serde(default)]
+    pub pi: Option<PiAgentConfig>,
+}
+
+/// pi backend settings (`agents.local_agent = "pi"`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct PiAgentConfig {
+    /// Explicit pi binary path. Unset ⇒ discovery (`~/.pi/bin/pi`, then PATH /
+    /// well-known dirs). See `runtime::pi_rpc::process::resolve_binary`.
+    #[serde(default)]
+    pub binary: Option<String>,
+    /// Session process mode: `"host"` (default — one Node host per worktree
+    /// running N concurrent `AgentSession`s over the pi SDK) or `"rpc"`
+    /// (legacy single-session `pi --mode rpc`, one active session per
+    /// worktree, prompts for other sessions must wait). The rollback switch
+    /// for the multi-session host: set `"rpc"` to get the pre-host behavior
+    /// back without a daemon downgrade.
+    #[serde(default)]
+    pub session_host: Option<String>,
 }
 
 /// Cursor SDK backend settings (`agents.local_agent = "cursor"`).
@@ -376,6 +396,7 @@ impl Default for AgentsConfig {
             codex: None,
             cursor: None,
             claude: None,
+            pi: None,
         }
     }
 }
@@ -827,6 +848,37 @@ impl DaemonConfig {
 #[cfg(test)]
 mod channels_tests {
     use super::*;
+
+    #[test]
+    fn agents_pi_section_parses_and_defaults_to_host() {
+        // `[agents.pi] session_host = "rpc"` is the multi-session host's
+        // rollback switch; it must survive a daemon.toml round trip.
+        let toml_src = r#"
+[actor]
+id = "d1"
+name = "Mac"
+
+[mqtt]
+broker_url = "tcp://localhost:1883"
+
+[agents.pi]
+binary = "/opt/custom/pi"
+session_host = "rpc"
+"#;
+        let cfg: DaemonConfig = toml::from_str(toml_src).unwrap();
+        let pi = cfg.agents.pi.as_ref().expect("[agents.pi] parsed");
+        assert_eq!(pi.binary.as_deref(), Some("/opt/custom/pi"));
+        assert_eq!(pi.session_host.as_deref(), Some("rpc"));
+
+        // Absent section ⇒ host mode by default (pi: None, and the pool's
+        // preference reader treats anything but "rpc" as host).
+        let bare: DaemonConfig = toml::from_str(
+            "[actor]\nid = \"d\"\nname = \"m\"\n[mqtt]\nbroker_url = \"tcp://x:1883\"\n",
+        )
+        .unwrap();
+        assert!(bare.agents.pi.is_none());
+    }
+
     #[test]
     fn channels_roundtrip_wecom() {
         // `[channels]` moved to team.toml (config::team_config); daemon.toml

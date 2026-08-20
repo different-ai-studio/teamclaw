@@ -437,10 +437,17 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
               dimmed: true,
             }
           }
-          const statusDot: 'ready' | 'failed' | 'idle' =
-            m.probeStatus === 'ready' ? 'ready' : m.probeStatus === 'failed' ? 'failed' : 'idle'
-          const statusLabel =
-            m.probeStatus === 'ready'
+          const disabled = m.config.enabled === false
+          const statusDot: 'ready' | 'failed' | 'idle' = disabled
+            ? 'idle'
+            : m.probeStatus === 'ready'
+              ? 'ready'
+              : m.probeStatus === 'failed'
+                ? 'failed'
+                : 'idle'
+          const statusLabel = disabled
+            ? t('teamShare.mcpDetail.disabled', 'Disabled')
+            : m.probeStatus === 'ready'
               ? t('teamShare.mcpDetail.connected', 'Connected')
               : m.probeStatus === 'failed'
                 ? t('teamShare.mcpDetail.failed', 'Needs attention')
@@ -451,7 +458,9 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             icon: Plug,
             iconTint: 'bg-muted text-muted-foreground',
             title: m.name,
-            subtitle: `${statusLabel} · ${t('teamShare.mcpDetail.toolCount', '{{count}} tools', { count: m.tools.length })}`,
+            subtitle: disabled
+              ? statusLabel
+              : `${statusLabel} · ${t('teamShare.mcpDetail.toolCount', '{{count}} tools', { count: m.tools.length })}`,
             statusDot,
             trailing: (
               <Check
@@ -551,6 +560,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
     const available = rows.filter((r) => r.kind === 'team-available')
     const installed = rows.filter((r) => r.kind === 'team-installed')
     const personal = rows.filter((r) => r.kind === 'personal')
+    const builtin = rows.filter((r) => r.kind === 'builtin')
     return [
       {
         key: 'available' as const,
@@ -566,6 +576,11 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
         key: 'personal' as const,
         label: t('teamShare.mcpGroupPersonal', 'Personal'),
         rows: personal,
+      },
+      {
+        key: 'builtin' as const,
+        label: t('teamShare.mcpGroupBuiltin', 'Built-in'),
+        rows: builtin,
       },
     ].filter((g) => g.rows.length > 0 || !q)
   }, [section, otherRows, t, q])
