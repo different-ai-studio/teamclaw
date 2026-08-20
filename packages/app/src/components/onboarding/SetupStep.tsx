@@ -94,6 +94,15 @@ function RuntimeCard({
           {runtime.version ?? t('onboarding.setup.installed', 'installed')}
         </span>
       )}
+      {/* Cursor is offered on installed-ness alone — the API key is a Settings
+          concern, and Settings only exists after onboarding. Say what is still
+          missing rather than hiding the card, which is what gating on the key
+          amounted to. */}
+      {runtime.blocker === 'api_key' && (
+        <span className="text-[11px] leading-4 text-faint">
+          {t('onboarding.setup.needsApiKey', 'Needs an API key — add it in Settings → LLM later.')}
+        </span>
+      )}
       {fetchable && (
         <button
           type="button"

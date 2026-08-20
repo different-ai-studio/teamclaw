@@ -834,6 +834,7 @@
       "runtime": "Agent runtime",
       "install": "Install",
       "upgrade": "Upgrade",
+      "needsApiKey": "Needs an API key — add it in Settings → LLM later.",
       "installed": "installed",
       "installing": "installing…",
       "ready": "ready",

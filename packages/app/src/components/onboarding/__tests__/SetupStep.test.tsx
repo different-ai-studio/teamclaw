@@ -117,6 +117,27 @@ describe('SetupStep', () => {
     expect(screen.getByRole('button', { name: '继续' })).toBeEnabled()
   })
 
+  // Cursor's doctor `satisfied` folds in an API key, and the key is entered in
+  // Settings — which only exists after onboarding. Gating the card on it made
+  // the option invisible to everyone, with no explanation.
+  it('offers Cursor when it is installed but still missing its API key', () => {
+    seed({
+      agentRuntimes: [
+        req('opencode', { title: 'OpenCode' }),
+        req('cursor', { title: 'Cursor', optional: true, version: null, blocker: 'api_key' }),
+      ],
+    })
+    render(<SetupStep role="developer" onDone={() => {}} />)
+
+    expect(screen.getByText('Cursor')).toBeInTheDocument()
+    expect(screen.getByText(/缺 API Key/)).toBeInTheDocument()
+    // Installed, so it is a real choice — not an Install action the app cannot
+    // perform, and not a disabled card either.
+    expect(screen.queryByRole('button', { name: '安装' })).toBeNull()
+    screen.getByText('Cursor').click()
+    expect(useOnboardingStore.getState().runtime).toBe('cursor')
+  })
+
   it('blocks continuing until amuxd is present', () => {
     seed({ requirements: [req('amuxd', { present: false, version: null })] })
     render(<SetupStep role="developer" onDone={() => {}} />)
