@@ -32,6 +32,23 @@ export interface CronDeps {
 //     WHERE status='pending' AND expires_at < now();
 //   DELETE FROM amuxc_upload_sessions
 //     WHERE status='abandoned' AND expires_at < now() - interval '24 hours';
+//
+// ...plus `completed`, which the pg_cron original never collected. Nothing did:
+// a session that succeeded stayed in the table forever. On belayo that was
+// 15,308 rows and climbing, one per file anyone had ever synced — invisible
+// next to the abandoned-session pile until that one was cleaned up and this was
+// all that remained.
+//
+// Deleting them is safe because a completed row has exactly one job left. Both
+// complete paths look a session up BY ID (`sync-handlers.ts`, `pg-repo/oss-sync.ts`)
+// and answer 410 `session is completed` instead of 404 when a client retries a
+// `complete` that already succeeded. Nothing else reads the row: the durable
+// record of what was uploaded is `amuxc_file_versions`.
+//
+// So it is kept for a window, not deleted on the spot. A session's own TTL is
+// one hour, and the retention below is keyed off `expires_at`, so a completed
+// row survives ~25 hours past creation — orders of magnitude longer than any
+// retry, and the same rule the abandoned ones already follow.
 // ---------------------------------------------------------------------------
 export async function ossSyncAbandonExpiredSessions(
   db: Db
@@ -51,12 +68,15 @@ export async function ossSyncAbandonExpiredSessions(
     )
     .returning({ id: amuxcUploadSessions.id });
 
-  // 2. Delete abandoned sessions that expired more than 24 hours ago.
+  // 2. Delete finished sessions that expired more than 24 hours ago —
+  //    `abandoned` (gave up) and `completed` (succeeded) alike. `pending` is
+  //    deliberately absent: step 1 above is what retires those, and a pending
+  //    row that is not yet expired is a live upload.
   const deleteResult = await db
     .delete(amuxcUploadSessions)
     .where(
       and(
-        eq(amuxcUploadSessions.status, "abandoned"),
+        inArray(amuxcUploadSessions.status, ["abandoned", "completed"]),
         lt(
           amuxcUploadSessions.expiresAt,
           sql`now() - interval '24 hours'`

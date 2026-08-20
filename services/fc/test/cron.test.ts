@@ -133,6 +133,62 @@ test("ossSyncAbandonExpiredSessions: abandoned+>24h expired → deleted", async 
   assert.equal(rows[0].path, "/d.txt");
 });
 
+test("ossSyncAbandonExpiredSessions: completed sessions are collected too", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id);
+
+  const session = (path: string, status: string, expiredAgoMs: number) => ({
+    teamId: team.id,
+    actorId: actor.id,
+    path,
+    parentVersion: 0,
+    contentHash: `h${path}`,
+    size: 10,
+    ossKey: `k${path}`,
+    status,
+    expiresAt: ago(expiredAgoMs),
+  });
+
+  // Nothing ever deleted these, so one accumulated per file anyone ever synced.
+  await db.insert(amuxcUploadSessions).values(session("/old-done.txt", "completed", 25 * 3_600_000));
+  // Inside the retention window: a client retrying `complete` must still get
+  // 410 "session is completed" rather than 404.
+  await db.insert(amuxcUploadSessions).values(session("/fresh-done.txt", "completed", 3_600_000));
+  await db.insert(amuxcUploadSessions).values(session("/old-gone.txt", "abandoned", 25 * 3_600_000));
+
+  const result = await ossSyncAbandonExpiredSessions(db);
+  assert.equal(result.deleted, 2, "the old completed one goes with the abandoned one");
+
+  const left: any[] = await db.select().from(amuxcUploadSessions);
+  assert.deepEqual(left.map((r: any) => r.path), ["/fresh-done.txt"]);
+});
+
+test("ossSyncAbandonExpiredSessions: a live pending session is never deleted", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id);
+
+  // Not expired: an upload in flight. Widening step 2 to more statuses must not
+  // reach it — the client is still holding this session id.
+  await db.insert(amuxcUploadSessions).values({
+    teamId: team.id,
+    actorId: actor.id,
+    path: "/inflight.txt",
+    parentVersion: 0,
+    contentHash: "h-live",
+    size: 10,
+    ossKey: "k-live",
+    status: "pending",
+    expiresAt: fromNow(30 * 60_000),
+  });
+
+  const result = await ossSyncAbandonExpiredSessions(db);
+  assert.equal(result.abandoned, 0);
+  assert.equal(result.deleted, 0);
+  assert.equal((await db.select().from(amuxcUploadSessions)).length, 1);
+});
+
 // ---------------------------------------------------------------------------
 // ossSyncGcOrphanBlobs
 // ---------------------------------------------------------------------------
