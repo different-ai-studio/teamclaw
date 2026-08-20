@@ -7,7 +7,7 @@
  *   oss_sync_gc_orphan_blobs()           →  ossSyncGcOrphanBlobs()
  */
 
-import { and, eq, lt, sql, notExists } from "drizzle-orm";
+import { and, eq, inArray, lt, sql, notExists } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import {
   amuxcUploadSessions,
@@ -20,6 +20,8 @@ import { getTeamBlobStorage, type BlobStorage } from "./team-blob-storage.js";
 /** What the cron tasks need injected; everything defaults to the real thing. */
 export interface CronDeps {
   storage?: BlobStorage;
+  /** Blobs collected per GC run — see `GC_BATCH_LIMIT`. Tests use small ones. */
+  limit?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,34 +101,87 @@ export async function ossSyncAbandonExpiredSessions(
 // run — but it does mean a deployment whose objects sit under a key layout the
 // current storage config no longer produces will report happy deletes while the
 // real bytes stay put. Those need a one-off sweep by prefix, not this task.
+//
+// The sweep is CAPPED, because adding object deletes changed what one run costs.
+// Deleting rows was a single statement whose size did not matter; deleting bytes
+// is one network round trip per blob, and the FC function this runs in has a
+// 30-second timeout (`s.yaml`). The first run after this ships would have found
+// 45,610 orphans on belayo — the DELETE would commit and the function would then
+// be killed a few hundred keys into the loop, leaking the rest with no row left
+// to name them. A capped run drains over several days instead, and says so.
 // ---------------------------------------------------------------------------
+
+/** Blobs collected per run. ~30ms/delete against OSS leaves room in 30s. */
+const GC_BATCH_LIMIT = 500;
+
+/** `created_at` older than 7 days and no file version pointing at the hash. */
+function orphanBlobPredicate(db: Db) {
+  return and(
+    lt(amuxcBlobs.createdAt, sql`now() - interval '7 days'`),
+    notExists(
+      db
+        .select({ one: sql`1` })
+        .from(amuxcFileVersions)
+        .innerJoin(amuxcFiles, eq(amuxcFiles.id, amuxcFileVersions.fileId))
+        .where(
+          and(
+            eq(amuxcFiles.teamId, amuxcBlobs.teamId),
+            eq(amuxcFileVersions.contentHash, amuxcBlobs.contentHash)
+          )
+        )
+    )
+  );
+}
+
 export async function ossSyncGcOrphanBlobs(
   db: Db,
   deps: CronDeps = {}
-): Promise<{ deleted: number; objectsDeleted: number; objectsFailed: number }> {
+): Promise<{
+  deleted: number;
+  objectsDeleted: number;
+  objectsFailed: number;
+  capped: number;
+}> {
+  const limit = deps.limit ?? GC_BATCH_LIMIT;
+
+  // Postgres DELETE takes no LIMIT, so pick the batch first. `oss_key` is
+  // derived from (team_id, content_hash) — the primary key — so it identifies a
+  // row exactly.
+  const batch = await db
+    .select({ ossKey: amuxcBlobs.ossKey })
+    .from(amuxcBlobs)
+    .where(orphanBlobPredicate(db))
+    .limit(limit);
+
+  if (batch.length === 0) {
+    return { deleted: 0, objectsDeleted: 0, objectsFailed: 0, capped: 0 };
+  }
+
+  // The predicate is re-checked here, not just used to build the list: between
+  // the select and the delete a blob can acquire a file version, and collecting
+  // one that just became live would delete bytes somebody now references.
   const deleteResult = await db
     .delete(amuxcBlobs)
     .where(
       and(
-        lt(amuxcBlobs.createdAt, sql`now() - interval '7 days'`),
-        notExists(
-          db
-            .select({ one: sql`1` })
-            .from(amuxcFileVersions)
-            .innerJoin(amuxcFiles, eq(amuxcFiles.id, amuxcFileVersions.fileId))
-            .where(
-              and(
-                eq(amuxcFiles.teamId, amuxcBlobs.teamId),
-                eq(amuxcFileVersions.contentHash, amuxcBlobs.contentHash)
-              )
-            )
-        )
+        inArray(amuxcBlobs.ossKey, batch.map((b) => b.ossKey)),
+        orphanBlobPredicate(db)
       )
     )
     .returning({ teamId: amuxcBlobs.teamId, ossKey: amuxcBlobs.ossKey });
 
+  // Hitting the cap is normal while a backlog drains, but it must be visible:
+  // a run that silently stops at 500 reads exactly like a run that finished.
+  // 0/1 rather than a boolean because `runCronTask` reports a map of numbers.
+  const capped = batch.length === limit ? 1 : 0;
+  if (capped) {
+    console.warn(
+      `[cron/oss-gc-blobs] hit the ${limit}-blob cap; more orphans remain for the next run`
+    );
+  }
+
   if (deleteResult.length === 0) {
-    return { deleted: 0, objectsDeleted: 0, objectsFailed: 0 };
+    return { deleted: 0, objectsDeleted: 0, objectsFailed: 0, capped };
   }
 
   // Resolved only once there is something to delete: building the real store
@@ -152,7 +207,7 @@ export async function ossSyncGcOrphanBlobs(
     }
   }
 
-  return { deleted: deleteResult.length, objectsDeleted, objectsFailed };
+  return { deleted: deleteResult.length, objectsDeleted, objectsFailed, capped };
 }
 
 // ---------------------------------------------------------------------------

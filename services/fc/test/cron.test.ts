@@ -269,7 +269,53 @@ test("ossSyncGcOrphanBlobs: nothing to collect → storage is never touched", as
   // No storage injected at all: with zero orphans the real store must never be
   // constructed, or a deployment with no blob config would fail the sweep.
   const result = await ossSyncGcOrphanBlobs(db);
-  assert.deepEqual(result, { deleted: 0, objectsDeleted: 0, objectsFailed: 0 });
+  assert.deepEqual(result, {
+    deleted: 0,
+    objectsDeleted: 0,
+    objectsFailed: 0,
+    capped: 0,
+  });
+});
+
+test("ossSyncGcOrphanBlobs: a run is capped, and the backlog survives it", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+
+  const keys = ["k1", "k2", "k3", "k4", "k5"];
+  for (const k of keys) {
+    await db.insert(amuxcBlobs).values({
+      teamId: team.id,
+      contentHash: `${k}-hash`,
+      ossKey: k,
+      size: 100,
+      verified: true,
+      createdAt: ago(8 * 24 * 3_600_000),
+    });
+  }
+
+  // Unbounded, this run would issue one network round trip per orphan inside a
+  // 30-second function. It stops at the cap instead.
+  const objects = new Set(keys);
+  const first = await ossSyncGcOrphanBlobs(db, {
+    storage: makeMockStorage(objects),
+    limit: 2,
+  });
+  assert.equal(first.deleted, 2);
+  assert.equal(first.objectsDeleted, 2);
+  assert.equal(first.capped, 1, "hitting the cap must be reported, not silent");
+  assert.equal(objects.size, 3, "the rest of the backlog is still there");
+  assert.equal((await db.select().from(amuxcBlobs)).length, 3);
+
+  // Draining continues on the next run, and the last one is not capped.
+  await ossSyncGcOrphanBlobs(db, { storage: makeMockStorage(objects), limit: 2 });
+  const last = await ossSyncGcOrphanBlobs(db, {
+    storage: makeMockStorage(objects),
+    limit: 2,
+  });
+  assert.equal(last.deleted, 1);
+  assert.equal(last.capped, 0, "a run that did not fill the batch is not capped");
+  assert.equal(objects.size, 0);
+  assert.equal((await db.select().from(amuxcBlobs)).length, 0);
 });
 
 // ---------------------------------------------------------------------------
