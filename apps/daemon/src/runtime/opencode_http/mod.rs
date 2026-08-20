@@ -1920,10 +1920,25 @@ mod pool_tests {
         }
     }
 
+    /// Poll `condition` until it holds, then return; fail if it never does.
+    ///
+    /// This used to spin on `yield_now()` against a 1s budget, and both halves
+    /// of that hurt. The spin burns a core for the whole wait, and what these
+    /// tests wait on is a real child process starting — so a dozen of them
+    /// running at once starve the very spawns they are waiting for. The full
+    /// `cargo test -p amuxd` run (1261 tests in parallel, on a machine also
+    /// building the desktop app) randomly failed one of these three, while the
+    /// same tests passed serially, and passed in parallel once the machine was
+    /// idle. Sleeping between polls hands the CPU back to the thing being
+    /// waited on.
+    ///
+    /// 10s is slack for a loaded machine, not license to hang: a command loop
+    /// that never reaches the state still fails, just later. Every wait here
+    /// is satisfied in microseconds when nothing else is competing.
     async fn wait_until(mut condition: impl FnMut() -> bool) {
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
             while !condition() {
-                tokio::task::yield_now().await;
+                tokio::time::sleep(std::time::Duration::from_millis(2)).await;
             }
         })
         .await
