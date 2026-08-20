@@ -99,6 +99,24 @@ describe('SetupStep', () => {
     expect(screen.getByText('opencode install boom')).toBeInTheDocument()
   })
 
+  // `present: false` with a version means installed-but-outdated. The store's
+  // contract is that the wizard still offers the upgrade and stops blocking;
+  // the card used to show the version and swallow the action entirely.
+  it('offers an upgrade for a runtime that is installed but out of date', () => {
+    seed({
+      agentRuntimes: [
+        req('opencode', { title: 'OpenCode' }),
+        req('pi', { title: 'Pi', present: false, version: '0.1.0' }),
+      ],
+    })
+    render(<SetupStep role="developer" onDone={() => {}} />)
+
+    expect(screen.getByText('0.1.0')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '升级' })).toBeInTheDocument()
+    // Outdated is not a blocker — the selected runtime is still usable.
+    expect(screen.getByRole('button', { name: '继续' })).toBeEnabled()
+  })
+
   it('blocks continuing until amuxd is present', () => {
     seed({ requirements: [req('amuxd', { present: false, version: null })] })
     render(<SetupStep role="developer" onDone={() => {}} />)

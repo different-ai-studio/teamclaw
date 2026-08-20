@@ -47,18 +47,23 @@ function RuntimeCard({
   const Icon = RUNTIME_ICON[runtime.id] ?? Terminal
   const installed = usable(runtime)
   const selectable = installed && !busy
+  // `present` means "no action needed"; an installed-but-outdated runtime comes
+  // back as `present: false` with a version (see stores/setup.ts). Cursor and
+  // Claude Code are never fetched from here, so they only ever show a version.
+  const fetchable = !runtime.present && INSTALLABLE_RUNTIMES.has(runtime.id)
   // Select and Install are siblings, never nested. As a <span role="button">
   // inside the card's own <button>, Install was unreachable the entire time a
   // runtime was missing: an uninstalled card is disabled, and a disabled button
   // swallows pointer events for everything inside it — so the one control that
   // only ever appears on an uninstalled runtime could never be clicked.
   //
-  // The card is still one hit target: the select button stretches across it via
-  // an inset ::before, and the version line below is inert so a click there
-  // falls through to that overlay. Hitting the title alone was more precision
-  // than a card this size should ask for. The overlay is only laid down while
-  // the card is selectable — exactly when Install is not rendered — so it can
-  // never swallow Install the way nesting did.
+  // The card is one hit target: the select button stretches across it via an
+  // inset ::before, so a click anywhere — version line, padding, the gap
+  // between rows — lands on it. Hitting the title alone was more precision than
+  // a card this size should ask for. Install/Upgrade sits above that overlay on
+  // `relative` alone: same paint step as the ::before, later in tree order.
+  // That matters for an outdated-but-installed runtime, which is selectable
+  // (overlay on) and fetchable (button shown) at the same time.
   return (
     <div
       className={cn(
@@ -74,7 +79,7 @@ function RuntimeCard({
         className={cn(
           'flex w-full items-center justify-between text-left',
           selectable
-            ? 'cursor-pointer before:absolute before:inset-0 before:rounded-[14px] before:content-[""]'
+            ? 'cursor-pointer before:absolute before:inset-0 before:rounded-[14px]'
             : 'cursor-default',
         )}
       >
@@ -84,11 +89,12 @@ function RuntimeCard({
         </span>
         {selected && <Check className="h-4 w-4 text-coral" />}
       </button>
-      {installed ? (
-        <span className="pointer-events-none font-mono text-[11px] text-faint">
+      {installed && (
+        <span className="font-mono text-[11px] text-faint">
           {runtime.version ?? t('onboarding.setup.installed', 'installed')}
         </span>
-      ) : INSTALLABLE_RUNTIMES.has(runtime.id) ? (
+      )}
+      {fetchable && (
         <button
           type="button"
           disabled={busy}
@@ -96,12 +102,10 @@ function RuntimeCard({
           className="relative inline-flex items-center gap-1.5 rounded-[6px] text-[11.5px] text-coral hover:underline disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-          {t('onboarding.setup.install', 'Install')}
+          {installed
+            ? t('onboarding.setup.upgrade', 'Upgrade')
+            : t('onboarding.setup.install', 'Install')}
         </button>
-      ) : (
-        <span className="text-[11px] text-faint">
-          {t('onboarding.setup.notDetected', 'Not detected on this machine')}
-        </span>
       )}
     </div>
   )
