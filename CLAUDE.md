@@ -23,7 +23,8 @@ Pull Request:
    back.
 3. Do not merge or push to `main` directly, even for small fixes.
 
-If `docs/SDLC.md` exists in this checkout, read it before starting any change.
+If `SDLC.md` exists at the repo root of this checkout, read it before starting
+any change.
 It is a local, git-ignored SDLC override that can layer additional personal
 workflow (e.g. worktree + preview-integration conventions) on top of the rules
 above. It is intentionally not checked in, so it only affects the workspace that
