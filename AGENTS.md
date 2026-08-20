@@ -4,9 +4,9 @@ This file is the source-of-truth for the **web / desktop** visual language
 (`packages/app/`). For the **iOS client** (`apps/ios/`) the source-of-truth is
 `apps/ios/DESIGN.md` (the Hai 灰 / wabi-sabi system) — don't apply the rules
 below to iOS work. For repo conventions (architecture, commands, release
-process) see `CLAUDE.md`. If `docs/SDLC.md` exists in this checkout, read it
-before starting changes; it is a local, git-ignored SDLC override for this
-workspace.
+process) see `CLAUDE.md`. If `SDLC.md` exists at the repo root of this
+checkout, read it before starting changes; it is a local, git-ignored SDLC
+override for this workspace.
 
 The web/desktop design direction is **"Editorial Calm"** — paper-feel
 neutrals, brand coral used only as small accents, Chinese-first typography,
@@ -19,8 +19,8 @@ The local prototype copy lives in `/tmp/design-OLWqff/` when fetched.
 
 > **Git note:** Work on a task-scoped branch, never on `main`, and never push
 > to `main` directly. See `CLAUDE.md` → Git Workflow for the full rule. If
-> `docs/SDLC.md` exists in this checkout, it may add personal worktree /
-> preview-integration conventions on top.
+> `SDLC.md` exists at the repo root of this checkout, it may add personal
+> worktree / preview-integration conventions on top.
 >
 > **PR rule:** Do **not** push the branch or run `gh pr create` on your own
 > initiative. Until the user explicitly says "open the PR" / "ship it" /
