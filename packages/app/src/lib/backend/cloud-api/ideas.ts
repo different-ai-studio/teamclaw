@@ -27,14 +27,18 @@ type CloudIdea = {
 type CloudIdeaActivity = {
   id: string;
   actorId: string;
-  activityType: string;
+  /** The wire name; `activityType` is served as an alias by some repos. */
+  kind?: string | null;
+  activityType?: string | null;
   content?: string | null;
   createdAt: string;
 };
 
-type CloudIdeaDetail = CloudIdea & {
-  activities?: CloudIdeaActivity[];
-  actors?: Array<{ id: string; displayName: string | null; actorType?: string | null }>;
+/** The subset of the actors payload the idea detail needs for display names. */
+type CloudIdeaActor = {
+  id: string;
+  kind?: string | null;
+  displayName?: string | null;
 };
 
 function mapIdea(row: CloudIdea): IdeaRow {
@@ -59,7 +63,7 @@ function mapActivity(row: CloudIdeaActivity): IdeaActivityRow {
   return {
     id: row.id,
     actor_id: row.actorId,
-    activity_type: row.activityType,
+    activity_type: row.activityType ?? row.kind ?? "progress",
     content: row.content ?? null,
     created_at: row.createdAt,
   };
@@ -77,14 +81,34 @@ export function createIdeasModule(client: CloudApiClient): IdeasBackend {
     },
     async getIdeaDetail(ideaId) {
       try {
-        const row = await client.get<CloudIdeaDetail>(`/v1/ideas/${encodeURIComponent(ideaId)}`);
+        // The detail endpoint carries only the idea row; activities live on
+        // their own endpoint, and actor display names on the actors API.
+        const [row, activitiesOut] = await Promise.all([
+          client.get<CloudIdea>(`/v1/ideas/${encodeURIComponent(ideaId)}`),
+          client.get<{ items: CloudIdeaActivity[] }>(
+            `/v1/ideas/${encodeURIComponent(ideaId)}/activities`,
+          ),
+        ]);
+        const activities = activitiesOut.items ?? [];
+        const actorIds = Array.from(
+          new Set(
+            [row.createdByActorId, ...activities.map((a) => a.actorId)].filter(
+              (id): id is string => !!id,
+            ),
+          ),
+        );
+        const actors =
+          actorIds.length > 0
+            ? (await client.post<{ items: CloudIdeaActor[] }>("/v1/actors/by-ids", { actorIds }))
+                .items ?? []
+            : [];
         return {
           ...mapIdea(row),
-          activities: (row.activities ?? []).map(mapActivity),
-          actors: (row.actors ?? []).map((a) => ({
+          activities: activities.map(mapActivity),
+          actors: actors.map((a) => ({
             id: a.id,
             display_name: a.displayName ?? null,
-            actor_type: a.actorType ?? null,
+            actor_type: a.kind ?? null,
           })),
         } as IdeaDetailRow;
       } catch {

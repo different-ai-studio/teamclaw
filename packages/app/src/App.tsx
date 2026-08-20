@@ -101,6 +101,7 @@ import {
 import { isActorOwnedTarget } from "@/lib/tabs/actor-target";
 import { useTeamShareBrowserStore } from "@/stores/team-share-browser";
 import { TeamShareDetailContent } from "@/components/teamshare/TeamShareTabContent";
+import { IdeasDetailColumn } from "@/components/panel/IdeaDetailPane";
 import { useTerminalStore } from "@/stores/terminal-store";
 import { TabBar } from "@/components/tab-bar/TabBar";
 import { TabContentRenderer } from "@/components/tab-bar/TabContentRenderer";
@@ -325,6 +326,9 @@ function MainContent() {
     directTeamShareSection && teamShareSectionForTarget(teamShareDetail) === directTeamShareSection
       ? teamShareDetail
       : null;
+  // Ideas mirror team-share: the section owns the main column, no tabs involved.
+  const directIdeasSection = sidebarFilter.kind === "ideas";
+  const mainColumnOwned = !!directTeamShareSection || directIdeasSection;
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const [splitContainerWidth, setSplitContainerWidth] = useState(0);
   const mainSplitLeftMaxWidth =
@@ -394,15 +398,15 @@ function MainContent() {
 
   const fileArea = (
     <div className="relative h-full flex flex-col">
-      {!directTeamShareSection && <TabBar />}
-      {!directTeamShareSection && hasActiveTab && activeTab.type === "webview" && (
+      {!mainColumnOwned && <TabBar />}
+      {!mainColumnOwned && hasActiveTab && activeTab.type === "webview" && (
         <WebViewToolbar
           url={activeTab.target}
           label={urlToLabel(activeTab.target)}
           zoomLevel={zoomLevels[urlToLabel(activeTab.target)]}
         />
       )}
-      {!directTeamShareSection && hasActiveTab && activeTab.type === "webview" && showFind && (
+      {!mainColumnOwned && hasActiveTab && activeTab.type === "webview" && showFind && (
         <FindInPageBar
           label={urlToLabel(activeTab.target)}
           onClose={() => useWebviewUIStore.getState().setShowFind(false)}
@@ -414,6 +418,10 @@ function MainContent() {
             {visibleTeamShareDetail ? (
               <TeamShareDetailContent target={visibleTeamShareDetail} />
             ) : null}
+          </div>
+        ) : directIdeasSection ? (
+          <div className="absolute inset-0 bg-background">
+            <IdeasDetailColumn />
           </div>
         ) : hasActiveTab ? (
           <div className={cn(
@@ -476,7 +484,7 @@ function MainContent() {
     <div className="relative h-full flex flex-col">
       {fileArea}
       <div
-        className={`absolute inset-0 ${hasActiveTab || directTeamShareSection ? "invisible" : "visible"}`}
+        className={`absolute inset-0 ${hasActiveTab || mainColumnOwned ? "invisible" : "visible"}`}
       >
         <ErrorBoundary scope="Chat" inline>
           <ChatPanel />

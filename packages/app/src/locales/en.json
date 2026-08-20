@@ -3090,6 +3090,7 @@
     "descriptionPlaceholder": "What's the constraint, what's the win?",
     "createButton": "Create",
     "createFailed": "Failed to create idea: {{msg}}",
+    "detailEmpty": "Select an idea to view, or create a new one",
     "contextMenu": {
       "statusOpen": "Open",
       "statusInProgress": "In progress",
@@ -3097,7 +3098,6 @@
     },
     "detail": {
       "edit": "Edit",
-      "description": "Edit idea details and activity.",
       "summary": "{{count}} activities · updated {{when}}",
       "summaryWithCreator": "{{creator}} · {{count}} activities · updated {{when}}",
       "priorityPlaceholder": "--- Priority",

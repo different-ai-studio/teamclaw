@@ -37,6 +37,7 @@ import { Input } from '@/components/ui/input'
 import { useUIStore } from '@/stores/ui'
 import { useAppsStore } from '@/stores/apps-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { useSessionSelectionStore } from '@/stores/session-selection-store'
 import { revealInFinder } from '@/components/workspace/file-tree-operations'
 import { CreateAppDialog } from '@/components/apps/CreateAppDialog'
 import { resolveAppType } from '@/lib/app-types'
@@ -97,6 +98,9 @@ export function appStatusMeta(
 function AppItemRow({ app, onClick, onRename }: RowProps) {
   const { t } = useTranslation()
   const deploying = useAppsStore((s) => s.deployingIds.includes(app.id))
+  const appSessionId = useAppsStore((s) => s.sessionIdByAppId[app.id] ?? null)
+  const activeSessionId = useSessionSelectionStore((s) => s.activeSessionId)
+  const selected = !!appSessionId && appSessionId === activeSessionId
   const meta = appStatusMeta(app, deploying)
   const appTypeMeta = resolveAppType(app.type)
   const isLive = app.fcStatus === 'live' && !!app.fcEndpoint
@@ -135,7 +139,11 @@ function AppItemRow({ app, onClick, onRename }: RowProps) {
       <button
         type="button"
         onClick={onClick}
-        className="flex w-full items-center gap-3 border-l-2 border-transparent py-2.5 pl-4 pr-10 text-left transition-colors hover:bg-selected/40"
+        data-active={selected ? 'true' : 'false'}
+        className={cn(
+          'flex w-full items-center gap-3 border-l-2 border-transparent py-2.5 pl-4 pr-10 text-left transition-colors hover:bg-selected/40',
+          selected && 'border-coral bg-selected',
+        )}
       >
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-coral/10 text-coral">
           {deploying ? <Loader2 className="h-[15px] w-[15px] animate-spin" /> : <AppWindow className="h-[15px] w-[15px]" />}
@@ -315,6 +323,7 @@ export function AppsListColumn() {
     try {
       const sessionId = await ensureAppSession(app)
       if (!sessionId) return
+      useAppsStore.getState().recordAppSession(app.id, sessionId)
       // Keep column 2 on the Apps list — the app row is what the user is
       // navigating from, and bouncing to the session list loses that context.
       await useUIStore.getState().switchToSession(sessionId, { keepSidebarFilter: true })
