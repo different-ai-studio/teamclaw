@@ -1,4 +1,5 @@
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -84,6 +85,12 @@ export interface BlobStorage {
   createDownloadUrl(objectPath: string, expiresIn?: number): Promise<string>;
   /** `null` when the object does not exist. */
   stat(objectPath: string): Promise<{ size: number } | null>;
+  /**
+   * Remove the bytes. Idempotent: an object that is already gone is a success,
+   * because the only caller is a collector and "not there" is the outcome it
+   * wanted. Real failures (credentials, network, bucket gone) still throw.
+   */
+  remove(objectPath: string): Promise<void>;
 }
 
 export const TEAM_BLOBS_BUCKET = () => process.env.TEAM_BLOBS_STORAGE_BUCKET || "team-blobs";
@@ -132,6 +139,17 @@ export function supabaseBlobStorage(bucket: () => string): BlobStorage {
       const entry = data.find((f: { name: string }) => f.name === name);
       if (!entry) return null;
       return { size: (entry as { metadata?: { size?: number } }).metadata?.size ?? 0 };
+    },
+
+    async remove(objectPath) {
+      const { error } = await createServiceRoleClient()
+        .storage.from(bucket())
+        .remove([objectPath]);
+      // `remove` reports a missing key in `data[].error` rather than here, and
+      // we do not care either way — see the interface note on idempotence.
+      if (error) {
+        throw new Error(`failed to delete blob: ${error.message}`);
+      }
     },
   };
 }
@@ -183,6 +201,19 @@ export function s3BlobStorage(bucket: () => string, prefix: () => string): BlobS
         return { size: head.ContentLength ?? 0 };
       } catch (e) {
         if (isMissingObject(e)) return null;
+        throw e;
+      }
+    },
+
+    async remove(objectPath) {
+      try {
+        await getS3Client().send(
+          new DeleteObjectCommand({ Bucket: bucket(), Key: key(objectPath) }),
+        );
+      } catch (e) {
+        // S3 answers 204 for an absent key, but MinIO and OSS are not always so
+        // agreeable — swallow the same "no such object" shapes `stat` knows.
+        if (isMissingObject(e)) return;
         throw e;
       }
     },

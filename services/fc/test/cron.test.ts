@@ -17,6 +17,7 @@ import {
   amuxcFiles,
 } from "../src/db/schema/oss-sync.js";
 import { teams, actors, members, teamMembers, teamWorkspaceConfig } from "../src/db/schema/index.js";
+import type { BlobStorage } from "../src/lib/team-blob-storage.js";
 import { handler } from "../src/index.js";
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,22 @@ test("ossSyncAbandonExpiredSessions: abandoned+>24h expired → deleted", async 
 // ossSyncGcOrphanBlobs
 // ---------------------------------------------------------------------------
 
+/**
+ * In-memory `BlobStorage`. `failOn` makes one key's delete blow up, which is
+ * how the sweep's "keep going, count it" behaviour gets asserted.
+ */
+function makeMockStorage(objects: Set<string>, failOn?: string): BlobStorage {
+  return {
+    async createUploadUrl(p) { return `https://storage.test/up/${p}`; },
+    async createDownloadUrl(p) { return `https://storage.test/down/${p}`; },
+    async stat(p) { return objects.has(p) ? { size: 100 } : null; },
+    async remove(p) {
+      if (p === failOn) throw new Error("storage exploded");
+      objects.delete(p);
+    },
+  };
+}
+
 test("ossSyncGcOrphanBlobs: orphan blob >7d → deleted; referenced blob → kept", async () => {
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
@@ -193,12 +210,112 @@ test("ossSyncGcOrphanBlobs: orphan blob >7d → deleted; referenced blob → kep
     createdBy: actor.id,
   });
 
-  const result = await ossSyncGcOrphanBlobs(db);
+  const objects = new Set(["orphan-key", "recent-orphan-key", "ref-key"]);
+  const result = await ossSyncGcOrphanBlobs(db, {
+    storage: makeMockStorage(objects),
+  });
   assert.equal(result.deleted, 1, "only the old orphan should be deleted");
 
   const remaining: any[] = await db.select().from(amuxcBlobs);
   const hashes = remaining.map((r: any) => r.contentHash).sort();
   assert.deepEqual(hashes, ["recent-orphan-hash", "ref-hash"]);
+
+  // The bytes go too — collecting the row and leaving the object behind is
+  // what made the old GC a no-op for storage.
+  assert.equal(result.objectsDeleted, 1);
+  assert.equal(result.objectsFailed, 0);
+  assert.deepEqual(
+    [...objects].sort(),
+    ["recent-orphan-key", "ref-key"],
+    "only the collected blob's object should be gone",
+  );
+});
+
+test("ossSyncGcOrphanBlobs: a failed object delete is counted, not thrown", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+
+  for (const hash of ["a", "b"]) {
+    await db.insert(amuxcBlobs).values({
+      teamId: team.id,
+      contentHash: `${hash}-hash`,
+      ossKey: `${hash}-key`,
+      size: 100,
+      verified: true,
+      createdAt: ago(8 * 24 * 3_600_000),
+    });
+  }
+
+  const objects = new Set(["a-key", "b-key"]);
+  const result = await ossSyncGcOrphanBlobs(db, {
+    storage: makeMockStorage(objects, "a-key"),
+  });
+
+  // One key blew up; the sweep still finished the other one.
+  assert.equal(result.deleted, 2);
+  assert.equal(result.objectsDeleted, 1);
+  assert.equal(result.objectsFailed, 1);
+  assert.deepEqual([...objects], ["a-key"], "the failed key's object survives");
+
+  // Rows are gone either way. A leaked object is the acceptable failure mode;
+  // a surviving row pointing at deleted bytes is not.
+  assert.equal((await db.select().from(amuxcBlobs)).length, 0);
+});
+
+test("ossSyncGcOrphanBlobs: nothing to collect → storage is never touched", async () => {
+  const { db } = await makeTestDb();
+  await seedTeam(db);
+
+  // No storage injected at all: with zero orphans the real store must never be
+  // constructed, or a deployment with no blob config would fail the sweep.
+  const result = await ossSyncGcOrphanBlobs(db);
+  assert.deepEqual(result, {
+    deleted: 0,
+    objectsDeleted: 0,
+    objectsFailed: 0,
+    capped: 0,
+  });
+});
+
+test("ossSyncGcOrphanBlobs: a run is capped, and the backlog survives it", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+
+  const keys = ["k1", "k2", "k3", "k4", "k5"];
+  for (const k of keys) {
+    await db.insert(amuxcBlobs).values({
+      teamId: team.id,
+      contentHash: `${k}-hash`,
+      ossKey: k,
+      size: 100,
+      verified: true,
+      createdAt: ago(8 * 24 * 3_600_000),
+    });
+  }
+
+  // Unbounded, this run would issue one network round trip per orphan inside a
+  // 30-second function. It stops at the cap instead.
+  const objects = new Set(keys);
+  const first = await ossSyncGcOrphanBlobs(db, {
+    storage: makeMockStorage(objects),
+    limit: 2,
+  });
+  assert.equal(first.deleted, 2);
+  assert.equal(first.objectsDeleted, 2);
+  assert.equal(first.capped, 1, "hitting the cap must be reported, not silent");
+  assert.equal(objects.size, 3, "the rest of the backlog is still there");
+  assert.equal((await db.select().from(amuxcBlobs)).length, 3);
+
+  // Draining continues on the next run, and the last one is not capped.
+  await ossSyncGcOrphanBlobs(db, { storage: makeMockStorage(objects), limit: 2 });
+  const last = await ossSyncGcOrphanBlobs(db, {
+    storage: makeMockStorage(objects),
+    limit: 2,
+  });
+  assert.equal(last.deleted, 1);
+  assert.equal(last.capped, 0, "a run that did not fill the batch is not capped");
+  assert.equal(objects.size, 0);
+  assert.equal((await db.select().from(amuxcBlobs)).length, 0);
 });
 
 // ---------------------------------------------------------------------------
