@@ -245,7 +245,19 @@ describe("DesktopOnboarding", () => {
     cloudApiUrlOverride.value = "https://self-hosted.example.com";
     render(<DesktopOnboarding />);
 
-    // An override must never pass as the baked build config.
-    expect(screen.getByText(/custom$/)).toBeInTheDocument();
+    // An override must never pass as the baked build config. Anchored on the
+    // host: the entry row carries the same "custom" tag now, so a bare /custom$/
+    // matches in two places.
+    expect(screen.getByText(/ucar\.cc · custom$/)).toBeInTheDocument();
+  });
+
+  // The footer is 10px type at the bottom of the window, and it says nothing
+  // about which of the three entries put the app on that server.
+  it("marks the custom server entry itself when an override is active", () => {
+    cloudApiUrlOverride.value = "https://self-hosted.example.com";
+    render(<DesktopOnboarding />);
+
+    const row = screen.getByRole("button", { name: /custom server/i });
+    expect(row).toHaveTextContent("self-hosted.example.com");
   });
 });

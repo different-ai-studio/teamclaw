@@ -18,6 +18,11 @@ import { LoginScreen } from "./LoginScreen";
 
 type Step = "choose" | "login" | "invite" | "server";
 
+/** A Cloud API URL as this screen shows it: no scheme, no trailing slash. */
+function displayHost(url: string): string {
+  return url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   const appVersion = useAppVersion();
@@ -36,7 +41,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               isOverride ? "text-coral" : "text-faint/70",
             ].join(" ")}
           >
-            {cloudApiUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "")}
+            {displayHost(cloudApiUrl)}
             {isOverride && ` · ${t("auth.onboarding.serverCustomTag", "custom")}`}
           </p>
         )}
@@ -81,13 +86,19 @@ function ChoiceRow({
   title,
   caption,
   primary,
+  active,
+  badge,
   disabled,
   onClick,
 }: {
   icon: React.ReactNode;
   title: string;
-  caption: string;
+  caption: React.ReactNode;
   primary?: boolean;
+  /** This row describes the state the app is already in — drawn in the accent
+   *  so it reads as "this is what you are on", not as another thing to pick. */
+  active?: boolean;
+  badge?: string;
   disabled?: boolean;
   onClick: () => void;
 }) {
@@ -96,12 +107,19 @@ function ChoiceRow({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-[14px] border border-border bg-paper p-3 text-left transition-colors hover:bg-selected/45 disabled:cursor-not-allowed disabled:opacity-60"
+      className={[
+        "flex w-full items-center gap-3 rounded-[14px] border p-3 text-left transition-colors hover:bg-selected/45 disabled:cursor-not-allowed disabled:opacity-60",
+        active ? "border-coral bg-coral-soft/25" : "border-border bg-paper",
+      ].join(" ")}
     >
       <span
         className={[
           "flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]",
-          primary ? "bg-coral text-coral-foreground" : "bg-panel text-ink-2",
+          primary
+            ? "bg-coral text-coral-foreground"
+            : active
+              ? "bg-coral-soft text-coral"
+              : "bg-panel text-ink-2",
         ].join(" ")}
       >
         {icon}
@@ -110,6 +128,11 @@ function ChoiceRow({
         <span className="block text-[13px] font-semibold text-foreground">{title}</span>
         <span className="mt-0.5 block text-[12px] leading-5 text-muted-foreground">{caption}</span>
       </span>
+      {badge && (
+        <span className="shrink-0 rounded-[6px] bg-coral-soft px-2 py-0.5 text-[11px] font-medium text-coral">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
@@ -125,6 +148,10 @@ function ChooseStep({
 }) {
   const { t } = useTranslation();
   const { loading, errorMessage } = useAuthStore();
+  // The footer already prints the effective URL in coral, but it is 10px type
+  // at the bottom of the window — easy to miss, and it says nothing about which
+  // of these three entries put the app there. Mark the entry itself too.
+  const override = getCloudApiUrlOverride();
   return (
     <Shell>
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center">
@@ -160,11 +187,21 @@ function ChooseStep({
               when a request is left hanging. */}
           <ChoiceRow
             icon={<Server className="h-4 w-4" />}
+            active={Boolean(override)}
+            badge={override ? t("auth.onboarding.serverCustomTag", "custom") : undefined}
             title={t("auth.onboarding.customServer", "Enterprise custom server")}
-            caption={t(
-              "auth.onboarding.customServerDesc",
-              "Point the app at your company's self-hosted Cloud API and sign in there.",
-            )}
+            caption={
+              override ? (
+                // Which server, not just that there is one: the address is the
+                // whole answer to "what am I about to sign in against".
+                <span className="font-mono text-[11.5px] text-coral">{displayHost(override)}</span>
+              ) : (
+                t(
+                  "auth.onboarding.customServerDesc",
+                  "Point the app at your company's self-hosted Cloud API and sign in there.",
+                )
+              )
+            }
             onClick={onServer}
           />
         </div>
