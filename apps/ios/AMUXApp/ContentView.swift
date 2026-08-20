@@ -64,7 +64,7 @@ struct ContentView: View {
             store: FailingOnboardingStore(
                 error: NSError(
                     domain: "CloudAPI", code: 0,
-                    userInfo: [NSLocalizedDescriptionKey: "Cloud API is not configured."]
+                    userInfo: [NSLocalizedDescriptionKey: String(localized: "Cloud API is not configured.")]
                 )
             )
         )
@@ -168,7 +168,7 @@ struct ContentView: View {
                 readyView
             case .failed:
                 OnboardingErrorView(
-                    message: onboarding.errorMessage ?? "Unknown setup error.",
+                    message: onboarding.errorMessage ?? String(localized: "Unknown setup error."),
                     onRetry: {
                         Task { await onboarding.bootstrap() }
                     },

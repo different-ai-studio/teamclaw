@@ -110,11 +110,11 @@ struct LoginView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .navigationTitle("选择账号")
+            .navigationTitle("Choose account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
+                    Button("Cancel") {
                         coordinator.phoneMultipleUsers = []
                     }
                 }

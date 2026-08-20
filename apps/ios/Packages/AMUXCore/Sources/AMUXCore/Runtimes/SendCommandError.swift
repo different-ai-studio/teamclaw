@@ -16,17 +16,17 @@ public enum SendCommandError: LocalizedError, Sendable, Equatable {
     public var errorDescription: String? {
         switch self {
         case .noAgent:
-            return "Runtime not resolved yet — try again in a moment."
+            return String(localized: "Runtime not resolved yet — try again in a moment.")
         case .addressEmpty:
-            return "Runtime id missing — daemon hasn't published runtime state yet."
+            return String(localized: "Runtime id missing — daemon hasn't published runtime state yet.")
         case .routeActorIdUnresolved:
-            return "Route actor id not resolved — primary agent may be offline."
+            return String(localized: "Route actor id not resolved — primary agent may be offline.")
         case .rpcUnavailable:
-            return "Messaging channel not ready — try again in a moment."
+            return String(localized: "Messaging channel not ready — try again in a moment.")
         case .sessionCold:
-            return "Agent isn't attached to this session right now — it may have gone idle."
+            return String(localized: "Agent isn't attached to this session right now — it may have gone idle.")
         case .rejected(let reason):
-            return reason.isEmpty ? "Command rejected by the agent's daemon." : reason
+            return reason.isEmpty ? String(localized: "Command rejected by the agent's daemon.") : reason
         }
     }
 }

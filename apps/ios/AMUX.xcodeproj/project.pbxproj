@@ -25,6 +25,7 @@
 		989AF52819F1BFC91A3315B1 /* AMUXSharedUI in Frameworks */ = {isa = PBXBuildFile; productRef = 5400E9174EF5F9869349C3EF /* AMUXSharedUI */; };
 		9F1C704FA9F8243CDB69EC7D /* OrgTeamPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37F62CC876FCD92CBF6E057C /* OrgTeamPickerView.swift */; };
 		A77EC78143196C418FE87C82 /* AMUXAuthUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16412C0DABEF538623C6257 /* AMUXAuthUITests.swift */; };
+		B3373E2BF0AEBF0F52946F65 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 4E946A65F7A02F07C9CB9C1E /* Localizable.xcstrings */; };
 		BADAD9E3FCAD93B7FBAC2B28 /* Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537E64EAD78ACC7946325945 /* Analytics.swift */; };
 		E162A3FC8793994442C23372 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5C333674232A156EF5A6D1 /* WelcomeView.swift */; };
 		EB09506708CCBE1B923FBFAE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 25D67C6EB2C2948CCFE684D1 /* Assets.xcassets */; };
@@ -41,6 +42,7 @@
 		278531282E6CC92737596EAF /* AMUXCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AMUXCore; path = Packages/AMUXCore; sourceTree = SOURCE_ROOT; };
 		37F62CC876FCD92CBF6E057C /* OrgTeamPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrgTeamPickerView.swift; sourceTree = "<group>"; };
 		499D508CBB7FB4FD1F584D9D /* AMUXApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMUXApp.swift; sourceTree = "<group>"; };
+		4E946A65F7A02F07C9CB9C1E /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		514F7615E8C226A5F3660A5F /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		537E64EAD78ACC7946325945 /* Analytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Analytics.swift; sourceTree = "<group>"; };
 		5A17336F2708FD5E2A0C62C8 /* AMUXSharedUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AMUXSharedUI; path = Packages/AMUXSharedUI; sourceTree = SOURCE_ROOT; };
@@ -118,6 +120,7 @@
 				08132EB197A0E82A4E7F3C97 /* ChooseAuthView.swift */,
 				F467BD534BE686B6EACBD702 /* ContentView.swift */,
 				FDEFC0BF7C8A215582AF7257 /* Info.plist */,
+				4E946A65F7A02F07C9CB9C1E /* Localizable.xcstrings */,
 				514F7615E8C226A5F3660A5F /* LoginView.swift */,
 				A57443CB6DA7A01B751BBA00 /* OnboardingViews.swift */,
 				37F62CC876FCD92CBF6E057C /* OrgTeamPickerView.swift */,
@@ -207,6 +210,7 @@
 			knownRegions = (
 				Base,
 				en,
+				"zh-Hans",
 			);
 			mainGroup = 83793258F8E10835639EAA01;
 			minimizedProjectReferenceProxies = 1;
@@ -234,6 +238,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				EB09506708CCBE1B923FBFAE /* Assets.xcassets in Resources */,
+				B3373E2BF0AEBF0F52946F65 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

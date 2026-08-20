@@ -41,7 +41,7 @@ struct PendingInvitesSheet: View {
     private func inviteRow(_ invite: PendingInvite) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(invite.teamName ?? "Unnamed team")
+                Text(invite.teamName ?? String(localized: "Unnamed team"))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.amux.onyx)
                 if let inviter = invite.invitedByDisplayName, !inviter.isEmpty {

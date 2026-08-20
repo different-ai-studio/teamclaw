@@ -23,9 +23,9 @@ public struct PermissionOptionItem: Identifiable, Equatable, Sendable {
     /// options, mirroring the desktop client's fallback
     /// (packages/app/src/lib/teamclu/acp-permission-option.ts).
     public static let openCodeDefaults: [PermissionOptionItem] = [
-        PermissionOptionItem(id: "once", kind: "allow_once", name: "Allow once"),
-        PermissionOptionItem(id: "always", kind: "allow_always", name: "Always allow"),
-        PermissionOptionItem(id: "reject", kind: "reject_once", name: "Reject"),
+        PermissionOptionItem(id: "once", kind: "allow_once", name: String(localized: "Allow once")),
+        PermissionOptionItem(id: "always", kind: "allow_always", name: String(localized: "Always allow")),
+        PermissionOptionItem(id: "reject", kind: "reject_once", name: String(localized: "Reject")),
     ]
 
     /// The option an auto-approve (session full access) picks: allow-once,

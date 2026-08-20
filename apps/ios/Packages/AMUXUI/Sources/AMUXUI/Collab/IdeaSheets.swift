@@ -47,7 +47,7 @@ struct CreateIdeaSheet: View {
     }
 
     private var teamName: String {
-        coordinator?.currentContext?.team.name ?? "this team"
+        coordinator?.currentContext?.team.name ?? String(localized: "this team")
     }
 
     private var teamID: String {
@@ -254,7 +254,7 @@ struct CreateIdeaSheet: View {
     private func addImageAttachment(_ url: URL) async {
         guard !imageAttachments.contains(url) else { return }
         guard let manager = ensureUploadManager() else {
-            ideaStore.errorMessage = "Image upload is unavailable for this team."
+            ideaStore.errorMessage = String(localized: "Image upload is unavailable for this team.")
             return
         }
         imageAttachments.append(url)
@@ -393,7 +393,7 @@ struct IdeaRow: View {
                     .foregroundStyle(.white)
             }
             .frame(width: 18, height: 18)
-            Text(name.isEmpty ? "Unknown" : name)
+            Text(name.isEmpty ? String(localized: "Unknown") : name)
                 .font(.caption)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
@@ -409,7 +409,7 @@ struct IdeaRow: View {
 private extension Date {
     var amuxRelativeAbbreviated: String {
         let seconds = max(0, Int(Date().timeIntervalSince(self)))
-        if seconds < 60 { return "now" }
+        if seconds < 60 { return String(localized: "now") }
         let minutes = seconds / 60
         if minutes < 60 { return "\(minutes)m" }
         let hours = minutes / 60

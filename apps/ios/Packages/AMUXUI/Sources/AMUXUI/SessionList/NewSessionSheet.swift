@@ -169,7 +169,7 @@ public struct NewSessionSheet: View {
                             collaborators.append(actor)
                         }
                     } else {
-                        return "This agent has no workspace. Add one in Agent settings."
+                        return String(localized: "This agent has no workspace. Add one in Agent settings.")
                     }
                     return nil
                 }
@@ -206,7 +206,7 @@ public struct NewSessionSheet: View {
 
     private var collaboratorsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HaiSectionLabel("Collaborators")
+            HaiSectionLabel(String(localized: "Collaborators"))
             HaiPaperCard {
                 Button {
                     showMemberPicker = true
@@ -284,7 +284,7 @@ public struct NewSessionSheet: View {
            let item = ideas.first(where: { $0.ideaId == id }) {
             return item.displayTitle
         }
-        return "None"
+        return String(localized: "None")
     }
 
     // MARK: - Input bar
@@ -404,18 +404,18 @@ public struct NewSessionSheet: View {
 
     private func createSession(text: String, title: String) {
         guard let currentActorID else {
-            errorMessage = "Current actor is not ready yet."
+            errorMessage = String(localized: "Current actor is not ready yet.")
             return
         }
         guard let teamcluService else {
-            errorMessage = "Teamclu service is not ready."
+            errorMessage = String(localized: "Teamclu service is not ready.")
             return
         }
 
         // Verify all selected agents have reachable daemons before starting.
         for (agentActorID, _) in agentConfigs {
             if routeActorID(forAgentActorID: agentActorID).isEmpty {
-                errorMessage = "An agent's daemon is offline. Wait for it to reconnect."
+                errorMessage = String(localized: "An agent's daemon is offline. Wait for it to reconnect.")
                 return
             }
         }
@@ -470,7 +470,7 @@ public struct NewSessionSheet: View {
         Task {
             guard let repository = sessionsRepository else {
                 isSending = false
-                errorMessage = "Cloud API is not configured."
+                errorMessage = String(localized: "Cloud API is not configured.")
                 return
             }
             let useCase = SessionCreationUseCase(
@@ -498,7 +498,7 @@ public struct NewSessionSheet: View {
 
     private func createLocalSession(text: String, title: String) {
         guard let currentActorID else {
-            errorMessage = "Current actor is not ready yet."
+            errorMessage = String(localized: "Current actor is not ready yet.")
             return
         }
 

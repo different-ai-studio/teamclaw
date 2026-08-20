@@ -103,8 +103,8 @@ public struct EventBubbleView: View {
     @Environment(AppOnboardingCoordinator.self) private var coordinator: AppOnboardingCoordinator?
 
     private var senderDisplayName: String {
-        guard let senderID = event.senderActorID, !senderID.isEmpty else { return "You" }
-        if senderID == currentActorID { return "You" }
+        guard let senderID = event.senderActorID, !senderID.isEmpty else { return String(localized: "You") }
+        if senderID == currentActorID { return String(localized: "You") }
         if let name = actorMap.displayName(for: senderID) { return name }
         return String(senderID.prefix(8))
     }
@@ -364,7 +364,7 @@ public struct EventBubbleView: View {
                 CompactToolLine(event: event)
             } else {
                 ToolCallView(
-                    toolName: event.toolName ?? "Unknown",
+                    toolName: event.toolName ?? String(localized: "Unknown"),
                     toolId: event.toolId ?? "",
                     description: event.text ?? "",
                     status: "running"
@@ -381,7 +381,7 @@ public struct EventBubbleView: View {
     // MARK: - Error
 
     private var errorBlock: some View {
-        ErrorBlockView(message: event.text ?? "Unknown error")
+        ErrorBlockView(message: event.text ?? String(localized: "Unknown error"))
     }
 }
 
@@ -430,11 +430,11 @@ public struct ActiveStreamCardView: View {
     private var displayText: String {
         if isPending {
             if pendingElapsed >= Self.patienceThreshold {
-                return "Agent 启动较慢，请耐心等候…"
+                return String(localized: "Agent is taking a while to start — hang tight…")
             }
-            return "Agent loading…"
+            return String(localized: "Agent loading…")
         }
-        return lastLine.isEmpty ? "Working…" : lastLine
+        return lastLine.isEmpty ? String(localized: "Working…") : lastLine
     }
 
     public var body: some View {
@@ -1017,7 +1017,7 @@ struct ReplyQuoteChip: View {
             .split(separator: "\n", omittingEmptySubsequences: true)
             .first.map(String.init) ?? ""
         let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? "Message unavailable" : trimmed
+        return trimmed.isEmpty ? String(localized: "Message unavailable") : trimmed
     }
 
     var body: some View {

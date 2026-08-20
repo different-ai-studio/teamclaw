@@ -32,8 +32,8 @@ struct ChooseAuthView: View {
             VStack(spacing: 12) {
                 actionRow(
                     icon: "envelope",
-                    title: "Sign in or register",
-                    caption: "Use email, Apple, or Google to sync across devices.",
+                    title: String(localized: "Sign in or register"),
+                    caption: String(localized: "Use email, Apple, or Google to sync across devices."),
                     isPrimary: true
                 ) {
                     showLogin = true
@@ -42,8 +42,8 @@ struct ChooseAuthView: View {
 
                 actionRow(
                     icon: "link",
-                    title: "Join a team",
-                    caption: "Paste an invite link from a teammate.",
+                    title: String(localized: "Join a team"),
+                    caption: String(localized: "Paste an invite link from a teammate."),
                     isPrimary: false
                 ) {
                     showInviteSheet = true
@@ -52,7 +52,7 @@ struct ChooseAuthView: View {
 
                 actionRow(
                     icon: "server.rack",
-                    title: "Custom server",
+                    title: String(localized: "Custom server"),
                     caption: serverCaption,
                     isPrimary: false
                 ) {
@@ -106,9 +106,9 @@ struct ChooseAuthView: View {
         if CloudAPIConfigurationStore.hasCloudAPIURLOverride(),
            let raw = CloudAPIConfigurationStore.storedCloudAPIURL(),
            let host = URL(string: raw)?.host {
-            return "Connected to \(host)."
+            return String(localized: "Connected to \(host).")
         }
-        return "Point the app at your own deployment."
+        return String(localized: "Point the app at your own deployment.")
     }
 
     private var header: some View {
@@ -287,7 +287,7 @@ private struct InviteJoinSheet: View {
 
     private func submit() {
         guard let token = parseToken(raw) else {
-            localError = "Couldn't read a token from that link."
+            localError = String(localized: "Couldn't read a token from that link.")
             return
         }
         localError = nil
@@ -307,7 +307,7 @@ private struct InviteJoinSheet: View {
 
     private func useExistingAccount() {
         guard let token = parseToken(raw) else {
-            localError = "Couldn't read a token from that link."
+            localError = String(localized: "Couldn't read a token from that link.")
             return
         }
         localError = nil

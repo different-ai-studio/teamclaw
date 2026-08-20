@@ -180,7 +180,7 @@ struct ActorResourceListView: View {
 
     private func load() async {
         guard let repository else {
-            errorMessage = "Not signed in to a team."
+            errorMessage = String(localized: "Not signed in to a team.")
             isLoading = false
             return
         }

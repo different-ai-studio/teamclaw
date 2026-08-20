@@ -89,9 +89,9 @@ public struct MemberListContent: View {
         // pill would print "All · 4" alongside "Humans · 3 / Agents · 0",
         // a phantom row the user can never see.
         [
-            .init(tag: .all,    title: "All",    count: humans.count + agents.count),
-            .init(tag: .humans, title: "Humans", count: humans.count),
-            .init(tag: .agents, title: "Agents", count: agents.count),
+            .init(tag: .all,    title: String(localized: "All"),    count: humans.count + agents.count),
+            .init(tag: .humans, title: String(localized: "Humans"), count: humans.count),
+            .init(tag: .agents, title: String(localized: "Agents"), count: agents.count),
         ]
     }
 
@@ -126,14 +126,14 @@ public struct MemberListContent: View {
                         Section {
                             ForEach(kindFilteredHumans, id: \.actorId, content: detailLink)
                         } header: {
-                            sectionHeader(title: "Humans", count: kindFilteredHumans.count)
+                            sectionHeader(title: String(localized: "Humans"), count: kindFilteredHumans.count)
                         }
                     }
                     if !kindFilteredAgents.isEmpty {
                         Section {
                             ForEach(kindFilteredAgents, id: \.actorId, content: detailLink)
                         } header: {
-                            sectionHeader(title: "Agent actors", count: kindFilteredAgents.count)
+                            sectionHeader(title: String(localized: "Agent actors"), count: kindFilteredAgents.count)
                         }
                     }
                 }
@@ -262,7 +262,7 @@ private struct ActorRow: View {
     /// agents get a mono `kind · status` line.
     private var subtitle: String {
         if isMe {
-            return "you"
+            return String(localized: "you")
         }
         if actor.isMember { return actor.roleLabel }
         let kind: String
@@ -270,7 +270,7 @@ private struct ActorRow: View {
         case "claude", "claude_code": kind = "Claude"
         case "opencode":    kind = "OpenCode"
         case "codex":       kind = "Codex"
-        default:            kind = "Agent"
+        default:            kind = String(localized: "Agent")
         }
         let status = actor.agentStatus ?? ""
         return status.isEmpty ? kind : "\(kind) · \(status)"
@@ -299,17 +299,17 @@ private struct ActorRow: View {
         // which is the most important call-out in the list. Owner/Agent
         // step back into Basalt-on-Pebble per the wabi-sabi quietness rule.
         if isMe {
-            return Tag(text: "YOU",
+            return Tag(text: String(localized: "YOU"),
                        foreground: Color.amux.cinnabar,
                        background: Color.amux.cinnabar.opacity(0.10))
         }
         if actor.isOwner {
-            return Tag(text: "OWNER",
+            return Tag(text: String(localized: "OWNER"),
                        foreground: Color.amux.basalt,
                        background: Color.amux.pebble)
         }
         if actor.isAgent {
-            return Tag(text: "AGENT",
+            return Tag(text: String(localized: "AGENT"),
                        foreground: Color.amux.basalt,
                        background: Color.amux.pebble)
         }
@@ -481,14 +481,14 @@ struct ActorDetailView: View {
 
     private var reinviteButtonTitle: String {
         actor.isAgent
-            ? "Regenerate Invite Link"
-            : "Generate Re-invite Link"
+            ? String(localized: "Regenerate Invite Link")
+            : String(localized: "Generate Re-invite Link")
     }
 
     private var reinviteFootnote: String {
         actor.isAgent
-            ? "Use this if the daemon was wiped and needs to re-pair."
-            : "Use this if the user signed out and lost access. Only available for anonymous accounts."
+            ? String(localized: "Use this if the daemon was wiped and needs to re-pair.")
+            : String(localized: "Use this if the user signed out and lost access. Only available for anonymous accounts.")
     }
 
     private var availableAuthorizedMemberCandidates: [CachedActor] {
@@ -512,7 +512,7 @@ struct ActorDetailView: View {
             Section("Info") {
                 Group {
                     LabeledContent("Name", value: actor.displayName)
-                    LabeledContent("Kind", value: actor.isMember ? "Human" : "Agent")
+                    LabeledContent("Kind", value: actor.isMember ? String(localized: "Human") : String(localized: "Agent"))
                     if actor.isMember {
                         LabeledContent("Role",   value: actor.roleLabel)
                         LabeledContent("Status", value: actor.memberStatus?.capitalized ?? "—")
@@ -795,7 +795,7 @@ struct ActorDetailView: View {
                 if ok {
                     dismiss()
                 } else {
-                    deleteErrorMessage = store.errorMessage ?? "Delete failed."
+                    deleteErrorMessage = store.errorMessage ?? String(localized: "Delete failed.")
                 }
             }
         }
@@ -838,12 +838,12 @@ struct ActorDetailView: View {
     }
 
     private func friendlyInviteError(_ raw: String?) -> String {
-        guard let raw else { return "Failed to create invite." }
+        guard let raw else { return String(localized: "Failed to create invite.") }
         if raw.contains("cannot re-invite member with bound auth identity") {
-            return "This member signs in via Apple/Google/email — they recover by signing back in, no re-invite needed."
+            return String(localized: "This member signs in via Apple/Google/email — they recover by signing back in, no re-invite needed.")
         }
         if raw.contains("target member is no longer anonymous") {
-            return "This member upgraded their account since the invite was created. Re-invite is no longer applicable."
+            return String(localized: "This member upgraded their account since the invite was created. Re-invite is no longer applicable.")
         }
         return raw
     }
@@ -859,11 +859,11 @@ struct ActorDetailView: View {
         // not inside ~/.amuxd) went with the RPC and only re-surfaces at
         // spawn time — catch the obviously-broken inputs here at least.
         guard path.hasPrefix("/") else {
-            workspaceErrorMessage = "Enter an absolute path (starting with /) on the agent's machine."
+            workspaceErrorMessage = String(localized: "Enter an absolute path (starting with /) on the agent's machine.")
             return
         }
         guard let workspaceStore else {
-            workspaceErrorMessage = "Workspace store unavailable."
+            workspaceErrorMessage = String(localized: "Workspace store unavailable.")
             return
         }
 
@@ -879,7 +879,7 @@ struct ActorDetailView: View {
                     newWorkspacePath = ""
                     workspaceErrorMessage = nil
                 } else {
-                    workspaceErrorMessage = workspaceStore.errorMessage ?? "Add failed"
+                    workspaceErrorMessage = workspaceStore.errorMessage ?? String(localized: "Add failed")
                 }
             }
         }
@@ -893,7 +893,7 @@ struct ActorDetailView: View {
             for member in members {
                 let ok = await authorizedHumansStore.grant(memberID: member.actorId)
                 if !ok, firstFailure == nil {
-                    firstFailure = authorizedHumansStore.errorMessage ?? "Failed to authorize member."
+                    firstFailure = authorizedHumansStore.errorMessage ?? String(localized: "Failed to authorize member.")
                 }
             }
 
@@ -1216,7 +1216,7 @@ struct ActorDetailView: View {
                 if result.ok {
                     myDefaultAgentID = result.value
                 } else {
-                    myDefaultErrorMessage = store.errorMessage ?? "Failed to update default agent."
+                    myDefaultErrorMessage = store.errorMessage ?? String(localized: "Failed to update default agent.")
                 }
             }
         }
@@ -1331,7 +1331,7 @@ struct ActorDetailView: View {
             await MainActor.run {
                 isSavingDefaults = false
                 if result == nil {
-                    defaultsErrorMessage = store.errorMessage ?? "Failed to save defaults."
+                    defaultsErrorMessage = store.errorMessage ?? String(localized: "Failed to save defaults.")
                 }
             }
         }
@@ -1393,7 +1393,7 @@ private struct RecentSessionRow: View {
 
     private func formatted(_ date: Date) -> String {
         let s = Int(-date.timeIntervalSinceNow)
-        if s < 60     { return "now" }
+        if s < 60     { return String(localized: "now") }
         if s < 3600   { return "\(s/60)m" }
         if s < 86400  { return "\(s/3600)h" }
         if s < 604800 { return "\(s/86400)d" }
@@ -1406,7 +1406,7 @@ private struct RecentSessionRow: View {
             Circle()
                 .fill(dotColor)
                 .frame(width: 8, height: 8)
-            Text(session.title.isEmpty ? "Untitled session" : session.title)
+            Text(session.title.isEmpty ? String(localized: "Untitled session") : session.title)
                 .font(.subheadline)
                 .lineLimit(1)
             Spacer()

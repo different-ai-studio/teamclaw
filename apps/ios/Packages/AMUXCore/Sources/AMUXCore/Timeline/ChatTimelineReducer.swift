@@ -306,7 +306,12 @@ public enum ChatTimelineReducer {
                 toolID: pr.requestID,
                 toolName: pr.toolName,
                 senderActorID: bucket,
-                timestamp: input.timestamp
+                timestamp: input.timestamp,
+                // Anchor: buildFeedItems re-orders permission rows to sit
+                // before their turn's bubble (the reply row's timestamp is
+                // the turn's START, so pure time-sorting lands mid-turn
+                // permissions after the reply).
+                turnID: input.turnID
             ))
             return .entriesChanged
 

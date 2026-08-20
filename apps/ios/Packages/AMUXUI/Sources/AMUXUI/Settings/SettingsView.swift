@@ -216,7 +216,7 @@ public struct SettingsView: View {
     }
 
     private func roleBadge(_ role: String) -> some View {
-        let label = role.lowercased() == "owner" ? "Owner" : role.capitalized
+        let label = role.lowercased() == "owner" ? String(localized: "Owner") : role.capitalized
         return Text(label.uppercased())
             .font(.system(size: 10, weight: .bold))
             .tracking(0.3)
@@ -233,7 +233,7 @@ public struct SettingsView: View {
 
     private var connectedAgentsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SettingsSectionLabel("Connected personal agents")
+            SettingsSectionLabel(String(localized: "Connected personal agents"))
             VStack(spacing: 0) {
                 if let store = connectedAgentsStore {
                     let personalAgents = store.agents.filter { $0.visibility == "personal" }
@@ -292,7 +292,7 @@ public struct SettingsView: View {
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundStyle(Color.amux.onyx)
                     .lineLimit(1)
-                Text(meta.isEmpty ? (agent.isOnline ? "online" : "offline") : meta)
+                Text(meta.isEmpty ? (agent.isOnline ? String(localized: "online") : String(localized: "offline")) : meta)
                     .font(.system(size: 11.5, design: .monospaced))
                     .foregroundStyle(Color.amux.basalt.opacity(0.75))
                     .lineLimit(1)
@@ -345,19 +345,19 @@ public struct SettingsView: View {
             EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                SettingsSectionLabel("Team")
+                SettingsSectionLabel(String(localized: "Team"))
                 VStack(spacing: 0) {
                     if let details = teamDetails {
                         if let orgName = details.orgName, !orgName.isEmpty {
-                            SettingsRow(label: "Org Name", value: orgName)
+                            SettingsRow(label: String(localized: "Org Name"), value: orgName)
                             Divider().background(Color.amux.hairline).padding(.leading, 14)
                         }
-                        SettingsRow(label: "Team Name", value: details.name)
+                        SettingsRow(label: String(localized: "Team Name"), value: details.name)
                         Divider().background(Color.amux.hairline).padding(.leading, 14)
-                        SettingsRow(label: "Owner", value: details.ownerDisplayName ?? "—")
+                        SettingsRow(label: String(localized: "Owner"), value: details.ownerDisplayName ?? "—")
                         Divider().background(Color.amux.hairline).padding(.leading, 14)
                         SettingsRow(
-                            label: "Created",
+                            label: String(localized: "Created"),
                             value: details.createdAt.formatted(date: .abbreviated, time: .shortened)
                         )
                         Divider().background(Color.amux.hairline).padding(.leading, 14)
@@ -436,24 +436,24 @@ public struct SettingsView: View {
     @ViewBuilder
     private var teamDefaultAgentSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SettingsSectionLabel("团队默认 Agent")
+            SettingsSectionLabel(String(localized: "Team Default Agent"))
             VStack(spacing: 0) {
                 if canEditTeamDefaultAgent {
                     // Editable picker for owner/admin
                     let agents = teamAgents
                     if agents.isEmpty {
-                        Text("暂无团队 Agent")
+                        Text("No team agents yet")
                             .font(.system(size: 14))
                             .foregroundStyle(Color.amux.basalt)
                             .padding(14)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         HStack {
-                            Text("默认 Agent")
+                            Text("Default agent")
                                 .font(.system(size: 14.5))
                                 .foregroundStyle(Color.amux.onyx)
                             Spacer(minLength: 8)
-                            Picker("默认 Agent", selection: Binding(
+                            Picker("Default agent", selection: Binding(
                                 get: { teamDefaultAgentID ?? "" },
                                 set: { newValue in
                                     let agentID: String? = newValue.isEmpty ? nil : newValue
@@ -463,7 +463,7 @@ public struct SettingsView: View {
                                     Task { await applyTeamDefaultAgent(agentID, previousID: previousID) }
                                 }
                             )) {
-                                Text("未设置").tag("")
+                                Text("Not set").tag("")
                                 ForEach(agents) { agent in
                                     Text(agent.displayName).tag(agent.id)
                                 }
@@ -486,7 +486,7 @@ public struct SettingsView: View {
                 } else {
                     // Read-only display for regular members
                     let agentName = teamAgents.first(where: { $0.id == teamDefaultAgentID })?.displayName
-                    SettingsRow(label: "默认 Agent", value: agentName ?? "未设置")
+                    SettingsRow(label: String(localized: "Default agent"), value: agentName ?? String(localized: "Not set"))
                 }
             }
             .background(SettingsCardBackground())
@@ -498,7 +498,7 @@ public struct SettingsView: View {
 
     private func notificationsSection(store: NotificationPrefsStore) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            SettingsSectionLabel("Preferences")
+            SettingsSectionLabel(String(localized: "Preferences"))
             VStack(spacing: 0) {
                 NavigationLink {
                     NotificationsSettingsView(store: store)
@@ -527,10 +527,10 @@ public struct SettingsView: View {
 
     private var aboutSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SettingsSectionLabel("About")
+            SettingsSectionLabel(String(localized: "About"))
             VStack(spacing: 0) {
                 SettingsRow(
-                    label: "Version",
+                    label: String(localized: "Version"),
                     value: "\(appVersion) (\(buildNumber))",
                     valueIsMonospaced: true
                 )
@@ -772,7 +772,7 @@ private struct EditProfileSheet: View {
             guard let data = try await item.loadTransferable(type: Data.self),
                   let image = UIImage(data: data),
                   let jpeg = image.jpegData(compressionQuality: 0.82) else {
-                errorMessage = "Could not load that image."
+                errorMessage = String(localized: "Could not load that image.")
                 return
             }
             selectedAvatarImage = image
@@ -792,7 +792,7 @@ private struct EditProfileSheet: View {
 
         do {
             guard let repo = actorRepository else {
-                errorMessage = "Cloud API is not configured."
+                errorMessage = String(localized: "Cloud API is not configured.")
                 return
             }
             var nextAvatarURL = avatarURL

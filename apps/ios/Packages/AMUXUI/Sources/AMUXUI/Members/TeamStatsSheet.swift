@@ -30,6 +30,15 @@ struct TeamStatsSheet: View {
             case .month: return "month"
             }
         }
+
+        /// Separate from `rawValue`, which doubles as enum identity.
+        var displayName: String {
+            switch self {
+            case .today: return String(localized: "Today")
+            case .week: return String(localized: "Week")
+            case .month: return String(localized: "Month")
+            }
+        }
     }
 
     @State private var period: Period = .week
@@ -143,7 +152,7 @@ struct TeamStatsSheet: View {
               let onboarding,
               let config = CloudAPIConfigurationStore.configuration()
         else {
-            loadError = "Team stats need a signed-in Cloud API session."
+            loadError = String(localized: "Team stats need a signed-in Cloud API session.")
             return
         }
         isLoading = true
@@ -167,7 +176,7 @@ struct TeamStatsSheet: View {
     private var periodPicker: some View {
         Picker("Period", selection: $period) {
             ForEach(Period.allCases, id: \.self) { p in
-                Text(p.rawValue).tag(p)
+                Text(p.displayName).tag(p)
             }
         }
         .pickerStyle(.segmented)
@@ -178,17 +187,17 @@ struct TeamStatsSheet: View {
     private var summaryRow: some View {
         HStack(spacing: 10) {
             summaryCard(
-                label: "TOKENS",
+                label: String(localized: "TOKENS"),
                 value: formattedTokens(totalTokens),
                 icon: "sparkles"
             )
             summaryCard(
-                label: "SESSIONS",
+                label: String(localized: "SESSIONS"),
                 value: "\(totalSessions)",
                 icon: "bubble.left.and.bubble.right"
             )
             summaryCard(
-                label: "SKILLS",
+                label: String(localized: "SKILLS"),
                 value: "\(totalSkills)",
                 icon: "hammer"
             )
@@ -223,7 +232,7 @@ struct TeamStatsSheet: View {
 
     private var rankingSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionEyebrow("TOKEN RANKING")
+            sectionEyebrow(String(localized: "TOKEN RANKING"))
 
             VStack(spacing: 0) {
                 ForEach(Array(actorStats.enumerated()), id: \.element.id) { idx, stat in
@@ -297,7 +306,7 @@ struct TeamStatsSheet: View {
 
     private var skillsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionEyebrow("SKILLS USAGE")
+            sectionEyebrow(String(localized: "SKILLS USAGE"))
 
             VStack(spacing: 0) {
                 ForEach(Array(topSkills.enumerated()), id: \.element.id) { idx, skill in

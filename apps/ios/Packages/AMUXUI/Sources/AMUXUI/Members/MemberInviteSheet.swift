@@ -66,20 +66,20 @@ public struct MemberInviteSheet: View {
 
                 if needsUpgrade {
                     Section {
-                        Text("当前团队还在公共组织下，只能自己使用。升级账号、创建你自己的团队后即可邀请成员。")
+                        Text("This team still lives in the shared public org, so it's single-user. Upgrade your account and create your own team to invite members.")
                             .font(.footnote).foregroundStyle(.secondary)
-                        TextField("团队/组织名称", text: $orgName)
+                        TextField("Team / org name", text: $orgName)
                             .accessibilityIdentifier("invite.upgradeOrgName")
-                        TextField("联系方式（选填）", text: $contact)
+                        TextField("Contact (optional)", text: $contact)
                         Button {
                             upgrade()
                         } label: {
-                            if isUpgrading { ProgressView() } else { Text("升级账号") }
+                            if isUpgrading { ProgressView() } else { Text("Upgrade account") }
                         }
                         .disabled(orgName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isUpgrading)
                         .accessibilityIdentifier("invite.upgradeButton")
                     } header: {
-                        Text("升级账号")
+                        Text("Upgrade account")
                     } footer: {
                         if let errorMessage {
                             Text(errorMessage).foregroundStyle(Color.amux.cinnabarDeep)
@@ -174,7 +174,7 @@ public struct MemberInviteSheet: View {
                 needsUpgrade = false
                 orgName = ""; contact = ""
             } else {
-                errorMessage = store.errorMessage ?? "升级失败，请重试。"
+                errorMessage = store.errorMessage ?? String(localized: "Upgrade failed — please try again.")
             }
             isUpgrading = false
         }

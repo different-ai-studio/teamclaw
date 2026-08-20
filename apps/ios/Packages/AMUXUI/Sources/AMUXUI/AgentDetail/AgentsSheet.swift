@@ -175,7 +175,7 @@ struct AgentsSheet: View {
 
     private func currentModelLabel(_ runtime: AgentAttachment) -> String {
         guard let currentID = runtime.currentModel, !currentID.isEmpty else {
-            return "Model"
+            return String(localized: "Model")
         }
         return runtime.availableModels.first(where: { $0.id == currentID })?.displayName ?? currentID
     }
@@ -190,8 +190,8 @@ struct AgentsSheet: View {
 
     private func accessibilityLabel(agent: MemberSheetAgent, isSelected: Bool, isRunning: Bool) -> String {
         var parts = [agent.displayName]
-        parts.append(isSelected ? "selected" : "unselected")
-        parts.append(isRunning ? "running" : "idle")
+        parts.append(isSelected ? String(localized: "selected") : String(localized: "unselected"))
+        parts.append(isRunning ? String(localized: "running") : String(localized: "idle"))
         return parts.joined(separator: ", ")
     }
 }

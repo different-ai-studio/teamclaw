@@ -77,7 +77,7 @@ struct ServerSettingsSheet: View {
     private func save() async {
         errorMessage = nil
         guard let url = ServerEndpoint.normalize(urlText) else {
-            errorMessage = "Enter a server address like https://api.example.com."
+            errorMessage = String(localized: "Enter a server address like https://api.example.com.")
             return
         }
         isProbing = true
@@ -86,11 +86,11 @@ struct ServerSettingsSheet: View {
             break
         case .badStatus(let code):
             isProbing = false
-            errorMessage = "That server answered with HTTP \(code) — it doesn't look like a TeamClu Cloud API."
+            errorMessage = String(localized: "That server answered with HTTP \(code) — it doesn't look like a TeamClu Cloud API.")
             return
         case .unreachable(let reason):
             isProbing = false
-            errorMessage = "Can't reach that server: \(reason)"
+            errorMessage = String(localized: "Can't reach that server: \(reason)")
             return
         }
         isProbing = false

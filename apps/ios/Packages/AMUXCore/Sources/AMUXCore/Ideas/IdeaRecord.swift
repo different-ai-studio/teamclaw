@@ -63,11 +63,11 @@ public struct IdeaRecord: Codable, Equatable, Hashable, Identifiable, Sendable {
     public var statusLabel: String {
         switch status {
         case "open":
-            return "Open"
+            return String(localized: "Open")
         case "in_progress":
-            return "In Progress"
+            return String(localized: "In Progress")
         case "done":
-            return "Done"
+            return String(localized: "Done")
         default:
             return status
         }

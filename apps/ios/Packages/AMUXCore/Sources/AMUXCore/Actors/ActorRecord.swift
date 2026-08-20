@@ -56,9 +56,9 @@ public struct ActorRecord: Codable, Equatable, Hashable, Identifiable, Sendable 
 
     public var roleLabel: String {
         switch teamRole {
-        case "owner":  return "Owner"
-        case "admin":  return "Admin"
-        case "member": return "Member"
+        case "owner":  return String(localized: "Owner")
+        case "admin":  return String(localized: "Admin")
+        case "member": return String(localized: "Member")
         default:       return "—"
         }
     }

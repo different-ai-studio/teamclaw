@@ -714,7 +714,7 @@ public struct SessionDetailView: View {
                         HStack(spacing: 3) {
                             Image(systemName: "list.bullet.indent")
                                 .font(.system(size: 10, weight: .semibold))
-                            Text("过程")
+                            Text("Process")
                                 .font(.system(size: 11, weight: .medium))
                         }
                         .foregroundStyle(Color.amux.cinnabar)
@@ -731,7 +731,7 @@ public struct SessionDetailView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("查看过程")
+                    .accessibilityLabel("View process")
                 }
             )
         }
@@ -928,7 +928,7 @@ private struct AcpQuestionCard: View {
             return custom.isEmpty ? Array(selected[question.id, default: []]).sorted() : [custom]
         }
         guard answers.allSatisfy({ !$0.isEmpty }) else {
-            errorMessage = "Answer each question before submitting."
+            errorMessage = String(localized: "Answer each question before submitting.")
             return
         }
         isSubmitting = true

@@ -25,7 +25,7 @@ public struct ToolCallDiffView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text(path.isEmpty ? "diff" : path)
+                Text(path.isEmpty ? String(localized: "diff") : path)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Color.amux.basalt)
                     .lineLimit(1)

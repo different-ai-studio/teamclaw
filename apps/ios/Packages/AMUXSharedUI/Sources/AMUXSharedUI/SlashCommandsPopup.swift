@@ -50,9 +50,9 @@ public struct SlashCommandsPopup: View {
     }
 
     private func accessibilityLabel(for cmd: SlashCommand) -> String {
-        var label = "slash \(cmd.name). \(cmd.description)"
+        var label = String(localized: "slash \(cmd.name). \(cmd.description)")
         if !cmd.inputHint.isEmpty {
-            label += ". argument \(cmd.inputHint)"
+            label += String(localized: ". argument \(cmd.inputHint)")
         }
         return label
     }

@@ -106,12 +106,12 @@ public final class AgentAttachment {
 
     public var statusLabel: String {
         switch status {
-        case 1: "Starting"
-        case 2: "Active"
-        case 3: "Idle"
-        case 4: "Error"
-        case 5: "Stopped"
-        default: "Unknown"
+        case 1: String(localized: "Starting")
+        case 2: String(localized: "Active")
+        case 3: String(localized: "Idle")
+        case 4: String(localized: "Error")
+        case 5: String(localized: "Stopped")
+        default: String(localized: "Unknown")
         }
     }
 
@@ -122,7 +122,7 @@ public final class AgentAttachment {
         case 3: "Codex"
         case 4: "pi"
         case 5: "Cursor"
-        default: "Unknown"
+        default: String(localized: "Unknown")
         }
     }
 }

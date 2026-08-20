@@ -63,11 +63,11 @@ public final class SessionDetailViewModel {
     /// Code's built-ins; sending one forwards the literal `/name` text to
     /// the agent which interprets it natively.
     static let builtInSlashCommands: [SlashCommand] = [
-        SlashCommand(name: "clear", description: "Clear conversation history", inputHint: ""),
-        SlashCommand(name: "compact", description: "Compact the conversation", inputHint: ""),
-        SlashCommand(name: "help", description: "Show available commands", inputHint: ""),
-        SlashCommand(name: "model", description: "Switch the active model", inputHint: ""),
-        SlashCommand(name: "cost", description: "Show session token cost", inputHint: ""),
+        SlashCommand(name: "clear", description: String(localized: "Clear conversation history"), inputHint: ""),
+        SlashCommand(name: "compact", description: String(localized: "Compact the conversation"), inputHint: ""),
+        SlashCommand(name: "help", description: String(localized: "Show available commands"), inputHint: ""),
+        SlashCommand(name: "model", description: String(localized: "Switch the active model"), inputHint: ""),
+        SlashCommand(name: "cost", description: String(localized: "Show session token cost"), inputHint: ""),
     ]
     /// Memoised tool-run grouping over `events`. Views should iterate this
     /// instead of calling `groupEvents(vm.events)` in body, which previously
@@ -1892,6 +1892,17 @@ public final class SessionDetailViewModel {
             markAgentWorking()
         }
 
+        // Replayed streaming deltas must not reach the reducer: they would
+        // re-open the live buffer (streamingAgentSet + text), and the
+        // closing idle envelope is sequence-deduped away (the live flush
+        // entry already claimed its sequence) — the buffer never closed
+        // and the "agent working" card resurrected after visiting the
+        // turn-detail view. The finalized text is already in the timeline;
+        // deltas add nothing on replay.
+        if isHistoryReplay, case .output(let o) = acp.event, !o.isComplete {
+            return false
+        }
+
         // Capture the ACP option list off a live permission request.
         // Options are ephemeral UI state — history replay repopulates
         // them, and a banner with no entry falls back to the OpenCode
@@ -2028,7 +2039,7 @@ public final class SessionDetailViewModel {
             }
             return AcpQuestionPrompt(
                 id: String(index),
-                header: raw["header"] as? String ?? "Question",
+                header: raw["header"] as? String ?? String(localized: "Question"),
                 question: text,
                 options: options,
                 allowsMultiple: raw["multiple"] as? Bool ?? false
@@ -2053,7 +2064,7 @@ public final class SessionDetailViewModel {
             break
         case .promptRejected(let pr):
             let event = makeAgentSideEvent(sequence: sequence, eventType: "error")
-            event.text = "Rejected: \(pr.reason)"
+            event.text = String(localized: "Rejected: \(pr.reason)")
             appendEvent(event)
             recomputeGroups()
         case .permissionResolved(let resolved):

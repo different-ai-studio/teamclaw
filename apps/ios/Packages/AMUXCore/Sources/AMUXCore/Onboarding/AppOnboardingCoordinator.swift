@@ -199,13 +199,13 @@ public extension AppOnboardingStore {
     func acceptPendingInvite(inviteID: String) async throws -> ClaimResult {
         throw NSError(
             domain: "AppOnboardingStore", code: 0,
-            userInfo: [NSLocalizedDescriptionKey: "Pending invites are not supported by this backend."]
+            userInfo: [NSLocalizedDescriptionKey: String(localized: "Pending invites are not supported by this backend.")]
         )
     }
     func declinePendingInvite(inviteID: String) async throws {
         throw NSError(
             domain: "AppOnboardingStore", code: 0,
-            userInfo: [NSLocalizedDescriptionKey: "Pending invites are not supported by this backend."]
+            userInfo: [NSLocalizedDescriptionKey: String(localized: "Pending invites are not supported by this backend.")]
         )
     }
 }
@@ -767,7 +767,7 @@ public final class AppOnboardingCoordinator {
     public func createTeam(named rawName: String) async {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
-            errorMessage = "Team name is required."
+            errorMessage = String(localized: "Team name is required.")
             route = .createTeam
             return
         }
@@ -965,7 +965,7 @@ public final class AppOnboardingCoordinator {
                 // failed — falling back would re-attempt with a spent
                 // token and produce a misleading error. Surface the real
                 // failure instead and require a fresh invite.
-                errorMessage = "Sign-in failed after redeeming the invite. Ask the team admin for a fresh link. (\(error.localizedDescription))"
+                errorMessage = String(localized: "Sign-in failed after redeeming the invite. Ask the team admin for a fresh link. (\(error.localizedDescription))")
                 isBusy = false
                 return
             }

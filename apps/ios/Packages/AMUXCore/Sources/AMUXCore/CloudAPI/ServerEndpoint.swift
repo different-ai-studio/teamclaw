@@ -50,7 +50,7 @@ public enum ServerEndpoint {
         do {
             let (_, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
-                return .unreachable("no HTTP response")
+                return .unreachable(String(localized: "no HTTP response"))
             }
             return http.statusCode == 200 ? .reachable : .badStatus(http.statusCode)
         } catch {

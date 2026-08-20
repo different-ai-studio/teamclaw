@@ -24,6 +24,16 @@ struct IdeaStatsSheet: View {
         case week  = "Week"
         case month = "Month"
         case all   = "All"
+
+        /// Separate from `rawValue`, which doubles as enum identity.
+        var displayName: String {
+            switch self {
+            case .today: return String(localized: "Today")
+            case .week: return String(localized: "Week")
+            case .month: return String(localized: "Month")
+            case .all: return String(localized: "All")
+            }
+        }
     }
 
     @State private var period: Period = .week
@@ -150,7 +160,7 @@ struct IdeaStatsSheet: View {
     private var periodPicker: some View {
         Picker("Period", selection: $period) {
             ForEach(Period.allCases, id: \.self) { p in
-                Text(p.rawValue).tag(p)
+                Text(p.displayName).tag(p)
             }
         }
         .pickerStyle(.segmented)

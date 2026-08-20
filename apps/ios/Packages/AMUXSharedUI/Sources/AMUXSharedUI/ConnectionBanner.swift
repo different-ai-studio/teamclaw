@@ -24,10 +24,10 @@ public struct ConnectionBanner: View {
         case .hidden:
             EmptyView()
         case .reconnecting:
-            banner(icon: "arrow.triangle.2.circlepath", text: "Reconnecting\u{2026}", color: .yellow)
+            banner(icon: "arrow.triangle.2.circlepath", text: String(localized: "Reconnecting\u{2026}"), color: .yellow)
         case .disconnected:
             Button { onReconnect?() } label: {
-                banner(icon: "bolt.slash.fill", text: "Not connected \u{00B7} Tap to reconnect", color: .red)
+                banner(icon: "bolt.slash.fill", text: String(localized: "Not connected \u{00B7} Tap to reconnect"), color: .red)
             }
             .buttonStyle(.plain)
         }

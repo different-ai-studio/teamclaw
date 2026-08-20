@@ -57,9 +57,9 @@ public final class SessionIdea {
     public var isDone: Bool { status == "done" }
     public var statusLabel: String {
         switch status {
-        case "open": return "Open"
-        case "in_progress": return "In Progress"
-        case "done": return "Done"
+        case "open": return String(localized: "Open")
+        case "in_progress": return String(localized: "In Progress")
+        case "done": return String(localized: "Done")
         default: return status
         }
     }
