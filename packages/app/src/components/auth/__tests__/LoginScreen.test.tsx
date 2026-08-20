@@ -71,6 +71,18 @@ describe("LoginScreen", () => {
     expect(screen.getByRole("button", { name: /send code/i })).toBeInTheDocument();
   });
 
+  // Desktop gates this earlier now — the choose screen disables sign-in until a
+  // server is set — but a browser build drops straight into this screen, so the
+  // guard has to hold here too.
+  it("refuses to send a code when no server is configured", () => {
+    backendConfig.hasConfig = false;
+
+    render(<LoginScreen />);
+
+    expect(screen.getByText(/no server address is configured yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /send code/i })).toBeDisabled();
+  });
+
 
 
   it("hides anonymous trial only in extension builds that disable automatic team creation", () => {

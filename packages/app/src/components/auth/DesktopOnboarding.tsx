@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { hasBackendConfig } from "@/lib/backend";
 import { probeCloudApi } from "@/lib/bootstrap";
 import { parseInviteTokenInput } from "@/lib/invite-deeplink";
 import {
@@ -34,17 +35,23 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col">
         {children}
         <p className="mt-6 text-center font-mono text-[11px] text-faint">v{appVersion}</p>
-        {cloudApiUrl && (
-          <p
-            className={[
-              "mt-0.5 text-center font-mono text-[10px]",
-              isOverride ? "text-coral" : "text-faint/70",
-            ].join(" ")}
-          >
-            {displayHost(cloudApiUrl)}
-            {isOverride && ` · ${t("auth.onboarding.serverCustomTag", "custom")}`}
-          </p>
-        )}
+        {/* An absent URL used to render nothing at all, so a build with no
+            backend baked in looked exactly like a working one. */}
+        <p
+          className={[
+            "mt-0.5 text-center font-mono text-[10px]",
+            cloudApiUrl && !isOverride ? "text-faint/70" : "text-coral",
+          ].join(" ")}
+        >
+          {cloudApiUrl ? (
+            <>
+              {displayHost(cloudApiUrl)}
+              {isOverride && ` · ${t("auth.onboarding.serverCustomTag", "custom")}`}
+            </>
+          ) : (
+            t("auth.onboarding.serverUnset", "no server configured")
+          )}
+        </p>
       </div>
     </div>
   );
@@ -152,6 +159,11 @@ function ChooseStep({
   // at the bottom of the window — easy to miss, and it says nothing about which
   // of these three entries put the app there. Mark the entry itself too.
   const override = getCloudApiUrlOverride();
+  // No Cloud API at all — none baked into the build, none set by hand. Signing
+  // in and joining a team both dead-end in that state (the login screen refuses
+  // to send a code), so say it once up top and point everything at the one
+  // entry that can fix it.
+  const unconfigured = !hasBackendConfig();
   return (
     <Shell>
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center">
@@ -166,20 +178,28 @@ function ChooseStep({
             )}
           </p>
         </div>
+        {unconfigured && (
+          <div className="mb-4 rounded-[12px] border border-coral/40 bg-coral-soft/25 px-3.5 py-3 text-[12px] leading-5 text-foreground">
+            {t(
+              "auth.onboarding.noServerNotice",
+              "No server address is configured yet. Set your company's Cloud API below — signing in and joining a team both need one.",
+            )}
+          </div>
+        )}
         <div className="space-y-3">
           <ChoiceRow
-            primary
+            primary={!unconfigured}
             icon={<LogIn className="h-4 w-4" />}
             title={t("auth.onboarding.signInOrRegister", "Sign in or register")}
             caption={t("auth.onboarding.signInOrRegisterDesc", "Continue with an email code, matching the iOS flow.")}
-            disabled={loading}
+            disabled={loading || unconfigured}
             onClick={onLogin}
           />
           <ChoiceRow
             icon={<Link2 className="h-4 w-4" />}
             title={t("auth.onboarding.joinTeam", "Join the team")}
             caption={t("auth.onboarding.joinTeamDesc", "Paste an invite link or token to join an existing team.")}
-            disabled={loading}
+            disabled={loading || unconfigured}
             onClick={onInvite}
           />
           {/* Not disabled while auth is in flight, unlike the two above: this is
@@ -187,6 +207,9 @@ function ChooseStep({
               when a request is left hanging. */}
           <ChoiceRow
             icon={<Server className="h-4 w-4" />}
+            // With nothing configured this is the only entry that does
+            // anything, so the accent moves here from the sign-in row.
+            primary={unconfigured}
             active={Boolean(override)}
             badge={override ? t("auth.onboarding.serverCustomTag", "custom") : undefined}
             title={t("auth.onboarding.customServer", "Enterprise custom server")}
@@ -195,6 +218,11 @@ function ChooseStep({
                 // Which server, not just that there is one: the address is the
                 // whole answer to "what am I about to sign in against".
                 <span className="font-mono text-[11.5px] text-coral">{displayHost(override)}</span>
+              ) : unconfigured ? (
+                t(
+                  "auth.onboarding.customServerRequiredDesc",
+                  "Start here: enter the Cloud API address of your company's own server.",
+                )
               ) : (
                 t(
                   "auth.onboarding.customServerDesc",
@@ -321,7 +349,7 @@ function ServerStep({ onBack }: { onBack: () => void }) {
         }}
         className="rounded-[16px] border border-border bg-paper p-5"
       >
-        <h1 className="text-[18px] font-semibold">{t("auth.onboarding.serverTitle", "Custom server")}</h1>
+        <h1 className="text-[18px] font-semibold">{t("auth.onboarding.serverTitle", "Enterprise custom server")}</h1>
         <p className="mt-2 text-[13px] leading-6 text-muted-foreground">
           {t(
             "auth.onboarding.serverDesc",
@@ -371,7 +399,10 @@ function ServerStep({ onBack }: { onBack: () => void }) {
             {t("auth.onboarding.serverSaveAnyway", "Save it anyway")}
           </button>
         )}
-        {override && (
+        {/* `defaultUrl` matters: with no baked default, "reset" would drop the
+            app back to having no backend at all — the state this screen exists
+            to get out of. Overwriting the address still works. */}
+        {override && defaultUrl && (
           <button
             type="button"
             onClick={() => applyAndReload(null)}

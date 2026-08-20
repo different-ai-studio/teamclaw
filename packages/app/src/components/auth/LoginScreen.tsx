@@ -186,7 +186,7 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
   const serverConfigRequired = !hasBackendConfig();
   const serverConfigMessage = t(
     "auth.serverConfigRequired",
-    "Supabase is not configured. Go back and choose self-hosted server before signing in.",
+    'No server address is configured yet. Set the Cloud API address under "Enterprise custom server" first.',
   );
 
   return (

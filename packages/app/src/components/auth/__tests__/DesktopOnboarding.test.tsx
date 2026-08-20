@@ -1,6 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-const { authState, hasConfig, saveServerConfig, reload, cloudApiUrlOverride, setCloudApiUrlOverrideMock, probeCloudApi } = vi.hoisted(() => ({
+const {
+  authState,
+  hasConfig,
+  saveServerConfig,
+  reload,
+  cloudApiUrlOverride,
+  setCloudApiUrlOverrideMock,
+  probeCloudApi,
+  effectiveCloudApiUrl,
+  defaultCloudApiUrl,
+} = vi.hoisted(() => ({
   authState: {
     loading: false,
     errorMessage: null as string | null,
@@ -16,6 +26,8 @@ const { authState, hasConfig, saveServerConfig, reload, cloudApiUrlOverride, set
   cloudApiUrlOverride: { value: null as string | null },
   setCloudApiUrlOverrideMock: vi.fn(),
   probeCloudApi: vi.fn(),
+  effectiveCloudApiUrl: { value: "https://teamclu-api.ucar.cc" as string | undefined },
+  defaultCloudApiUrl: { value: "https://teamclu-api.ucar.cc" as string | undefined },
 }));
 
 vi.mock("@/lib/bootstrap", () => ({ probeCloudApi }));
@@ -33,9 +45,9 @@ vi.mock("@/stores/auth-store", () => ({
 
 vi.mock("@/lib/server-config", () => ({
   saveServerConfig,
-  getEffectiveServerConfigSync: () => ({ cloudApiUrl: "https://teamclu-api.ucar.cc" }),
+  getEffectiveServerConfigSync: () => ({ cloudApiUrl: effectiveCloudApiUrl.value }),
   getCloudApiUrlOverride: () => cloudApiUrlOverride.value,
-  getDefaultCloudApiUrl: () => "https://teamclu-api.ucar.cc",
+  getDefaultCloudApiUrl: () => defaultCloudApiUrl.value,
   setCloudApiUrlOverride: setCloudApiUrlOverrideMock,
 }));
 
@@ -67,6 +79,8 @@ beforeEach(() => {
   hasConfig.value = true;
   saveServerConfig.mockReset();
   cloudApiUrlOverride.value = null;
+  effectiveCloudApiUrl.value = "https://teamclu-api.ucar.cc";
+  defaultCloudApiUrl.value = "https://teamclu-api.ucar.cc";
   setCloudApiUrlOverrideMock.mockReset();
   probeCloudApi.mockReset();
   probeCloudApi.mockResolvedValue({ ok: true });
@@ -122,15 +136,32 @@ describe("DesktopOnboarding", () => {
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
   });
 
-  it("login path disables OTP when Supabase config is missing", () => {
+  // Both of these dead-end without a backend — sign-in cannot send a code, and
+  // a claimed invite has nowhere to go — so they are closed off up front rather
+  // than letting the user walk into the failure. (The login screen keeps its own
+  // guard for the browser build; see LoginScreen.test.tsx.)
+  it("closes off sign-in and join until a server is configured", () => {
     hasConfig.value = false;
+    effectiveCloudApiUrl.value = undefined;
+
     render(<DesktopOnboarding />);
 
-    fireEvent.click(screen.getByRole("button", { name: /sign in or register/i }));
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "a@b.com" } });
+    expect(screen.getByRole("button", { name: /sign in or register/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /join the team/i })).toBeDisabled();
+    // The one entry that can fix it stays open.
+    expect(screen.getByRole("button", { name: /custom server/i })).toBeEnabled();
+    expect(screen.getByText(/no server address is configured yet/i)).toBeInTheDocument();
+  });
 
-    expect(screen.getByText(/supabase is not configured/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /send code/i })).toBeDisabled();
+  // Rendering nothing at all is how a build with no backend baked in ended up
+  // looking exactly like a working one.
+  it("says so in the footer when no server is configured", () => {
+    hasConfig.value = false;
+    effectiveCloudApiUrl.value = undefined;
+
+    render(<DesktopOnboarding />);
+
+    expect(screen.getByText("no server configured")).toBeInTheDocument();
   });
 
   it("custom server saves an explicit cloudApiUrl override and reloads", async () => {
@@ -239,6 +270,17 @@ describe("DesktopOnboarding", () => {
     expect(setCloudApiUrlOverrideMock).toHaveBeenCalledWith(null);
     expect(probeCloudApi).not.toHaveBeenCalled();
     expect(reload).toHaveBeenCalled();
+  });
+
+  it("hides the reset when the build has no default to return to", () => {
+    cloudApiUrlOverride.value = "https://self-hosted.example.com";
+    defaultCloudApiUrl.value = undefined;
+    render(<DesktopOnboarding />);
+
+    fireEvent.click(screen.getByRole("button", { name: /custom server/i }));
+
+    // Resetting there would clear the only address the app has.
+    expect(screen.queryByRole("button", { name: /reset to the built-in default/i })).toBeNull();
   });
 
   it("marks the footer URL as custom when an override is active", () => {
