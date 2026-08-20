@@ -9,98 +9,85 @@ import AMUXSharedUI
 /// Team-wide statistics sheet. Opened from the leading toolbar button in
 /// MembersTab. Shows token consumption, session count, and skills invocations
 /// across the whole team, plus a per-actor token ranking and a skills
-/// breakdown. All data is mock until real aggregates land.
+/// breakdown — all served by `GET /v1/teams/:id/leaderboard`, the same
+/// aggregates the desktop leaderboard reads. No fabricated numbers: while
+/// loading it shows a spinner, and a team with no telemetry shows zeros.
 struct TeamStatsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppOnboardingCoordinator.self) private var onboarding: AppOnboardingCoordinator?
     let actors: [CachedActor]
+    let teamID: String?
 
     enum Period: String, CaseIterable {
         case today = "Today"
         case week  = "Week"
         case month = "Month"
-        case all   = "All"
+
+        var apiValue: String {
+            switch self {
+            case .today: return "day"
+            case .week: return "week"
+            case .month: return "month"
+            }
+        }
     }
 
     @State private var period: Period = .week
+    @State private var entries: [TeamLeaderboardEntry] = []
+    @State private var isLoading = false
+    @State private var loadError: String?
 
-    // MARK: Mock data (stable per actor hash)
+    private var actorsByID: [String: CachedActor] {
+        Dictionary(actors.map { ($0.actorId, $0) }, uniquingKeysWith: { a, _ in a })
+    }
 
     private struct ActorStat: Identifiable {
         let id: String
         let name: String
         let isAgent: Bool
-        let isOnline: Bool
         let agentType: String?
         let tokens: Int
     }
 
     private var actorStats: [ActorStat] {
-        actors
-            .filter { $0.isMember || $0.isAgent }
-            .map { a in
-                let h = abs(a.actorId.unicodeScalars.reduce(0) { $0 &+ Int($1.value) })
-                let periodMult: Int
-                switch period {
-                case .today: periodMult = 1
-                case .week:  periodMult = 7
-                case .month: periodMult = 30
-                case .all:   periodMult = 90
-                }
-                let base = [8_200, 14_400, 22_100, 31_500, 47_800, 68_000, 112_300][h % 7]
+        entries
+            .map { entry in
+                let cached = actorsByID[entry.actorID]
                 return ActorStat(
-                    id: a.actorId,
-                    name: a.displayName,
-                    isAgent: a.isAgent,
-                    isOnline: a.isOnline,
-                    agentType: a.defaultAgentType,
-                    tokens: base * periodMult / 7
+                    id: entry.actorID,
+                    name: cached?.displayName ?? entry.displayName ?? String(entry.actorID.prefix(8)),
+                    isAgent: cached?.isAgent ?? false,
+                    agentType: cached?.defaultAgentType,
+                    tokens: Int(entry.tokensUsed)
                 )
             }
             .sorted { $0.tokens > $1.tokens }
     }
 
-    private var totalTokens: Int { actorStats.reduce(0) { $0 + $1.tokens } }
-
-    private var totalSessions: Int {
-        switch period {
-        case .today: return 6
-        case .week:  return 42
-        case .month: return 178
-        case .all:   return 534
-        }
-    }
-
+    private var totalTokens: Int { entries.reduce(0) { $0 + Int($1.tokensUsed) } }
+    private var totalSessions: Int { entries.reduce(0) { $0 + $1.sessionCount } }
     private var totalSkills: Int {
-        switch period {
-        case .today: return 38
-        case .week:  return 386
-        case .month: return 1_642
-        case .all:   return 4_920
-        }
+        entries.reduce(0) { $0 + $1.skillUsage.values.reduce(0, +) }
     }
 
     private struct SkillStat: Identifiable {
-        let id = UUID()
+        var id: String { name }
         let name: String
         let count: Int
     }
 
     private var topSkills: [SkillStat] {
-        let bases: [(String, Int)] = [
-            ("Read",  142),
-            ("Edit",   88),
-            ("Bash",   54),
-            ("Write",  32),
-            ("Grep",   24),
-        ]
-        let periodMult: Int
-        switch period {
-        case .today: periodMult = 1
-        case .week:  periodMult = 7
-        case .month: periodMult = 30
-        case .all:   periodMult = 90
+        var merged: [String: Int] = [:]
+        for entry in entries {
+            for (skill, count) in entry.skillUsage {
+                merged[skill, default: 0] += count
+            }
         }
-        return bases.map { SkillStat(name: $0.0, count: $0.1 * periodMult / 7) }
+        return merged
+            .map { SkillStat(name: $0.key, count: $0.value) }
+            .sorted { $0.count > $1.count }
+            .prefix(5)
+            .map { $0 }
     }
 
     private var maxSkillCount: Int { max(1, topSkills.map(\.count).max() ?? 1) }
@@ -112,9 +99,25 @@ struct TeamStatsSheet: View {
             ScrollView {
                 VStack(spacing: 20) {
                     periodPicker
-                    summaryRow
-                    rankingSection
-                    skillsSection
+                    if isLoading && entries.isEmpty {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 180)
+                    } else if let loadError {
+                        ContentUnavailableView(
+                            "Stats Unavailable",
+                            systemImage: "chart.bar",
+                            description: Text(loadError)
+                        )
+                        .frame(minHeight: 180)
+                    } else {
+                        summaryRow
+                        if !actorStats.isEmpty {
+                            rankingSection
+                        }
+                        if !topSkills.isEmpty {
+                            skillsSection
+                        }
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -129,9 +132,34 @@ struct TeamStatsSheet: View {
                         .foregroundStyle(Color.amux.onyx)
                 }
             }
+            .task(id: period) { await load() }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private func load() async {
+        guard let teamID, !teamID.isEmpty,
+              let onboarding,
+              let config = CloudAPIConfigurationStore.configuration()
+        else {
+            loadError = "Team stats need a signed-in Cloud API session."
+            return
+        }
+        isLoading = true
+        loadError = nil
+        defer { isLoading = false }
+
+        let client = CloudAPIClient(configuration: config, accessToken: {
+            try await onboarding.accessToken()
+        })
+        let repo = CloudAPITelemetryRepository(client: client)
+        do {
+            entries = try await repo.leaderboard(teamID: teamID, period: period.apiValue)
+        } catch {
+            entries = []
+            loadError = error.localizedDescription
+        }
     }
 
     // MARK: Period picker

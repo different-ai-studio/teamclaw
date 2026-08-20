@@ -23,6 +23,13 @@ struct ContentView: View {
     /// `bootstrap()`. Nil when no cloud config is resolvable (Supabase
     /// fallback) — nothing to migrate. Cleared after it runs once.
     @State private var pendingSessionMigration: (@Sendable () async -> Void)?
+    /// Bumped whenever the Cloud API base URL changes (pre-auth server
+    /// sheet). The `.task(id:)` modifiers key on it, so bootstrap re-runs
+    /// against the rebuilt store and the token-refresh listener re-attaches.
+    @State private var backendEpoch = 0
+    /// Presents the server sheet from the `.failed` route — the rescue hatch
+    /// when the configured server is mistyped or gone.
+    @State private var showServerSettings = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
 
@@ -31,32 +38,41 @@ struct ContentView: View {
         let mqtt = MQTTService()
         _mqtt = State(initialValue: mqtt)
         _hub = State(initialValue: MQTTMessageHub(mqtt: mqtt))
+        _onboarding = State(initialValue: Self.makeOnboardingCoordinator())
+        _pendingSessionMigration = State(initialValue: nil)
+    }
 
-        // Cloud API is the only client backend. Build the Cloud-API-backed
-        // onboarding store from the resolved cloud endpoint; if none is
-        // configured, surface a failing store rather than a Supabase fallback
-        // (the Supabase SDK was removed in the cutover endgame). Existing
-        // sessions persisted only in the old Supabase keychain are not migrated
-        // — affected users re-authenticate once.
+    /// Cloud API is the only client backend. Build the Cloud-API-backed
+    /// onboarding store from the resolved cloud endpoint; if none is
+    /// configured, surface a failing store rather than a Supabase fallback
+    /// (the Supabase SDK was removed in the cutover endgame). Existing
+    /// sessions persisted only in the old Supabase keychain are not migrated
+    /// — affected users re-authenticate once.
+    private static func makeOnboardingCoordinator() -> AppOnboardingCoordinator {
         if let cloudConfig = CloudAPIConfigurationStore.configuration() {
             let store = CloudAPIAppOnboardingStore(
                 configuration: cloudConfig,
                 storage: KeychainSessionStorage()
             )
-            _onboarding = State(initialValue: AppOnboardingCoordinator(store: store))
-        } else {
-            _onboarding = State(
-                initialValue: AppOnboardingCoordinator(
-                    store: FailingOnboardingStore(
-                        error: NSError(
-                            domain: "CloudAPI", code: 0,
-                            userInfo: [NSLocalizedDescriptionKey: "Cloud API is not configured."]
-                        )
-                    )
+            return AppOnboardingCoordinator(store: store)
+        }
+        return AppOnboardingCoordinator(
+            store: FailingOnboardingStore(
+                error: NSError(
+                    domain: "CloudAPI", code: 0,
+                    userInfo: [NSLocalizedDescriptionKey: "Cloud API is not configured."]
                 )
             )
-        }
-        _pendingSessionMigration = State(initialValue: nil)
+        )
+    }
+
+    /// Re-points the whole Cloud API stack at the currently stored server —
+    /// called after the user saves a new address in ServerSettingsSheet.
+    /// Only reachable pre-auth (welcome / failed routes), so there is no
+    /// signed-in session to tear down.
+    private func rebuildCloudBackend() {
+        onboarding = Self.makeOnboardingCoordinator()
+        backendEpoch += 1
     }
 
     @ViewBuilder
@@ -119,7 +135,7 @@ struct ContentView: View {
                 // while it fades out.
                 Color(.systemBackground).ignoresSafeArea()
             case .needsAuth:
-                WelcomeView(coordinator: onboarding)
+                WelcomeView(coordinator: onboarding, onServerChanged: { rebuildCloudBackend() })
             case .createTeam:
                 CreateTeamView(coordinator: onboarding)
             case .selectTeam:
@@ -134,11 +150,17 @@ struct ContentView: View {
                     },
                     onSignOut: {
                         signOut()
+                    },
+                    onServerSettings: {
+                        showServerSettings = true
                     }
                 )
             }
         }
-        .task {
+        .sheet(isPresented: $showServerSettings) {
+            ServerSettingsSheet(onSaved: { rebuildCloudBackend() })
+        }
+        .task(id: backendEpoch) {
             // Seed the Cloud API SessionStore from any pre-existing Supabase
             // session exactly once, BEFORE the first bootstrap, so existing
             // users stay signed in across the cutover. No-op (nil) on the
@@ -149,7 +171,7 @@ struct ContentView: View {
             }
             await onboarding.bootstrap()
         }
-        .task {
+        .task(id: backendEpoch) {
             // Reconnect MQTT every time the auth provider rotates the
             // access token. MQTT uses the JWT as its CONNECT password
             // and the broker stops accepting publishes once the token

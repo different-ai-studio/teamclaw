@@ -93,6 +93,9 @@ public enum TimelineSwiftDataSync {
         if event.resultSummary != entry.resultSummary {
             event.resultSummary = entry.resultSummary; changed = true
         }
+        if event.diffPath != entry.diffPath { event.diffPath = entry.diffPath; changed = true }
+        if event.diffOldText != entry.diffOldText { event.diffOldText = entry.diffOldText; changed = true }
+        if event.diffNewText != entry.diffNewText { event.diffNewText = entry.diffNewText; changed = true }
         return changed
     }
 
@@ -111,6 +114,9 @@ public enum TimelineSwiftDataSync {
         event.outboxMessageID = entry.outboxMessageID
         event.turnID = entry.turnID
         event.resultSummary = entry.resultSummary
+        event.diffPath = entry.diffPath
+        event.diffOldText = entry.diffOldText
+        event.diffNewText = entry.diffNewText
         return event
     }
 }

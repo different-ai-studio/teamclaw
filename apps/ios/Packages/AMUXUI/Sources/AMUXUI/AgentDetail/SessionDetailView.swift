@@ -238,6 +238,25 @@ public struct SessionDetailView: View {
                             )
                         }
                     }
+                    if let session = viewModel.session {
+                        // Session-level "full access": the client answers
+                        // permission requests on the user's behalf
+                        // (allow-once each time). Local to this device,
+                        // mirroring the desktop's per-session mode.
+                        Button {
+                            session.autoApprovePermissions.toggle()
+                            try? modelContext.save()
+                        } label: {
+                            Label(
+                                session.autoApprovePermissions
+                                    ? "Ask before running tools"
+                                    : "Auto-approve permissions",
+                                systemImage: session.autoApprovePermissions
+                                    ? "hand.raised"
+                                    : "checkmark.shield"
+                            )
+                        }
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -449,6 +468,7 @@ public struct SessionDetailView: View {
             await viewModel.outboxSender?.start()
             viewModel.start(modelContext: modelContext)
             await viewModel.refreshMemberSheet()
+            await viewModel.loadFeedback()
         }
         .onChange(of: viewModel.attachmentStateKey) { _, _ in
             // An attachment for this session changed lifecycle (attached →
@@ -614,6 +634,10 @@ public struct SessionDetailView: View {
                 runtime: viewModel.attachment(forAgentActorID: event.senderActorID ?? ""),
                 onGrant: { id, agentID in Task { try? await viewModel.grantPermission(requestId: id, agentActorID: agentID) } },
                 onDeny: { id, agentID in Task { try? await viewModel.denyPermission(requestId: id, agentActorID: agentID) } },
+                onGrantOption: { id, optionID, agentID in
+                    Task { try? await viewModel.grantPermission(requestId: id, agentActorID: agentID, optionID: optionID) }
+                },
+                permissionOptions: { viewModel.permissionOptions(for: $0) },
                 onRetryOutbox: { msgID in
                     if let sender = viewModel.outboxSender {
                         Task { await sender.retry(messageID: msgID) }
@@ -621,7 +645,14 @@ public struct SessionDetailView: View {
                 },
                 actorMap: cachedActorMap,
                 onEdit: canModifyMessage(event) ? { editingEvent = event } : nil,
-                onDelete: canModifyMessage(event) ? { pendingDeleteEvent = event } : nil
+                onDelete: canModifyMessage(event) ? { pendingDeleteEvent = event } : nil,
+                replyQuote: viewModel.replyQuote(forSupabaseMessageID: event.supabaseMessageId),
+                onTapQuote: {
+                    guard let quote = viewModel.replyQuote(forSupabaseMessageID: event.supabaseMessageId),
+                          let targetID = viewModel.feedItemID(forSupabaseMessageID: quote.messageID)
+                    else { return }
+                    withAnimation { scrollProxy?.scrollTo(targetID, anchor: .center) }
+                }
             )
         case .activeStream(_, let agentID, let runtimeEvents):
             // NavigationLink(destination:) instead of value-based push
@@ -659,6 +690,10 @@ public struct SessionDetailView: View {
                 finalEvent: final,
                 runtime: viewModel.attachment(forAgentActorID: agentID),
                 agentName: agentDisplayName(for: agentID),
+                feedbackKind: final.supabaseMessageId.flatMap { viewModel.feedbackByMessageID[$0] },
+                onFeedback: final.supabaseMessageId.map { messageID in
+                    { kind in Task { await viewModel.setFeedback(messageID: messageID, kind: kind) } }
+                },
                 detailIcon: {
                     // Always offer the detail entry point — even text-only
                     // turns benefit from giving the user access to the

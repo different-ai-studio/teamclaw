@@ -28,4 +28,20 @@ public final class WorkspaceStore {
             errorMessage = error.localizedDescription
         }
     }
+
+    /// Registers a workspace directory for an agent via the Cloud API
+    /// (`POST /v1/workspaces` upsert), then reloads the list. Returns false
+    /// (with `errorMessage` set) on failure. Replaces the deprecated
+    /// `add_workspace` daemon RPC.
+    public func add(path: String, agentID: String) async -> Bool {
+        do {
+            _ = try await repository.createWorkspace(teamID: teamID, agentID: agentID, path: path)
+            errorMessage = nil
+            await reload(agentID: agentID)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
 }

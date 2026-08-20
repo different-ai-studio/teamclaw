@@ -4,7 +4,11 @@ import AMUXSharedUI
 
 struct WelcomeView: View {
     @Bindable var coordinator: AppOnboardingCoordinator
+    /// Called after the user saves a different server address so the app
+    /// shell can rebuild the Cloud API stack against it.
+    var onServerChanged: () -> Void = {}
     @State private var showChoose = false
+    @State private var showServerSettings = false
 
     var body: some View {
         NavigationStack {
@@ -67,6 +71,21 @@ struct WelcomeView: View {
                 .accessibilityIdentifier("welcome.getStartedButton")
             }
             .background(Color.amux.mist)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showServerSettings = true
+                    } label: {
+                        Image(systemName: "network")
+                    }
+                    .tint(Color.amux.slate)
+                    .accessibilityLabel("Server settings")
+                    .accessibilityIdentifier("welcome.serverSettingsButton")
+                }
+            }
+            .sheet(isPresented: $showServerSettings) {
+                ServerSettingsSheet(onSaved: onServerChanged)
+            }
             .navigationDestination(isPresented: $showChoose) {
                 ChooseAuthView(coordinator: coordinator)
             }

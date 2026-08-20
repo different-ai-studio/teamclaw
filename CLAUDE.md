@@ -84,7 +84,7 @@ pnpm ios:test               # iOS UI tests
 
 **Monorepo layout:**
 - `packages/app/` — React 19 frontend (TypeScript, Tailwind 4, Zustand, Vite)
-- `apps/desktop/` — Rust/Tauri backend (commands, RAG via Tantivy, STT via Whisper)
+- `apps/desktop/` — Rust/Tauri backend (commands, RAG via Tantivy)
 - `apps/daemon/` — amuxd daemon (opencode HTTP runtime, MQTT/Supabase bridge)
 - `apps/ios/` — iOS app, Xcode project, and Swift packages
 - `services/supabase/` — Supabase migrations, seed, and database tests
@@ -102,7 +102,6 @@ pnpm ios:test               # iOS UI tests
 **Rust backend key paths:**
 - `apps/desktop/src/commands/` — Tauri IPC commands (oss_sync/, team_share/, team_git.rs, gateway/, cron/, etc.)
 - `apps/desktop/crates/teamclu-rag/` — Full-text search (Tantivy) + embeddings
-- `apps/desktop/crates/teamclu-stt/` — Speech-to-text (Whisper)
 - `apps/desktop/binaries/` — sidecar binaries (teamclu-introspect, etc.)
 
 **Editor system:** Markdown (Tiptap) / HTML (Tiptap + sandbox preview) / Code (CodeMirror 6 + Shiki)

@@ -226,8 +226,11 @@ public enum ChatTimelineReducer {
                 if state.entries[idx].toolID == nil {
                     state.entries[idx].toolID = tu.toolID
                 }
+                if let diff = firstDiff(tu.content) {
+                    applyDiff(diff, to: &state.entries[idx])
+                }
             } else {
-                state.entries.append(makeEntry(
+                var entry = makeEntry(
                     sequence: input.envelopeSequence,
                     eventType: "tool_use",
                     text: tu.description_p,
@@ -236,7 +239,11 @@ public enum ChatTimelineReducer {
                     senderActorID: bucket,
                     timestamp: input.timestamp,
                     turnID: input.turnID
-                ))
+                )
+                if let diff = firstDiff(tu.content) {
+                    applyDiff(diff, to: &entry)
+                }
+                state.entries.append(entry)
             }
             return .entriesChanged
 
@@ -245,6 +252,9 @@ public enum ChatTimelineReducer {
                 state.entries[idx].success = tr.success
                 state.entries[idx].resultSummary = tr.summary
                 state.entries[idx].isComplete = true
+                if let diff = firstDiff(tr.content) {
+                    applyDiff(diff, to: &state.entries[idx])
+                }
             } else {
                 // Out-of-order arrival — append a standalone tool_result.
                 state.entries.append(makeEntry(
@@ -627,6 +637,22 @@ public enum ChatTimelineReducer {
             model: model,
             turnID: turnID
         )
+    }
+
+    /// First diff content block on a ToolUse/ToolResult envelope, or nil.
+    /// ACP edit tools emit exactly one; extra blocks (text summaries) ride
+    /// alongside and are already rendered via description/summary.
+    private static func firstDiff(_ content: [Amux_AcpToolCallContent]) -> Amux_AcpToolCallDiff? {
+        for item in content {
+            if case .diff(let diff)? = item.payload { return diff }
+        }
+        return nil
+    }
+
+    private static func applyDiff(_ diff: Amux_AcpToolCallDiff, to entry: inout TimelineEntry) {
+        entry.diffPath = diff.path
+        entry.diffOldText = diff.hasOldText ? diff.oldText : nil
+        entry.diffNewText = diff.newText
     }
 
     private static func incompleteOutputIndex(for bucket: String,

@@ -41,6 +41,13 @@ public protocol SessionsRepository: Sendable {
     /// `fetchUnreadFlags`. The actor is resolved server-side from the
     /// bearer token — no body.
     func markSessionUnread(sessionId: String) async throws
+    /// Renames the session for every participant (`PATCH /v1/sessions/:id`).
+    func renameSession(sessionId: String, title: String) async throws
+    /// Sets (or clears, when nil) the server-side `archived_at`. The session
+    /// list RPC only returns rows with `archived_at is null`, so archiving
+    /// removes the session from every device's list on its next refresh —
+    /// not just from this one.
+    func setSessionArchived(sessionId: String, archivedAt: Date?) async throws
 }
 
 
@@ -156,6 +163,46 @@ public protocol MessagesRepository: Sendable {
     /// Permanently removes a persisted message (FC returns 204).
     /// Same sender-only contract as `patch`.
     func delete(messageID: String) async throws
+    /// Submits (upserts) 👍/👎 feedback for an assistant message
+    /// (`POST /v1/feedback`). `kind` is `"positive"` or `"negative"`.
+    func submitFeedback(_ input: FeedbackInput) async throws
+    /// Removes the caller's feedback for a message (`DELETE /v1/feedback/:id`).
+    func deleteFeedback(messageID: String) async throws
+    /// Existing feedback rows for a session (`GET /v1/feedback?sessionId=`).
+    /// Includes every actor's rows; callers filter to the current actor.
+    func listFeedback(sessionID: String) async throws -> [FeedbackRecord]
+}
+
+public struct FeedbackInput: Sendable {
+    public let messageID: String
+    public let actorID: String
+    public let teamID: String
+    public let sessionID: String?
+    /// "positive" | "negative"
+    public let kind: String
+    public let starRating: Int?
+
+    public init(messageID: String, actorID: String, teamID: String,
+                sessionID: String?, kind: String, starRating: Int? = nil) {
+        self.messageID = messageID
+        self.actorID = actorID
+        self.teamID = teamID
+        self.sessionID = sessionID
+        self.kind = kind
+        self.starRating = starRating
+    }
+}
+
+public struct FeedbackRecord: Sendable, Equatable {
+    public let messageID: String
+    public let actorID: String
+    public let kind: String
+
+    public init(messageID: String, actorID: String, kind: String) {
+        self.messageID = messageID
+        self.actorID = actorID
+        self.kind = kind
+    }
 }
 
 public extension MessagesRepository {

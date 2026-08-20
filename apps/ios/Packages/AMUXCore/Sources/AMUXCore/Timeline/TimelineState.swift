@@ -47,6 +47,14 @@ public struct TimelineEntry: Identifiable, Equatable, Sendable {
     /// the tool is still running or for non-tool_use rows. Renders as an
     /// embedded disclosure under the tool card in the turn detail view.
     public var resultSummary: String?
+    /// First `AcpToolCallDiff` content block carried by the tool's
+    /// ToolUse/ToolResult envelope: the file the agent edited plus the
+    /// before/after text. nil for tools that carry no diff. One diff per
+    /// entry is deliberate — ACP edit tools emit exactly one, and the
+    /// mobile card renders one file.
+    public var diffPath: String?
+    public var diffOldText: String?
+    public var diffNewText: String?
 
     public init(id: String = UUID().uuidString,
                 sequence: UInt64 = 0,
@@ -63,7 +71,10 @@ public struct TimelineEntry: Identifiable, Equatable, Sendable {
                 clientID: String? = nil,
                 outboxMessageID: String? = nil,
                 turnID: String? = nil,
-                resultSummary: String? = nil) {
+                resultSummary: String? = nil,
+                diffPath: String? = nil,
+                diffOldText: String? = nil,
+                diffNewText: String? = nil) {
         self.id = id
         self.sequence = sequence
         self.eventType = eventType
@@ -80,6 +91,9 @@ public struct TimelineEntry: Identifiable, Equatable, Sendable {
         self.outboxMessageID = outboxMessageID
         self.turnID = turnID
         self.resultSummary = resultSummary
+        self.diffPath = diffPath
+        self.diffOldText = diffOldText
+        self.diffNewText = diffNewText
     }
 }
 

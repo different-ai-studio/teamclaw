@@ -10,6 +10,10 @@ struct LoginView: View {
     @State private var phone = "+86"
     @State private var code = ""
     @State private var loginMethod: LoginMethod = .email
+    /// Remote gating for the optional sign-in methods (`features.auth` from
+    /// `GET /v1/config/public`). Starts fail-open so a slow network never
+    /// strips buttons; the server's answer replaces it as soon as it lands.
+    @State private var authFlags: PublicAuthFlags = .failOpen
 
     private enum LoginMethod: Hashable { case email, password, phone }
 
@@ -54,6 +58,18 @@ struct LoginView: View {
         .background(Color.amux.mist)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            guard let base = CloudAPIConfigurationStore.configuration()?.baseURL else { return }
+            if let flags = await PublicAuthFlags.fetch(baseURL: base) {
+                authFlags = flags
+                // If the current selection just got gated off, land on the
+                // base method instead of a blank pane.
+                if (loginMethod == .password && !flags.password)
+                    || (loginMethod == .phone && !flags.phone) {
+                    loginMethod = .email
+                }
+            }
+        }
         .sheet(isPresented: Binding(
             get: { !coordinator.phoneMultipleUsers.isEmpty },
             set: { if !$0 { coordinator.phoneMultipleUsers = [] } }
@@ -172,14 +188,23 @@ struct LoginView: View {
 
     // MARK: - Method picker
 
+    @ViewBuilder
     private var methodPicker: some View {
-        Picker("Sign-in method", selection: $loginMethod) {
-            Text("Email").tag(LoginMethod.email)
-            Text("Password").tag(LoginMethod.password)
-            Text("Phone").tag(LoginMethod.phone)
+        // Email OTP is the base method; password/phone appear only when the
+        // deployment enables them. A single-method deployment needs no picker.
+        if authFlags.password || authFlags.phone {
+            Picker("Sign-in method", selection: $loginMethod) {
+                Text("Email").tag(LoginMethod.email)
+                if authFlags.password {
+                    Text("Password").tag(LoginMethod.password)
+                }
+                if authFlags.phone {
+                    Text("Phone").tag(LoginMethod.phone)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("login.methodPicker")
         }
-        .pickerStyle(.segmented)
-        .accessibilityIdentifier("login.methodPicker")
     }
 
     // MARK: - Phone entry (step 1)
@@ -335,9 +360,11 @@ struct LoginView: View {
                 Task { await coordinator.signInWithApple() }
             }
 
-            socialButton(title: "Sign in with Google", icon: "globe") {
-                Analytics.track("sign_in_started", ["method": "google"])
-                Task { await signInWithGoogleOAuth() }
+            if authFlags.google {
+                socialButton(title: "Sign in with Google", icon: "globe") {
+                    Analytics.track("sign_in_started", ["method": "google"])
+                    Task { await signInWithGoogleOAuth() }
+                }
             }
         }
     }

@@ -90,12 +90,8 @@ Three fonts, no more. Loaded once in the host HTML from Google Fonts.
 ## Layout
 
 - iOS artboards are **402 × 874** (iPhone 16). Hi-fi inside an `<IOSFrame>`.
-- The full app is composed inside `<DesignCanvas>` from `design-canvas.jsx`,
-  grouped by `<DCSection>` rows (Onboarding · Core flow · Collaboration ·
-  Create sheets · Alerts).
-- Every new screen lives in `screens/<name>.jsx`, exported to `window` at the
-  bottom of the file, and registered as a `<script type="text/babel">` tag in
-  `AMUX iOS Client.html`.
+- (The HTML/JSX prototype canvas these rules came from is not checked into
+  this repo; the layout rules stand on their own for SwiftUI work.)
 
 ## What to avoid
 
@@ -107,16 +103,6 @@ Three fonts, no more. Loaded once in the host HTML from Google Fonts.
   caption describing the missing asset.
 - Inter/Roboto-only typography. The Garamond italic is load-bearing — without
   it the system loses its voice.
-
-## File map
-
-- `AMUX iOS Client.html` — host file, mounts the design canvas.
-- `AMUX Palettes.html` — the four-palette study (Shironeri, Sumi, Sabi, Hai).
-  Hai is ratified; the others are reference.
-- `design-canvas.jsx` — `<DesignCanvas>` / `<DCSection>` / `<DCArtboard>` shell.
-- `ios-frame.jsx` — iPhone bezel + status bar + home indicator.
-- `screens/` — one component per screen, mounted inside `<IOSFrame>`.
-- `assets/lobster-logo.png` — the mark. Do not redraw.
 
 ---
 

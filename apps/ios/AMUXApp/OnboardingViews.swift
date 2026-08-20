@@ -66,6 +66,9 @@ struct OnboardingErrorView: View {
     let message: String
     let onRetry: () -> Void
     var onSignOut: (() -> Void)? = nil
+    /// Rescue hatch for a mistyped or moved server: setup failures caused by
+    /// an unreachable Cloud API can only be fixed by changing the address.
+    var onServerSettings: (() -> Void)? = nil
 
     var body: some View {
         ContentUnavailableView(
@@ -80,6 +83,13 @@ struct OnboardingErrorView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("onboardingError.retryButton")
+
+                if let onServerSettings {
+                    Button("Server Settings") {
+                        onServerSettings()
+                    }
+                    .accessibilityIdentifier("onboardingError.serverSettingsButton")
+                }
 
                 if let onSignOut {
                     Button("Sign Out", role: .destructive) {

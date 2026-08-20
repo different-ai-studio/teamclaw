@@ -221,10 +221,17 @@ public struct CompactToolLine: View {
     public let event: AgentEvent
     @State private var showDetail = false
     @State private var showResult = false
+    @State private var showDiff = false
 
     private var toolName: String { event.toolName ?? "" }
     private var description: String { event.text ?? "" }
     private var succeeded: Bool { event.success != false }
+
+    /// Present when the tool's envelope carried an `AcpToolCallDiff` —
+    /// i.e. the agent edited a file and this row can show what changed.
+    private var hasDiff: Bool {
+        event.diffNewText != nil || event.diffOldText != nil
+    }
 
     private var hasDetails: Bool {
         ToolDisplay.summary(for: description) != nil
@@ -290,6 +297,43 @@ public struct CompactToolLine: View {
                 }
                 .padding(.leading, 13)
                 .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            if hasDiff {
+                Button {
+                    withAnimation(AMUXAnimation.fast) { showDiff.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("DIFF")
+                            .font(.system(size: 9, design: .monospaced))
+                            .tracking(2)
+                            .foregroundStyle(Color.amux.slate)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .medium))
+                            .rotationEffect(.degrees(showDiff ? 90 : 0))
+                            .foregroundStyle(Color.amux.slate.opacity(0.6))
+                    }
+                    .padding(.leading, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("toolLine.diffDisclosure")
+
+                if showDiff {
+                    HStack(alignment: .top, spacing: 12) {
+                        Rectangle()
+                            .fill(Color.amux.hairline)
+                            .frame(width: 0.5)
+                        ToolCallDiffView(
+                            path: event.diffPath ?? "",
+                            oldText: event.diffOldText,
+                            newText: event.diffNewText ?? ""
+                        )
+                    }
+                    .padding(.leading, 13)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
 
             if let summary = resultSummary {

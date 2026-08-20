@@ -37,6 +37,11 @@ public final class Session {
     /// selection. Empty array preserves broadcast semantics on send (mention
     /// all agents on the daemon side).
     public var selectedAgentIds: [String] = []
+    /// Session-level "full access": incoming ACP permission requests are
+    /// auto-granted (allow-once) instead of waiting on a tap. Local-only,
+    /// mirroring the desktop's per-session permission mode — the daemon is
+    /// never told; the client just answers on the user's behalf.
+    public var autoApprovePermissions: Bool = false
 
     public init(
         sessionId: String,

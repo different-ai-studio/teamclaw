@@ -26,6 +26,16 @@ private actor FakeMessagesRepository: MessagesRepository {
         if shouldFail { throw CloudAPIError.invalidResponse }
         deletedIDs.append(messageID)
     }
+
+    func submitFeedback(_ input: FeedbackInput) async throws {
+        if shouldFail { throw CloudAPIError.invalidResponse }
+    }
+
+    func deleteFeedback(messageID: String) async throws {
+        if shouldFail { throw CloudAPIError.invalidResponse }
+    }
+
+    func listFeedback(sessionID: String) async throws -> [FeedbackRecord] { [] }
 }
 
 private actor FakeSessionsRepository: SessionsRepository {
@@ -41,6 +51,14 @@ private actor FakeSessionsRepository: SessionsRepository {
     func markSessionUnread(sessionId: String) async throws {
         if shouldFail { throw CloudAPIError.invalidResponse }
         unreadSessionIDs.append(sessionId)
+    }
+
+    func renameSession(sessionId: String, title: String) async throws {
+        if shouldFail { throw CloudAPIError.invalidResponse }
+    }
+
+    func setSessionArchived(sessionId: String, archivedAt: Date?) async throws {
+        if shouldFail { throw CloudAPIError.invalidResponse }
     }
 }
 

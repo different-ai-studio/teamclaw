@@ -29,6 +29,7 @@ public struct SettingsView: View {
     @State private var teamDefaultAgentSaveError: String?
 
     @State private var showSignOutConfirm = false
+    @State private var showPendingInvites = false
     @State private var showEditProfileSheet = false
 
     /// Cached actor row for the current member, used to source the
@@ -126,6 +127,17 @@ public struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+            .sheet(isPresented: $showPendingInvites) {
+                if let onboarding {
+                    PendingInvitesSheet(coordinator: onboarding)
+                        .presentationDetents([.medium, .large])
+                }
+            }
+            .task {
+                // Pending invites surface as a Team-card row; refresh when
+                // Settings opens so the row/badge reflects reality.
+                await onboarding?.refreshPendingInvites()
             }
             .sheet(isPresented: $showEditProfileSheet) {
                 if let actorID = currentActorID {
@@ -350,6 +362,54 @@ public struct SettingsView: View {
                         )
                         Divider().background(Color.amux.hairline).padding(.leading, 14)
                         SettingsRow(label: "ID", value: details.id, valueIsMonospaced: true)
+                        Divider().background(Color.amux.hairline).padding(.leading, 14)
+                        if let onboarding, !onboarding.pendingInvites.isEmpty {
+                            Button {
+                                showPendingInvites = true
+                            } label: {
+                                HStack {
+                                    Text("Pending Invites")
+                                        .font(.system(size: 14.5, weight: .medium))
+                                        .foregroundStyle(Color.amux.onyx)
+                                    Spacer()
+                                    Text("\(onboarding.pendingInvites.count)")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(Color.amux.mist)
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 2)
+                                        .background(Color.amux.cinnabar, in: Capsule())
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 13)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("settings.pendingInvitesButton")
+                            Divider().background(Color.amux.hairline).padding(.leading, 14)
+                        }
+                        Button {
+                            // Dismiss first: the route flip to the org→team
+                            // picker replaces the whole shell underneath this
+                            // sheet.
+                            let coordinator = onboarding
+                            dismiss()
+                            Task { await coordinator?.beginTeamSwitch() }
+                        } label: {
+                            HStack {
+                                Text("Switch Team")
+                                    .font(.system(size: 14.5, weight: .medium))
+                                    .foregroundStyle(Color.amux.onyx)
+                                Spacer()
+                                Image(systemName: "arrow.left.arrow.right")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Color.amux.slate)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 13)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("settings.switchTeamButton")
                     } else if let err = teamLoadError {
                         Text(err)
                             .font(.footnote)

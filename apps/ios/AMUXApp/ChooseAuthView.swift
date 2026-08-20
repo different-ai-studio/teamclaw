@@ -2,11 +2,11 @@ import SwiftUI
 import AMUXCore
 import AMUXSharedUI
 
-/// Sits between WelcomeView and LoginView. Three paths:
-///   - private workspace → anonymous Supabase sign-in + auto-created random team
+/// Sits between WelcomeView and LoginView. Two paths (anonymous sign-in was
+/// removed from the product):
 ///   - "Sign in or register" → push the existing LoginView
-///   - join a team → paste token, anonymous sign-in, replay token
-///     through the existing invite-claim pipeline once RootTabView mounts
+///   - join a team → paste an invite token, then sign in; the token replays
+///     through the invite-claim pipeline once RootTabView mounts
 struct ChooseAuthView: View {
     @Bindable var coordinator: AppOnboardingCoordinator
     @State private var showLogin = false

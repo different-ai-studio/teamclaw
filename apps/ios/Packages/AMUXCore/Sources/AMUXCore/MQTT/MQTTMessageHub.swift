@@ -90,7 +90,7 @@ public actor MQTTMessageHub {
     }
 
     /// Stream of messages whose topic starts with `topicPrefix`. Use for
-    /// MQTT wildcard subscriptions (`runtime/+/state`, etc) where the
+    /// MQTT wildcard subscriptions (`session/+/live`, etc) where the
     /// daemon publishes one topic per child.
     public func messages(topicPrefix: String) -> AsyncStream<MQTTIncoming> {
         messages(matching: { $0.topic.hasPrefix(topicPrefix) })

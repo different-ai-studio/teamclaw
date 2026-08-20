@@ -275,8 +275,12 @@ public final class TeamcluService {
                 let peers = await fetchPeers(targetActorID: notifyActorID)
                 syncPeers(peers)
             case "workspaces.changed":
-                // Placeholder: Task 6 wires the returned array into state.
-                _ = await fetchWorkspaces(targetActorID: notifyActorID)
+                // Upsert the daemon's current workspace set into the local
+                // cache so pickers show the change without a relaunch.
+                // Upsert-only: other daemons' workspaces ride their own
+                // notifies, so nothing is deleted here.
+                let workspaces = await fetchWorkspaces(targetActorID: notifyActorID)
+                syncWorkspaces(workspaces, modelContext: modelContext)
             default:
                 break
             }
@@ -306,6 +310,30 @@ public final class TeamcluService {
         if !mine.displayName.isEmpty {
             localDisplayName = mine.displayName
         }
+    }
+
+    /// Upserts a daemon's `FetchWorkspaces` result into the SwiftData
+    /// `Workspace` cache. Upsert-only by design: each daemon's notify only
+    /// speaks for its own workspace set, so rows are never deleted here —
+    /// mirrors `SessionListViewModel.syncWorkspaceRecords`.
+    private func syncWorkspaces(_ workspaces: [Amux_WorkspaceInfo], modelContext: ModelContext) {
+        guard !workspaces.isEmpty else { return }
+        for info in workspaces {
+            let id = info.workspaceID
+            guard !id.isEmpty else { continue }
+            let descriptor = FetchDescriptor<Workspace>(predicate: #Predicate { $0.workspaceId == id })
+            if let existing = try? modelContext.fetch(descriptor).first {
+                if !info.displayName.isEmpty { existing.displayName = info.displayName }
+                if !info.path.isEmpty { existing.path = info.path }
+            } else {
+                modelContext.insert(Workspace(
+                    workspaceId: id,
+                    path: info.path,
+                    displayName: info.displayName
+                ))
+            }
+        }
+        try? modelContext.save()
     }
 
     private func syncSessionMeta(_ proto: Teamclu_SessionInfo, modelContext: ModelContext) {
@@ -1085,32 +1113,9 @@ public final class TeamcluService {
         return combined
     }
 
-    /// Adds a workspace via daemon RPC. Returns a `(success, error)` pair —
-    /// daemon responds with `success=true, error=""` on accept; `success=false`
-    /// with a daemon-side reason on reject. Returns `(false, "timeout")` when no
-    /// response arrives within 25s.
-    ///
-    /// 25s ceiling is set above daemon's 20s Supabase HTTP timeout so a slow
-    /// `sync_workspace_to_supabase` round-trip surfaces as the daemon's real
-    /// success/error rather than a phantom client-side "timeout" while the
-    /// add eventually succeeds and reappears via `workspaces.changed` notify.
-    public func addWorkspaceRpc(targetActorID: String, path: String) async -> (Bool, String) {
-        guard let rpcClient else { return (false, "mqtt not configured") }
-        guard !targetActorID.isEmpty else { return (false, "no target actor id") }
-
-        var add = Teamclu_AddWorkspaceRequest()
-        add.path = path
-
-        var rpcReq = Teamclu_RpcRequest()
-        rpcReq.requestID = String(UUID().uuidString.prefix(8)).lowercased()
-        rpcReq.requesterActorID = requesterActorID
-        rpcReq.method = .addWorkspace(add)
-
-        guard let response = await rpcClient.invoke(request: rpcReq, teamID: teamId, targetActorID: targetActorID, timeout: 25) else {
-            return (false, "timeout")
-        }
-        return (response.success, response.error)
-    }
+    // `addWorkspaceRpc` is gone: `add_workspace` is deprecated in the proto —
+    // workspaces are created via Cloud API `POST /v1/workspaces`
+    // (WorkspaceStore.add) and the daemon resolves UUID→path from the cloud.
 
     /// Removes a participant from a session on the target daemon. The daemon
     /// only mutates its in-memory cache + sessions.toml + notify fanout —
@@ -1147,11 +1152,11 @@ public final class TeamcluService {
         return (response.success, response.error)
     }
 
-    /// Stops a runtime on the target daemon. The daemon's runtime/{id}/state
-    /// retained topic transitions to STOPPED; that's the canonical "it
-    /// terminated" signal. This RPC's `(success, error)` is the synchronous
-    /// accept gate. The response lands on our own actor's persistently-subscribed
-    /// rpc/res topic.
+    /// Stops a runtime on the target daemon. Termination shows up on the
+    /// retained `{actor}/state` snapshot (the session leaves
+    /// `live_sessions`); that's the canonical "it terminated" signal. This
+    /// RPC's `(success, error)` is the synchronous accept gate. The response
+    /// lands on our own actor's persistently-subscribed rpc/res topic.
     public func runtimeStopRpc(targetActorID: String,
                                runtimeID: String) async -> (Bool, String) {
         guard let rpcClient else { return (false, "mqtt not configured") }
@@ -1177,7 +1182,7 @@ public final class TeamcluService {
 
     /// Sets the runtime's ACP session model. The daemon mirrors the choice
     /// into its `current_model_per_agent` map and re-publishes the retained
-    /// `runtime/{id}/state`, so subscribers see `current_model` flip without
+    /// `{actor}/state` snapshot, so subscribers see the model flip without
     /// a separate roundtrip. `(success, error)` is the synchronous accept gate.
     /// The response lands on our own actor's persistently-subscribed rpc/res topic.
     public func setModelRpc(targetActorID: String,
@@ -1205,8 +1210,67 @@ public final class TeamcluService {
         return (response.success, response.error)
     }
 
-    /// Removes a workspace via daemon RPC. Same `(success, error)` semantics as
-    /// `addWorkspaceRpc`.
+    /// Sends an ACP command addressed by `(actor, session)` over the RPC
+    /// channel (ADR-0003). Replaces publishing on the retired
+    /// `runtime/{rid}/commands` topic, which had no reply path — a command
+    /// aimed at a spawn the daemon no longer knew was dropped with only a
+    /// log line (docs/debug/interrupt-agent-stale-runtime.md). Riding on
+    /// `RpcRequest` means every command gets an `RpcResponse`.
+    ///
+    /// Returns `(dispatched, error)`. `dispatched == false` with a nil error
+    /// is a real answer, not a failure: the daemon holds no attachment for
+    /// `sessionID` — the session is cold — and the caller must not report
+    /// the command as delivered.
+    public func runtimeCommandRpc(
+        targetActorID: String,
+        sessionID: String,
+        address: String,
+        command: Amux_AcpCommand
+    ) async -> (dispatched: Bool, error: String?) {
+        guard let rpcClient else { return (false, "mqtt not configured") }
+        guard !targetActorID.isEmpty else { return (false, "no target actor id") }
+        guard !sessionID.isEmpty else { return (false, "no session id") }
+
+        var envelope = Amux_RuntimeCommandEnvelope()
+        // Kept for daemon-side logging only; the daemon resolves the target
+        // attachment by (actor, session), never by this value.
+        envelope.runtimeID = address
+        envelope.actorID = targetActorID
+        envelope.peerID = peerId
+        envelope.commandID = UUID().uuidString
+        envelope.timestamp = Int64(Date().timeIntervalSince1970)
+        if let sender = currentHumanActorId, !sender.isEmpty {
+            envelope.senderActorID = sender
+        }
+        envelope.acpCommand = command
+
+        var runtimeCommand = Teamclu_RuntimeCommandRequest()
+        runtimeCommand.sessionID = sessionID
+        runtimeCommand.envelope = envelope
+
+        var rpcReq = Teamclu_RpcRequest()
+        rpcReq.requestID = String(UUID().uuidString.prefix(8)).lowercased()
+        rpcReq.requesterActorID = requesterActorID
+        rpcReq.method = .runtimeCommand(runtimeCommand)
+
+        // Response arrives on our own actor's rpc/res (persistently subscribed);
+        // ensure that standing sub without a harmful per-call unsubscribe.
+        await ensureOwnRpcResSubscribed()
+
+        guard let response = await rpcClient.invoke(request: rpcReq, teamID: teamId, targetActorID: targetActorID) else {
+            return (false, "timeout")
+        }
+        guard response.success else {
+            return (false, response.error.isEmpty ? "runtime_command rejected" : response.error)
+        }
+        if case .runtimeCommandResult(let result)? = response.result {
+            return (result.dispatched, nil)
+        }
+        return (false, "no result")
+    }
+
+    /// Removes a workspace via daemon RPC. Returns `(success, error)`;
+    /// `(false, "timeout")` when no response arrives in time.
     public func removeWorkspaceRpc(targetActorID: String, workspaceId: String) async -> (Bool, String) {
         guard let rpcClient else { return (false, "mqtt not configured") }
         guard !targetActorID.isEmpty else { return (false, "no target actor id") }
@@ -1227,7 +1291,7 @@ public final class TeamcluService {
 
     /// Spawns a runtime via daemon RPC. The daemon returns synchronously after
     /// the Claude Code subprocess spawns (not after full ACP-ready) — full
-    /// lifecycle progress arrives via the retained `runtime/{id}/state` topic
+    /// lifecycle progress arrives via the retained `{actor}/state` snapshot
     /// that callers should already be subscribed to via SessionListViewModel.
     ///
     /// Per spec invariant, the new-session UI must not block on full daemon

@@ -54,10 +54,6 @@ public enum MQTTTopics {
         "\(actorBase(teamID: teamID, actorID: actorID))/state"
     }
 
-    public static func runtimeCommands(teamID: String, actorID: String, runtimeID: String) -> String {
-        "\(actorBase(teamID: teamID, actorID: actorID))/runtime/\(runtimeID)/commands"
-    }
-
     /// Team-scoped user notify channel. Requires broker JWT auth before use
     /// (Phase 1d prerequisite); builder is available now so Phase 2 code can
     /// reference it, but no subscribe happens until 1d ships.

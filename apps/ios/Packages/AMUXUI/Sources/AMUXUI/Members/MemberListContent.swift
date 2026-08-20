@@ -283,16 +283,10 @@ private struct ActorRow: View {
         actor.isAgent || isMe
     }
 
-    /// Deterministic placeholder while a real per-actor session aggregate
-    /// lands. Stable per actor so the value doesn't churn between rebuilds.
-    /// Online actors skew higher than offline ones to match the design intent.
-    private var mockActiveSessions: Int {
-        let h = abs(actor.actorId.unicodeScalars.reduce(0) { $0 &+ Int($1.value) })
-        let onlineBuckets:  [Int] = [0, 1, 1, 1, 2, 2, 3]
-        let offlineBuckets: [Int] = [0, 0, 0, 0, 1, 1]
-        let bucket = actor.isOnline ? onlineBuckets : offlineBuckets
-        return bucket[h % bucket.count]
-    }
+    /// Hidden until a real per-actor live-session aggregate exists. The old
+    /// hash-derived placeholder read as live data and misled users; a chip
+    /// that never shows is honest, a fabricated one is not.
+    private var mockActiveSessions: Int { 0 }
 
     private struct Tag {
         let text: String
@@ -858,35 +852,27 @@ struct ActorDetailView: View {
         let path = newWorkspacePath.trimmingCharacters(in: .whitespaces)
         guard !path.isEmpty else { return }
 
-        guard !routeActorID.isEmpty else {
-            workspaceErrorMessage = "Missing daemon device ID."
-            return
-        }
-        guard mqtt.connectionState == .connected else {
-            workspaceErrorMessage = "MQTT is not connected."
-            return
-        }
-        guard let teamcluService else {
-            workspaceErrorMessage = "TeamcluService unavailable."
+        // Cloud API create — the deprecated `add_workspace` daemon RPC is
+        // gone. The daemon resolves workspace UUID→path from the cloud, so
+        // no MQTT round-trip (or connected broker) is needed here.
+        guard let workspaceStore else {
+            workspaceErrorMessage = "Workspace store unavailable."
             return
         }
 
         isAddingWorkspace = true
         workspaceErrorMessage = nil
 
-        let target = routeActorID
+        let actorId = actor.actorId
         Task {
-            let (ok, err) = await teamcluService.addWorkspaceRpc(targetActorID: target, path: path)
+            let ok = await workspaceStore.add(path: path, agentID: actorId)
             await MainActor.run {
                 isAddingWorkspace = false
                 if ok {
                     newWorkspacePath = ""
                     workspaceErrorMessage = nil
-                    let workspaceStore = self.workspaceStore
-                    let actorId = actor.actorId
-                    Task { await workspaceStore?.reload(agentID: actorId) }
                 } else {
-                    workspaceErrorMessage = err.isEmpty ? "Add failed" : err
+                    workspaceErrorMessage = workspaceStore.errorMessage ?? "Add failed"
                 }
             }
         }
@@ -925,25 +911,6 @@ struct ActorDetailView: View {
                 .map(\.sessionId)
         )
         return allSessions.filter { sessionIds.contains($0.sessionId) }
-    }
-
-    /// Deterministic placeholder for the tools chart and auto-approve list,
-    /// stable per actor so it doesn't churn between rebuilds. The stat row no
-    /// longer uses it — those three numbers are real now.
-    private var mockHash: Int {
-        abs(actor.actorId.unicodeScalars.reduce(0) { $0 &+ Int($1.value) })
-    }
-
-
-    private struct ToolBar { let name: String; let count: Int }
-    private var mockTools: [ToolBar] {
-        let base = [142, 38, 24, 12, 8]
-        let names = ["Read", "Edit", "Bash", "Write", "Grep"]
-        return zip(names, base).enumerated().map { i, pair in
-            // Slight per-actor jitter so the chart isn't identical across agents.
-            let delta = (mockHash &+ i) % 7
-            return ToolBar(name: pair.0, count: max(1, pair.1 + delta - 3))
-        }
     }
 
     private struct AutoApprovedRow { let name: String; let defaultOn: Bool }
@@ -1119,24 +1086,12 @@ struct ActorDetailView: View {
             .frame(width: 0.5, height: 28)
     }
 
+    /// Hidden until the per-actor skill aggregate is wired
+    /// (`GET /v1/teams/:id/leaderboard` carries `skillUsage` per actor).
+    /// The old chart drew hash-jittered fake counts that read as real data.
     @ViewBuilder
     private var toolsUsedSection: some View {
-        Section {
-            ForEach(Array(mockTools.enumerated()), id: \.offset) { _, t in
-                ToolUsageRow(name: t.name, count: t.count, max: maxToolCount)
-                    .listRowBackground(Color.amux.paper)
-            }
-        } header: {
-            Text("Top 5 skills used".uppercased())
-                .font(.caption.weight(.semibold))
-                .tracking(0.3)
-                .foregroundStyle(.secondary)
-                .textCase(nil)
-        }
-    }
-
-    private var maxToolCount: Int {
-        max(1, mockTools.map(\.count).max() ?? 1)
+        EmptyView()
     }
 
     @ViewBuilder

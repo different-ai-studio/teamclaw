@@ -37,6 +37,10 @@ struct SessionListContent: View {
 
     @Environment(\.modelContext) private var modelContext
 
+    /// Session being renamed via the context-menu alert; nil = alert hidden.
+    @State private var renameTarget: Session?
+    @State private var renameText = ""
+
     /// Locally-cached team directory keyed by actor id. Drives initials,
     /// display name, and agent-vs-human shaping for the participant cluster.
     @Query private var allActors: [CachedActor]
@@ -146,6 +150,30 @@ struct SessionListContent: View {
         .refreshable {
             await refreshSessionsFromBackend()
         }
+        .alert(
+            "Rename Session",
+            isPresented: Binding(
+                get: { renameTarget != nil },
+                set: { if !$0 { renameTarget = nil } }
+            ),
+            presenting: renameTarget
+        ) { session in
+            TextField("Title", text: $renameText)
+            Button("Rename") {
+                let sid = session.sessionId
+                let title = renameText
+                renameTarget = nil
+                Task {
+                    await viewModel.renameSession(
+                        sessionId: sid,
+                        newTitle: title,
+                        sessionsRepo: sessionsListRepository,
+                        modelContext: modelContext
+                    )
+                }
+            }
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+        }
     }
 
     @ViewBuilder
@@ -242,6 +270,13 @@ struct SessionListContent: View {
         .listRowBackground(Color.clear)
         .listRowSeparatorTint(Color.amux.hairline)
         .contextMenu {
+            Button {
+                renameText = session.title
+                renameTarget = session
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+
             if let store = notificationPrefsStore {
                 let isMuted = store.isMuted(session.sessionId)
                 Button {
@@ -251,11 +286,18 @@ struct SessionListContent: View {
                           systemImage: isMuted ? "bell" : "bell.slash")
                 }
             }
+
+            Divider()
+
+            Button(role: .destructive) {
+                archive(session)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
-                session.isArchived = true
-                try? modelContext.save()
+                archive(session)
             } label: {
                 Label("Archive", systemImage: "archivebox.fill")
             }
@@ -316,6 +358,26 @@ struct SessionListContent: View {
     private func toggleSelection(_ id: String) {
         if selectedIDs.contains(id) { selectedIDs.remove(id) }
         else { selectedIDs.insert(id) }
+    }
+
+    /// Server-backed archive: flips `archived_at` via the Cloud API so the
+    /// session leaves every device's list, with the local flag as the
+    /// immediate mirror. Falls back to local-only when no repository is
+    /// wired (previews).
+    private func archive(_ session: Session) {
+        guard let repo = sessionsListRepository else {
+            session.isArchived = true
+            try? modelContext.save()
+            return
+        }
+        let sid = session.sessionId
+        Task {
+            await viewModel.archiveSession(
+                sessionId: sid,
+                sessionsRepo: repo,
+                modelContext: modelContext
+            )
+        }
     }
 }
 

@@ -10,7 +10,9 @@ import SwiftData
 /// 2. Introduce a new schema version that points at the live models.
 /// 3. Register a migration stage for the transition.
 public enum AMUXSchemaV1: VersionedSchema {
-    public static var versionIdentifier: Schema.Version { Schema.Version(1, 16, 0) }
+    // 1.17.0: AgentEvent grew diffPath/diffOldText/diffNewText and Session
+    // grew autoApprovePermissions (additive, lightweight migration).
+    public static var versionIdentifier: Schema.Version { Schema.Version(1, 17, 0) }
 
     public static var models: [any PersistentModel.Type] {
         [
