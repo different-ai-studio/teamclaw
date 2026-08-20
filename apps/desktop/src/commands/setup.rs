@@ -150,7 +150,9 @@ pub async fn setup_list_requirements<R: Runtime>(
     // The agent-runtime row's status comes from the matching key in the
     // `amuxd doctor` output (doctor reports every runtime in one pass).
     let runtime = doctor.as_ref().map(|d| &d[runtime_key]);
-    let runtime_satisfied = runtime.map(|n| runtime_installed(n, runtime_key)).unwrap_or(false);
+    let runtime_satisfied = runtime
+        .map(|n| runtime_installed(n, runtime_key))
+        .unwrap_or(false);
     let runtime_version = runtime
         .and_then(|r| r["version"].as_str())
         .map(|s| s.to_string());
