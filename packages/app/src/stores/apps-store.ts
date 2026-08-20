@@ -11,6 +11,11 @@ interface AppsState {
   teamId: string | null;
   /** App ids with a deploy in flight — drives per-row spinner / disabled state. */
   deployingIds: string[];
+  /** Session each app was last opened into — lets the list mark the row whose
+   *  session is currently active. Sessions are resolved lazily on open, so this
+   *  fills in as apps are opened rather than up front. */
+  sessionIdByAppId: Record<string, string>;
+  recordAppSession: (appId: string, sessionId: string) => void;
   load: (teamId: string, opts?: { force?: boolean }) => Promise<void>;
   create: (input: {
     teamId: string;
@@ -115,6 +120,14 @@ export const useAppsStore = create<AppsState>((set, get) => ({
   error: null,
   teamId: null,
   deployingIds: [],
+  sessionIdByAppId: {},
+  recordAppSession: (appId, sessionId) => {
+    set((s) =>
+      s.sessionIdByAppId[appId] === sessionId
+        ? s
+        : { sessionIdByAppId: { ...s.sessionIdByAppId, [appId]: sessionId } },
+    );
+  },
   load: async (teamId, opts) => {
     const s = get();
     if (s.loaded && s.teamId === teamId && !opts?.force) return;
