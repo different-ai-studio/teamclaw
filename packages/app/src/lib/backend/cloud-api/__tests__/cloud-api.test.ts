@@ -112,7 +112,7 @@ describe("cloud api backend", () => {
     await expect(backend.auth.claimInvite("invite-token")).resolves.toMatchObject({ actorId: "actor-1" });
 
     expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
-      "GET /v1/sessions?limit=50&teamId=team-1",
+      "GET /v1/sessions?limit=50&teamId=team-1&kind=all",
       "GET /v1/sessions/session-1/messages",
       "POST /v1/sessions/session-1/messages",
       "GET /v1/teams?limit=1",

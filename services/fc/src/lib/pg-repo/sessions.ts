@@ -187,11 +187,13 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
     async listSessions({
       teamId,
       ideaId,
+      kind = "all",
       limit = 50,
       cursor = null,
     }: {
       teamId?: string;
       ideaId?: string;
+      kind?: "all" | "regular" | "cron";
       limit?: number;
       cursor?: { lastMessageAt?: string | null; createdAt?: string; id?: string } | null;
     } = {}) {
@@ -223,6 +225,11 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
       // what keeps "sessions for this idea" correct once the list is paginated
       // — a client-side filter over page 1 silently misses matches on page 2.
       const ideaFilter = ideaId ? sql`sessions.idea_id = ${ideaId}` : sql`TRUE`;
+      const kindFilter = kind === "cron"
+        ? sql`sessions.source = 'cron'`
+        : kind === "regular"
+          ? sql`COALESCE(sessions.source, 'user') <> 'cron'`
+          : sql`TRUE`;
 
       let cursorFilter = sql`TRUE`;
       if (cursor) {
@@ -282,6 +289,7 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
         FROM sessions
         WHERE (${teamFilter})
           AND (${ideaFilter})
+          AND (${kindFilter})
           AND (${participantFilter})
           AND (${cursorFilter})
           -- No archived_at filter, unlike the Supabase RPC: this schema has no

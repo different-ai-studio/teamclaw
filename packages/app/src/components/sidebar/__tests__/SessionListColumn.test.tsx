@@ -140,6 +140,11 @@ describe('SessionListColumn', () => {
       error: null,
       hasMore: false,
       nextCursor: null,
+      listKind: 'regular',
+      regularHasMore: false,
+      regularNextCursor: null,
+      cronHasMore: false,
+      cronNextCursor: null,
     })
   })
 
@@ -296,6 +301,19 @@ describe('SessionListColumn', () => {
     useUIStore.setState({ sidebarFilter: { kind: 'pinned' } })
     rerender(<SessionListColumn />)
     expect(screen.queryByRole('button', { name: /显示定时会话|显示全部会话/ })).not.toBeInTheDocument()
+  })
+
+  it('starts a separate cron page when opening scheduled sessions', () => {
+    useWorkspaceStore.setState({ workspacePath: '/tmp/ws' })
+    const loadFirstPage = vi
+      .spyOn(useSessionListStore.getState(), 'loadFirstPage')
+      .mockResolvedValue()
+    render(<SessionListColumn />)
+
+    fireEvent.click(screen.getByRole('button', { name: /显示定时会话|Show scheduled sessions/ }))
+
+    expect(loadFirstPage).toHaveBeenCalledWith(50, 'cron')
+    loadFirstPage.mockRestore()
   })
 
   it('shows workspace subline under session title in non-workspace filters', () => {

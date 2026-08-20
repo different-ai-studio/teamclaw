@@ -37,7 +37,7 @@ const cloudSession = {
 
 describe("sessions module", () => {
   it("listCurrentActorSessions calls /v1/sessions and maps fields", async () => {
-    const client = mockClient({ "GET /v1/sessions?limit=50&teamId=team-1": { items: [cloudSession], nextCursor: "cursor-1" } });
+    const client = mockClient({ "GET /v1/sessions?limit=50&teamId=team-1&kind=all": { items: [cloudSession], nextCursor: "cursor-1" } });
     const mod = createSessionsModule(client);
     const out = await mod.listCurrentActorSessions({ limit: 50, cursor: null, teamId: "team-1" });
     expect(out.rows[0].id).toBe("session-1");

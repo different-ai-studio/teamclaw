@@ -12,7 +12,7 @@ function refreshSessionListThrottled(): void {
   const now = Date.now()
   if (now - lastSessionListRefreshAt < 5_000) return
   lastSessionListRefreshAt = now
-  void useSessionListStore.getState().load().catch(() => {})
+  void useSessionListStore.getState().loadFirstPage(50, 'regular').catch(() => {})
 }
 import { useCronStore } from '@/stores/cron'
 import { createQuickSession, describeQuickSessionFailure } from '@/lib/create-quick-session'

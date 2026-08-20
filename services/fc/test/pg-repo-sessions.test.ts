@@ -101,6 +101,32 @@ test("listSessions narrows by teamId and ideaId", async () => {
   assert.deepEqual(otherTeam, [], "a foreign teamId must not leak rows");
 });
 
+test("listSessions filters session kind before pagination", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id);
+  const repo = createPgBusinessRepository({ db, userId: actor.userId });
+
+  const regular = await repo.createSession({
+    teamId: team.id, title: "Regular", mode: "solo", participantActorIds: [actor.id],
+  });
+  const cron = await repo.createSession({
+    teamId: team.id, title: "Cron", mode: "solo", participantActorIds: [actor.id],
+  });
+  await db.execute(sql`UPDATE sessions SET source = 'user' WHERE id = ${regular.id}`);
+  await db.execute(sql`UPDATE sessions SET source = 'cron' WHERE id = ${cron.id}`);
+
+  const regularRows = await repo.listSessions({
+    teamId: team.id, kind: "regular", limit: 1, cursor: null,
+  });
+  const cronRows = await repo.listSessions({
+    teamId: team.id, kind: "cron", limit: 1, cursor: null,
+  });
+
+  assert.deepEqual(regularRows.map((row: any) => row.title), ["Regular"]);
+  assert.deepEqual(cronRows.map((row: any) => row.title), ["Cron"]);
+});
+
 test("listSessions ordering: lastMessageAt desc nulls last, then createdAt desc, then id desc", async () => {
   const { db } = await makeTestDb();
   const team = await seedTeam(db);

@@ -66,6 +66,11 @@ describe("session-list-store", () => {
       highlightedSessionIds: [],
       hasMore: false,
       nextCursor: null,
+      listKind: "regular",
+      regularHasMore: false,
+      regularNextCursor: null,
+      cronHasMore: false,
+      cronNextCursor: null,
       serverConfirmedTeams: [],
       emptyPageKeptTeams: [],
       scopeTeamId: null,
@@ -125,6 +130,7 @@ describe("session-list-store", () => {
       limit: 50,
       cursor: null,
       teamId: "team-1",
+      kind: "regular",
     });
     expect(useSessionListStore.getState().rows[0]).toMatchObject({
       id: "session-1",
@@ -175,12 +181,49 @@ describe("session-list-store", () => {
         id: "session-2",
       },
       teamId: "team-1",
+      kind: "regular",
     });
     expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual([
       "session-1",
       "session-2",
       "session-3",
     ]);
+  });
+
+  it("keeps independent cursors for regular and cron sessions", async () => {
+    const regularCursor = "regular-page-2";
+    const cronCursor = "cron-page-2";
+    mocks.listCurrentActorSessions
+      .mockResolvedValueOnce({
+        rows: [sessionRow({ id: "regular-1" })],
+        nextCursor: regularCursor,
+      })
+      .mockResolvedValueOnce({
+        rows: [{ ...sessionRow({ id: "cron-1" }), source: "cron" }],
+        nextCursor: cronCursor,
+      })
+      .mockResolvedValueOnce({ rows: [], nextCursor: null })
+      .mockResolvedValueOnce({ rows: [], nextCursor: null });
+
+    const { useSessionListStore } = await import("./session-list-store");
+    await useSessionListStore.getState().loadFirstPage(50, "regular");
+    await useSessionListStore.getState().loadFirstPage(50, "cron");
+
+    expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual([
+      "regular-1",
+      "cron-1",
+    ]);
+
+    await useSessionListStore.getState().loadMore();
+    expect(mocks.listCurrentActorSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: cronCursor, kind: "cron" }),
+    );
+
+    useSessionListStore.getState().setListKind("regular");
+    await useSessionListStore.getState().loadMore();
+    expect(mocks.listCurrentActorSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: regularCursor, kind: "regular" }),
+    );
   });
 
   it("uses the backend next cursor instead of inferring hasMore from row count", async () => {

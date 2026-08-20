@@ -63,6 +63,7 @@ test("listSessions maps current actor session rpc rows", async () => {
   const rows = await repo.listSessions({
     limit: 10,
     teamId: "team-1",
+    kind: "regular",
     cursor: { lastMessageAt: "2026-05-27T00:00:00Z", createdAt: "2026-05-26T00:00:00Z", id: "s0" },
   });
 
@@ -78,6 +79,7 @@ test("listSessions maps current actor session rpc rows", async () => {
       p_before_id: "s0",
       p_team_id: "team-1",
       p_idea_id: null,
+      p_kind: "regular",
     },
   }]);
   // The row grew after this test was written: source/cronJobId came with cron

@@ -23,6 +23,11 @@ export function resetClientChatState(): void {
     error: null,
     hasMore: false,
     nextCursor: null,
+    listKind: "regular",
+    regularHasMore: false,
+    regularNextCursor: null,
+    cronHasMore: false,
+    cronNextCursor: null,
     highlightedSessionIds: [],
     // The list is team-scoped; clearing the scope alongside the rows is what
     // makes the next loadFirstPage re-fetch instead of treating the emptied

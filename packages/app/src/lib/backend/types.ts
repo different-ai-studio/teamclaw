@@ -202,6 +202,7 @@ export interface SessionsBackend {
     limit: number;
     cursor: SessionListCursor | null;
     teamId: string;
+    kind?: "all" | "regular" | "cron";
   }): Promise<SessionListPage>;
   markCurrentActorSessionViewed(sessionId: string, lastReadMessageId?: string | null): Promise<void>;
   createSessionShell(input: SessionCreateInput): Promise<{ sessionId: string }>;
