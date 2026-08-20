@@ -1,22 +1,44 @@
 # pi Agent 后端：与 opencode 对等的集成设计
 
-> 状态：设计稿（2026-07-22）。目标：`build config` 新增 `localAgent`
-> 参数（`"opencode"` | `"pi"`），选 `pi` 时 daemon 使用
-> [pi coding agent](https://github.com/badlogic/pi-mono)（`@earendil-works`）
-> 作为本地运行时，能力对等于现有 opencode serve HTTP 集成。
+> 状态：已实装（2026-07-22 设计；2026-08 多会话 host 落地，见 #991）。
+> `build config` 的 `localAgent` 参数（`"opencode"` | `"pi"`）选 `pi` 时
+> daemon 使用 [pi coding agent](https://github.com/badlogic/pi-mono)
+> （`@earendil-works`）作为本地运行时，能力对等于 opencode serve HTTP 集成。
 
-## 1. 两种运行时的形态差异
+## 1. 进程 / 会话模型
 
-| | opencode（现状） | pi |
+pi 子进程有两种模式（`pi_rpc/process.rs`）：
+
+- **Host（默认）**：`node <cache>/pi/host/host.mjs` —— TeamClu 自带的
+  **多会话 host**，随 amuxd 分发（`include_str!` 物化），进程内跑 N 个并发
+  `AgentSession`（pi npm 包的 SDK 入口）。协议仍是 stdio JSONL，但每条命令
+  和每条事件都带 `sessionId`，同 worktree 的多个会话并发 prompt / 流式 /
+  cancel 互不影响。extension、MCP 桥、model registry 进程内共享——会话数
+  增长不重复付 MCP 冷启动和基础内存。
+- **LegacyRpc（回退）**：`pi --mode rpc`，单活动会话协议（命令/事件不带
+  session 标识，`switch_session` 会销毁在跑的 turn，因此有 mid-turn 守卫，
+  第二个会话发消息会被拒绝重试）。两种情况走这条路：pi 装的是 Bun 单二进制
+  （解析不到可 import 的 npm 包根目录），或 `daemon.toml` 里
+  `[agents.pi] session_host = "rpc"`（一键回退开关）。
+
+进程池键 = **(isolation domain, process-env revision, canonical worktree)**
+（对齐 opencode 的 host pool 维度；此前只按 worktree 分、env 池全局
+first-wins，workspace A 的 env 会粘进 B 的进程）。会话文件仍只按 worktree
+散列到 `<state>/pi-sessions/<hash>/`——resume 不受 env 变更影响。
+
+| | opencode | pi（Host 模式） |
 |---|---|---|
-| 进程模型 | 全局单 `opencode serve`（HTTP + SSE） | **每 worktree 一个 `pi --mode rpc` 进程**（stdin/stdout JSONL） |
-| 会话 | serve 内多会话，`?directory=` 定界 | 一进程一活动会话；`--session-dir` 持久化（append-only JSONL），`switch_session`/`get_entries since` 恢复 |
-| 流式事件 | SSE：`message.part.delta` 等 | stdout 事件：`message_update`（text/thinking delta）、`tool_execution_start/update/end`、`turn_end`、`agent_settled` |
-| 权限审批 | 内建 `permission.asked` / reply 端点 | **无内建**——须由 TeamClu 自带的 pi extension 拦截工具执行，经 `extension_ui_request(confirm)` ↔ `extension_ui_response` 与宿主交互 |
-| MCP | 内建（`opencode.json` 的 `mcp` 表） | **无内建**——须 extension 实现（TeamClu extension 内桥接 amuxd-remote-tools） |
-| 模型 | `/config/providers` 目录 | `get_available_models` / `set_model`；自定义 provider 用 `registerProvider`（LiteLLM 走 `openai-completions`，注意 compat 钩子） |
-| 取消 | `POST abort` | `abort` 命令 |
-| 安装分发 | 官方渠道 + `opencode.lock.json` | npm 包或 Bun 编译单二进制；同样做 `pi.lock.json` 最低版本锁 |
+| 进程模型 | 全局 `opencode serve`（HTTP + SSE），域键池 | 每 (domain, env, worktree) 一个 `host.mjs` 进程（stdio JSONL） |
+| 会话 | serve 内多会话，`?directory=` 定界 | host 内多 `AgentSession`，命令/事件带 `sessionId`；`--session-dir` 持久化（append-only JSONL） |
+| 流式事件 | SSE：`message.part.delta` 等 | stdout 事件：`message_update`（text/thinking delta）、`tool_execution_start/update/end`、`agent_end`，全部带 `sessionId` |
+| 权限审批 | 内建 `permission.asked` / reply 端点 | **无内建**——TeamClu pi extension 拦截工具执行，经 `extension_ui_request(confirm)` ↔ `extension_ui_response` 与宿主交互；host 模式下 uiContext 按会话闭包，请求天然归属正确会话 |
+| question 工具 | 内建 | extension 注册 `question` 工具，经带 `teamclu.question=` 标记的 `select` dialog 走同一 UI 通道，amuxd 译成 `question_asked` |
+| MCP | 内建（`opencode.json` 的 `mcp` 表） | **无内建**——extension 桥接（amuxd-remote-tools + workspace MCP），host 进程内共享一份 |
+| 模型 | `/config/providers` 目录 | `get_available_models`（host 级）/ `set_model`（会话级）；自定义 provider 用 `registerProvider` |
+| 取消 | per-session abort 端点 | `abort {sessionId}`，只中断该会话 |
+| slash 命令 | 静态表（`builtin_commands.rs`） | 运行时 `get_commands` 真实列表，attach 时以 `AvailableCommands` 事件上报 |
+| 断线补发 | SSE reconnect reconcile + replay | 子进程崩溃后按 route 记录的 leaf id `get_entries since` 回补未见尾部（`events::backfill_and_close`） |
+| 安装分发 | 官方渠道 + `opencode.lock.json` | npm 包（`pi.lock.json` 最低版本锁 = host 依赖的 SDK 版本）；Bun 单二进制自动降级 LegacyRpc |
 
 ## 2. 架构：后端 trait 化
 
@@ -46,10 +68,15 @@ pub trait AgentBackend: Send {
 
 | 组件 | 职责 |
 |---|---|
-| `process.rs` | 每 worktree 拉起 `pi --mode rpc --session-dir ~/.amuxd/pi-sessions/<ws>`，env 注入（LiteLLM key 等），kill_on_drop，崩溃重启回退。进程池键 = canonical worktree（无 env 指纹——env 变更走进程重启） |
-| `client.rs` | JSONL 命令写入 stdin（带 `id` 关联 response）：`prompt`（含 `streamingBehavior`）、`abort`、`set_model`、`get_available_models`、`switch_session`、`get_entries since`（断线补发） |
-| `events.rs` | stdout 逐行解析（注意仅按 `\n` 切分，勿用通用行读取器），按当前会话路由 `AcpEventFrame` |
-| `translate.rs` | `message_update.assistantMessageEvent`: `text_delta`→Output、`thinking_delta`→Thinking；`tool_execution_start`→ToolUse（toolCallId/toolName/args）、`_update`→ToolUse 进度、`_end`→ToolResult（isError 映射）；`turn_end`/`agent_settled`→回合完成 StatusChange；`extension_error`→AcpError |
+| `process.rs` | 进程池（键 = domain + env revision + worktree），Host/LegacyRpc 模式解析（npm 包根目录探测 + `[agents.pi] session_host` 配置），host.mjs / extension 物化，env 注入，kill_on_drop，崩溃后惰性重启。每 host 软上限 8 个常开会话，超出按 LRU close_session（route 保留，下次 prompt 重开） |
+| `client.rs` | JSONL 命令写入 stdin（带 `id` 关联 response）：`open_session`/`new_session`/`close_session`、`prompt`（含 `streamingBehavior`）、`abort`、`set_model`、`get_available_models`、`get_state`、`get_entries since`、`get_commands`（Host 模式下命令带 `sessionId`） |
+| `events.rs` | stdout 逐行解析（仅按 `\n` 切分），按事件 `sessionId` 路由（Legacy 回退到 active session）；未知 sessionId 丢弃不影响他会话；EOF 时结算该进程全部在跑 turn 并尝试 `get_entries since` 回补；`extension_ui_request` 的 confirm→权限、带标记的 select→question |
+| `translate.rs` | `message_update.assistantMessageEvent`: `text_delta`→Output、`thinking_delta`→Thinking；`tool_execution_start`→ToolUse、`_end`→ToolResult（isError 映射）；`agent_end`→回合完成 StatusChange；`extension_error`→AcpError；`replay_entries`（崩溃回补去重重放）；question 标记解析 |
+
+host 侧（`assets/pi-host/host.mjs`）只实现 daemon 真正用到的命令面，协议在
+文件头注释里；契约测试在 `tests/pi_host.rs`（stub SDK：
+`tests/fixtures/pi-host-stub/`，无网络无真 pi，验证并发、事件归属、
+per-session abort、UI 归属）。
 
 ### 权限审批（关键差异点）
 

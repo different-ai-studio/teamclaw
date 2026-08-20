@@ -20,8 +20,8 @@ mod workspace_resolver;
 pub use daemon_config::{
     ActorConfig, AgentBackendConfig, AgentsConfig, ChannelsConfig, ClaudeAgentConfig,
     CursorAgentConfig, DaemonConfig, DiscordChannel, EmailChannel, FeishuChannel, HttpConfig,
-    KookChannel, MqttConfig, SeaTalkChannel, TeamShareConfig, TransportKind, WeChatChannel,
-    WeComChannel, BOOTSTRAP_ACTOR_NAME,
+    KookChannel, MqttConfig, PiAgentConfig, SeaTalkChannel, TeamShareConfig, TransportKind,
+    WeChatChannel, WeComChannel, BOOTSTRAP_ACTOR_NAME,
 };
 pub use member_store::{MemberStore, PendingInvite, StoredMember};
 pub use model_resolution::first_available;

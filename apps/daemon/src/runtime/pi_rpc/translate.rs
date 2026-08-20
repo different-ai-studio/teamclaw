@@ -117,7 +117,17 @@ fn delta_or_end(
         let content = ev.get("content").and_then(|v| v.as_str()).unwrap_or("");
         let emitted = state.emitted.entry(key).or_insert(0);
         if content.len() > *emitted {
-            let chunk = content[*emitted..].to_string();
+            // `get` rather than indexing: the emitted byte count came from
+            // *previous* deltas at this index, and if a run reuses an index
+            // for a different block the count can land mid-UTF-8 in the new
+            // content. A panic here takes the whole reader task down; walking
+            // back to the nearest boundary just re-emits a partial character's
+            // worth too much, which the client renders as-is.
+            let mut start = *emitted;
+            while start > 0 && !content.is_char_boundary(start) {
+                start -= 1;
+            }
+            let chunk = content[start..].to_string();
             *emitted = content.len();
             return vec![text_event(kind, chunk)];
         }
@@ -220,6 +230,143 @@ pub fn translate_event(
             }]
         }
         _ => vec![],
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Crash backfill (get_entries replay)
+// ---------------------------------------------------------------------------
+
+/// Replay persisted session entries after a child died mid-turn.
+///
+/// `entries` is the `get_entries since=<last leaf>` tail — everything pi
+/// persisted during the lost turn. Most of it already streamed to the client
+/// before the crash, so this must not re-emit the whole thing:
+///
+/// - Assistant text/thinking blocks go through the same unseen-suffix logic as
+///   live `text_end` events ([`TranslateState::emitted`] still holds the turn's
+///   per-index byte counts), so only the never-streamed tail comes out.
+/// - Tool results are replayed only for calls still registered in
+///   [`TranslateState::tool_names`] — i.e. tools that were in flight at the
+///   crash, whose `tool_execution_end` never arrived. Completed tools already
+///   delivered their result live.
+///
+/// Anything else in the entries (user messages, model changes, compaction) has
+/// no place in a turn replay and is skipped.
+pub fn replay_entries(
+    state: &mut TranslateState,
+    entries: &[serde_json::Value],
+) -> Vec<amux::AcpEvent> {
+    let mut out = Vec::new();
+    for entry in entries {
+        if entry.get("type").and_then(|v| v.as_str()) != Some("message") {
+            continue;
+        }
+        let Some(message) = entry.get("message") else {
+            continue;
+        };
+        match message.get("role").and_then(|v| v.as_str()).unwrap_or("") {
+            "assistant" => {
+                let blocks = message
+                    .get("content")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                for (index, block) in blocks.iter().enumerate() {
+                    let synthetic = |kind: &str, text_field: &str| {
+                        serde_json::json!({
+                            "type": kind,
+                            "content": block.get(text_field).and_then(|v| v.as_str()).unwrap_or(""),
+                            "contentIndex": index as i64,
+                        })
+                    };
+                    match block.get("type").and_then(|v| v.as_str()).unwrap_or("") {
+                        "text" => out.extend(delta_or_end(
+                            state,
+                            BlockKind::Text,
+                            &synthetic("text_end", "text"),
+                            true,
+                        )),
+                        "thinking" => out.extend(delta_or_end(
+                            state,
+                            BlockKind::Thinking,
+                            &synthetic("thinking_end", "thinking"),
+                            true,
+                        )),
+                        // toolCall blocks are not replayed: an in-flight call
+                        // already emitted its ToolUse live, and its result (if
+                        // persisted) is handled by the toolResult arm below.
+                        _ => {}
+                    }
+                }
+            }
+            "toolResult" => {
+                let tool_id = message
+                    .get("toolCallId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                // Still registered ⇒ the live `tool_execution_end` never
+                // arrived; this result is genuinely unseen.
+                if tool_id.is_empty() || state.tool_names.remove(tool_id).is_none() {
+                    continue;
+                }
+                let is_error = message
+                    .get("isError")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                out.push(amux::AcpEvent {
+                    event: Some(amux::acp_event::Event::ToolResult(amux::AcpToolResult {
+                        tool_id: tool_id.to_string(),
+                        success: !is_error,
+                        summary: truncate_tool_summary(tool_result_text(Some(message))),
+                        raw_output_json: message.to_string(),
+                        content: vec![],
+                    })),
+                    model: String::new(),
+                });
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Question tool (extension_ui_request select dialogs)
+// ---------------------------------------------------------------------------
+
+/// Marker prefix the TeamClu pi extension puts on a select dialog's title when
+/// the dialog is really the `question` tool: the remainder of the title is the
+/// question payload as JSON (`{"toolCallId": …, "questions": […]}`). Selects
+/// without the marker are ordinary extension dialogs and get cancelled.
+pub const QUESTION_MARKER: &str = "teamclu.question=";
+
+/// Parse a select title into the question payload, when marked.
+pub fn parse_question_payload(title: &str) -> Option<serde_json::Value> {
+    let body = title.strip_prefix(QUESTION_MARKER)?;
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .filter(|v| v.is_object())
+}
+
+/// Build the `question_asked` raw event clients already render for opencode's
+/// question tool: `{id, questions, tool: {callID}}`. `request_id` is the
+/// extension_ui_request id — the same id `AnswerQuestion` sends back, which is
+/// what lets the reply become an `extension_ui_response`.
+pub fn question_asked_event(request_id: &str, payload: &serde_json::Value) -> amux::AcpEvent {
+    let body = serde_json::json!({
+        "id": request_id,
+        "questions": payload.get("questions").cloned().unwrap_or_else(|| serde_json::json!([])),
+        "tool": {
+            "callID": payload.get("toolCallId").and_then(|v| v.as_str()).unwrap_or(""),
+        },
+    });
+    amux::AcpEvent {
+        event: Some(amux::acp_event::Event::Raw(amux::AcpRawJson {
+            method: "question_asked".to_string(),
+            json_payload: serde_json::to_vec(&body).unwrap_or_default(),
+        })),
+        model: String::new(),
     }
 }
 
@@ -532,6 +679,97 @@ mod tests {
                 // … but its "always" substring still unlocks the allow_always option.
                 let kinds: Vec<&str> = p.options.iter().map(|o| o.kind.as_str()).collect();
                 assert_eq!(kinds, vec!["allow_once", "allow_always", "reject_once"]);
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn replay_entries_emits_only_the_unseen_tail() {
+        let mut s = TranslateState::default();
+        // Live stream delivered "Hello" before the crash…
+        ev(
+            &mut s,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"Hello","contentIndex":0}}"#,
+        );
+        // …and a bash call started but never finished.
+        ev(
+            &mut s,
+            r#"{"type":"tool_execution_start","toolCallId":"call_1","toolName":"bash","args":{"command":"ls"}}"#,
+        );
+        let entries: Vec<serde_json::Value> = serde_json::from_str(
+            r#"[
+                {"type":"message","id":"e1","parentId":null,"timestamp":"t","message":{
+                    "role":"assistant",
+                    "content":[{"type":"text","text":"Hello world"}]}},
+                {"type":"message","id":"e2","parentId":"e1","timestamp":"t","message":{
+                    "role":"toolResult","toolCallId":"call_1","toolName":"bash",
+                    "content":[{"type":"text","text":"a.txt"}],"isError":false}},
+                {"type":"message","id":"e3","parentId":"e2","timestamp":"t","message":{
+                    "role":"toolResult","toolCallId":"call_older","toolName":"bash",
+                    "content":[{"type":"text","text":"already seen live"}],"isError":false}},
+                {"type":"model_change","id":"e4","parentId":"e3","timestamp":"t","provider":"x"}
+            ]"#,
+        )
+        .unwrap();
+        let events = replay_entries(&mut s, &entries);
+        assert_eq!(events.len(), 2, "text tail + in-flight tool result only");
+        match events[0].event.as_ref().unwrap() {
+            amux::acp_event::Event::Output(o) => assert_eq!(o.text, " world"),
+            other => panic!("unexpected: {other:?}"),
+        }
+        match events[1].event.as_ref().unwrap() {
+            amux::acp_event::Event::ToolResult(r) => {
+                assert_eq!(r.tool_id, "call_1");
+                assert_eq!(r.summary, "a.txt");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+        // Replaying the same entries again emits nothing (idempotent).
+        assert!(replay_entries(&mut s, &entries).is_empty());
+    }
+
+    #[test]
+    fn text_end_survives_non_boundary_emitted_count() {
+        let mut s = TranslateState::default();
+        // 5 bytes of deltas at index 0…
+        ev(
+            &mut s,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"aaaaa","contentIndex":0}}"#,
+        );
+        // …then an end whose content puts byte 5 inside a multi-byte char.
+        // Must not panic; walks back to the boundary and re-emits from there.
+        let end = ev(
+            &mut s,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"text_end","content":"aaaa你好","contentIndex":0}}"#,
+        );
+        match end[0].event.as_ref().unwrap() {
+            amux::acp_event::Event::Output(o) => assert_eq!(o.text, "你好"),
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn question_marker_round_trip() {
+        let payload = serde_json::json!({
+            "toolCallId": "call_3",
+            "questions": [{"header":"H","question":"Q?","options":[{"label":"a"}],"multiple":false}]
+        });
+        let title = format!("{QUESTION_MARKER}{payload}");
+        let parsed = parse_question_payload(&title).expect("marked title parses");
+        assert_eq!(parsed["toolCallId"], "call_3");
+        // Unmarked / corrupt titles are not questions.
+        assert!(parse_question_payload("Pick one").is_none());
+        assert!(parse_question_payload("teamclu.question=not json").is_none());
+
+        let ev = question_asked_event("ui_1", &parsed);
+        match ev.event.as_ref().unwrap() {
+            amux::acp_event::Event::Raw(raw) => {
+                assert_eq!(raw.method, "question_asked");
+                let body: serde_json::Value = serde_json::from_slice(&raw.json_payload).unwrap();
+                assert_eq!(body["id"], "ui_1");
+                assert_eq!(body["tool"]["callID"], "call_3");
+                assert_eq!(body["questions"][0]["question"], "Q?");
             }
             other => panic!("unexpected: {other:?}"),
         }

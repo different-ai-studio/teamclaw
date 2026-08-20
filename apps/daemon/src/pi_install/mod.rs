@@ -166,10 +166,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lock_parses_and_pins_0_81_1_minimum() {
+    fn lock_parses_and_pins_0_84_2_minimum() {
+        // 0.84.2 is the SDK surface the multi-session host (`assets/pi-host/`)
+        // is written against (createAgentSessionServices / SessionManager.open
+        // signatures); older installs must be flagged by doctor.
         let v = required_version();
         assert!(!v.starts_with('v'), "got {v}");
-        assert!(version_ge(&v, "0.81.1"), "lock too old: {v}");
+        assert!(version_ge(&v, "0.84.2"), "lock too old: {v}");
     }
 
     #[test]

@@ -40,9 +40,16 @@ const CLAUDE_CODE: &[(&str, &str, &str)] = &[
 
 /// Built-in commands for `agent_type`, empty for backends whose set is unknown.
 ///
-/// Empty is the honest answer for pi and cursor: advertising a command the
-/// backend ignores is worse than advertising none, because the user gets no
-/// error — the slash just lands in the prompt as literal text.
+/// Empty is the honest answer for cursor: advertising a command the backend
+/// ignores is worse than advertising none, because the user gets no error —
+/// the slash just lands in the prompt as literal text.
+///
+/// pi is empty here for a different reason: it is the one backend that can
+/// enumerate its REAL command set at runtime (`get_commands` — extension
+/// commands, prompt templates, pi skills), so the pi backend emits an
+/// `AvailableCommands` event at attach and the per-runtime cache
+/// (`set_available_commands`) carries the live list. A static entry here would
+/// only ever be a stale duplicate of that.
 pub fn builtin_commands(agent_type: amux::AgentType) -> Vec<amux::AcpAvailableCommand> {
     let table = match agent_type {
         amux::AgentType::Opencode => OPENCODE,
@@ -84,6 +91,8 @@ mod tests {
     fn unknown_backends_advertise_nothing() {
         // Better than a wrong guess: an unsupported slash reaches the model as
         // literal prompt text, with no error to tell the user it did nothing.
+        // (pi's real list arrives at runtime via the AvailableCommands event —
+        // see the fn docs — so its static entry must stay empty.)
         assert!(builtin_commands(amux::AgentType::Pi).is_empty());
         assert!(builtin_commands(amux::AgentType::Cursor).is_empty());
     }

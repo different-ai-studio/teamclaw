@@ -45,6 +45,11 @@ type ToolCallEvent = {
 type ExtensionContext = {
   ui: {
     confirm(title: string, message?: string, options?: { timeout?: number }): Promise<boolean>;
+    select(
+      title: string,
+      options: string[],
+      opts?: { timeout?: number; signal?: AbortSignal },
+    ): Promise<string | undefined>;
   };
 };
 type ExtensionAPI = {
@@ -64,6 +69,10 @@ type ExtensionAPI = {
       toolCallId: string,
       params: Record<string, unknown>,
       signal?: AbortSignal,
+      // pi's real signature continues (onUpdate, ctx); the question tool needs
+      // ctx.ui, the MCP proxies ignore both.
+      onUpdate?: unknown,
+      ctx?: ExtensionContext,
     ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }>;
   }): void;
   registerProvider(id: string, config: Record<string, unknown>): void;
@@ -668,6 +677,123 @@ async function bridgeMcpServer(
 }
 
 // ---------------------------------------------------------------------------
+// question tool
+// ---------------------------------------------------------------------------
+
+/** Marker prefix on a select dialog title that carries a question payload.
+ *  Must match `QUESTION_MARKER` in `pi_rpc/translate.rs`. */
+const QUESTION_MARKER = "teamclu.question=";
+
+type QuestionSpec = {
+  question?: string;
+  header?: string;
+  options?: Array<{ label?: string; description?: string } | string>;
+  multiple?: boolean;
+};
+
+function questionOptionLabels(q: QuestionSpec): string[] {
+  return (q.options ?? [])
+    .map((o) => (typeof o === "string" ? o : (o?.label ?? "")))
+    .filter((label) => label.length > 0);
+}
+
+function registerQuestionTool(pi: ExtensionAPI, ownTools: Set<string>): void {
+  ownTools.add("question");
+  pi.registerTool({
+    name: "question",
+    label: "Question",
+    description:
+      "Ask the user one or more questions and wait for their answers. Use this when you " +
+      "need a decision, a preference, or a piece of information only the user has. Each " +
+      "question offers a fixed set of options; the user may also type a custom answer.",
+    parameters: {
+      type: "object",
+      properties: {
+        questions: {
+          type: "array",
+          description: "Questions to ask the user.",
+          items: {
+            type: "object",
+            properties: {
+              question: { type: "string", description: "The complete question to ask." },
+              header: {
+                type: "string",
+                description: "Very short label for the question (a few words).",
+              },
+              options: {
+                type: "array",
+                description: "The choices offered to the user.",
+                items: {
+                  type: "object",
+                  properties: {
+                    label: { type: "string", description: "Display text of this choice." },
+                    description: {
+                      type: "string",
+                      description: "What choosing this option means.",
+                    },
+                  },
+                  required: ["label"],
+                },
+              },
+              multiple: {
+                type: "boolean",
+                description: "Allow selecting more than one option.",
+              },
+            },
+            required: ["question"],
+          },
+        },
+      },
+      required: ["questions"],
+    },
+    async execute(toolCallId, params, signal, _onUpdate, ctx) {
+      const questions = Array.isArray(params?.questions)
+        ? (params.questions as QuestionSpec[])
+        : [];
+      if (questions.length === 0) {
+        return { content: [{ type: "text", text: "No questions provided." }], isError: true };
+      }
+      if (!ctx) {
+        return {
+          content: [{ type: "text", text: "Question UI unavailable in this run mode." }],
+          isError: true,
+        };
+      }
+      const payload = JSON.stringify({ toolCallId, questions });
+      // Flattened labels keep the dialog renderable by a plain select UI; the
+      // TeamClu host reads the marker payload instead.
+      const flatLabels = questionOptionLabels(questions[0] ?? {});
+      const value = await ctx.ui.select(`${QUESTION_MARKER}${payload}`, flatLabels, { signal });
+      if (value === undefined) {
+        return {
+          content: [{ type: "text", text: "The user dismissed the question without answering." }],
+          isError: true,
+        };
+      }
+      // amuxd answers with `[["label", …], …]` (one array per question, in
+      // order); a bare string is a plain select's answer to question 1.
+      let answers: string[][];
+      try {
+        const parsed = JSON.parse(value);
+        answers = Array.isArray(parsed)
+          ? parsed.map((a: unknown) =>
+              Array.isArray(a) ? a.map(String) : a === undefined || a === null ? [] : [String(a)],
+            )
+          : [[String(parsed)]];
+      } catch {
+        answers = [[value]];
+      }
+      const lines = questions.map((q, i) => {
+        const answer = answers[i] ?? [];
+        const label = q.header || q.question || `Question ${i + 1}`;
+        return `${label}: ${answer.length > 0 ? answer.join(", ") : "(no answer)"}`;
+      });
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
 
@@ -678,6 +804,17 @@ export default async function (pi: ExtensionAPI) {
   // Tools this extension registered itself (remote-tools proxies). They are
   // daemon-provided, already trusted — skip the permission gate for them.
   const ownTools = new Set<string>();
+
+  // -- `question` tool ---------------------------------------------------------
+  // Parity with opencode's built-in question tool: the agent asks the user one
+  // or more multiple-choice questions and blocks on the answer. pi has no such
+  // tool, but its extension UI channel has `select` — so the whole question
+  // payload rides a select dialog's title behind a machine-readable marker.
+  // amuxd (`pi_rpc/events.rs`) recognizes the marker, renders the interactive
+  // card, and replies with the answers JSON as the select's `value`. A plain
+  // select response (no JSON) still works: it is treated as the answer to the
+  // first question, which is what a TUI select would produce.
+  registerQuestionTool(pi, ownTools);
 
   // -- Permission gate -------------------------------------------------------
   pi.on("tool_call", async (event, ctx) => {

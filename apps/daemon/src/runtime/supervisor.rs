@@ -877,7 +877,17 @@ impl RuntimeSupervisor {
         workspace_path: &Path,
     ) -> usize {
         let Some(pool) = self.host_pool.as_ref() else {
-            return 0;
+            // No pooled opencode host, but the active backend may still key
+            // children by isolation domain (pi does): route the refresh
+            // through the backend trait so a workspace env/config change
+            // respawns that workspace's child instead of leaking the old env
+            // into it — while other workspaces' children keep running.
+            let mut agents = self.agents.lock().await;
+            let stopped = agents
+                .stop_idle_runtimes_for_workspace(&workspace_path.to_string_lossy(), workspace_id)
+                .await;
+            agents.request_workspace_host_refresh(workspace_id).await;
+            return stopped;
         };
         let stopped = self
             .agents

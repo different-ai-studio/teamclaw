@@ -23,7 +23,7 @@ pub struct ExecutionContext {
     pub spawn_env: SpawnRuntimeEnv,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProcessEnvRevision(String);
 
 impl ProcessEnvRevision {
