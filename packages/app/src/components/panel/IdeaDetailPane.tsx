@@ -52,7 +52,7 @@ function activityTone(type: string): string {
   return 'bg-coral/10 text-coral'
 }
 
-function PaneHeader({ title }: { title: string }) {
+function PaneHeader({ title, actions }: { title: string; actions?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 border-b border-border px-5 py-3" data-tauri-drag-region>
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
@@ -62,6 +62,7 @@ function PaneHeader({ title }: { title: string }) {
         <div className="text-[11px] font-medium uppercase tracking-wide text-faint">Idea</div>
         <div className="truncate text-[15px] font-bold text-foreground">{title}</div>
       </div>
+      {actions && <div className="flex items-center gap-1.5">{actions}</div>}
     </div>
   )
 }
@@ -107,7 +108,31 @@ function IdeaCreatePane({ teamId }: { teamId: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PaneHeader title={t('ideas.newIdea', 'New idea')} />
+      <PaneHeader
+        title={t('ideas.newIdea', 'New idea')}
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={clearDetail}
+              disabled={submitting}
+              className="h-8 gap-1.5 text-[13px]"
+            >
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void submit()}
+              disabled={!canSubmit}
+              className="h-8 gap-1.5 bg-coral text-[13px] font-semibold text-white hover:bg-coral/90"
+            >
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              {t('ideas.createButton', 'Create')}
+            </Button>
+          </>
+        }
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         <section className="mx-auto w-full max-w-[760px]">
@@ -143,25 +168,6 @@ function IdeaCreatePane({ teamId }: { teamId: string }) {
             </span>
           </div>
         </section>
-      </div>
-
-      <div className="border-t border-border-soft bg-paper px-5 py-3">
-        <Button
-          variant="ghost"
-          onClick={clearDetail}
-          disabled={submitting}
-          className="h-9 rounded-[9px]"
-        >
-          {t('common.cancel', 'Cancel')}
-        </Button>
-        <Button
-          onClick={() => void submit()}
-          disabled={!canSubmit}
-          className="float-right h-9 rounded-[9px] bg-coral px-5 text-white hover:bg-coral/90"
-        >
-          {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          {t('ideas.createButton', 'Create')}
-        </Button>
       </div>
     </div>
   )
@@ -259,6 +265,17 @@ function IdeaEditPane({ idea }: { idea: IdeaRow }) {
     <div className="flex h-full min-h-0 flex-col">
       <PaneHeader
         title={`#${Math.max(1, Math.round(((detail ?? idea).sort_order ?? 1000) / 1000))} · ${t('ideas.detail.edit', 'Edit')}`}
+        actions={
+          <Button
+            type="button"
+            onClick={() => void save()}
+            disabled={!canSave}
+            className="h-8 gap-1.5 bg-coral text-[13px] font-semibold text-white hover:bg-coral/90"
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {t('ideas.detail.save', 'Save')}
+          </Button>
+        }
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
@@ -322,12 +339,6 @@ function IdeaEditPane({ idea }: { idea: IdeaRow }) {
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border-soft bg-paper text-muted-foreground">
                   <MoreHorizontal className="h-4 w-4" />
                 </span>
-                <div className="ml-auto">
-                  <Button size="sm" onClick={() => void save()} disabled={!canSave} className="h-8 rounded-[8px] bg-coral text-white hover:bg-coral/90">
-                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                    {t('ideas.detail.save', 'Save')}
-                  </Button>
-                </div>
               </div>
             </section>
           )}
