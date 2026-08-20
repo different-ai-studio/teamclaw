@@ -257,6 +257,49 @@ export async function resolveSessionWorkspaceHintForRuntimeStart(args: {
   return cachedDefaultWorkspaceId(agentActorIds)
 }
 
+/**
+ * This session's own workspace binding for the local daemon, read from the
+ * local cache alone — no Cloud API, no daemon IPC.
+ *
+ * The synchronous send path cannot await {@link resolveSessionWorkspaceHintForRuntimeStart}:
+ * that one starts with a Cloud round trip, and paying it before the runtime
+ * starts is the 7–8s of dead air the fast path exists to avoid. But its only
+ * synchronous alternative — `cachedDefaultWorkspaceId` — is a *device*-level
+ * default for the agent, with no session in it: send the first message in a
+ * freshly created app and the runtime started in whichever app was open
+ * before, so the agent read and wrote another app's files while the new app
+ * deployed as the untouched seed template.
+ *
+ * The binding this reads is written when the session is bound to its app
+ * (`bindAppWorkspace`), so it is already on disk by the time the user can
+ * type. A session with no cached row yields null and the caller falls back —
+ * cold cache behaves exactly as before.
+ */
+export async function cachedSessionWorkspaceForLocalDaemon(args: {
+  teamId: string
+  sessionId: string
+  localDaemonActorId: string
+}): Promise<{ workspaceId: string; workspacePath: string } | null> {
+  const teamId = args.teamId.trim()
+  const sessionId = args.sessionId.trim()
+  const agentId = args.localDaemonActorId.trim()
+  if (!teamId || !sessionId || !agentId) return null
+  try {
+    const { useCurrentTeamStore } = await import('@/stores/current-team')
+    const viewerMemberId = useCurrentTeamStore.getState().currentMember?.id?.trim() ?? ''
+    if (!viewerMemberId) return null
+    const { loadSessionWorkspacesForTeam } = await import('@/lib/local-cache')
+    const rows = await loadSessionWorkspacesForTeam(teamId, viewerMemberId)
+    const row = rows.find((r) => r.sessionId === sessionId && r.agentId === agentId)
+    const workspaceId = row?.workspaceId?.trim() ?? ''
+    const workspacePath = row?.workspacePath?.trim() ?? ''
+    if (!workspaceId && !workspacePath) return null
+    return { workspaceId, workspacePath }
+  } catch {
+    return null
+  }
+}
+
 /** The original chain: session binding → local path → per-agent lookups. */
 async function resolveLiveWorkspaceHint(
   args: {

@@ -206,4 +206,28 @@ mod tests {
             "lockfile copied byte-for-byte"
         );
     }
+
+    #[test]
+    fn the_dev_server_finds_the_site_in_both_layouts() {
+        // `server.mjs` runs from two places: in the artifact it is
+        // `.output/server/index.mjs` with the site at `../public`, and under
+        // `pnpm dev` it runs in place at the app root with the site at
+        // `./public`. It used to resolve `../public` unconditionally, which at
+        // the app root points OUTSIDE the app — at the directory holding every
+        // app — so `pnpm dev` served a path that does not exist and answered
+        // 404 to everything, in every static site app. Nothing reported it: an
+        // empty preview reads as "I have not written the page yet".
+        for t in [AppType::StaticWeb, AppType::Slides] {
+            let tmp = seed(t);
+            let server = std::fs::read_to_string(tmp.path().join("server.mjs")).unwrap();
+            assert!(
+                !server.contains("new URL('../public/', import.meta.url)"),
+                "{t:?}: server.mjs resolves ../public unconditionally, which breaks `pnpm dev`"
+            );
+            assert!(
+                server.contains("existsSync"),
+                "{t:?}: server.mjs must pick its root by looking for the site"
+            );
+        }
+    }
 }

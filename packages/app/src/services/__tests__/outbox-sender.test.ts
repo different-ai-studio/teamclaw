@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   ingestSessionLiveLocally: vi.fn(async () => undefined),
   runtimeStart: vi.fn(async () => ({})),
   getDaemonLocalAgent: vi.fn(async () => 'opencode' as const),
+  cachedSessionWorkspaceForLocalDaemon: vi.fn(
+    async () => null as { workspaceId: string; workspacePath: string } | null,
+  ),
 }))
 
 vi.mock('@/lib/mqtt-bridge', () => ({
@@ -79,6 +82,8 @@ vi.mock('@/lib/teamclu/ensure-agent-runtime', () => ({
 
 vi.mock('@/lib/teamclu/resolve-runtime-start-workspace', () => ({
   resolveSessionWorkspaceHintForRuntimeStart: vi.fn().mockResolvedValue(''),
+  cachedSessionWorkspaceForLocalDaemon: (...args: unknown[]) =>
+    mocks.cachedSessionWorkspaceForLocalDaemon(...args),
 }))
 
 vi.mock('@/stores/workspace', () => ({
@@ -107,6 +112,7 @@ describe('outbox sender', () => {
     mocks.ingestSessionLiveLocally.mockResolvedValue(undefined)
     mocks.runtimeStart.mockResolvedValue({})
     mocks.getDaemonLocalAgent.mockResolvedValue('opencode')
+    mocks.cachedSessionWorkspaceForLocalDaemon.mockResolvedValue(null)
   })
 
   afterEach(async () => {
@@ -425,6 +431,46 @@ describe('outbox sender', () => {
     })
     expect(mocks.runtimeStart).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: 'ws-from-enqueue' }),
+    )
+  })
+
+  it("local fast path runs in the session's own workspace, not the agent's device default", async () => {
+    // The device default belongs to the agent, not to one session. Sending the
+    // first message in a just-created app started the runtime in whichever app
+    // was open before it, so the agent edited that app's files and the new one
+    // deployed as the untouched seed template.
+    mocks.isTauri.mockReturnValue(true)
+    mocks.getLocalDaemonActorId.mockResolvedValue('agent-local')
+    mocks.runtimeStart.mockResolvedValue({})
+    mocks.cachedSessionWorkspaceForLocalDaemon.mockResolvedValue({
+      workspaceId: 'ws-this-session',
+      workspacePath: '/apps/this-session',
+    })
+
+    const { useOutboxStore } = await import('@/stores/outbox-store')
+    const { startOutboxSender } = await import('../outbox-sender')
+
+    await useOutboxStore.getState().enqueue({
+      messageId: 'msg-session-ws',
+      teamId: 'team-1',
+      sessionId: 'session-1',
+      senderActorId: 'member-1',
+      content: '@Local hi',
+      model: 'opencode/qwen',
+      mentionActorIds: ['agent-local'],
+      attachmentUrls: [],
+    })
+    startOutboxSender()
+
+    await vi.waitFor(() => {
+      expect(mocks.runtimeStart).toHaveBeenCalled()
+    })
+    expect(mocks.runtimeStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: 'ws-this-session',
+        // Not '/tmp/workspace' — the folder the desktop happens to have open.
+        worktree: '/apps/this-session',
+      }),
     )
   })
 

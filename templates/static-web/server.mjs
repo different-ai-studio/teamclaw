@@ -2,14 +2,24 @@
 //
 // The build copies this to `.output/server/index.mjs` and the site to
 // `.output/public/`, which is the artifact shape Alibaba FC runs:
-// `node server/index.mjs`, listening on $PORT. Resolving `../public` relative
-// to this file works both there and when running it straight from the repo.
+// `node server/index.mjs`, listening on $PORT.
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { join, extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const ROOT = resolve(fileURLToPath(new URL('../public/', import.meta.url)))
+// One file, two layouts. In the artifact this sits at `.output/server/` and the
+// site is `../public`. But `pnpm dev` runs it in place, at the app root, where
+// the site is `./public` and `../public` points OUTSIDE the app entirely — at
+// the directory that holds every app. It resolved `../public` unconditionally,
+// so `pnpm dev` served a path that does not exist and answered 404 to every
+// request, for every app. Pick the layout by looking for the site, not by
+// assuming which copy is running.
+const HERE = fileURLToPath(new URL('.', import.meta.url))
+const ROOT = existsSync(resolve(HERE, 'public'))
+  ? resolve(HERE, 'public')
+  : resolve(HERE, '../public')
 const PORT = Number(process.env.PORT || 9000)
 
 const TYPES = {
