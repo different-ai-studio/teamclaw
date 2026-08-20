@@ -181,4 +181,38 @@ final class BuildFeedItemsTurnCollapseTests: XCTestCase {
         guard case .permission = feed[2] else { return XCTFail("expected permission") }
         guard case .completedTurn = feed[3] else { return XCTFail("expected completedTurn") }
     }
+
+    // MARK: - Mid-turn permission anchors above its turn's bubble
+
+    func test_permissionAskedMidTurn_reanchorsAboveBubble() {
+        // The reply row's timestamp is the turn's START (Supabase
+        // created_at), so time-sorting lands the mid-turn permission AFTER
+        // the bubble. The feed must still read permission → reply.
+        let reply = makeEvent(sequence: 10, eventType: "output", text: "Done.", isComplete: true, turnID: "T1")
+        let perm = makeEvent(sequence: 5, eventType: "permission_request", text: "WebSearch",
+                             toolId: "perm-1", isComplete: true, turnID: "T1")
+
+        let feed = buildFeedItems([reply, perm])
+
+        XCTAssertEqual(feed.count, 2)
+        guard case .permission = feed[0] else {
+            return XCTFail("permission must re-anchor above its turn's bubble")
+        }
+        guard case .completedTurn = feed[1] else {
+            return XCTFail("expected completedTurn after the permission")
+        }
+    }
+
+    func test_pendingPermissionForNewTurn_staysPut() {
+        let reply = makeEvent(sequence: 10, eventType: "output", text: "Done.", isComplete: true, turnID: "T1")
+        let perm = makeEvent(sequence: 11, eventType: "permission_request", text: "Bash",
+                             toolId: "perm-2", turnID: "T2")
+
+        let feed = buildFeedItems([reply, perm])
+
+        XCTAssertEqual(feed.count, 2)
+        guard case .completedTurn = feed[0] else { return XCTFail("bubble first") }
+        guard case .permission = feed[1] else { return XCTFail("new turn's pending permission stays below") }
+    }
 }
+

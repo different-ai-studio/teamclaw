@@ -304,6 +304,41 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
         }
     }
 
+    public func listPendingInvites() async throws -> [PendingInvite] {
+        await ensureStarted()
+        let page: CloudListPage<CloudPendingInvite> = try await api.get("/v1/invites/pending")
+        return page.items.map {
+            PendingInvite(
+                id: $0.inviteId,
+                teamID: $0.teamId,
+                teamName: $0.teamName,
+                teamRole: $0.teamRole,
+                invitedByDisplayName: $0.invitedByDisplayName
+            )
+        }
+    }
+
+    public func acceptPendingInvite(inviteID: String) async throws -> ClaimResult {
+        await ensureStarted()
+        let encoded = inviteID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? inviteID
+        let row: CloudClaimInviteResult = try await api.post(
+            "/v1/invites/\(encoded)/accept", body: EmptyBody()
+        )
+        return ClaimResult(
+            actorID: row.actorId,
+            teamID: row.teamId,
+            actorType: row.actorType,
+            displayName: row.displayName,
+            refreshToken: row.refreshToken
+        )
+    }
+
+    public func declinePendingInvite(inviteID: String) async throws {
+        await ensureStarted()
+        let encoded = inviteID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? inviteID
+        try await api.postVoid("/v1/invites/\(encoded)/decline", body: EmptyBody())
+    }
+
     public func switchActiveTeam(teamID: String) async throws -> TeamSwitchResult {
         await ensureStarted()
         let row: CloudSwitchTeamResult = try await api.post(
@@ -556,6 +591,14 @@ private struct CloudMembershipTeam: Decodable, Sendable {
     let orgName: String?
     let role: String?
     let isMember: Bool?
+}
+
+private struct CloudPendingInvite: Decodable, Sendable {
+    let inviteId: String
+    let teamId: String
+    let teamName: String?
+    let teamRole: String?
+    let invitedByDisplayName: String?
 }
 
 private struct CloudSwitchTeamResult: Decodable, Sendable {

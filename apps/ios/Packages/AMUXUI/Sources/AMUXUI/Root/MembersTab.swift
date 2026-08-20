@@ -104,7 +104,7 @@ public struct MembersTab: View {
                     MemberInviteSheet(store: store)
                 }
                 .sheet(isPresented: $showTeamStats) {
-                    TeamStatsSheet(actors: actors)
+                    TeamStatsSheet(actors: actors, teamID: activeTeam?.id)
                 }
                 .onChange(of: externalInviteTrigger) { _, newValue in
                     guard newValue else { return }

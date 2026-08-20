@@ -127,7 +127,7 @@ public struct AddAgentSheet: View {
 
         guard let workspaceID,
               let workspace = workspaces.first(where: { $0.id == workspaceID }) else {
-            errorMessage = "No workspaces available — add one to this agent first."
+            errorMessage = String(localized: "No workspaces available — add one to this agent first.")
             return
         }
         let allowedTypes = AgentConfigSheet.AgentType.supported(from: agentTypes)

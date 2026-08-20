@@ -342,7 +342,7 @@ public struct IdeaDetailView: View {
                 .listRowBackground(Color.amux.paper)
             }
         } header: {
-            sectionHeader("Activity")
+            sectionHeader(String(localized: "Activity"))
         }
     }
 
@@ -368,7 +368,7 @@ public struct IdeaDetailView: View {
                 }
             }
         } header: {
-            sectionHeader("Sessions")
+            sectionHeader(String(localized: "Sessions"))
         }
     }
 
@@ -613,7 +613,7 @@ public struct IdeaDetailView: View {
     private func addProgressImageAttachment(_ url: URL, ideaID: String, teamID: String) async {
         guard !progressImageAttachments.contains(url) else { return }
         guard let manager = ensureProgressUploadManager(teamID: teamID) else {
-            ideaStore.errorMessage = "Image upload is unavailable for this team."
+            ideaStore.errorMessage = String(localized: "Image upload is unavailable for this team.")
             return
         }
         progressImageAttachments.append(url)
@@ -656,7 +656,7 @@ private struct IdeaActivityRow: View {
     private var actorName: String {
         guard let displayName = actor?.displayName.trimmingCharacters(in: .whitespacesAndNewlines),
               !displayName.isEmpty else {
-            return "Unknown"
+            return String(localized: "Unknown")
         }
         return displayName
     }
@@ -668,9 +668,9 @@ private struct IdeaActivityRow: View {
     }
 
     private var activityLabel: String {
-        if activity.isStatusChange { return "Status changed" }
-        if activity.isReorder { return "Reordered" }
-        return "Progress"
+        if activity.isStatusChange { return String(localized: "Status changed") }
+        if activity.isReorder { return String(localized: "Reordered") }
+        return String(localized: "Progress")
     }
 
     var body: some View {
@@ -745,7 +745,7 @@ private struct SessionLinkRow: View {
     let session: Session
 
     private var lastMessage: String {
-        session.lastMessagePreview.isEmpty ? "No messages yet." : session.lastMessagePreview
+        session.lastMessagePreview.isEmpty ? String(localized: "No messages yet.") : session.lastMessagePreview
     }
 
     var body: some View {
@@ -755,7 +755,7 @@ private struct SessionLinkRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.title.isEmpty ? "Untitled Session" : session.title)
+                Text(session.title.isEmpty ? String(localized: "Untitled Session") : session.title)
                     .font(.body)
                     .fontWeight(.medium)
                     .lineLimit(1)

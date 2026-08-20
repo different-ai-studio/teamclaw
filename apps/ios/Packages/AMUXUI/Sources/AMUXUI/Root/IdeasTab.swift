@@ -186,7 +186,7 @@ public struct IdeasTab: View {
                 guard let repository = ideasRepository else {
                     ideaStore = nil
                     ideaStoreTeamID = nil
-                    ideaSetupError = "Cloud API is not configured."
+                    ideaSetupError = String(localized: "Cloud API is not configured.")
                     return
                 }
                 ideaStore = IdeaStore(

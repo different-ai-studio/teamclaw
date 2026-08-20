@@ -320,6 +320,60 @@ public final class SessionListViewModel {
         }
     }
 
+    /// Renames the session for every participant. Optimistic: the local row
+    /// flips immediately and reverts if the server rejects the change.
+    public func renameSession(
+        sessionId: String,
+        newTitle: String,
+        sessionsRepo: SessionsRepository?,
+        modelContext: ModelContext
+    ) async {
+        let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        let sid = sessionId
+        let descriptor = FetchDescriptor<Session>(predicate: #Predicate { $0.sessionId == sid })
+        guard let session = try? modelContext.fetch(descriptor).first, session.title != title else { return }
+        let previous = session.title
+        session.title = title
+        try? modelContext.save()
+        reloadSessions(modelContext: modelContext)
+
+        guard let repo = sessionsRepo else { return }
+        do {
+            try await repo.renameSession(sessionId: sid, title: title)
+        } catch {
+            session.title = previous
+            try? modelContext.save()
+            reloadSessions(modelContext: modelContext)
+        }
+    }
+
+    /// Archives the session server-side (`archived_at`), removing it from
+    /// every device's list — not just this one. The local flag mirrors the
+    /// change so the row hides immediately; the next server sync deletes the
+    /// cached row for real. Reverts the local flag if the server rejects.
+    public func archiveSession(
+        sessionId: String,
+        sessionsRepo: SessionsRepository?,
+        modelContext: ModelContext
+    ) async {
+        let sid = sessionId
+        let descriptor = FetchDescriptor<Session>(predicate: #Predicate { $0.sessionId == sid })
+        guard let session = try? modelContext.fetch(descriptor).first, !session.isArchived else { return }
+        session.isArchived = true
+        try? modelContext.save()
+        reloadSessions(modelContext: modelContext)
+
+        guard let repo = sessionsRepo else { return }
+        do {
+            try await repo.setSessionArchived(sessionId: sid, archivedAt: Date())
+        } catch {
+            session.isArchived = false
+            try? modelContext.save()
+            reloadSessions(modelContext: modelContext)
+        }
+    }
+
     /// Clears the unread badge for the given runtime in the same ModelContext
     /// the ingest uses, so the session list row updates immediately.
     /// Clears the local unread dot for a session. The authoritative flag is
@@ -385,13 +439,10 @@ public final class SessionListViewModel {
         }
     }
 
-    /// Returns the routing actor-id and runtime-id when `topic` matches
-    /// `amux/{team}/{actor}/runtime/{rid}/state` (6 segments). Nil otherwise.
-    /// `nonisolated` so the MQTTMessageHub predicate (running on the hub
-    /// actor) can call it without hopping to the main actor for what is
-    /// pure string-splitting.
     /// Returns the actor-id when `topic` matches `amux/{team}/{actor}/state`
-    /// (4 segments) — the one retained topic per actor.
+    /// (4 segments) — the one retained topic per actor. `nonisolated` so the
+    /// MQTTMessageHub predicate (running on the hub actor) can call it without
+    /// hopping to the main actor for what is pure string-splitting.
     nonisolated static func parseActorStateTopic(_ topic: String, teamID: String) -> String? {
         let parts = topic.split(separator: "/")
         guard parts.count == 4, parts[0] == "amux", parts[3] == "state" else { return nil }
@@ -566,7 +617,7 @@ public final class SessionListViewModel {
     /// session garbage on the shared broker from showing up in the list.
     public var validSessionIDs: Set<String>?
 
-    /// Agent actor-ids whose `runtime/+/state` topic we currently hold an
+    /// Agent actor-ids whose `{actor}/state` topic we currently hold an
     /// active subscription on. Mutated only by `resyncActorStateSubscriptions`.
     private var subscribedActorIDs: Set<String> = []
 
@@ -632,6 +683,7 @@ public final class SessionListViewModel {
             session.lastMessageAt = record.lastMessageAt
             session.ideaId = record.ideaID ?? ""
             session.primaryAgentId = record.primaryAgentID
+            if let source = record.source { session.source = source }
         }
 
         for stale in byID.values {
@@ -644,10 +696,16 @@ public final class SessionListViewModel {
 
     // MARK: - Time Grouping
 
+    /// When true the list shows ONLY scheduled (cron-created) sessions —
+    /// the desktop's "clock view". Off by default: unattended cron runs
+    /// would otherwise flood the list several times an hour.
+    public var showCronSessions = false
+
     public var groupedSessions: [SessionGroup] {
         let q = searchText.lowercased()
         let visible = sessions
             .filter { !$0.isArchived }
+            .filter { ($0.source == "cron") == showCronSessions }
             .filter { q.isEmpty || $0.title.lowercased().contains(q) }
             .sorted { $0.listDate > $1.listDate }
 

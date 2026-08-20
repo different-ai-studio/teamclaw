@@ -63,11 +63,11 @@ public final class SessionDetailViewModel {
     /// Code's built-ins; sending one forwards the literal `/name` text to
     /// the agent which interprets it natively.
     static let builtInSlashCommands: [SlashCommand] = [
-        SlashCommand(name: "clear", description: "Clear conversation history", inputHint: ""),
-        SlashCommand(name: "compact", description: "Compact the conversation", inputHint: ""),
-        SlashCommand(name: "help", description: "Show available commands", inputHint: ""),
-        SlashCommand(name: "model", description: "Switch the active model", inputHint: ""),
-        SlashCommand(name: "cost", description: "Show session token cost", inputHint: ""),
+        SlashCommand(name: "clear", description: String(localized: "Clear conversation history"), inputHint: ""),
+        SlashCommand(name: "compact", description: String(localized: "Compact the conversation"), inputHint: ""),
+        SlashCommand(name: "help", description: String(localized: "Show available commands"), inputHint: ""),
+        SlashCommand(name: "model", description: String(localized: "Switch the active model"), inputHint: ""),
+        SlashCommand(name: "cost", description: String(localized: "Show session token cost"), inputHint: ""),
     ]
     /// Memoised tool-run grouping over `events`. Views should iterate this
     /// instead of calling `groupEvents(vm.events)` in body, which previously
@@ -250,6 +250,11 @@ public final class SessionDetailViewModel {
     public private(set) var isAgentWorking: Bool = false
     private var agentWorkingResetTask: Task<Void, Never>?
     private var inFlightPermissionRequestIDs: Set<String> = []
+    /// ACP option lists per pending permission request, captured off the
+    /// live `permissionRequest` event (the reducer entry doesn't persist
+    /// them — they are only meaningful while the request is pending).
+    /// Cleared on grant/deny/resolution.
+    public private(set) var permissionOptionsByRequestID: [String: [PermissionOptionItem]] = [:]
     // `nonisolated(unsafe)` required: mutable stored property on an @Observable
     // type, where plain `nonisolated` is rejected by the compiler.
     nonisolated(unsafe) private var spawningPollTask: Task<Void, Never>?
@@ -1785,6 +1790,9 @@ public final class SessionDetailViewModel {
                               sequence: Int(env.sequence),
                               runtimeID: env.actorID,
                               turnID: env.turnID.isEmpty ? nil : env.turnID,
+                              timestamp: env.timestamp > 0
+                                  ? Date(timeIntervalSince1970: TimeInterval(env.timestamp))
+                                  : .now,
                               modelContext: modelContext) {
                 try? modelContext.save()
                 recomputeGroups()
@@ -1868,6 +1876,7 @@ public final class SessionDetailViewModel {
                                 sequence: Int,
                                 runtimeID: String? = nil,
                                 turnID: String? = nil,
+                                timestamp: Date = .now,
                                 isHistoryReplay: Bool = false,
                                 modelContext: ModelContext) -> Bool {
         // Heartbeat: any live ACP event arrival means the runtime is busy.
@@ -1883,6 +1892,50 @@ public final class SessionDetailViewModel {
             markAgentWorking()
         }
 
+        // Replayed streaming deltas must not reach the reducer: they would
+        // re-open the live buffer (streamingAgentSet + text), and the
+        // closing idle envelope is sequence-deduped away (the live flush
+        // entry already claimed its sequence) — the buffer never closed
+        // and the "agent working" card resurrected after visiting the
+        // turn-detail view. The finalized text is already in the timeline;
+        // deltas add nothing on replay.
+        if isHistoryReplay, case .output(let o) = acp.event, !o.isComplete {
+            return false
+        }
+
+        // Capture the ACP option list off a live permission request.
+        // Options are ephemeral UI state — history replay repopulates
+        // them, and a banner with no entry falls back to the OpenCode
+        // defaults. When the session is in full-access mode, answer the
+        // request on the user's behalf (allow-once) instead of waiting
+        // on a tap — mirrors the desktop's per-session permission mode,
+        // including its limitation: the answer comes from the client, so
+        // it only fires while this session's detail VM is live in the
+        // foreground. A backgrounded phone cannot answer; unattended
+        // full-access needs a daemon-side mode, not this toggle.
+        if case .permissionRequest(let pr) = acp.event {
+            if !pr.options.isEmpty {
+                permissionOptionsByRequestID[pr.requestID] = pr.options.map {
+                    PermissionOptionItem(id: $0.optionID, kind: $0.kind, name: $0.name)
+                }
+            }
+            if !isHistoryReplay, session?.autoApprovePermissions == true,
+               // No once-scoped allow on offer (e.g. only allow_always) →
+               // leave the banner for a human; auto-flipping the agent's
+               // permanent permission state is never this toggle's call.
+               let option = PermissionOptionItem.allowOnceOption(from: permissionOptions(for: pr.requestID)) {
+                let requestID = pr.requestID
+                let sender = bucketKey(forActorID: runtimeID)
+                Task { [weak self] in
+                    try? await self?.grantPermission(
+                        requestId: requestID,
+                        agentActorID: sender,
+                        optionID: option.id
+                    )
+                }
+            }
+        }
+
         // Reducer is source of truth for entry mutations. Apply +
         // project. Side effects the reducer doesn't track (runtime
         // status flip, heartbeat reset) are handled below.
@@ -1891,7 +1944,12 @@ public final class SessionDetailViewModel {
             .acp(AcpInput(
                 envelopeSequence: UInt64(sequence),
                 agentBucketKey: bucket,
-                timestamp: .now,
+                // The envelope's original publish time, NOT .now: replayed
+                // history stamped with the replay moment used to sort past
+                // the turn's close — resolved permission cards sank to the
+                // bottom of the feed and replayed runtime events re-opened
+                // the turn (phantom "agent working" card).
+                timestamp: timestamp,
                 turnID: turnID,
                 acpEvent: acp
             )),
@@ -1981,7 +2039,7 @@ public final class SessionDetailViewModel {
             }
             return AcpQuestionPrompt(
                 id: String(index),
-                header: raw["header"] as? String ?? "Question",
+                header: raw["header"] as? String ?? String(localized: "Question"),
                 question: text,
                 options: options,
                 allowsMultiple: raw["multiple"] as? Bool ?? false
@@ -2006,10 +2064,13 @@ public final class SessionDetailViewModel {
             break
         case .promptRejected(let pr):
             let event = makeAgentSideEvent(sequence: sequence, eventType: "error")
-            event.text = "Rejected: \(pr.reason)"
+            event.text = String(localized: "Rejected: \(pr.reason)")
             appendEvent(event)
             recomputeGroups()
         case .permissionResolved(let resolved):
+            // Someone answered (this device or another collaborator) —
+            // the option list is dead weight now.
+            permissionOptionsByRequestID[resolved.requestID] = nil
             // Reducer updates the matching permission_request entry
             // in place; sync mirrors the mutation onto the SwiftData
             // row. Drops silently if there's no matching entry, same
@@ -2069,8 +2130,19 @@ public final class SessionDetailViewModel {
             if case .acpEvent(let acp) = envelope.payload {
                 if handleAcpEvent(acp,
                                   sequence: seq,
-                                  runtimeID: envelope.runtimeID,
+                                  // Bucket by actor_id like the live path
+                                  // (ADR-0004) — the per-spawn runtime id
+                                  // matches no agent, so replayed events
+                                  // used to land in a ghost bucket whose
+                                  // turn never closed (phantom "agent
+                                  // working" card after visiting 过程).
+                                  runtimeID: envelope.actorID.isEmpty
+                                      ? envelope.runtimeID
+                                      : envelope.actorID,
                                   turnID: envelope.turnID.isEmpty ? nil : envelope.turnID,
+                                  timestamp: envelope.timestamp > 0
+                                      ? Date(timeIntervalSince1970: TimeInterval(envelope.timestamp))
+                                      : .now,
                                   isHistoryReplay: true,
                                   modelContext: modelContext) {
                     anyDirty = true
@@ -2266,41 +2338,64 @@ public final class SessionDetailViewModel {
         req.turnID = turnID
         req.requestID = UUID().uuidString
 
-        let sender = RuntimeCommandSender(mqtt: mqtt, teamID: teamID, peerID: peerId)
-        try await sender.send(
-            runtimeID: route.address,
-            actorID: route.actorID,
-            currentHumanActorID: teamcluService?.currentHumanActorId,
-            makeCommand: { $0.command = .requestTurnHistory(req) }
+        guard let teamcluService, let sessionID = session?.sessionId, !sessionID.isEmpty else {
+            isSyncing = false
+            throw SendCommandError.rpcUnavailable
+        }
+        var command = Amux_AcpCommand()
+        command.command = .requestTurnHistory(req)
+        let (dispatched, rpcError) = await teamcluService.runtimeCommandRpc(
+            targetActorID: route.actorID,
+            sessionID: sessionID,
+            address: route.address,
+            command: command
         )
+        if let rpcError {
+            isSyncing = false
+            throw SendCommandError.rejected(rpcError)
+        }
+        if !dispatched {
+            // Cold session — no attachment, so no history will ever arrive.
+            // Reset the sync spinner now instead of waiting out the watchdog.
+            isSyncing = false
+        }
     }
 
     private func sendCommand(agentActorID: String? = nil,
-                             makeCommand: sending (inout Amux_AcpCommand) -> Void) async throws {
+                             makeCommand: (inout Amux_AcpCommand) -> Void) async throws {
         let route = commandRoute(forAgentActorID: agentActorID)
         guard !route.address.isEmpty else {
             let key = agentActorID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let error: SendCommandError = key.isEmpty ? .noAgent : .addressEmpty
-            await surfaceSendError(error)
+            surfaceSendError(error)
             throw error
         }
-        let sender = RuntimeCommandSender(mqtt: mqtt, teamID: teamID, peerID: peerId)
-        do {
-            try await sender.send(
-                runtimeID: route.address,
-                actorID: route.actorID,
-                currentHumanActorID: teamcluService?.currentHumanActorId,
-                makeCommand: makeCommand
-            )
-        } catch let error as SendCommandError {
-            if case .routeActorIdUnresolved = error {
-                print("[SessionDetailVM] dropping command — route actor id not resolved (primaryAgentId=\(session?.primaryAgentId ?? "nil") address=\(route.address) agentActorID=\(agentActorID ?? "nil"))")
-            }
+        guard let teamcluService, let sessionID = session?.sessionId, !sessionID.isEmpty else {
+            let error = SendCommandError.rpcUnavailable
             surfaceSendError(error)
             throw error
-        } catch {
-            surfaceSendError(error)
-            throw error
+        }
+        var command = Amux_AcpCommand()
+        makeCommand(&command)
+        // ADR-0003: session-addressed dispatch with a delivery receipt — no
+        // silent legacy-topic fallback. The daemon answers every command, so
+        // a drop is a surfaced error here, never a spinner that waits on a
+        // state change that will never come.
+        let (dispatched, rpcError) = await teamcluService.runtimeCommandRpc(
+            targetActorID: route.actorID,
+            sessionID: sessionID,
+            address: route.address,
+            command: command
+        )
+        if let rpcError {
+            let failure = SendCommandError.rejected(rpcError)
+            surfaceSendError(failure)
+            throw failure
+        }
+        if !dispatched {
+            let failure = SendCommandError.sessionCold
+            surfaceSendError(failure)
+            throw failure
         }
     }
 
@@ -2503,6 +2598,8 @@ public final class SessionDetailViewModel {
             modelContext.delete(row)
         }
         try? modelContext.save()
+        // The edited/deleted message may be quoted by reply chips downstream.
+        invalidateReplyQuotes()
     }
 
     /// Flip isAgentWorking on and arm a long safety reset so a missed
@@ -2858,12 +2955,139 @@ public final class SessionDetailViewModel {
         g.requestID = requestId
         g.optionID = optionID
         try await sendCommand(agentActorID: agentActorID) { $0.command = .grantPermission(g) }
+        permissionOptionsByRequestID[requestId] = nil
     }
     public func denyPermission(requestId: String, agentActorID: String? = nil) async throws {
         guard inFlightPermissionRequestIDs.insert(requestId).inserted else { return }
         defer { inFlightPermissionRequestIDs.remove(requestId) }
         var d = Amux_AcpDenyPermission(); d.requestID = requestId
         try await sendCommand(agentActorID: agentActorID) { $0.command = .denyPermission(d) }
+        permissionOptionsByRequestID[requestId] = nil
+    }
+
+    /// ACP options for a pending permission request, falling back to the
+    /// OpenCode defaults when the live event wasn't observed (e.g. banner
+    /// rendered from persisted history after a relaunch).
+    public func permissionOptions(for requestID: String) -> [PermissionOptionItem] {
+        permissionOptionsByRequestID[requestID] ?? PermissionOptionItem.openCodeDefaults
+    }
+
+    // MARK: - Message feedback
+
+    /// The signed-in user's 👍/👎 per assistant message
+    /// (`messageID → "positive" | "negative"`). Loaded once per session
+    /// open; mutated optimistically by `setFeedback`.
+    public private(set) var feedbackByMessageID: [String: String] = [:]
+
+    /// Loads the caller's existing feedback rows for this session.
+    public func loadFeedback() async {
+        guard let repo = messagesRepository,
+              let sessionID = session?.sessionId, !sessionID.isEmpty,
+              let me = currentHumanActorIDRef, !me.isEmpty
+        else { return }
+        guard let rows = try? await repo.listFeedback(sessionID: sessionID) else { return }
+        var mine: [String: String] = [:]
+        for row in rows where row.actorID == me {
+            mine[row.messageID] = row.kind
+        }
+        feedbackByMessageID = mine
+    }
+
+    /// Sets (or clears, when `kind` is nil / already active) the user's
+    /// feedback for a message. Optimistic: the local map flips first and
+    /// reverts if the server rejects.
+    public func setFeedback(messageID: String, kind: String?) async {
+        guard let repo = messagesRepository,
+              let me = currentHumanActorIDRef, !me.isEmpty
+        else { return }
+        let previous = feedbackByMessageID[messageID]
+        // Tapping the active choice again clears it.
+        let target = (kind == previous) ? nil : kind
+
+        feedbackByMessageID[messageID] = target
+        do {
+            if let target {
+                try await repo.submitFeedback(FeedbackInput(
+                    messageID: messageID,
+                    actorID: me,
+                    teamID: teamID,
+                    sessionID: session?.sessionId,
+                    kind: target
+                ))
+            } else {
+                try await repo.deleteFeedback(messageID: messageID, actorID: me)
+            }
+        } catch {
+            feedbackByMessageID[messageID] = previous
+            surfaceSendError(error)
+        }
+    }
+
+    // MARK: - Reply quotes
+
+    public struct ReplyQuote: Equatable, Sendable {
+        public let messageID: String
+        public let senderActorID: String
+        public let content: String
+    }
+
+    /// Memo for `replyQuote(forSupabaseMessageID:)` — the lookup runs on
+    /// the render path for every user-visible row on every body eval, and
+    /// almost always concludes "not a reply". Entries are only written once
+    /// the message row itself was found (a not-yet-synced row can still
+    /// resolve later); replyTo links are immutable, so no per-row
+    /// invalidation is needed — content edits clear the whole map.
+    private var replyQuoteCache: [String: ReplyQuote?] = [:]
+
+    /// Drops all memoized quotes; call when message content changes so a
+    /// quoted snippet can't go stale.
+    private func invalidateReplyQuotes() {
+        replyQuoteCache = [:]
+    }
+
+    /// The message this event replies to, resolved from the SwiftData
+    /// `SessionMessage` mirror — both the live and seed paths persist
+    /// `replyToMessageId` there, so no timeline plumbing is needed. nil when
+    /// the event isn't a reply. A reply whose quoted row isn't cached still
+    /// returns (with empty content) so the chip can say "message unavailable"
+    /// instead of vanishing.
+    public func replyQuote(forSupabaseMessageID id: String?) -> ReplyQuote? {
+        guard let id, !id.isEmpty, let ctx = startModelContext else { return nil }
+        if let cached = replyQuoteCache[id] { return cached }
+        let d1 = FetchDescriptor<SessionMessage>(predicate: #Predicate { $0.messageId == id })
+        guard let row = try? ctx.fetch(d1).first else { return nil }
+        let replyTo = row.replyToMessageId
+        guard !replyTo.isEmpty else {
+            replyQuoteCache[id] = ReplyQuote?.none
+            return nil
+        }
+        let d2 = FetchDescriptor<SessionMessage>(predicate: #Predicate { $0.messageId == replyTo })
+        let quote: ReplyQuote
+        if let quoted = try? ctx.fetch(d2).first {
+            quote = ReplyQuote(messageID: replyTo, senderActorID: quoted.senderActorId, content: quoted.content)
+            replyQuoteCache[id] = quote
+        } else {
+            // Quoted row not synced yet — return a placeholder but don't
+            // memoize it, so the chip upgrades once the row lands.
+            quote = ReplyQuote(messageID: replyTo, senderActorID: "", content: "")
+        }
+        return quote
+    }
+
+    /// Feed anchor for jump-to-quote: the feed item currently rendering
+    /// `messageID`, if it is on screen at all.
+    public func feedItemID(forSupabaseMessageID messageID: String) -> String? {
+        for item in feedItems {
+            switch item {
+            case .userMessage(let event), .permission(let event), .todo(let event), .error(let event):
+                if event.supabaseMessageId == messageID { return item.id }
+            case .completedTurn(_, _, let finalEvent, _):
+                if finalEvent.supabaseMessageId == messageID { return item.id }
+            case .activeStream:
+                continue
+            }
+        }
+        return nil
     }
 
     public func answerQuestion(

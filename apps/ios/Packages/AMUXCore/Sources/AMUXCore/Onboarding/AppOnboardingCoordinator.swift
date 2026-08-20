@@ -121,6 +121,15 @@ public protocol AppOnboardingStore: Sendable {
     /// inviter's team before the auto-create-team branch fires (otherwise they
     /// end up with an orphan team alongside the one they wanted to join).
     func claimInvite(token: String) async throws -> ClaimResult
+    /// Invites addressed to the caller's verified email/phone
+    /// (`GET /v1/invites/pending`). Defaulted so non-cloud stores and test
+    /// fakes report none.
+    func listPendingInvites() async throws -> [PendingInvite]
+    /// Joins the invite's team (`POST /v1/invites/:id/accept`) — equivalent
+    /// to claiming its token.
+    func acceptPendingInvite(inviteID: String) async throws -> ClaimResult
+    /// Marks the invite declined (`POST /v1/invites/:id/decline`).
+    func declinePendingInvite(inviteID: String) async throws
 
     // Auth sign-in methods
     func signIn(email: String, password: String) async throws
@@ -161,6 +170,44 @@ public protocol AppOnboardingStore: Sendable {
     /// hits its expiry (~1h on Supabase default config) and the user is
     /// left with a dead-looking app that needs a relogin to recover.
     nonisolated func tokenRefreshes() -> AsyncStream<Void>
+}
+
+/// An invite addressed to the caller's verified email/phone, still pending.
+public struct PendingInvite: Identifiable, Equatable, Sendable {
+    /// inviteId — the accept/decline routing key.
+    public let id: String
+    public let teamID: String
+    public let teamName: String?
+    public let teamRole: String?
+    public let invitedByDisplayName: String?
+
+    public init(id: String, teamID: String, teamName: String?,
+                teamRole: String?, invitedByDisplayName: String?) {
+        self.id = id
+        self.teamID = teamID
+        self.teamName = teamName
+        self.teamRole = teamRole
+        self.invitedByDisplayName = invitedByDisplayName
+    }
+}
+
+/// Defaults so non-cloud stores (previews, failing store, test fakes) don't
+/// have to know about pending invites: they report none, and accept/decline
+/// fail loudly rather than pretending to succeed.
+public extension AppOnboardingStore {
+    func listPendingInvites() async throws -> [PendingInvite] { [] }
+    func acceptPendingInvite(inviteID: String) async throws -> ClaimResult {
+        throw NSError(
+            domain: "AppOnboardingStore", code: 0,
+            userInfo: [NSLocalizedDescriptionKey: String(localized: "Pending invites are not supported by this backend.")]
+        )
+    }
+    func declinePendingInvite(inviteID: String) async throws {
+        throw NSError(
+            domain: "AppOnboardingStore", code: 0,
+            userInfo: [NSLocalizedDescriptionKey: String(localized: "Pending invites are not supported by this backend.")]
+        )
+    }
 }
 
 @Observable
@@ -291,6 +338,70 @@ public final class AppOnboardingCoordinator {
             errorMessage = error.localizedDescription
             // Stay on the picker so the user can retry / pick another team.
             route = .selectTeam
+        }
+    }
+
+    /// Entry point for switching teams after login (Settings → Switch Team).
+    /// Loads the full membership list (grouped by org, like the login-time
+    /// picker) and routes to the org→team picker. The current context stays
+    /// live so `cancelTeamSwitch()` can drop straight back to `.ready`.
+    public func beginTeamSwitch() async {
+        guard currentContext != nil else { return }
+        do {
+            teamChoices = try await store.listAllMyTeams()
+            errorMessage = nil
+            route = .selectTeam
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Backs the picker's Cancel button when it was reached from Settings
+    /// rather than login: the previous team context is still intact, so
+    /// returning to `.ready` is a pure route flip.
+    public func cancelTeamSwitch() {
+        guard currentContext != nil else { return }
+        teamChoices = []
+        errorMessage = nil
+        route = .ready
+    }
+
+    // MARK: - Pending invites
+
+    /// Invites addressed to the signed-in user's verified contact,
+    /// refreshed on demand (Settings → Team). Empty when none, or when the
+    /// backend can't answer.
+    public private(set) var pendingInvites: [PendingInvite] = []
+
+    public func refreshPendingInvites() async {
+        pendingInvites = (try? await store.listPendingInvites()) ?? []
+    }
+
+    /// Accepts a pending invite: joins its team (adopting the returned
+    /// session when the server mints one) and lands on it.
+    public func acceptPendingInvite(_ invite: PendingInvite) async -> Bool {
+        do {
+            let result = try await store.acceptPendingInvite(inviteID: invite.id)
+            pendingInvites.removeAll { $0.id == invite.id }
+            if let rt = result.refreshToken {
+                try await store.setSession(refreshToken: rt)
+            }
+            await bootstrap(preferringTeamID: result.teamID)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    public func declinePendingInvite(_ invite: PendingInvite) async -> Bool {
+        do {
+            try await store.declinePendingInvite(inviteID: invite.id)
+            pendingInvites.removeAll { $0.id == invite.id }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -656,7 +767,7 @@ public final class AppOnboardingCoordinator {
     public func createTeam(named rawName: String) async {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
-            errorMessage = "Team name is required."
+            errorMessage = String(localized: "Team name is required.")
             route = .createTeam
             return
         }
@@ -854,7 +965,7 @@ public final class AppOnboardingCoordinator {
                 // failed — falling back would re-attempt with a spent
                 // token and produce a misleading error. Surface the real
                 // failure instead and require a fresh invite.
-                errorMessage = "Sign-in failed after redeeming the invite. Ask the team admin for a fresh link. (\(error.localizedDescription))"
+                errorMessage = String(localized: "Sign-in failed after redeeming the invite. Ask the team admin for a fresh link. (\(error.localizedDescription))")
                 isBusy = false
                 return
             }

@@ -209,5 +209,28 @@ public func buildFeedItems(_ events: [AgentEvent],
         ))
     }
 
+    // Permission anchoring: a permission asked mid-turn must read ABOVE the
+    // turn's final reply, but the reply row's timestamp is the turn's START
+    // (Supabase `created_at`), so time-sorted events can land the permission
+    // row after the bubble. Move any permission whose turnID matches an
+    // earlier completed turn to sit just before that bubble.
+    var i = 0
+    while i < result.count {
+        guard case let .permission(event) = result[i],
+              let turnID = event.turnID, !turnID.isEmpty
+        else { i += 1; continue }
+        let turnIdx = result.firstIndex(where: { item in
+            if case let .completedTurn(id, _, final, _) = item {
+                return final.turnID == turnID || id == turnID
+            }
+            return false
+        })
+        if let turnIdx, turnIdx < i {
+            let item = result.remove(at: i)
+            result.insert(item, at: turnIdx)
+        }
+        i += 1
+    }
+
     return result
 }

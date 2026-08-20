@@ -226,8 +226,11 @@ public enum ChatTimelineReducer {
                 if state.entries[idx].toolID == nil {
                     state.entries[idx].toolID = tu.toolID
                 }
+                if let diff = firstDiff(tu.content) {
+                    applyDiff(diff, to: &state.entries[idx])
+                }
             } else {
-                state.entries.append(makeEntry(
+                var entry = makeEntry(
                     sequence: input.envelopeSequence,
                     eventType: "tool_use",
                     text: tu.description_p,
@@ -236,7 +239,11 @@ public enum ChatTimelineReducer {
                     senderActorID: bucket,
                     timestamp: input.timestamp,
                     turnID: input.turnID
-                ))
+                )
+                if let diff = firstDiff(tu.content) {
+                    applyDiff(diff, to: &entry)
+                }
+                state.entries.append(entry)
             }
             return .entriesChanged
 
@@ -245,9 +252,15 @@ public enum ChatTimelineReducer {
                 state.entries[idx].success = tr.success
                 state.entries[idx].resultSummary = tr.summary
                 state.entries[idx].isComplete = true
+                if let diff = firstDiff(tr.content) {
+                    applyDiff(diff, to: &state.entries[idx])
+                }
             } else {
                 // Out-of-order arrival — append a standalone tool_result.
-                state.entries.append(makeEntry(
+                // Carry the diff too: when the ToolUse envelope was lost
+                // (mid-turn subscribe), this entry is the only place the
+                // edit's content can survive.
+                var entry = makeEntry(
                     sequence: input.envelopeSequence,
                     eventType: "tool_result",
                     text: tr.summary,
@@ -257,7 +270,11 @@ public enum ChatTimelineReducer {
                     isComplete: true,
                     success: tr.success,
                     turnID: input.turnID
-                ))
+                )
+                if let diff = firstDiff(tr.content) {
+                    applyDiff(diff, to: &entry)
+                }
+                state.entries.append(entry)
             }
             return .entriesChanged
 
@@ -272,6 +289,16 @@ public enum ChatTimelineReducer {
             return .entriesChanged
 
         case .permissionRequest(let pr):
+            // Identity dedupe by requestID: a turn-history replay carries
+            // the same request again (daemon restarts renumber sequences,
+            // so the sequence guard can miss). Re-appending would duplicate
+            // the card at the feed's tail — and clobber the original's
+            // resolved state.
+            if state.entries.contains(where: {
+                $0.eventType == "permission_request" && $0.toolID == pr.requestID
+            }) {
+                return .noop
+            }
             state.entries.append(makeEntry(
                 sequence: input.envelopeSequence,
                 eventType: "permission_request",
@@ -279,7 +306,12 @@ public enum ChatTimelineReducer {
                 toolID: pr.requestID,
                 toolName: pr.toolName,
                 senderActorID: bucket,
-                timestamp: input.timestamp
+                timestamp: input.timestamp,
+                // Anchor: buildFeedItems re-orders permission rows to sit
+                // before their turn's bubble (the reply row's timestamp is
+                // the turn's START, so pure time-sorting lands mid-turn
+                // permissions after the reply).
+                turnID: input.turnID
             ))
             return .entriesChanged
 
@@ -627,6 +659,22 @@ public enum ChatTimelineReducer {
             model: model,
             turnID: turnID
         )
+    }
+
+    /// First diff content block on a ToolUse/ToolResult envelope, or nil.
+    /// ACP edit tools emit exactly one; extra blocks (text summaries) ride
+    /// alongside and are already rendered via description/summary.
+    private static func firstDiff(_ content: [Amux_AcpToolCallContent]) -> Amux_AcpToolCallDiff? {
+        for item in content {
+            if case .diff(let diff)? = item.payload { return diff }
+        }
+        return nil
+    }
+
+    private static func applyDiff(_ diff: Amux_AcpToolCallDiff, to entry: inout TimelineEntry) {
+        entry.diffPath = diff.path
+        entry.diffOldText = diff.hasOldText ? diff.oldText : nil
+        entry.diffNewText = diff.newText
     }
 
     private static func incompleteOutputIndex(for bucket: String,

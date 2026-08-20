@@ -23,6 +23,12 @@ public struct EventBubbleView: View {
     let runtime: AgentAttachment?
     let onGrant: ((String, String?) -> Void)?
     let onDeny: ((String, String?) -> Void)?
+    /// Option-aware grant: (requestId, optionId, senderActorID). Falls back
+    /// to `onGrant` when nil so older call sites keep working.
+    let onGrantOption: ((String, String, String?) -> Void)?
+    /// Lookup for the ACP option list of a pending permission request,
+    /// keyed by requestID. Nil renders the legacy binary Allow/Deny pair.
+    let permissionOptions: ((String) -> [PermissionOptionItem])?
     /// Tap handler invoked when the user taps a `.failed` outbox dot on
     /// their own bubble. Hooked to `OutboxSender.retry` by the parent.
     let onRetryOutbox: ((String) -> Void)?
@@ -41,6 +47,11 @@ public struct EventBubbleView: View {
     /// identity or persistence state itself.
     let onEdit: (() -> Void)?
     let onDelete: (() -> Void)?
+    /// Quoted message when this event is a reply (resolved by the parent
+    /// from the SessionMessage mirror). Renders as a chip above the bubble;
+    /// tapping invokes `onTapQuote` (jump to the quoted message).
+    let replyQuote: SessionDetailViewModel.ReplyQuote?
+    let onTapQuote: (() -> Void)?
 
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var fullscreenImageContext: FullscreenImageContext?
@@ -48,20 +59,28 @@ public struct EventBubbleView: View {
     public init(event: AgentEvent, runtime: AgentAttachment? = nil,
                 onGrant: ((String, String?) -> Void)? = nil,
                 onDeny: ((String, String?) -> Void)? = nil,
+                onGrantOption: ((String, String, String?) -> Void)? = nil,
+                permissionOptions: ((String) -> [PermissionOptionItem])? = nil,
                 onRetryOutbox: ((String) -> Void)? = nil,
                 showsAssistantHeader: Bool = true,
                 actorMap: CachedActorMap = .empty,
                 onEdit: (() -> Void)? = nil,
-                onDelete: (() -> Void)? = nil) {
+                onDelete: (() -> Void)? = nil,
+                replyQuote: SessionDetailViewModel.ReplyQuote? = nil,
+                onTapQuote: (() -> Void)? = nil) {
         self.event = event
         self.runtime = runtime
         self.onGrant = onGrant
         self.onDeny = onDeny
+        self.onGrantOption = onGrantOption
+        self.permissionOptions = permissionOptions
         self.onRetryOutbox = onRetryOutbox
         self.showsAssistantHeader = showsAssistantHeader
         self.actorMap = actorMap
         self.onEdit = onEdit
         self.onDelete = onDelete
+        self.replyQuote = replyQuote
+        self.onTapQuote = onTapQuote
     }
 
     /// True when this event was produced by an actor other than the
@@ -84,8 +103,8 @@ public struct EventBubbleView: View {
     @Environment(AppOnboardingCoordinator.self) private var coordinator: AppOnboardingCoordinator?
 
     private var senderDisplayName: String {
-        guard let senderID = event.senderActorID, !senderID.isEmpty else { return "You" }
-        if senderID == currentActorID { return "You" }
+        guard let senderID = event.senderActorID, !senderID.isEmpty else { return String(localized: "You") }
+        if senderID == currentActorID { return String(localized: "You") }
         if let name = actorMap.displayName(for: senderID) { return name }
         return String(senderID.prefix(8))
     }
@@ -137,6 +156,17 @@ public struct EventBubbleView: View {
                     requestId: event.toolId ?? "",
                     isResolved: event.isComplete == true,
                     wasGranted: event.success,
+                    options: event.isComplete == true ? [] : (permissionOptions?(event.toolId ?? "") ?? []),
+                    onSelect: event.isComplete == true ? nil : { option in
+                        let requestID = event.toolId ?? ""
+                        if option.isReject {
+                            onDeny?(requestID, event.senderActorID)
+                        } else if let onGrantOption {
+                            onGrantOption(requestID, option.id, event.senderActorID)
+                        } else {
+                            onGrant?(requestID, event.senderActorID)
+                        }
+                    },
                     onGrant: event.isComplete == true ? nil : { id in onGrant?(id, event.senderActorID) },
                     onDeny: event.isComplete == true ? nil : { id in onDeny?(id, event.senderActorID) }
                 )
@@ -181,6 +211,14 @@ public struct EventBubbleView: View {
                         OutboxStatusDot(outboxMessageID: outboxID, onRetry: onRetryOutbox)
                     }
                     VStack(alignment: .trailing, spacing: 6) {
+                        if let replyQuote {
+                            ReplyQuoteChip(
+                                quote: replyQuote,
+                                actorMap: actorMap,
+                                alignment: .trailing,
+                                onTap: onTapQuote
+                            )
+                        }
                         if let outboxID = event.outboxMessageID {
                             SentAttachmentsView(outboxMessageID: outboxID) { url, sid in
                                 fullscreenImageContext = FullscreenImageContext(
@@ -201,6 +239,9 @@ public struct EventBubbleView: View {
                                         .frame(height: 150)
                                 }
                             }
+                        }
+                        ForEach(Array(parsed.fileURLs.enumerated()), id: \.offset) { _, url in
+                            AttachmentFileCard(url: url)
                         }
                         if !parsed.text.isEmpty {
                             Text(parsed.text)
@@ -250,17 +291,27 @@ public struct EventBubbleView: View {
                 .padding(.leading, 4)
 
             HStack {
-                Text(event.text ?? "")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.amux.onyx)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .liquidGlass(in: RoundedRectangle(cornerRadius: 18), interactive: false)
-                    .frame(maxWidth: sizeClass == .regular ? 500 : 260, alignment: .leading)
-                    .contextMenu {
-                        MessageContextMenu(text: event.text ?? "")
+                VStack(alignment: .leading, spacing: 6) {
+                    if let replyQuote {
+                        ReplyQuoteChip(
+                            quote: replyQuote,
+                            actorMap: actorMap,
+                            alignment: .leading,
+                            onTap: onTapQuote
+                        )
                     }
+                    Text(event.text ?? "")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.amux.onyx)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .liquidGlass(in: RoundedRectangle(cornerRadius: 18), interactive: false)
+                        .contextMenu {
+                            MessageContextMenu(text: event.text ?? "")
+                        }
+                }
+                .frame(maxWidth: sizeClass == .regular ? 500 : 260, alignment: .leading)
                 Spacer()
             }
         }
@@ -313,7 +364,7 @@ public struct EventBubbleView: View {
                 CompactToolLine(event: event)
             } else {
                 ToolCallView(
-                    toolName: event.toolName ?? "Unknown",
+                    toolName: event.toolName ?? String(localized: "Unknown"),
                     toolId: event.toolId ?? "",
                     description: event.text ?? "",
                     status: "running"
@@ -330,7 +381,7 @@ public struct EventBubbleView: View {
     // MARK: - Error
 
     private var errorBlock: some View {
-        ErrorBlockView(message: event.text ?? "Unknown error")
+        ErrorBlockView(message: event.text ?? String(localized: "Unknown error"))
     }
 }
 
@@ -379,11 +430,11 @@ public struct ActiveStreamCardView: View {
     private var displayText: String {
         if isPending {
             if pendingElapsed >= Self.patienceThreshold {
-                return "Agent 启动较慢，请耐心等候…"
+                return String(localized: "Agent is taking a while to start — hang tight…")
             }
-            return "Agent loading…"
+            return String(localized: "Agent loading…")
         }
-        return lastLine.isEmpty ? "Working…" : lastLine
+        return lastLine.isEmpty ? String(localized: "Working…") : lastLine
     }
 
     public var body: some View {
@@ -472,13 +523,25 @@ public struct CompletedTurnBubbleView<DetailIcon: View>: View {
     /// route type defined in `StreamingDetailView.swift`.
     @ViewBuilder public let detailIcon: () -> DetailIcon
 
+    /// The signed-in user's feedback for this message ("positive" /
+    /// "negative"), nil when none. Rendered as a small thumb next to the
+    /// model caption; changed via the context menu.
+    public let feedbackKind: String?
+    /// Invoked with the desired kind; the parent owns toggle semantics
+    /// (tapping the active kind again clears it).
+    public let onFeedback: ((String) -> Void)?
+
     public init(finalEvent: AgentEvent,
                 runtime: AgentAttachment?,
                 agentName: String?,
+                feedbackKind: String? = nil,
+                onFeedback: ((String) -> Void)? = nil,
                 @ViewBuilder detailIcon: @escaping () -> DetailIcon = { EmptyView() }) {
         self.finalEvent = finalEvent
         self.runtime = runtime
         self.agentName = agentName
+        self.feedbackKind = feedbackKind
+        self.onFeedback = onFeedback
         self.detailIcon = detailIcon
     }
 
@@ -507,17 +570,44 @@ public struct CompletedTurnBubbleView<DetailIcon: View>: View {
                 .liquidGlass(in: RoundedRectangle(cornerRadius: 18), interactive: false)
                 .contextMenu {
                     MessageContextMenu(text: finalEvent.text ?? "")
+                    if let onFeedback {
+                        Divider()
+                        Button {
+                            onFeedback("positive")
+                        } label: {
+                            Label(
+                                feedbackKind == "positive" ? "Remove Helpful" : "Helpful",
+                                systemImage: feedbackKind == "positive" ? "hand.thumbsup.fill" : "hand.thumbsup"
+                            )
+                        }
+                        Button {
+                            onFeedback("negative")
+                        } label: {
+                            Label(
+                                feedbackKind == "negative" ? "Remove Not Helpful" : "Not Helpful",
+                                systemImage: feedbackKind == "negative" ? "hand.thumbsdown.fill" : "hand.thumbsdown"
+                            )
+                        }
+                    }
                 }
 
                 detailIcon()
             }
 
-            if let modelName = modelDisplayName {
-                Text(modelName)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 18)
+            HStack(spacing: 6) {
+                if let modelName = modelDisplayName {
+                    Text(modelName)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if let feedbackKind {
+                    Image(systemName: feedbackKind == "positive" ? "hand.thumbsup.fill" : "hand.thumbsdown.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(feedbackKind == "positive" ? Color.amux.sage : Color.amux.cinnabarDeep)
+                        .accessibilityLabel(feedbackKind == "positive" ? "Marked helpful" : "Marked not helpful")
+                }
             }
+            .padding(.leading, 18)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
@@ -833,18 +923,26 @@ private struct SentAttachmentsView: View {
 
     var body: some View {
         ForEach(Array(attachmentURLs.enumerated()), id: \.offset) { _, url in
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                default:
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.amux.pebble)
-                        .frame(height: 150)
+            if ParsedMessageContent.imageExtensions.contains(url.pathExtension.lowercased()) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    default:
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.amux.pebble)
+                            .frame(height: 150)
+                    }
                 }
+                .onTapGesture { onTap?(url, sessionID) }
+            } else {
+                // Non-image uploads used to render through the AsyncImage
+                // failure branch — a bare grey block with the filename
+                // gone. A file card keeps the name, type, and a way to
+                // open it.
+                AttachmentFileCard(url: url)
             }
-            .onTapGesture { onTap?(url, sessionID) }
         }
     }
 }
@@ -854,26 +952,178 @@ private struct SentAttachmentsView: View {
 private struct ParsedMessageContent {
     let text: String
     let imageURLs: [URL]
+    /// Non-image attachment links (whole-line URLs pointing at uploaded
+    /// files). Rendered as file cards instead of raw URLs or grey blocks.
+    let fileURLs: [URL]
     static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "webp", "heic", "bmp"]
+    /// Whole-line URLs with these extensions read as shared files. Kept
+    /// conservative so ordinary links pasted into prose stay links.
+    static let fileExtensions: Set<String> = [
+        "pdf", "zip", "txt", "md", "csv", "json", "log",
+        "doc", "docx", "xls", "xlsx", "ppt", "pptx", "key", "pages", "numbers",
+        "mp3", "wav", "m4a", "mp4", "mov",
+    ]
 
     static func parse(_ raw: String) -> ParsedMessageContent {
         let lines = raw.components(separatedBy: "\n")
         var imageURLs: [URL] = []
+        var fileURLs: [URL] = []
         var textLines: [String] = []
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if let url = URL(string: trimmed),
                url.scheme?.hasPrefix("http") == true,
-               !url.host.isNilOrEmpty,
-               imageExtensions.contains(url.pathExtension.lowercased()) {
-                imageURLs.append(url)
+               !url.host.isNilOrEmpty {
+                let ext = url.pathExtension.lowercased()
+                if imageExtensions.contains(ext) {
+                    imageURLs.append(url)
+                    continue
+                }
+                // Attachment-bucket links count as files even without a
+                // recognized extension — that's where uploads live.
+                if fileExtensions.contains(ext) || url.path.contains("/attachments/") {
+                    fileURLs.append(url)
+                    continue
+                }
+                textLines.append(line)
             } else {
                 textLines.append(line)
             }
         }
         let text = textLines.joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return ParsedMessageContent(text: text, imageURLs: imageURLs)
+        return ParsedMessageContent(text: text, imageURLs: imageURLs, fileURLs: fileURLs)
+    }
+}
+
+// MARK: - ReplyQuoteChip
+
+/// Compact quote of the message a bubble replies to: sender name + first
+/// line, with the Hai hairline rail. Tapping jumps to the quoted message
+/// when it is still in the feed.
+struct ReplyQuoteChip: View {
+    let quote: SessionDetailViewModel.ReplyQuote
+    let actorMap: CachedActorMap
+    let alignment: HorizontalAlignment
+    let onTap: (() -> Void)?
+
+    private var senderName: String {
+        guard !quote.senderActorID.isEmpty else { return "" }
+        return actorMap.displayName(for: quote.senderActorID) ?? String(quote.senderActorID.prefix(8))
+    }
+
+    private var snippet: String {
+        let firstLine = quote.content
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .first.map(String.init) ?? ""
+        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? String(localized: "Message unavailable") : trimmed
+    }
+
+    var body: some View {
+        Button {
+            onTap?()
+        } label: {
+            HStack(spacing: 8) {
+                Rectangle()
+                    .fill(Color.amux.cinnabar.opacity(0.6))
+                    .frame(width: 2)
+                VStack(alignment: .leading, spacing: 1) {
+                    if !senderName.isEmpty {
+                        Text(senderName)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.amux.basalt)
+                            .lineLimit(1)
+                    }
+                    Text(snippet)
+                        .font(.caption2)
+                        .foregroundStyle(Color.amux.slate)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.amux.pebble.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(onTap == nil)
+        .accessibilityLabel("In reply to \(senderName)")
+    }
+}
+
+// MARK: - AttachmentFileCard
+
+/// A non-image attachment in a message bubble: type icon + filename +
+/// extension badge. Tapping hands the URL to the system (Safari previews
+/// PDFs and most documents inline; anything else downloads).
+struct AttachmentFileCard: View {
+    let url: URL
+
+    private var filename: String {
+        let name = url.lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
+        return name.isEmpty ? url.absoluteString : name
+    }
+
+    private var ext: String { url.pathExtension.lowercased() }
+
+    private var iconName: String {
+        switch ext {
+        case "pdf": return "doc.richtext"
+        case "zip": return "doc.zipper"
+        case "csv", "xls", "xlsx", "numbers": return "tablecells"
+        case "doc", "docx", "pages", "txt", "md", "log", "json": return "doc.text"
+        case "ppt", "pptx", "key": return "rectangle.on.rectangle"
+        case "mp3", "wav", "m4a": return "waveform"
+        case "mp4", "mov": return "film"
+        default: return "doc"
+        }
+    }
+
+    var body: some View {
+        Button {
+            UIApplication.shared.open(url)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: iconName)
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(Color.amux.basalt)
+                    .frame(width: 34, height: 34)
+                    .background(Color.amux.pebble, in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(filename)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(Color.amux.onyx)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if !ext.isEmpty {
+                        Text(ext.uppercased())
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(Color.amux.slate)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(8)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.amux.hairline, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = url.absoluteString
+            } label: {
+                Label("Copy Link", systemImage: "doc.on.doc")
+            }
+            ShareLink(item: url) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+        }
+        .accessibilityLabel("Attachment \(filename)")
     }
 }
 

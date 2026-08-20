@@ -56,6 +56,19 @@ struct OrgTeamPickerView: View {
             }
             .navigationTitle("Choose a team")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Only the Settings-initiated switch can go back: at login
+                // there is no previous team context to return to.
+                if coordinator.currentContext != nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            coordinator.cancelTeamSwitch()
+                        }
+                        .disabled(busyTeamID != nil)
+                        .accessibilityIdentifier("teamPicker.cancelButton")
+                    }
+                }
+            }
         }
     }
 

@@ -48,6 +48,13 @@ public final class AgentEvent {
     /// rows when the matching `ToolResult` envelope lands. nil while the
     /// tool is still running or for non-tool_use rows.
     public var resultSummary: String?
+    /// Mirror of `TimelineEntry.diffPath/diffOldText/diffNewText` — the
+    /// `AcpToolCallDiff` content block carried by an edit tool's envelope.
+    /// nil for tools without a diff and for rows inserted before these
+    /// columns existed.
+    public var diffPath: String?
+    public var diffOldText: String?
+    public var diffNewText: String?
 
     public init(agentId: String, sequence: Int, eventType: String) {
         self.id = UUID().uuidString

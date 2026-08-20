@@ -34,7 +34,12 @@ export function registerTelemetry(router) {
 
   router.delete("/v1/feedback/:messageId", async (ctx) => {
     const messageId = decodeURIComponent(ctx.params.messageId);
-    await ctx.repository.deleteFeedback(messageId, null);
+    // Scope the delete to one actor's row. Without this the pg backend
+    // deletes EVERY actor's feedback for the message (the supabase backend
+    // only survived via RLS on the forwarded bearer). Client-supplied like
+    // the POST body's actorId — same trust model.
+    const actorId = ctx.query.get("actorId") || null;
+    await ctx.repository.deleteFeedback(messageId, actorId);
     return { statusCode: 204, body: null };
   });
 

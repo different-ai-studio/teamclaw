@@ -121,5 +121,21 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      # pb.swift is generated but checked in; a proto change without a
+      # `pnpm ios:proto-gen` re-run ships a client that silently drops the
+      # new fields. Regenerate and fail on drift. A failure here can also
+      # mean brew's protoc/plugin moved ahead of dev machines — then the fix
+      # is still the same: regenerate locally and commit the result.
+      - name: Guard generated protobuf drift
+        working-directory: ${{ github.workspace }}
+        run: |
+          brew install swift-protobuf
+          protoc -I proto \
+            --swift_out=apps/ios/Packages/AMUXCore/Sources/AMUXCore/Proto \
+            --swift_opt=Visibility=Public \
+            proto/amux.proto proto/teamclu.proto
+          git diff --exit-code -- 'apps/ios/Packages/AMUXCore/Sources/AMUXCore/Proto/*.pb.swift' \
+            || { echo '::error::pb.swift is stale — run `pnpm ios:proto-gen` and commit the result'; exit 1; }
+
       - name: Build and upload to TestFlight
         run: bundle exec fastlane beta

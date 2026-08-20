@@ -135,7 +135,7 @@ public struct RootTabView: View {
         .task(id: activeTeam?.id) {
             await coordinator?.prepareTeamRuntime(modelContext: modelContext)
             // SessionListVM observes ConnectedAgentsStore directly and fans
-            // its `runtime/+/state` subscriptions out per known daemon, so we
+            // its `{actor}/state` subscriptions out per known daemon, so we
             // start it after prepareTeamRuntime so the initial agent set is
             // already loaded.
             viewModel.start(

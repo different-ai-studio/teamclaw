@@ -12,6 +12,48 @@ final class SessionDetailViewModelTests: XCTestCase {
         }
     }
 
+    /// Polls `published` until a message lands on `topic` (or fails after
+    /// ~1s). Commands ride the RPC channel now, so the interesting publish
+    /// is the `rpc/req` payload — other topics may interleave.
+    private func awaitPublish(
+        _ published: PublishedMessages,
+        onTopic topic: String,
+        maxAttempts: Int = 100
+    ) async throws -> Data {
+        var attempts = 0
+        while attempts < maxAttempts {
+            if let match = await published.value.first(where: { $0.0 == topic }) {
+                XCTAssertFalse(match.2, "RPC requests must not be retained")
+                return match.1
+            }
+            try await Task.sleep(for: .milliseconds(10))
+            attempts += 1
+        }
+        XCTFail("no publish observed on \(topic)")
+        throw CancellationError()
+    }
+
+    /// Decodes the runtime_command RPC captured on the target actor's
+    /// `rpc/req` topic and replies `dispatched: true` on the requester's
+    /// `rpc/res` topic so the in-flight command call can return.
+    private func replyDispatched(
+        _ mqtt: MQTTService,
+        rpcRequest: Teamclu_RpcRequest,
+        requesterActorID: String
+    ) throws {
+        var result = Teamclu_RuntimeCommandResult()
+        result.dispatched = true
+        var response = Teamclu_RpcResponse()
+        response.requestID = rpcRequest.requestID
+        response.success = true
+        response.result = .runtimeCommandResult(result)
+        mqtt.deliverForTesting(MQTTIncoming(
+            topic: MQTTTopics.actorRpcResponse(teamID: "team-1", actorID: requesterActorID),
+            payload: try response.serializedData(),
+            retained: false
+        ))
+    }
+
     private func makeAgent(actorID: String, runtimeID: String?) -> MemberSheetAgent {
         MemberSheetAgent(
             id: actorID,
@@ -126,6 +168,19 @@ final class SessionDetailViewModelTests: XCTestCase {
                 await published.append((topic, payload, retain))
             }
         )
+        let teamcluService = TeamcluService()
+        let container = try ModelContainer(
+            for: Session.self, AgentAttachment.self, AgentEvent.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        teamcluService.configureRuntimeForTesting(
+            mqtt: mqtt,
+            teamId: "team-1",
+            peerId: "peer-1",
+            modelContainer: container
+        )
+        teamcluService.setLocalMemberIdForTesting("human-1")
+        await teamcluService.hubRef?.start()
 
         let session = Session(sessionId: "session-1", teamId: "team-1")
         session.primaryAgentId = "agent-primary"
@@ -136,37 +191,39 @@ final class SessionDetailViewModelTests: XCTestCase {
             hub: MQTTMessageHub(mqtt: mqtt),
             teamID: "team-1",
             peerId: "peer-1",
-            session: session
+            session: session,
+            teamcluService: teamcluService
         )
         viewModel._test_setMemberSheetAgentsAndRelabel([
             makeAgent(actorID: "agent-primary", runtimeID: "rt-primary"),
             makeAgent(actorID: "agent-secondary", runtimeID: "rt-secondary")
         ])
 
-        try await viewModel.grantPermission(requestId: "perm-1", agentActorID: "agent-secondary")
+        async let work: Void = viewModel.grantPermission(requestId: "perm-1", agentActorID: "agent-secondary")
 
-        let snapshot = await published.value
-        XCTAssertEqual(snapshot.count, 1)
-        let (topic, data, retain) = try XCTUnwrap(snapshot.first)
-        XCTAssertFalse(retain)
-        XCTAssertEqual(
-            topic,
-            // Commands go to the agent actor's own namespace, addressed
-            // `{actor}::{session}`. The daemon resolves that to its internal
-            // spawn key — which it never publishes, so no client can name it.
-            MQTTTopics.runtimeCommands(
-                teamID: "team-1",
-                actorID: "agent-secondary",
-                runtimeID: "agent-secondary::session-1"
-            )
+        // Commands ride the RPC channel (ADR-0003), addressed to the agent
+        // actor's rpc/req topic, carrying (session, actor) — the daemon
+        // resolves its internal spawn key, which it never publishes.
+        let data = try await awaitPublish(
+            published,
+            onTopic: MQTTTopics.actorRpcRequest(teamID: "team-1", actorID: "agent-secondary")
         )
-        let envelope = try Amux_RuntimeCommandEnvelope(serializedBytes: data)
-        XCTAssertEqual(envelope.runtimeID, "agent-secondary::session-1")
-        if case .grantPermission(let grant) = envelope.acpCommand.command {
+        let rpcRequest = try Teamclu_RpcRequest(serializedBytes: data)
+        guard case .runtimeCommand(let command) = rpcRequest.method else {
+            return XCTFail("expected runtime_command RPC, got \(String(describing: rpcRequest.method))")
+        }
+        XCTAssertEqual(command.sessionID, "session-1")
+        XCTAssertEqual(command.envelope.actorID, "agent-secondary")
+        XCTAssertEqual(command.envelope.runtimeID, "agent-secondary::session-1")
+        XCTAssertEqual(command.envelope.senderActorID, "human-1")
+        if case .grantPermission(let grant) = command.envelope.acpCommand.command {
             XCTAssertEqual(grant.requestID, "perm-1")
         } else {
             XCTFail("expected grantPermission ACP command")
         }
+
+        try replyDispatched(mqtt, rpcRequest: rpcRequest, requesterActorID: "human-1")
+        try await work
     }
 
     func testGrantPermissionRoutesEvenWhenDetailRuntimeIsNil() async throws {
@@ -190,13 +247,24 @@ final class SessionDetailViewModelTests: XCTestCase {
 
         try context.save()
 
+        let teamcluService = TeamcluService()
+        teamcluService.configureRuntimeForTesting(
+            mqtt: mqtt,
+            teamId: "team-1",
+            peerId: "peer-1",
+            modelContainer: container
+        )
+        teamcluService.setLocalMemberIdForTesting("human-1")
+        await teamcluService.hubRef?.start()
+
         let viewModel = SessionDetailViewModel(
             runtime: nil,
             mqtt: mqtt,
             hub: MQTTMessageHub(mqtt: mqtt),
             teamID: "team-1",
             peerId: "peer-1",
-            session: session
+            session: session,
+            teamcluService: teamcluService
         )
         viewModel._test_setMemberSheetAgentsAndRelabel([
             makeAgent(actorID: "agent-secondary", runtimeID: "rt-secondary")
@@ -204,27 +272,26 @@ final class SessionDetailViewModelTests: XCTestCase {
         viewModel.start(modelContext: context)
         defer { viewModel.stop() }
 
-        try await viewModel.grantPermission(requestId: "perm-2", agentActorID: "agent-secondary")
+        async let work: Void = viewModel.grantPermission(requestId: "perm-2", agentActorID: "agent-secondary")
 
-        let snapshot = await published.value
-        XCTAssertEqual(snapshot.count, 1)
-        let (topic, data, retain) = try XCTUnwrap(snapshot.first)
-        XCTAssertFalse(retain)
-        XCTAssertEqual(
-            topic,
-            MQTTTopics.runtimeCommands(
-                teamID: "team-1",
-                actorID: "agent-secondary",
-                runtimeID: "agent-secondary::session-1"
-            )
+        let data = try await awaitPublish(
+            published,
+            onTopic: MQTTTopics.actorRpcRequest(teamID: "team-1", actorID: "agent-secondary")
         )
-        let envelope = try Amux_RuntimeCommandEnvelope(serializedBytes: data)
-        XCTAssertEqual(envelope.runtimeID, "agent-secondary::session-1")
-        if case .grantPermission(let grant) = envelope.acpCommand.command {
+        let rpcRequest = try Teamclu_RpcRequest(serializedBytes: data)
+        guard case .runtimeCommand(let command) = rpcRequest.method else {
+            return XCTFail("expected runtime_command RPC, got \(String(describing: rpcRequest.method))")
+        }
+        XCTAssertEqual(command.sessionID, "session-1")
+        XCTAssertEqual(command.envelope.runtimeID, "agent-secondary::session-1")
+        if case .grantPermission(let grant) = command.envelope.acpCommand.command {
             XCTAssertEqual(grant.requestID, "perm-2")
         } else {
             XCTFail("expected grantPermission ACP command")
         }
+
+        try replyDispatched(mqtt, rpcRequest: rpcRequest, requesterActorID: "human-1")
+        try await work
     }
 
     /// Regression test for "agent loading takes a long time after send".
@@ -343,28 +410,28 @@ final class SessionDetailViewModelTests: XCTestCase {
         viewModel.start(modelContext: context)
         defer { viewModel.stop() }
 
+        await teamcluService.hubRef?.start()
         viewModel.interruptAgent("agent-actor-1")
-        try await Task.sleep(for: .milliseconds(50))
 
-        let snapshot = await published.value
-        XCTAssertEqual(snapshot.count, 1)
-        XCTAssertEqual(
-            snapshot.first?.0,
-            MQTTTopics.runtimeCommands(
-                teamID: "team-1",
-                actorID: "agent-actor-1",
-                runtimeID: "agent-actor-1::session-1"
-            )
+        let data = try await awaitPublish(
+            published,
+            onTopic: MQTTTopics.actorRpcRequest(teamID: "team-1", actorID: "agent-actor-1")
         )
-        XCTAssertFalse(snapshot.first?.2 ?? true)
-
-        let payload = try XCTUnwrap(snapshot.first?.1)
-        let envelope = try Amux_RuntimeCommandEnvelope(serializedBytes: payload)
-        XCTAssertEqual(envelope.runtimeID, "agent-actor-1::session-1")
-        XCTAssertEqual(envelope.actorID, "agent-actor-1")
-        XCTAssertEqual(envelope.senderActorID, "human-1")
-        guard case .cancel = envelope.acpCommand.command else {
+        let rpcRequest = try Teamclu_RpcRequest(serializedBytes: data)
+        guard case .runtimeCommand(let command) = rpcRequest.method else {
+            return XCTFail("expected runtime_command RPC, got \(String(describing: rpcRequest.method))")
+        }
+        XCTAssertEqual(command.sessionID, "session-1")
+        XCTAssertEqual(command.envelope.runtimeID, "agent-actor-1::session-1")
+        XCTAssertEqual(command.envelope.actorID, "agent-actor-1")
+        XCTAssertEqual(command.envelope.senderActorID, "human-1")
+        guard case .cancel = command.envelope.acpCommand.command else {
             return XCTFail("expected AcpCancel command")
         }
+
+        // Let the fire-and-forget interrupt task finish instead of leaving
+        // it waiting out the RPC timeout.
+        try replyDispatched(mqtt, rpcRequest: rpcRequest, requesterActorID: "human-1")
+        try await Task.sleep(for: .milliseconds(50))
     }
 }

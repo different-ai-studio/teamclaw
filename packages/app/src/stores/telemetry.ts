@@ -220,7 +220,11 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
 
   removeFeedback: async (sessionId: string, messageId: string) => {
     try {
-      await getBackend().telemetry.deleteFeedback({ messageId })
+      // Scope to our own row — an unscoped delete removes teammates'
+      // feedback on the pg backend.
+      const teamId = useCurrentTeamStore.getState().team?.id
+      const actorId = teamId ? await resolveActorId(teamId) : undefined
+      await getBackend().telemetry.deleteFeedback({ messageId, actorId: actorId ?? undefined })
 
       set((state) => {
         const cache = new Map(state.feedbackCache)
@@ -271,8 +275,9 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       const actorId = await resolveActorId(teamId)
       if (!actorId) return
 
-      // Delete any prior star_rating row for this message (idempotent re-rate)
-      await getBackend().telemetry.deleteFeedback({ messageId })
+      // Delete any prior star_rating row for this message (idempotent
+      // re-rate), scoped to our own row.
+      await getBackend().telemetry.deleteFeedback({ messageId, actorId })
 
       await insertFeedback({
         actorId,
@@ -299,7 +304,9 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
 
   removeStarRating: async (sessionId: string, messageId: string) => {
     try {
-      await getBackend().telemetry.deleteFeedback({ messageId })
+      const teamId = useCurrentTeamStore.getState().team?.id
+      const actorId = teamId ? await resolveActorId(teamId) : undefined
+      await getBackend().telemetry.deleteFeedback({ messageId, actorId: actorId ?? undefined })
 
       set((state) => {
         const cache = new Map(state.starRatingCache)

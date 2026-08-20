@@ -21,9 +21,11 @@
 		48A4F0655EACAE64B0B0232B /* AMUXUI in Frameworks */ = {isa = PBXBuildFile; productRef = 984FDD5CB983CACB65198166 /* AMUXUI */; };
 		5D9C7760A6A171683819C4A0 /* PushAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67C23CE506628F56CB70DAB6 /* PushAppDelegate.swift */; };
 		70245B4A62E76BFBC234FE03 /* PushBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 933101253D0E0056ED286BFB /* PushBootstrap.swift */; };
+		770B07D7DCA6D5A3D19E114E /* ServerSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B1DDBE39CD8A28D7D0F9354 /* ServerSettingsSheet.swift */; };
 		989AF52819F1BFC91A3315B1 /* AMUXSharedUI in Frameworks */ = {isa = PBXBuildFile; productRef = 5400E9174EF5F9869349C3EF /* AMUXSharedUI */; };
 		9F1C704FA9F8243CDB69EC7D /* OrgTeamPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37F62CC876FCD92CBF6E057C /* OrgTeamPickerView.swift */; };
 		A77EC78143196C418FE87C82 /* AMUXAuthUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16412C0DABEF538623C6257 /* AMUXAuthUITests.swift */; };
+		B3373E2BF0AEBF0F52946F65 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 4E946A65F7A02F07C9CB9C1E /* Localizable.xcstrings */; };
 		BADAD9E3FCAD93B7FBAC2B28 /* Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537E64EAD78ACC7946325945 /* Analytics.swift */; };
 		E162A3FC8793994442C23372 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5C333674232A156EF5A6D1 /* WelcomeView.swift */; };
 		EB09506708CCBE1B923FBFAE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 25D67C6EB2C2948CCFE684D1 /* Assets.xcassets */; };
@@ -34,11 +36,13 @@
 /* Begin PBXFileReference section */
 		08132EB197A0E82A4E7F3C97 /* ChooseAuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChooseAuthView.swift; sourceTree = "<group>"; };
 		194E71B71F97908AD85A630C /* AMUXSessionLiveCaptureTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMUXSessionLiveCaptureTest.swift; sourceTree = "<group>"; };
+		1B1DDBE39CD8A28D7D0F9354 /* ServerSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerSettingsSheet.swift; sourceTree = "<group>"; };
 		2304BE28BB84D7C798F28A65 /* AMUXSessionLiveDiagTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMUXSessionLiveDiagTest.swift; sourceTree = "<group>"; };
 		25D67C6EB2C2948CCFE684D1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		278531282E6CC92737596EAF /* AMUXCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AMUXCore; path = Packages/AMUXCore; sourceTree = SOURCE_ROOT; };
 		37F62CC876FCD92CBF6E057C /* OrgTeamPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrgTeamPickerView.swift; sourceTree = "<group>"; };
 		499D508CBB7FB4FD1F584D9D /* AMUXApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMUXApp.swift; sourceTree = "<group>"; };
+		4E946A65F7A02F07C9CB9C1E /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		514F7615E8C226A5F3660A5F /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		537E64EAD78ACC7946325945 /* Analytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Analytics.swift; sourceTree = "<group>"; };
 		5A17336F2708FD5E2A0C62C8 /* AMUXSharedUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AMUXSharedUI; path = Packages/AMUXSharedUI; sourceTree = SOURCE_ROOT; };
@@ -116,11 +120,13 @@
 				08132EB197A0E82A4E7F3C97 /* ChooseAuthView.swift */,
 				F467BD534BE686B6EACBD702 /* ContentView.swift */,
 				FDEFC0BF7C8A215582AF7257 /* Info.plist */,
+				4E946A65F7A02F07C9CB9C1E /* Localizable.xcstrings */,
 				514F7615E8C226A5F3660A5F /* LoginView.swift */,
 				A57443CB6DA7A01B751BBA00 /* OnboardingViews.swift */,
 				37F62CC876FCD92CBF6E057C /* OrgTeamPickerView.swift */,
 				67C23CE506628F56CB70DAB6 /* PushAppDelegate.swift */,
 				933101253D0E0056ED286BFB /* PushBootstrap.swift */,
+				1B1DDBE39CD8A28D7D0F9354 /* ServerSettingsSheet.swift */,
 				AA5C333674232A156EF5A6D1 /* WelcomeView.swift */,
 			);
 			path = AMUXApp;
@@ -204,6 +210,7 @@
 			knownRegions = (
 				Base,
 				en,
+				"zh-Hans",
 			);
 			mainGroup = 83793258F8E10835639EAA01;
 			minimizedProjectReferenceProxies = 1;
@@ -231,6 +238,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				EB09506708CCBE1B923FBFAE /* Assets.xcassets in Resources */,
+				B3373E2BF0AEBF0F52946F65 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -250,6 +258,7 @@
 				9F1C704FA9F8243CDB69EC7D /* OrgTeamPickerView.swift in Sources */,
 				5D9C7760A6A171683819C4A0 /* PushAppDelegate.swift in Sources */,
 				70245B4A62E76BFBC234FE03 /* PushBootstrap.swift in Sources */,
+				770B07D7DCA6D5A3D19E114E /* ServerSettingsSheet.swift in Sources */,
 				E162A3FC8793994442C23372 /* WelcomeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -332,14 +341,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = AMUXApp/AMUX.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 24;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = 43G5A6G9QV;
 				INFOPLIST_FILE = AMUXApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.5;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.teamclu.mobile;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
@@ -353,14 +362,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = AMUXApp/AMUX.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 24;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = 43G5A6G9QV;
 				INFOPLIST_FILE = AMUXApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.5;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.teamclu.mobile;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;

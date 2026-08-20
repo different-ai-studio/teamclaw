@@ -64,20 +64,20 @@ public struct IdeaListView: View {
 
     private var filterSegments: [SegmentedFilterBar<Filter>.Segment] {
         var segments: [SegmentedFilterBar<Filter>.Segment] = [
-            .init(tag: .all, title: "All", count: ideaStore.ideas.count)
+            .init(tag: .all, title: String(localized: "All"), count: ideaStore.ideas.count)
         ]
         if let me = currentActorID, !me.isEmpty {
             let mineCount = ideaStore.ideas.filter { $0.createdByActorID == me }.count
-            segments.append(.init(tag: .mine, title: "Mine", count: mineCount))
+            segments.append(.init(tag: .mine, title: String(localized: "Mine"), count: mineCount))
         }
         segments.append(.init(
             tag: .open,
-            title: "Open",
+            title: String(localized: "Open"),
             count: ideaStore.ideas.filter { $0.status == "open" }.count
         ))
         segments.append(.init(
             tag: .done,
-            title: "Done",
+            title: String(localized: "Done"),
             count: ideaStore.ideas.filter { $0.status == "done" }.count
         ))
         return segments
@@ -218,19 +218,19 @@ public struct IdeaListView: View {
 
     private var emptyFilterTitle: String {
         switch filter {
-        case .all:  return "No Ideas"
-        case .mine: return "Nothing here yet"
-        case .open: return "No open ideas"
-        case .done: return "No completed ideas"
+        case .all:  return String(localized: "No Ideas")
+        case .mine: return String(localized: "Nothing here yet")
+        case .open: return String(localized: "No open ideas")
+        case .done: return String(localized: "No completed ideas")
         }
     }
 
     private var emptyFilterSubtitle: String {
         switch filter {
-        case .all:  return "Tap + to create an idea"
-        case .mine: return "Ideas you create will show up here"
-        case .open: return "Open ideas will appear once created"
-        case .done: return "Mark an idea as Done to see it here"
+        case .all:  return String(localized: "Tap + to create an idea")
+        case .mine: return String(localized: "Ideas you create will show up here")
+        case .open: return String(localized: "Open ideas will appear once created")
+        case .done: return String(localized: "Mark an idea as Done to see it here")
         }
     }
 }

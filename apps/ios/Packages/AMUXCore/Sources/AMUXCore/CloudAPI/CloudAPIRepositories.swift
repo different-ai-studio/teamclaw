@@ -41,7 +41,8 @@ public actor CloudAPISessionsRepository: SessionsRepository {
                 participantCount: row.participantCount,
                 lastMessagePreview: row.lastMessagePreview ?? "",
                 lastMessageAt: parseCloudDate(row.lastMessageAt),
-                createdAt: parseCloudDate(row.createdAt) ?? .distantPast
+                createdAt: parseCloudDate(row.createdAt) ?? .distantPast,
+                source: row.source
             )
         }
     }
@@ -64,6 +65,46 @@ public actor CloudAPISessionsRepository: SessionsRepository {
         // FC resolves the actor from the bearer token; the empty JSON body
         // just keeps the shared postVoid encoder path.
         try await client.postVoid("/v1/sessions/\(sessionId)/mark-unread", body: CloudEmptyBody())
+    }
+
+    public func renameSession(sessionId: String, title: String) async throws {
+        let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
+        try await client.patchVoid(
+            "/v1/sessions/\(encoded)",
+            body: CloudSessionRenameRequest(title: title)
+        )
+    }
+
+    public func setSessionArchived(sessionId: String, archivedAt: Date?) async throws {
+        let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
+        try await client.patchVoid(
+            "/v1/sessions/\(encoded)",
+            body: CloudSessionArchiveRequest(archivedAt: archivedAt)
+        )
+    }
+}
+
+private struct CloudSessionRenameRequest: Encodable, Sendable {
+    let title: String
+}
+
+/// `archivedAt` always encodes — an explicit JSON null clears the flag, which
+/// a plain optional would silently omit (and the server would then treat the
+/// patch as a no-op).
+private struct CloudSessionArchiveRequest: Encodable, Sendable {
+    let archivedAt: Date?
+
+    private enum CodingKeys: String, CodingKey { case archivedAt }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if let archivedAt {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            try container.encode(formatter.string(from: archivedAt), forKey: .archivedAt)
+        } else {
+            try container.encodeNil(forKey: .archivedAt)
+        }
     }
 }
 
@@ -231,9 +272,37 @@ public actor CloudAPIWorkspaceRepository: WorkspaceRepository {
         }
     }
 
+    public func createWorkspace(teamID: String, agentID: String, path: String) async throws -> WorkspaceRecord {
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmedPath.split(separator: "/").last.map(String.init) ?? trimmedPath
+        let body = CloudWorkspaceCreateRequest(
+            teamId: teamID,
+            agentId: agentID,
+            name: name,
+            path: trimmedPath,
+            archived: false
+        )
+        let row: CloudWorkspace = try await client.post("/v1/workspaces", body: body)
+        return WorkspaceRecord(
+            id: row.id,
+            teamID: row.teamId,
+            agentID: row.agentId,
+            path: row.resolvedPath,
+            displayName: row.name
+        )
+    }
+
     private static func encode(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
     }
+}
+
+private struct CloudWorkspaceCreateRequest: Encodable, Sendable {
+    let teamId: String
+    let agentId: String
+    let name: String
+    let path: String
+    let archived: Bool
 }
 
 public actor CloudAPIMessagesRepository: MessagesRepository {
@@ -319,6 +388,46 @@ public actor CloudAPIMessagesRepository: MessagesRepository {
         let encoded = messageID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageID
         try await client.deleteVoid("/v1/messages/\(encoded)")
     }
+
+    public func submitFeedback(_ input: FeedbackInput) async throws {
+        let body = CloudFeedbackRequest(
+            messageId: input.messageID,
+            actorId: input.actorID,
+            teamId: input.teamID,
+            sessionId: input.sessionID,
+            kind: input.kind,
+            starRating: input.starRating
+        )
+        try await client.postVoid("/v1/feedback", body: body)
+    }
+
+    public func deleteFeedback(messageID: String, actorID: String) async throws {
+        let encoded = messageID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageID
+        try await client.deleteVoid("/v1/feedback/\(encoded)?actorId=\(Self.enc(actorID))")
+    }
+
+    public func listFeedback(sessionID: String) async throws -> [FeedbackRecord] {
+        let out: CloudFeedbackList = try await client.get("/v1/feedback?sessionId=\(Self.enc(sessionID))")
+        return out.items.map { FeedbackRecord(messageID: $0.messageId, actorID: $0.actorId, kind: $0.kind) }
+    }
+}
+
+private struct CloudFeedbackRequest: Encodable, Sendable {
+    let messageId: String
+    let actorId: String
+    let teamId: String
+    let sessionId: String?
+    let kind: String
+    let starRating: Int?
+}
+
+private struct CloudFeedbackList: Decodable, Sendable {
+    struct Row: Decodable, Sendable {
+        let messageId: String
+        let actorId: String
+        let kind: String
+    }
+    let items: [Row]
 }
 
 public actor CloudAPIShortcutsRepository: ShortcutsRepository {
@@ -885,6 +994,8 @@ private struct CloudSessionFull: Decodable, Sendable {
     let hasUnread: Bool
     let createdAt: String?
     let updatedAt: String?
+    /// `user` | `cron` | `gateway`; absent on older servers.
+    let source: String?
 }
 
 private struct CloudSessionCreateRequest: Encodable, Sendable {

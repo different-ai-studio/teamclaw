@@ -20,10 +20,6 @@ final class MQTTTopicsTests: XCTestCase {
             "amux/team1/actor-a/state"
         )
         XCTAssertEqual(
-            MQTTTopics.runtimeCommands(teamID: "team1", actorID: "actor-a", runtimeID: "rt-1"),
-            "amux/team1/actor-a/runtime/rt-1/commands"
-        )
-        XCTAssertEqual(
             MQTTTopics.sessionLive(teamID: "team1", sessionID: "sess-1"),
             "amux/team1/session/sess-1/live"
         )

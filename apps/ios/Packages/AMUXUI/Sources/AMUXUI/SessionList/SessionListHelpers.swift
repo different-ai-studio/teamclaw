@@ -37,6 +37,10 @@ struct SessionListContent: View {
 
     @Environment(\.modelContext) private var modelContext
 
+    /// Session being renamed via the context-menu alert; nil = alert hidden.
+    @State private var renameTarget: Session?
+    @State private var renameText = ""
+
     /// Locally-cached team directory keyed by actor id. Drives initials,
     /// display name, and agent-vs-human shaping for the participant cluster.
     @Query private var allActors: [CachedActor]
@@ -146,13 +150,61 @@ struct SessionListContent: View {
         .refreshable {
             await refreshSessionsFromBackend()
         }
+        .alert(
+            "Rename Session",
+            isPresented: Binding(
+                get: { renameTarget != nil },
+                set: { if !$0 { renameTarget = nil } }
+            ),
+            presenting: renameTarget
+        ) { session in
+            TextField("Title", text: $renameText)
+            Button("Rename") {
+                let sid = session.sessionId
+                let title = renameText
+                renameTarget = nil
+                Task {
+                    await viewModel.renameSession(
+                        sessionId: sid,
+                        newTitle: title,
+                        sessionsRepo: sessionsListRepository,
+                        modelContext: modelContext
+                    )
+                }
+            }
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+        }
     }
 
     @ViewBuilder
     private var headerRow: some View {
         VStack(spacing: 8) {
             DaemonStatusBanner(pairing: pairing, mqtt: mqtt)
-            SessionListSearchField(text: $viewModel.searchText)
+            HStack(spacing: 8) {
+                SessionListSearchField(text: $viewModel.searchText)
+                // Clock view: show ONLY scheduled (cron) sessions — they are
+                // hidden from the default list, mirroring the desktop.
+                Button {
+                    withAnimation(AMUXAnimation.fast) {
+                        viewModel.showCronSessions.toggle()
+                    }
+                } label: {
+                    Image(systemName: viewModel.showCronSessions ? "clock.fill" : "clock")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(viewModel.showCronSessions ? Color.amux.cinnabar : Color.amux.basalt)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            Circle().fill(
+                                viewModel.showCronSessions
+                                    ? Color.amux.cinnabar.opacity(0.12)
+                                    : Color.amux.pebble
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(viewModel.showCronSessions ? "Show regular sessions" : "Show scheduled sessions")
+                .accessibilityIdentifier("sessions.cronToggle")
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)
@@ -180,6 +232,12 @@ struct SessionListContent: View {
         Group {
             if hasActiveSearch {
                 ContentUnavailableView.search(text: viewModel.searchText)
+            } else if viewModel.showCronSessions {
+                ContentUnavailableView(
+                    "No Scheduled Sessions",
+                    systemImage: "clock",
+                    description: Text("Sessions created by scheduled tasks appear here.")
+                )
             } else if noAccessibleAgent {
                 ContentUnavailableView {
                     Label("Invite your first agent", systemImage: "cpu")
@@ -242,6 +300,13 @@ struct SessionListContent: View {
         .listRowBackground(Color.clear)
         .listRowSeparatorTint(Color.amux.hairline)
         .contextMenu {
+            Button {
+                renameText = session.title
+                renameTarget = session
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+
             if let store = notificationPrefsStore {
                 let isMuted = store.isMuted(session.sessionId)
                 Button {
@@ -251,11 +316,18 @@ struct SessionListContent: View {
                           systemImage: isMuted ? "bell" : "bell.slash")
                 }
             }
+
+            Divider()
+
+            Button(role: .destructive) {
+                archive(session)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
-                session.isArchived = true
-                try? modelContext.save()
+                archive(session)
             } label: {
                 Label("Archive", systemImage: "archivebox.fill")
             }
@@ -316,6 +388,26 @@ struct SessionListContent: View {
     private func toggleSelection(_ id: String) {
         if selectedIDs.contains(id) { selectedIDs.remove(id) }
         else { selectedIDs.insert(id) }
+    }
+
+    /// Server-backed archive: flips `archived_at` via the Cloud API so the
+    /// session leaves every device's list, with the local flag as the
+    /// immediate mirror. Falls back to local-only when no repository is
+    /// wired (previews).
+    private func archive(_ session: Session) {
+        guard let repo = sessionsListRepository else {
+            session.isArchived = true
+            try? modelContext.save()
+            return
+        }
+        let sid = session.sessionId
+        Task {
+            await viewModel.archiveSession(
+                sessionId: sid,
+                sessionsRepo: repo,
+                modelContext: modelContext
+            )
+        }
     }
 }
 

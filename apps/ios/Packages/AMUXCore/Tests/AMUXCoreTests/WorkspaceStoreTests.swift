@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import AMUXCore
 
 @Suite("WorkspaceStore")
@@ -57,5 +58,18 @@ private actor InMemoryWorkspaceRepository: WorkspaceRepository {
         return workspaces.filter { workspace in
             workspace.teamID == teamID && workspace.agentID == agentID
         }
+    }
+
+    func createWorkspace(teamID: String, agentID: String, path: String) async throws -> WorkspaceRecord {
+        if let error {
+            throw error
+        }
+        return WorkspaceRecord(
+            id: UUID().uuidString,
+            teamID: teamID,
+            agentID: agentID,
+            path: path,
+            displayName: path.split(separator: "/").last.map(String.init) ?? path
+        )
     }
 }
