@@ -1023,6 +1023,9 @@ export interface SyncBackend {
 
 export interface TelemetryFeedbackDeleteInput {
   messageId: string;
+  /** Scope the delete to one actor's row — without it the pg backend
+   * removes every actor's feedback for the message. */
+  actorId?: string;
 }
 
 export interface TelemetryBackend {

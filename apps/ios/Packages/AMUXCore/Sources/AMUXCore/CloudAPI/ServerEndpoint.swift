@@ -18,11 +18,19 @@ public enum ServerEndpoint {
             text = "https://" + text
         }
         while text.hasSuffix("/") { text.removeLast() }
-        guard let components = URLComponents(string: text),
+        guard var components = URLComponents(string: text),
               let scheme = components.scheme?.lowercased(),
               scheme == "https" || scheme == "http",
               let host = components.host, !host.isEmpty
         else { return nil }
+        // A pasted browser URL often carries a query or fragment
+        // ("https://api.example.com/?ref=x"). The client string-concatenates
+        // paths onto this base, so anything after the path would poison
+        // every request — strip both, then re-trim the trailing slash the
+        // query was hiding.
+        components.query = nil
+        components.fragment = nil
+        while components.path.hasSuffix("/") { components.path.removeLast() }
         return components.url
     }
 

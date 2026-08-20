@@ -1893,17 +1893,24 @@ public final class SessionDetailViewModel {
         // them, and a banner with no entry falls back to the OpenCode
         // defaults. When the session is in full-access mode, answer the
         // request on the user's behalf (allow-once) instead of waiting
-        // on a tap — mirrors the desktop's per-session permission mode.
+        // on a tap — mirrors the desktop's per-session permission mode,
+        // including its limitation: the answer comes from the client, so
+        // it only fires while this session's detail VM is live in the
+        // foreground. A backgrounded phone cannot answer; unattended
+        // full-access needs a daemon-side mode, not this toggle.
         if case .permissionRequest(let pr) = acp.event {
             if !pr.options.isEmpty {
                 permissionOptionsByRequestID[pr.requestID] = pr.options.map {
                     PermissionOptionItem(id: $0.optionID, kind: $0.kind, name: $0.name)
                 }
             }
-            if !isHistoryReplay, session?.autoApprovePermissions == true {
+            if !isHistoryReplay, session?.autoApprovePermissions == true,
+               // No once-scoped allow on offer (e.g. only allow_always) →
+               // leave the banner for a human; auto-flipping the agent's
+               // permanent permission state is never this toggle's call.
+               let option = PermissionOptionItem.allowOnceOption(from: permissionOptions(for: pr.requestID)) {
                 let requestID = pr.requestID
                 let sender = bucketKey(forActorID: runtimeID)
-                let option = PermissionOptionItem.allowOnceOption(from: permissionOptions(for: requestID))
                 Task { [weak self] in
                     try? await self?.grantPermission(
                         requestId: requestID,
@@ -2560,6 +2567,8 @@ public final class SessionDetailViewModel {
             modelContext.delete(row)
         }
         try? modelContext.save()
+        // The edited/deleted message may be quoted by reply chips downstream.
+        invalidateReplyQuotes()
     }
 
     /// Flip isAgentWorking on and arm a long safety reset so a missed
@@ -2975,7 +2984,7 @@ public final class SessionDetailViewModel {
                     kind: target
                 ))
             } else {
-                try await repo.deleteFeedback(messageID: messageID)
+                try await repo.deleteFeedback(messageID: messageID, actorID: me)
             }
         } catch {
             feedbackByMessageID[messageID] = previous
@@ -2991,6 +3000,20 @@ public final class SessionDetailViewModel {
         public let content: String
     }
 
+    /// Memo for `replyQuote(forSupabaseMessageID:)` — the lookup runs on
+    /// the render path for every user-visible row on every body eval, and
+    /// almost always concludes "not a reply". Entries are only written once
+    /// the message row itself was found (a not-yet-synced row can still
+    /// resolve later); replyTo links are immutable, so no per-row
+    /// invalidation is needed — content edits clear the whole map.
+    private var replyQuoteCache: [String: ReplyQuote?] = [:]
+
+    /// Drops all memoized quotes; call when message content changes so a
+    /// quoted snippet can't go stale.
+    private func invalidateReplyQuotes() {
+        replyQuoteCache = [:]
+    }
+
     /// The message this event replies to, resolved from the SwiftData
     /// `SessionMessage` mirror — both the live and seed paths persist
     /// `replyToMessageId` there, so no timeline plumbing is needed. nil when
@@ -2999,15 +3022,25 @@ public final class SessionDetailViewModel {
     /// instead of vanishing.
     public func replyQuote(forSupabaseMessageID id: String?) -> ReplyQuote? {
         guard let id, !id.isEmpty, let ctx = startModelContext else { return nil }
+        if let cached = replyQuoteCache[id] { return cached }
         let d1 = FetchDescriptor<SessionMessage>(predicate: #Predicate { $0.messageId == id })
         guard let row = try? ctx.fetch(d1).first else { return nil }
         let replyTo = row.replyToMessageId
-        guard !replyTo.isEmpty else { return nil }
-        let d2 = FetchDescriptor<SessionMessage>(predicate: #Predicate { $0.messageId == replyTo })
-        guard let quoted = try? ctx.fetch(d2).first else {
-            return ReplyQuote(messageID: replyTo, senderActorID: "", content: "")
+        guard !replyTo.isEmpty else {
+            replyQuoteCache[id] = ReplyQuote?.none
+            return nil
         }
-        return ReplyQuote(messageID: replyTo, senderActorID: quoted.senderActorId, content: quoted.content)
+        let d2 = FetchDescriptor<SessionMessage>(predicate: #Predicate { $0.messageId == replyTo })
+        let quote: ReplyQuote
+        if let quoted = try? ctx.fetch(d2).first {
+            quote = ReplyQuote(messageID: replyTo, senderActorID: quoted.senderActorId, content: quoted.content)
+            replyQuoteCache[id] = quote
+        } else {
+            // Quoted row not synced yet — return a placeholder but don't
+            // memoize it, so the chip upgrades once the row lands.
+            quote = ReplyQuote(messageID: replyTo, senderActorID: "", content: "")
+        }
+        return quote
     }
 
     /// Feed anchor for jump-to-quote: the feed item currently rendering

@@ -854,7 +854,14 @@ struct ActorDetailView: View {
 
         // Cloud API create — the deprecated `add_workspace` daemon RPC is
         // gone. The daemon resolves workspace UUID→path from the cloud, so
-        // no MQTT round-trip (or connected broker) is needed here.
+        // no MQTT round-trip (or connected broker) is needed here. The
+        // trade: the daemon's on-disk validation (exists, is a directory,
+        // not inside ~/.amuxd) went with the RPC and only re-surfaces at
+        // spawn time — catch the obviously-broken inputs here at least.
+        guard path.hasPrefix("/") else {
+            workspaceErrorMessage = "Enter an absolute path (starting with /) on the agent's machine."
+            return
+        }
         guard let workspaceStore else {
             workspaceErrorMessage = "Workspace store unavailable."
             return

@@ -400,9 +400,9 @@ public actor CloudAPIMessagesRepository: MessagesRepository {
         try await client.postVoid("/v1/feedback", body: body)
     }
 
-    public func deleteFeedback(messageID: String) async throws {
+    public func deleteFeedback(messageID: String, actorID: String) async throws {
         let encoded = messageID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageID
-        try await client.deleteVoid("/v1/feedback/\(encoded)")
+        try await client.deleteVoid("/v1/feedback/\(encoded)?actorId=\(Self.enc(actorID))")
     }
 
     public func listFeedback(sessionID: String) async throws -> [FeedbackRecord] {

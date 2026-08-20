@@ -33,6 +33,17 @@ final class ServerEndpointTests: XCTestCase {
         )
     }
 
+    func testNormalizeStripsQueryAndFragment() {
+        XCTAssertEqual(
+            ServerEndpoint.normalize("https://api.example.com/?ref=x")?.absoluteString,
+            "https://api.example.com"
+        )
+        XCTAssertEqual(
+            ServerEndpoint.normalize("https://example.com/base?a=1#frag")?.absoluteString,
+            "https://example.com/base"
+        )
+    }
+
     func testNormalizeRejectsGarbage() {
         XCTAssertNil(ServerEndpoint.normalize(""))
         XCTAssertNil(ServerEndpoint.normalize("   "))

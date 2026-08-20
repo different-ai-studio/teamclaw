@@ -30,6 +30,10 @@ struct ContentView: View {
     /// Presents the server sheet from the `.failed` route — the rescue hatch
     /// when the configured server is mistyped or gone.
     @State private var showServerSettings = false
+    /// The Cloud API base the current onboarding store was built against.
+    /// `rebuildCloudBackend` compares against it to detect a real server
+    /// move (vs a same-URL re-save) before tearing down session + MQTT.
+    @State private var activeCloudBaseURL = CloudAPIConfigurationStore.configuration()?.baseURL
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
 
@@ -67,10 +71,30 @@ struct ContentView: View {
     }
 
     /// Re-points the whole Cloud API stack at the currently stored server —
-    /// called after the user saves a new address in ServerSettingsSheet.
-    /// Only reachable pre-auth (welcome / failed routes), so there is no
-    /// signed-in session to tear down.
+    /// called after the user saves an address in ServerSettingsSheet
+    /// (reachable from the welcome route AND from `.failed`, which can carry
+    /// a signed-in session whose server just became unreachable).
+    ///
+    /// When the base URL actually changed, everything scoped to the old
+    /// server is torn down: the MQTT socket (still pumping server-A data)
+    /// and the keychain session — its service key is fixed, not URL-scoped,
+    /// so without a signOut the rebuilt store would replay server A's
+    /// refresh token against server B. A same-URL re-save keeps the
+    /// session: that's a retry, not a move.
     private func rebuildCloudBackend() {
+        let newBaseURL = CloudAPIConfigurationStore.configuration()?.baseURL
+        if newBaseURL != activeCloudBaseURL {
+            let oldStore = onboarding.store
+            connectTask?.cancel()
+            isConnecting = false
+            Task {
+                await mqtt.disconnect()
+                // Best-effort remote revoke; always clears the shared
+                // keychain locally even when server A is unreachable.
+                try? await oldStore.signOut()
+            }
+        }
+        activeCloudBaseURL = newBaseURL
         onboarding = Self.makeOnboardingCoordinator()
         backendEpoch += 1
     }

@@ -31,7 +31,7 @@ private actor FakeMessagesRepository: MessagesRepository {
         if shouldFail { throw CloudAPIError.invalidResponse }
     }
 
-    func deleteFeedback(messageID: String) async throws {
+    func deleteFeedback(messageID: String, actorID: String) async throws {
         if shouldFail { throw CloudAPIError.invalidResponse }
     }
 

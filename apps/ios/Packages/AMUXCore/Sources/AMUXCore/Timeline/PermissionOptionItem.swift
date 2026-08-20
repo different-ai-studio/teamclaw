@@ -30,10 +30,11 @@ public struct PermissionOptionItem: Identifiable, Equatable, Sendable {
 
     /// The option an auto-approve (session full access) picks: allow-once,
     /// never allow-always — flipping the agent's permanent state is a human
-    /// decision.
-    public static func allowOnceOption(from options: [PermissionOptionItem]) -> PermissionOptionItem {
+    /// decision. Returns nil when the request offers no once-scoped allow
+    /// (e.g. only allow_always + reject): the caller must leave the banner
+    /// for a human instead of auto-granting a permanent whitelist.
+    public static func allowOnceOption(from options: [PermissionOptionItem]) -> PermissionOptionItem? {
         options.first(where: { $0.kind == "allow_once" })
-            ?? options.first(where: { !$0.isReject })
-            ?? openCodeDefaults[0]
+            ?? options.first(where: { !$0.isReject && !$0.isAllowAlways })
     }
 }

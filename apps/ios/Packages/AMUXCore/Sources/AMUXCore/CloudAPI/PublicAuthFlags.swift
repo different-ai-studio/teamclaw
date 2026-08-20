@@ -27,8 +27,12 @@ public struct PublicAuthFlags: Equatable, Sendable {
 
     public static let allOff = PublicAuthFlags(google: false, phone: false, password: false)
 
-    /// nil only on transport failure; an answering server always yields
-    /// flags (missing keys read as off, matching the desktop's defaults).
+    /// nil on transport failure AND when the server sends no
+    /// `features.auth` block at all. FC omits the block when no feature
+    /// profile is configured, and the desktop treats that absence as "keep
+    /// baked defaults" — gating everything off there would strip sign-in
+    /// methods the deployment never chose to disable. Within a present
+    /// block, missing keys read as off (the deployment's explicit choice).
     public static func fetch(baseURL: URL, session: URLSession = .shared) async -> PublicAuthFlags? {
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/config/public"))
         request.httpMethod = "GET"
@@ -49,14 +53,13 @@ public struct PublicAuthFlags: Equatable, Sendable {
             let features: Features?
         }
 
-        guard let config = try? JSONDecoder().decode(PublicConfig.self, from: data) else {
-            return nil
-        }
-        let auth = config.features?.auth
+        guard let config = try? JSONDecoder().decode(PublicConfig.self, from: data),
+              let auth = config.features?.auth
+        else { return nil }
         return PublicAuthFlags(
-            google: auth?.google ?? false,
-            phone: auth?.phone ?? false,
-            password: auth?.password ?? false
+            google: auth.google ?? false,
+            phone: auth.phone ?? false,
+            password: auth.password ?? false
         )
     }
 }

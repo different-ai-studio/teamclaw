@@ -257,7 +257,10 @@ public enum ChatTimelineReducer {
                 }
             } else {
                 // Out-of-order arrival — append a standalone tool_result.
-                state.entries.append(makeEntry(
+                // Carry the diff too: when the ToolUse envelope was lost
+                // (mid-turn subscribe), this entry is the only place the
+                // edit's content can survive.
+                var entry = makeEntry(
                     sequence: input.envelopeSequence,
                     eventType: "tool_result",
                     text: tr.summary,
@@ -267,7 +270,11 @@ public enum ChatTimelineReducer {
                     isComplete: true,
                     success: tr.success,
                     turnID: input.turnID
-                ))
+                )
+                if let diff = firstDiff(tr.content) {
+                    applyDiff(diff, to: &entry)
+                }
+                state.entries.append(entry)
             }
             return .entriesChanged
 

@@ -372,7 +372,11 @@ public final class TeamcluService {
             ? Date(timeIntervalSince1970: TimeInterval(proto.createdAt))
             : existing.createdAt
         existing.participantCount = proto.participants.count
-        if !proto.title.isEmpty { existing.title = proto.title }
+        // Fill-only, never overwrite: the Cloud API owns the title now
+        // (rename PATCHes it), while the daemon serves whatever its local
+        // sessions.toml last saw — overwriting here made renames visibly
+        // snap back on the next membership.refresh notify.
+        if !proto.title.isEmpty && existing.title.isEmpty { existing.title = proto.title }
         if !proto.summary.isEmpty { existing.summary = proto.summary }
         if !proto.ideaID.isEmpty { existing.ideaId = proto.ideaID }
         if !proto.lastMessagePreview.isEmpty { existing.lastMessagePreview = proto.lastMessagePreview }
@@ -1230,6 +1234,12 @@ public final class TeamcluService {
         guard let rpcClient else { return (false, "mqtt not configured") }
         guard !targetActorID.isEmpty else { return (false, "no target actor id") }
         guard !sessionID.isEmpty else { return (false, "no session id") }
+        // Instant, accurate feedback on a dead socket — without this the
+        // command waits out the full RPC timeout and then reports a
+        // misleading "timeout" for a request the broker never saw.
+        if let mqtt, mqtt.connectionState != .connected {
+            return (false, "Not connected — check your network and try again.")
+        }
 
         var envelope = Amux_RuntimeCommandEnvelope()
         // Kept for daemon-side logging only; the daemon resolves the target

@@ -50,7 +50,14 @@ public struct TeamcluRPCClient: Sendable {
 
         let stream = await hub.messages(topic: resTopic)
         guard let data = try? request.serializedData() else { return nil }
-        try? await mqtt.publish(topic: reqTopic, payload: data, retain: false)
+        do {
+            try await mqtt.publish(topic: reqTopic, payload: data, retain: false)
+        } catch {
+            // Nothing went out, so nothing can come back — fail now
+            // instead of making the caller sit out the full response
+            // timeout for a request the broker never saw.
+            return nil
+        }
 
         let requestID = request.requestID
         return await withTaskGroup(of: Teamclu_RpcResponse?.self) { group in

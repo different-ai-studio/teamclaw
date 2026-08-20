@@ -166,8 +166,11 @@ public protocol MessagesRepository: Sendable {
     /// Submits (upserts) 👍/👎 feedback for an assistant message
     /// (`POST /v1/feedback`). `kind` is `"positive"` or `"negative"`.
     func submitFeedback(_ input: FeedbackInput) async throws
-    /// Removes the caller's feedback for a message (`DELETE /v1/feedback/:id`).
-    func deleteFeedback(messageID: String) async throws
+    /// Removes the caller's feedback for a message
+    /// (`DELETE /v1/feedback/:id?actorId=`). `actorID` scopes the delete to
+    /// the caller's own row — without it the pg backend removes every
+    /// actor's feedback for the message.
+    func deleteFeedback(messageID: String, actorID: String) async throws
     /// Existing feedback rows for a session (`GET /v1/feedback?sessionId=`).
     /// Includes every actor's rows; callers filter to the current actor.
     func listFeedback(sessionID: String) async throws -> [FeedbackRecord]

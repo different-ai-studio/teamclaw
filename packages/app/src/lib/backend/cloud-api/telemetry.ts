@@ -8,7 +8,8 @@ export function createTelemetryModule(client: CloudApiClient): TelemetryBackend 
     },
     async deleteFeedback(input: TelemetryFeedbackDeleteInput) {
       const messageId = encodeURIComponent(String(input.messageId));
-      await client.delete<void>(`/v1/feedback/${messageId}`);
+      const query = input.actorId ? `?actorId=${encodeURIComponent(input.actorId)}` : "";
+      await client.delete<void>(`/v1/feedback/${messageId}${query}`);
     },
     async listFeedbacks(input) {
       const out = await client.get<{ items: Array<Record<string, unknown>> }>(
