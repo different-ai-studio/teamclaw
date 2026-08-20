@@ -4,7 +4,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { appDisplayName } from "@/lib/build-config";
 import { useFeatures } from "@/lib/remote-features";
 import { hasBackendConfig } from "@/lib/backend";
-import { getEffectiveServerConfigSync } from "@/lib/server-config";
+import { displayHost, getEffectiveServerConfigSync } from "@/lib/server-config";
 import { useAppVersion } from "@/lib/version";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -184,9 +184,13 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
     ? "w-full space-y-5 rounded-[16px] border border-border bg-paper p-5"
     : "w-full max-w-sm space-y-5 rounded-2xl border border-border bg-paper p-7";
   const serverConfigRequired = !hasBackendConfig();
+  // Deliberately names no screen. On desktop this message is nearly unreachable
+  // (the choose screen disables sign-in before you get here); what is left is
+  // the browser build, which renders this component on its own and has no
+  // server-entry screen to send anyone to.
   const serverConfigMessage = t(
     "auth.serverConfigRequired",
-    "Supabase is not configured. Go back and choose self-hosted server before signing in.",
+    "No server address is configured, so signing in is not possible yet.",
   );
 
   return (
@@ -229,7 +233,7 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
                 {t("auth.selectAccount", "Select Account")}
               </h2>
               <p className="text-[13px] text-muted-foreground">
-                {t("auth.multipleAccountsForPhone", "Multiple accounts are linked to {{phone}}.", { phone: otpPhone })}
+                {t("auth.multipleAccountsForPhone", "Multiple accounts are linked to {{phone}}. Select one to sign in.", { phone: otpPhone })}
               </p>
             </div>
             <div className="space-y-2">
@@ -256,7 +260,7 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
               onClick={onUseDifferentContact}
               className="block w-full text-center text-[12px] text-muted-foreground hover:text-foreground transition-colors"
             >
-              {t("auth.useDifferentPhone", "Use a different number")}
+              {t("auth.useDifferentPhone", "Use a different phone")}
             </button>
           </div>
         ) : (
@@ -308,7 +312,7 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
             className="block w-full text-center text-[12px] text-muted-foreground hover:text-foreground transition-colors"
           >
             {otpPhone
-              ? t("auth.useDifferentPhone", "Use a different number")
+              ? t("auth.useDifferentPhone", "Use a different phone")
               : t("auth.useDifferentEmail", "Use a different email")}
           </button>
         </form>
@@ -427,11 +431,13 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
       {!embedded && (
         <>
           <p className="mt-6 font-mono text-[11px] text-faint">v{appVersion}</p>
-          {cloudApiUrl && (
-            <p className="mt-0.5 font-mono text-[10px] text-faint/70">
-              {cloudApiUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "")}
-            </p>
-          )}
+          {/* Printed even when unset: rendering nothing is how a build with no
+              backend baked in came to look exactly like a working one. */}
+          <p className="mt-0.5 font-mono text-[10px] text-faint/70">
+            {cloudApiUrl
+              ? displayHost(cloudApiUrl)
+              : t("auth.onboarding.serverUnset", "no server configured")}
+          </p>
         </>
       )}
     </div>

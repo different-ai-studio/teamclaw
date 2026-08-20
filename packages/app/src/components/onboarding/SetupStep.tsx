@@ -4,6 +4,7 @@ import { Check, Loader2, AlertCircle, Download, Terminal, Cpu, MousePointer2, Bo
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { localAgent } from '@/lib/build-config'
 import { useSetupStore, type RequirementStatus } from '@/stores/setup'
 import { useOnboardingStore, type OnboardingRole } from '@/stores/onboarding'
 import type { DaemonLocalAgent } from '@/lib/daemon-local-client'
@@ -24,6 +25,27 @@ const RUNTIME_ICON: Record<string, React.ComponentType<{ className?: string }>> 
  * the machine and never carry an Install action.
  */
 const INSTALLABLE_RUNTIMES = new Set(['opencode', 'pi'])
+
+/**
+ * What the picker opens on: the runtime this build targets (`localAgent` in
+ * build.config). A brand that ships pi should not open on opencode — before
+ * this, every build opened on opencode and a pi brand shipped pi only to
+ * anyone who noticed the second card.
+ */
+const DEFAULT_RUNTIME = localAgent
+
+/**
+ * Where the guided path lands. It promises no choices, so it has to land
+ * somewhere this app can reach on its own: the build's runtime when we can
+ * fetch it, opencode otherwise. Cursor and Claude Code are the user's own
+ * tools — `setup_install` has no arm for them — and a guided user has no way
+ * to install one from here.
+ */
+export function resolveGuidedRuntime(build: DaemonLocalAgent): DaemonLocalAgent {
+  return INSTALLABLE_RUNTIMES.has(build) ? build : 'opencode'
+}
+
+const GUIDED_RUNTIME = resolveGuidedRuntime(localAgent)
 
 /** A runtime is usable if installed, even when a pinned upgrade is pending. */
 function usable(r: RequirementStatus | undefined): boolean {
@@ -46,25 +68,41 @@ function RuntimeCard({
   const { t } = useTranslation()
   const Icon = RUNTIME_ICON[runtime.id] ?? Terminal
   const installed = usable(runtime)
+  const selectable = installed && !busy
+  // `present` means "no action needed"; an installed-but-outdated runtime comes
+  // back as `present: false` with a version (see stores/setup.ts). Cursor and
+  // Claude Code are never fetched from here, so they only ever show a version.
+  const fetchable = !runtime.present && INSTALLABLE_RUNTIMES.has(runtime.id)
   // Select and Install are siblings, never nested. As a <span role="button">
   // inside the card's own <button>, Install was unreachable the entire time a
   // runtime was missing: an uninstalled card is disabled, and a disabled button
   // swallows pointer events for everything inside it — so the one control that
   // only ever appears on an uninstalled runtime could never be clicked.
+  //
+  // The card is one hit target: the select button stretches across it via an
+  // inset ::before, so a click anywhere — version line, padding, the gap
+  // between rows — lands on it. Hitting the title alone was more precision than
+  // a card this size should ask for. Install/Upgrade sits above that overlay on
+  // `relative` alone: same paint step as the ::before, later in tree order.
+  // That matters for an outdated-but-installed runtime, which is selectable
+  // (overlay on) and fetchable (button shown) at the same time.
   return (
     <div
       className={cn(
-        'flex flex-1 flex-col items-start gap-2 rounded-[14px] border p-4 transition-colors',
+        'relative flex flex-1 flex-col items-start gap-2 rounded-[14px] border p-4 transition-colors',
         selected ? 'border-coral bg-selected/35' : 'border-border bg-paper',
+        selectable && !selected && 'hover:bg-selected/20',
       )}
     >
       <button
         type="button"
         onClick={onSelect}
-        disabled={busy || !installed}
+        disabled={!selectable}
         className={cn(
           'flex w-full items-center justify-between text-left',
-          installed && !busy ? 'cursor-pointer' : 'cursor-default',
+          selectable
+            ? 'cursor-pointer before:absolute before:inset-0 before:rounded-[14px]'
+            : 'cursor-default',
         )}
       >
         <span className="flex items-center gap-2">
@@ -73,24 +111,32 @@ function RuntimeCard({
         </span>
         {selected && <Check className="h-4 w-4 text-coral" />}
       </button>
-      {installed ? (
+      {installed && (
         <span className="font-mono text-[11px] text-faint">
           {runtime.version ?? t('onboarding.setup.installed', 'installed')}
         </span>
-      ) : INSTALLABLE_RUNTIMES.has(runtime.id) ? (
+      )}
+      {/* Cursor is offered on installed-ness alone — the API key is a Settings
+          concern, and Settings only exists after onboarding. Say what is still
+          missing rather than hiding the card, which is what gating on the key
+          amounted to. */}
+      {runtime.blocker === 'api_key' && (
+        <span className="text-[11px] leading-4 text-faint">
+          {t('onboarding.setup.needsApiKey', 'Needs an API key — add it in Settings → LLM later.')}
+        </span>
+      )}
+      {fetchable && (
         <button
           type="button"
           disabled={busy}
           onClick={onInstall}
-          className="inline-flex items-center gap-1.5 rounded-[6px] text-[11.5px] text-coral hover:underline disabled:opacity-50"
+          className="relative inline-flex items-center gap-1.5 rounded-[6px] text-[11.5px] text-coral hover:underline disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-          {t('onboarding.setup.install', 'Install')}
+          {installed
+            ? t('onboarding.setup.upgrade', 'Upgrade')
+            : t('onboarding.setup.install', 'Install')}
         </button>
-      ) : (
-        <span className="text-[11px] text-faint">
-          {t('onboarding.setup.notDetected', 'Not detected on this machine')}
-        </span>
       )}
     </div>
   )
@@ -127,10 +173,11 @@ function DependencyRow({ req, installing }: { req: RequirementStatus; installing
  * Second screen of first-run setup (#881). What it shows depends on the role
  * picked on the previous screen:
  *
- * - `developer` sees both runtimes with their install state and the optional
- *   git row (missing git is surfaced but never blocks).
- * - `guided` gets OpenCode preselected and no dependency detail at all; if a runtime
- *   is already installed we offer to reuse it rather than download another.
+ * - `developer` sees every runtime with its install state and the optional git
+ *   row (missing git is surfaced but never blocks), opened on this build's own
+ *   runtime.
+ * - `guided` gets that runtime preselected and no dependency detail at all,
+ *   falling back to opencode when the build targets one we cannot install.
  *
  * amuxd installs silently in both, since there is no meaningful choice to make
  * about it.
@@ -140,7 +187,7 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
   const { requirements, agentRuntimes, installing, errors, loaded, listRequirements, listAgentRuntimes, install } =
     useSetupStore()
   const setRuntime = useOnboardingStore((s) => s.setRuntime)
-  const [selected, setSelected] = React.useState<DaemonLocalAgent>('opencode')
+  const [selected, setSelected] = React.useState<DaemonLocalAgent>(DEFAULT_RUNTIME)
 
   React.useEffect(() => {
     void listAgentRuntimes()
@@ -158,20 +205,20 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
     [agentRuntimes],
   )
 
-  // Guided is always OpenCode, installed if absent.
+  // Guided is always this build's runtime, installed if absent.
   //
   // It used to adopt whichever runtime happened to be on the machine ("a working
   // install beats a fresh download"), which made the outcome depend on the
   // machine's history: anyone who had ever installed Pi silently got Pi. The
   // guided path promises no choices, so it has to land somewhere predictable —
-  // and OpenCode is the one this app installs and drives end to end.
+  // which the build config is, and the machine's install history is not.
   React.useEffect(() => {
     if (role !== 'guided') return
-    setSelected('opencode')
+    setSelected(GUIDED_RUNTIME)
     // Mirror into the store right away rather than waiting for Continue — the
     // next step branches on this value, and leaving it stale until the last
     // moment is one more window for the two to disagree.
-    setRuntime('opencode')
+    setRuntime(GUIDED_RUNTIME)
   }, [role, setRuntime])
 
   const amuxd = requirements.find((r) => r.id === 'amuxd')
@@ -183,17 +230,19 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
     void install('amuxd', { minDurationMs: AMUXD_AUTO_INSTALL_MIN_MS })
   }, [loaded, amuxdMissing, install])
 
-  // Same treatment for OpenCode on the guided path: promising "no choices" and then
-  // stopping at a runtime the user has to install by hand is the same dead end
-  // twice over — they were never offered the choice that would have avoided it.
-  const opencode = agentRuntimes.find((r) => r.id === 'opencode')
-  const opencodeMissing = role === 'guided' && !!opencode && !usable(opencode)
-  const opencodeTriggered = React.useRef(false)
+  // Same treatment for the runtime on the guided path: promising "no choices" and
+  // then stopping at a runtime the user has to install by hand is the same dead
+  // end twice over — they were never offered the choice that would have avoided
+  // it. Safe to install unconditionally: GUIDED_RUNTIME is only ever one this
+  // app can fetch.
+  const guidedRuntime = agentRuntimes.find((r) => r.id === GUIDED_RUNTIME)
+  const guidedRuntimeMissing = role === 'guided' && !!guidedRuntime && !usable(guidedRuntime)
+  const guidedInstallTriggered = React.useRef(false)
   React.useEffect(() => {
-    if (!opencodeMissing || opencodeTriggered.current) return
-    opencodeTriggered.current = true
-    void install('opencode')
-  }, [opencodeMissing, install])
+    if (!guidedRuntimeMissing || guidedInstallTriggered.current) return
+    guidedInstallTriggered.current = true
+    void install(GUIDED_RUNTIME)
+  }, [guidedRuntimeMissing, install])
 
   const selectedRuntime = agentRuntimes.find((r) => r.id === selected)
   const runtimeReady = usable(selectedRuntime)
@@ -207,7 +256,7 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
    * other moving part, so the whole window reads as hung. Anything that greys
    * the button out while the machine is still working spins.
    */
-  const busy = !!installing || amuxdMissing || opencodeMissing || (!runtimeReady && visibleRuntimes.length > 0)
+  const busy = !!installing || amuxdMissing || guidedRuntimeMissing || (!runtimeReady && visibleRuntimes.length > 0)
 
   const pick = (id: DaemonLocalAgent) => {
     setSelected(id)
@@ -270,13 +319,13 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
           </div>
         ) : (
           selectedRuntime && (
-            // `|| opencodeMissing` covers the gap between "we know it is missing" and
+            // `|| guidedRuntimeMissing` covers the gap between "we know it is missing" and
             // "the install effect has fired": without it the row sits on a red
             // "not found" for a beat, which reads as a failure rather than as
             // the work this screen just promised.
             <DependencyRow
               req={selectedRuntime}
-              installing={installing === selectedRuntime.id || opencodeMissing}
+              installing={installing === selectedRuntime.id || guidedRuntimeMissing}
             />
           )
         )}

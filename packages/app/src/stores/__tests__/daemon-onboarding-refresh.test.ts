@@ -19,6 +19,9 @@ const h = vi.hoisted(() => ({
   ensureCalls: [] as Array<Record<string, unknown>>,
   // (team, device) → agent, mirroring what the server's unique index guarantees.
   deviceAgents: new Map<string, string>(),
+  // `agents.local_agent` as the daemon reports it, plus every write to it.
+  daemonLocalAgent: 'opencode' as string,
+  localAgentWrites: [] as string[],
 }))
 
 vi.mock('@/lib/utils', () => ({ isTauri: () => h.isTauriVal }))
@@ -106,6 +109,12 @@ vi.mock('@/lib/daemon-local-client', () => ({
   // these orchestration tests (auto-heal is covered separately).
   fetchDaemonCloudAuthStatus: vi.fn(async () => 'unknown'),
   fetchDaemonDeviceId: vi.fn(async () => h.deviceId),
+  getDaemonLocalAgent: vi.fn(async () => h.daemonLocalAgent),
+  setDaemonLocalAgent: vi.fn(async (agent: string) => {
+    h.daemonLocalAgent = agent
+    h.localAgentWrites.push(agent)
+    return { requiresRestart: true }
+  }),
 }))
 vi.mock('@/lib/daemon-agent-admin', () => ({
   getLocalDaemonActorId: vi.fn(async () => h.localActorId),
@@ -137,6 +146,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 import { useDaemonOnboardingStore } from '../daemon-onboarding'
+import { useOnboardingStore } from '../onboarding'
 
 const reset = () =>
   useDaemonOnboardingStore.setState({
@@ -163,7 +173,10 @@ beforeEach(() => {
   h.deviceId = 'device-1'
   h.ensureCalls = []
   h.deviceAgents = new Map()
+  h.daemonLocalAgent = 'opencode'
+  h.localAgentWrites = []
   localStorage.clear()
+  useOnboardingStore.getState().reset()
   reset()
   vi.clearAllMocks()
 })
@@ -220,6 +233,54 @@ describe('daemon-onboarding refresh() orchestration', () => {
     expect(h.ensureCalls[0]).toMatchObject({ teamId: 't1', deviceId: 'device-1', displayName: '小助手' })
     expect(h.invokeCalls).toContain('daemon_init')
     expect(h.invokeCalls).toContain('daemon_restart_managed')
+  })
+
+  // The wizard asks which runtime to use before sign-in, when there is no team
+  // to write `agents.local_agent` to. Nothing outside Settings ever wrote that
+  // key, so the answer used to be dropped: picking pi still landed on the
+  // daemon default.
+  // Re-running the wizard on a machine that is already bound is the case most
+  // likely to change the runtime, and it never binds again — so hanging this
+  // off the bind left exactly that case unapplied.
+  it('writes the runtime picked in onboarding without needing a re-bind', async () => {
+    useOnboardingStore.getState().setRuntime('pi')
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = 't1'
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+
+    await useDaemonOnboardingStore.getState().refresh()
+
+    expect(useDaemonOnboardingStore.getState().status).toBe('ready')
+    expect(h.invokeCalls).not.toContain('daemon_init')
+    expect(h.localAgentWrites).toEqual(['pi'])
+    expect(useOnboardingStore.getState().runtime).toBeNull()
+  })
+
+  it('writes the runtime picked in onboarding into the team it just bound', async () => {
+    useOnboardingStore.getState().setRuntime('pi')
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = null
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+    await useDaemonOnboardingStore.getState().refresh()
+    await useDaemonOnboardingStore.getState().nameDeviceAgent('小助手')
+
+    expect(h.localAgentWrites).toEqual(['pi'])
+    // Restart-required key: the backend is built once, at daemon start.
+    expect(h.invokeCalls.filter((c) => c === 'daemon_restart_managed').length).toBeGreaterThan(1)
+    // One shot — a stale pick must never overrule a later choice in Settings.
+    expect(useOnboardingStore.getState().runtime).toBeNull()
+  })
+
+  it('leaves the runtime alone when the daemon already runs the picked one', async () => {
+    useOnboardingStore.getState().setRuntime('opencode')
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = null
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+    await useDaemonOnboardingStore.getState().refresh()
+    await useDaemonOnboardingStore.getState().nameDeviceAgent('小助手')
+
+    expect(h.localAgentWrites).toEqual([])
+    expect(useOnboardingStore.getState().runtime).toBeNull()
   })
 
   it('a machine the team already knows binds silently, with no prompt', async () => {

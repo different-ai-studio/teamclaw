@@ -99,6 +99,45 @@ describe('SetupStep', () => {
     expect(screen.getByText('opencode install boom')).toBeInTheDocument()
   })
 
+  // `present: false` with a version means installed-but-outdated. The store's
+  // contract is that the wizard still offers the upgrade and stops blocking;
+  // the card used to show the version and swallow the action entirely.
+  it('offers an upgrade for a runtime that is installed but out of date', () => {
+    seed({
+      agentRuntimes: [
+        req('opencode', { title: 'OpenCode' }),
+        req('pi', { title: 'Pi', present: false, version: '0.1.0' }),
+      ],
+    })
+    render(<SetupStep role="developer" onDone={() => {}} />)
+
+    expect(screen.getByText('0.1.0')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '升级' })).toBeInTheDocument()
+    // Outdated is not a blocker — the selected runtime is still usable.
+    expect(screen.getByRole('button', { name: '继续' })).toBeEnabled()
+  })
+
+  // Cursor's doctor `satisfied` folds in an API key, and the key is entered in
+  // Settings — which only exists after onboarding. Gating the card on it made
+  // the option invisible to everyone, with no explanation.
+  it('offers Cursor when it is installed but still missing its API key', () => {
+    seed({
+      agentRuntimes: [
+        req('opencode', { title: 'OpenCode' }),
+        req('cursor', { title: 'Cursor', optional: true, version: null, blocker: 'api_key' }),
+      ],
+    })
+    render(<SetupStep role="developer" onDone={() => {}} />)
+
+    expect(screen.getByText('Cursor')).toBeInTheDocument()
+    expect(screen.getByText(/缺 API Key/)).toBeInTheDocument()
+    // Installed, so it is a real choice — not an Install action the app cannot
+    // perform, and not a disabled card either.
+    expect(screen.queryByRole('button', { name: '安装' })).toBeNull()
+    screen.getByText('Cursor').click()
+    expect(useOnboardingStore.getState().runtime).toBe('cursor')
+  })
+
   it('blocks continuing until amuxd is present', () => {
     seed({ requirements: [req('amuxd', { present: false, version: null })] })
     render(<SetupStep role="developer" onDone={() => {}} />)

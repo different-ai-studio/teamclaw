@@ -192,4 +192,16 @@ describe("server config", () => {
     expect(config.mqttUsername).toBeUndefined();
     expect(config.mqttPassword).toBeUndefined();
   });
+
+  // Both onboarding footers and the server-entry row print the address, and
+  // they have to agree on what it looks like.
+  it("prints a Cloud API URL without its scheme or trailing slashes", async () => {
+    const { displayHost } = await import("../server-config");
+
+    expect(displayHost("https://api.example.com/")).toBe("api.example.com");
+    expect(displayHost("http://127.0.0.1:9000")).toBe("127.0.0.1:9000");
+    expect(displayHost("https://host.example.com:8443/gateway//")).toBe(
+      "host.example.com:8443/gateway",
+    );
+  });
 });

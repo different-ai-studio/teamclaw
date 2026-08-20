@@ -14,12 +14,13 @@ pub struct RequirementStatus {
     pub optional: bool,
     pub present: bool,
     pub version: Option<String>,
-    /// Why `present` is false, when we can say something better than "missing".
+    /// What is missing, when we can say something better than "not installed".
     ///
-    /// Only cursor sets it today: its `satisfied` is an AND of four unrelated
-    /// conditions, so a flat "not installed" badge was actively wrong — the
-    /// usual cause is a missing API key on a machine where Cursor is installed.
-    /// `None` means the plain "not installed" reading is correct.
+    /// Only cursor sets it today: its doctor `satisfied` is an AND of four
+    /// unrelated conditions, one of which is an API key. `present` deliberately
+    /// leaves the key out (see [`runtime_installed`]), so this is set even on a
+    /// runtime that *is* installed — "here, but not usable yet, and this is
+    /// why". `None` means the plain "not installed" reading is correct.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocker: Option<String>,
 }
@@ -106,21 +107,35 @@ pub async fn setup_list_requirements<R: Runtime>(
 ) -> Result<Vec<RequirementStatus>, String> {
     let doctor = read_doctor(&app, local_agent.as_deref()).await;
 
-    let runtime_satisfied_in_doctor = |key: &str| {
+    let installed_in_doctor = |key: &str| {
         doctor
             .as_ref()
-            .and_then(|d| d[key]["satisfied"].as_bool())
+            .map(|d| runtime_installed(&d[key], key))
             .unwrap_or(false)
     };
     // Which runtime the row reports on. An explicit pick (onboarding's
-    // SetupStep, post-install re-probe) is authoritative. With no pick — the
-    // background probe refreshing the setup-ok cache — any installed runtime
-    // satisfies: a machine running pi must not fail the check just because the
-    // build's default is opencode.
-    let use_pi = match local_agent.as_deref().map(str::trim) {
-        Some("pi") => true,
-        Some(_) => false,
-        None => runtime_satisfied_in_doctor("pi") && !runtime_satisfied_in_doctor("opencode"),
+    // SetupStep, post-install re-probe) is authoritative — cursor and
+    // claude-code included: the picker offers them, but every pick that was not
+    // "pi" used to fall through to opencode here, so a machine with only Cursor
+    // failed its own requirement check and re-ran the wizard on every launch.
+    // With no pick — the background probe refreshing the setup-ok cache — any
+    // installed runtime satisfies: a machine running pi must not be failed
+    // against the build default.
+    let picked = local_agent
+        .as_deref()
+        .map(str::trim)
+        .filter(|agent| !agent.is_empty());
+    let (runtime_id, runtime_key, runtime_name) = match picked {
+        Some(agent) => RUNTIMES
+            .iter()
+            .find(|(id, _, _)| *id == agent)
+            .copied()
+            .unwrap_or(RUNTIMES[0]),
+        None => RUNTIMES
+            .iter()
+            .find(|(_, key, _)| installed_in_doctor(key))
+            .copied()
+            .unwrap_or(RUNTIMES[0]),
     };
 
     // `present` = no action needed. For opencode that is simply "installed"
@@ -134,19 +149,14 @@ pub async fn setup_list_requirements<R: Runtime>(
 
     // The agent-runtime row's status comes from the matching key in the
     // `amuxd doctor` output (doctor reports every runtime in one pass).
-    let runtime_key = if use_pi { "pi" } else { "opencode" };
     let runtime = doctor.as_ref().map(|d| &d[runtime_key]);
     let runtime_satisfied = runtime
-        .and_then(|r| r["satisfied"].as_bool())
+        .map(|n| runtime_installed(n, runtime_key))
         .unwrap_or(false);
     let runtime_version = runtime
         .and_then(|r| r["version"].as_str())
         .map(|s| s.to_string());
-    let (runtime_id, runtime_title) = if use_pi {
-        ("pi", "Pi runtime")
-    } else {
-        ("opencode", "OpenCode runtime")
-    };
+    let runtime_title = format!("{runtime_name} runtime");
 
     Ok(vec![
         RequirementStatus {
@@ -174,7 +184,7 @@ pub async fn setup_list_requirements<R: Runtime>(
         },
         RequirementStatus {
             id: runtime_id.into(),
-            title: runtime_title.into(),
+            title: runtime_title,
             optional: false,
             present: runtime_satisfied,
             version: runtime_version,
@@ -183,23 +193,53 @@ pub async fn setup_list_requirements<R: Runtime>(
     ])
 }
 
+/// Every agent runtime the picker offers: `(DaemonLocalAgent id, doctor key, title)`.
+///
+/// The id is not always the doctor's key for it (`claude-code` vs `claude`).
+/// Ordered by preference — the first satisfied entry wins when nothing was
+/// explicitly picked.
+const RUNTIMES: [(&str, &str, &str); 4] = [
+    ("opencode", "opencode", "OpenCode"),
+    ("pi", "pi", "Pi"),
+    ("cursor", "cursor", "Cursor"),
+    ("claude-code", "claude", "Claude Code"),
+];
+
+/// Whether the runtime is on this machine, ignoring credentials.
+///
+/// For every runtime but cursor this is the doctor's `satisfied`. Cursor folds
+/// an API key into that flag, and onboarding must not gate on the key: it is
+/// entered in Settings, which the user only reaches *after* onboarding, so a
+/// key-gated card could never appear during first run — the Cursor option was
+/// invisible to everyone, with no explanation. Installed-ness is node + our
+/// bridge script + the SDK; the key is a credential, reported via `blocker`.
+fn runtime_installed(node: &serde_json::Value, doctor_key: &str) -> bool {
+    if doctor_key == "cursor" {
+        let flag = |k: &str| node[k].as_bool().unwrap_or(false);
+        return flag("nodePresent") && flag("bridgeScriptPresent") && flag("sdkInstalled");
+    }
+    node["satisfied"].as_bool().unwrap_or(false)
+}
+
 /// Which of cursor's four preconditions to name in the UI.
 ///
 /// `cursor.satisfied` is `node && bridge_script && api_key && sdk` (see
 /// `apps/daemon/src/cursor_install/mod.rs`), and none of them is "the user
 /// installed Cursor" — so reporting a bare "not installed" sent people off to
-/// install a CLI that could not have helped. Ordered by what the user can act
-/// on: the key is theirs to supply, the rest is our own bundle being incomplete.
+/// install a CLI that could not have helped. That reading is now handled by
+/// `present` itself ([`runtime_installed`]), which leaves the key out, so this
+/// names whatever actually stops the runtime from answering — infrastructure
+/// first, since supplying a key changes nothing while node is missing.
 fn cursor_blocker(node: &serde_json::Value) -> Option<String> {
     let flag = |k: &str| node[k].as_bool().unwrap_or(false);
-    if !flag("apiKeyPresent") {
-        return Some("api_key".to_string());
-    }
     if !flag("nodePresent") {
         return Some("node".to_string());
     }
     if !flag("bridgeScriptPresent") || !flag("sdkInstalled") {
         return Some("bridge".to_string());
+    }
+    if !flag("apiKeyPresent") {
+        return Some("api_key".to_string());
     }
     None
 }
@@ -225,28 +265,28 @@ pub async fn setup_list_agent_runtimes<R: Runtime>(
     let doctor = read_doctor(&app, None).await;
     let status = |id: &str, key: &str, title: &str| {
         let node = doctor.as_ref().map(|d| &d[key]);
-        let present = node.and_then(|r| r["satisfied"].as_bool()).unwrap_or(false);
         RequirementStatus {
             id: id.to_owned(),
             title: title.to_owned(),
             // `optional: true` marks a runtime the app cannot install, so the
             // frontend can drop it when absent instead of offering a dead action.
             optional: id == "cursor" || id == "claude-code",
-            present,
+            present: node.map(|n| runtime_installed(n, key)).unwrap_or(false),
             version: node
                 .and_then(|r| r["version"].as_str())
                 .map(|s| s.to_string()),
-            blocker: (!present && id == "cursor")
+            // Reported whether or not the runtime is present: a cursor install
+            // with no API key is here and pickable, and the UI still has to be
+            // able to say what it is waiting on.
+            blocker: (id == "cursor")
                 .then(|| node.and_then(cursor_blocker))
                 .flatten(),
         }
     };
-    Ok(vec![
-        status("opencode", "opencode", "OpenCode"),
-        status("pi", "pi", "Pi"),
-        status("cursor", "cursor", "Cursor"),
-        status("claude-code", "claude", "Claude Code"),
-    ])
+    Ok(RUNTIMES
+        .iter()
+        .map(|(id, key, title)| status(id, key, title))
+        .collect())
 }
 
 #[derive(Debug, Clone, Serialize)]

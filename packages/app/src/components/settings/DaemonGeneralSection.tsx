@@ -648,11 +648,15 @@ export function DaemonGeneralSection() {
                     <SelectContent>
                       {(['opencode', 'pi', 'cursor', 'claude-code'] as DaemonLocalAgent[]).map((id) => {
                         const installed = runtimeInstalled(id)
+                        // `installed` no longer folds in cursor's API key, so a
+                        // blocker can outlive it: the runtime is here and
+                        // pickable, and still cannot answer until the key is in.
+                        const blocked = installed === false || !!agentRuntimes.find((r) => r.id === id)?.blocker
                         return (
                           <SelectItem key={id} value={id} className="font-mono text-[12px]">
                             <span className="flex items-center gap-2">
                               {id}
-                              {installed === false && (
+                              {blocked && (
                                 <span className="font-sans text-[10.5px] text-muted-foreground">
                                   {runtimeBlockerLabel(id)}
                                 </span>

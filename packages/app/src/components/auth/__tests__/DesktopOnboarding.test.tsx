@@ -1,6 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-const { authState, hasConfig, saveServerConfig, reload, cloudApiUrlOverride, setCloudApiUrlOverrideMock, probeCloudApi } = vi.hoisted(() => ({
+const {
+  authState,
+  hasConfig,
+  saveServerConfig,
+  reload,
+  cloudApiUrlOverride,
+  setCloudApiUrlOverrideMock,
+  probeCloudApi,
+  effectiveCloudApiUrl,
+  defaultCloudApiUrl,
+} = vi.hoisted(() => ({
   authState: {
     loading: false,
     errorMessage: null as string | null,
@@ -16,6 +26,8 @@ const { authState, hasConfig, saveServerConfig, reload, cloudApiUrlOverride, set
   cloudApiUrlOverride: { value: null as string | null },
   setCloudApiUrlOverrideMock: vi.fn(),
   probeCloudApi: vi.fn(),
+  effectiveCloudApiUrl: { value: "https://teamclu-api.ucar.cc" as string | undefined },
+  defaultCloudApiUrl: { value: "https://teamclu-api.ucar.cc" as string | undefined },
 }));
 
 vi.mock("@/lib/bootstrap", () => ({ probeCloudApi }));
@@ -31,17 +43,25 @@ vi.mock("@/stores/auth-store", () => ({
     selector ? selector(authState) : authState,
 }));
 
-vi.mock("@/lib/server-config", () => ({
+// Only the resolved values are faked; displayHost / normalizeCloudApiUrl stay
+// real so the screen formats and validates addresses the way production does.
+vi.mock("@/lib/server-config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/server-config")>()),
   saveServerConfig,
-  getEffectiveServerConfigSync: () => ({ cloudApiUrl: "https://teamclu-api.ucar.cc" }),
+  // Mirrors production: `resolve()` returns the override when there is one, so
+  // a test that sets an override and a different effective URL is describing a
+  // state the app cannot be in.
+  getEffectiveServerConfigSync: () => ({
+    cloudApiUrl: cloudApiUrlOverride.value ?? effectiveCloudApiUrl.value,
+  }),
   getCloudApiUrlOverride: () => cloudApiUrlOverride.value,
-  getDefaultCloudApiUrl: () => "https://teamclu-api.ucar.cc",
+  getDefaultCloudApiUrl: () => defaultCloudApiUrl.value,
   setCloudApiUrlOverride: setCloudApiUrlOverrideMock,
 }));
 
 vi.mock("@/lib/backend", () => ({
   hasBackendConfig: () => hasConfig.value,
-  getBackendKind: () => "supabase",
+  getBackendKind: () => "cloud_api",
 }));
 
 vi.mock("@/lib/version", () => ({
@@ -52,6 +72,9 @@ vi.mock("@/lib/build-config", () => ({
   buildConfig: { app: { name: "TeamClu" } },
   appScheme: 'teamclu',
   deeplinkSchemes: ['teamclu', 'teamclaw', 'amux'],
+  // The onboarding + setup stores key their localStorage off these.
+  appStoragePrefix: 'teamclu',
+  localAgent: 'opencode',
 }));
 
 import { DesktopOnboarding } from "../DesktopOnboarding";
@@ -67,6 +90,8 @@ beforeEach(() => {
   hasConfig.value = true;
   saveServerConfig.mockReset();
   cloudApiUrlOverride.value = null;
+  effectiveCloudApiUrl.value = "https://teamclu-api.ucar.cc";
+  defaultCloudApiUrl.value = "https://teamclu-api.ucar.cc";
   setCloudApiUrlOverrideMock.mockReset();
   probeCloudApi.mockReset();
   probeCloudApi.mockResolvedValue({ ok: true });
@@ -91,12 +116,29 @@ describe("DesktopOnboarding", () => {
   });
 
 
+  // The wizard's gate is `!onboardingDone && (!setupAck || onboardingStarted)`,
+  // and AuthGate reads the setup-ok cache once at mount — so clearing the
+  // onboarding flags alone leaves the cache holding the door shut.
+  it("re-runs the first-run wizard from the corner entry", () => {
+    localStorage.setItem("teamclu-onboarding-done", "1");
+    localStorage.setItem("teamclu-onboarding-role", "developer");
+    localStorage.setItem("teamclu-setup-ok", "1");
+    render(<DesktopOnboarding />);
+
+    fireEvent.click(screen.getByRole("button", { name: /run setup again/i }));
+
+    expect(localStorage.getItem("teamclu-onboarding-done")).toBeNull();
+    expect(localStorage.getItem("teamclu-onboarding-role")).toBeNull();
+    expect(localStorage.getItem("teamclu-setup-ok")).toBeNull();
+    expect(reload).toHaveBeenCalled();
+  });
+
   it("shows auth errors on the choices screen", () => {
-    authState.errorMessage = "Supabase config missing. Configure a server before signing in.";
+    authState.errorMessage = "Sign-in failed. Try again in a moment.";
     render(<DesktopOnboarding />);
 
 
-    expect(screen.getByText(/supabase config missing/i)).toBeInTheDocument();
+    expect(screen.getByText(/sign-in failed/i)).toBeInTheDocument();
   });
 
   it("join team stashes a bare token and routes to sign-in", async () => {
@@ -122,15 +164,32 @@ describe("DesktopOnboarding", () => {
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
   });
 
-  it("login path disables OTP when Supabase config is missing", () => {
+  // Both of these dead-end without a backend — sign-in cannot send a code, and
+  // a claimed invite has nowhere to go — so they are closed off up front rather
+  // than letting the user walk into the failure. (The login screen keeps its own
+  // guard for the browser build; see LoginScreen.test.tsx.)
+  it("closes off sign-in and join until a server is configured", () => {
     hasConfig.value = false;
+    effectiveCloudApiUrl.value = undefined;
+
     render(<DesktopOnboarding />);
 
-    fireEvent.click(screen.getByRole("button", { name: /sign in or register/i }));
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "a@b.com" } });
+    expect(screen.getByRole("button", { name: /sign in or register/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /join the team/i })).toBeDisabled();
+    // The one entry that can fix it stays open.
+    expect(screen.getByRole("button", { name: /custom server/i })).toBeEnabled();
+    expect(screen.getByText(/no server address is configured yet/i)).toBeInTheDocument();
+  });
 
-    expect(screen.getByText(/supabase is not configured/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /send code/i })).toBeDisabled();
+  // Rendering nothing at all is how a build with no backend baked in ended up
+  // looking exactly like a working one.
+  it("says so in the footer when no server is configured", () => {
+    hasConfig.value = false;
+    effectiveCloudApiUrl.value = undefined;
+
+    render(<DesktopOnboarding />);
+
+    expect(screen.getByText("no server configured")).toBeInTheDocument();
   });
 
   it("custom server saves an explicit cloudApiUrl override and reloads", async () => {
@@ -228,6 +287,22 @@ describe("DesktopOnboarding", () => {
     expect(screen.queryByRole("button", { name: /save it anyway/i })).toBeNull();
   });
 
+  // A scheme-less address is fetched relative to tauri://localhost, so probing
+  // it first reports a healthy server as unreachable.
+  it("names a malformed address as malformed instead of probing it", async () => {
+    render(<DesktopOnboarding />);
+
+    fireEvent.click(screen.getByRole("button", { name: /custom server/i }));
+    fireEvent.change(screen.getByLabelText(/cloud api url/i), {
+      target: { value: "api.mycorp.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save and reload/i }));
+
+    await waitFor(() => expect(screen.getByText(/enter a valid http\(s\) url/i)).toBeInTheDocument());
+    expect(probeCloudApi).not.toHaveBeenCalled();
+    expect(setCloudApiUrlOverrideMock).not.toHaveBeenCalled();
+  });
+
   it("custom server offers a reset only when an override is active", () => {
     cloudApiUrlOverride.value = "https://self-hosted.example.com";
     render(<DesktopOnboarding />);
@@ -241,11 +316,33 @@ describe("DesktopOnboarding", () => {
     expect(reload).toHaveBeenCalled();
   });
 
+  it("hides the reset when the build has no default to return to", () => {
+    cloudApiUrlOverride.value = "https://self-hosted.example.com";
+    defaultCloudApiUrl.value = undefined;
+    render(<DesktopOnboarding />);
+
+    fireEvent.click(screen.getByRole("button", { name: /custom server/i }));
+
+    // Resetting there would clear the only address the app has.
+    expect(screen.queryByRole("button", { name: /reset to the built-in default/i })).toBeNull();
+  });
+
   it("marks the footer URL as custom when an override is active", () => {
     cloudApiUrlOverride.value = "https://self-hosted.example.com";
     render(<DesktopOnboarding />);
 
-    // An override must never pass as the baked build config.
-    expect(screen.getByText(/custom$/)).toBeInTheDocument();
+    // An override must never pass as the baked build config — so this has to
+    // anchor on the override's own host, not on the baked default.
+    expect(screen.getByText(/self-hosted\.example\.com · custom$/)).toBeInTheDocument();
+  });
+
+  // The footer is 10px type at the bottom of the window, and it says nothing
+  // about which of the three entries put the app on that server.
+  it("marks the custom server entry itself when an override is active", () => {
+    cloudApiUrlOverride.value = "https://self-hosted.example.com";
+    render(<DesktopOnboarding />);
+
+    const row = screen.getByRole("button", { name: /custom server/i });
+    expect(row).toHaveTextContent("self-hosted.example.com");
   });
 });

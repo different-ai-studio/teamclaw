@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Link2, LogIn, Server } from "lucide-react";
+import { AlertCircle, ArrowLeft, Link2, LogIn, RotateCcw, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -7,39 +7,64 @@ import { Input } from "@/components/ui/input";
 import { probeCloudApi } from "@/lib/bootstrap";
 import { parseInviteTokenInput } from "@/lib/invite-deeplink";
 import {
+  displayHost,
   getCloudApiUrlOverride,
   getDefaultCloudApiUrl,
   getEffectiveServerConfigSync,
+  normalizeCloudApiUrl,
   setCloudApiUrlOverride,
 } from "@/lib/server-config";
 import { useAppVersion } from "@/lib/version";
 import { useAuthStore } from "@/stores/auth-store";
+import { useOnboardingStore } from "@/stores/onboarding";
+import { clearSetupSatisfied } from "@/stores/setup";
 import { LoginScreen } from "./LoginScreen";
 
 type Step = "choose" | "login" | "invite" | "server";
 
+/**
+ * Everything this screen needs to know about the backend, read once.
+ *
+ * `hasBackendConfig()` answers the same question as `!cloudApiUrl` — both reduce
+ * to `Boolean(getCloudApiUrlOverride() ?? env.cloudApiUrl)` — but reaching for
+ * it here meant resolving the whole server config twice per render.
+ */
+function readServerSummary(): {
+  cloudApiUrl: string | undefined;
+  override: string | null;
+  unconfigured: boolean;
+} {
+  const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl;
+  return { cloudApiUrl, override: getCloudApiUrlOverride(), unconfigured: !cloudApiUrl };
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   const appVersion = useAppVersion();
-  const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl;
-  const isOverride = Boolean(getCloudApiUrlOverride());
+  const { cloudApiUrl, override } = readServerSummary();
   return (
     <div className="relative flex min-h-screen flex-col bg-background px-6 py-8 text-foreground">
       <div className="absolute inset-x-0 top-0 h-12" data-tauri-drag-region />
       <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col">
         {children}
         <p className="mt-6 text-center font-mono text-[11px] text-faint">v{appVersion}</p>
-        {cloudApiUrl && (
-          <p
-            className={[
-              "mt-0.5 text-center font-mono text-[10px]",
-              isOverride ? "text-coral" : "text-faint/70",
-            ].join(" ")}
-          >
-            {cloudApiUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "")}
-            {isOverride && ` · ${t("auth.onboarding.serverCustomTag", "custom")}`}
-          </p>
-        )}
+        {/* An absent URL used to render nothing at all, so a build with no
+            backend baked in looked exactly like a working one. */}
+        <p
+          className={[
+            "mt-0.5 text-center font-mono text-[10px]",
+            override ? "text-coral" : "text-faint/70",
+          ].join(" ")}
+        >
+          {cloudApiUrl ? (
+            <>
+              {displayHost(cloudApiUrl)}
+              {override && ` · ${t("auth.onboarding.serverCustomTag", "custom")}`}
+            </>
+          ) : (
+            t("auth.onboarding.serverUnset", "no server configured")
+          )}
+        </p>
       </div>
     </div>
   );
@@ -81,13 +106,20 @@ function ChoiceRow({
   title,
   caption,
   primary,
+  active,
+  badge,
   disabled,
   onClick,
 }: {
   icon: React.ReactNode;
   title: string;
-  caption: string;
+  caption: React.ReactNode;
   primary?: boolean;
+  /** This row describes the state the app is already in. Drawn in `--selected`
+   *  ("selected row in panel sections"), not coral: AGENTS.md caps a frame at
+   *  two coral spots, and the sign-in chip and the footer already spend both. */
+  active?: boolean;
+  badge?: string;
   disabled?: boolean;
   onClick: () => void;
 }) {
@@ -96,7 +128,10 @@ function ChoiceRow({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-[14px] border border-border bg-paper p-3 text-left transition-colors hover:bg-selected/45 disabled:cursor-not-allowed disabled:opacity-60"
+      className={[
+        "flex w-full items-center gap-3 rounded-[14px] border border-border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+        active ? "bg-selected/70" : "bg-paper hover:bg-selected/45",
+      ].join(" ")}
     >
       <span
         className={[
@@ -110,6 +145,11 @@ function ChoiceRow({
         <span className="block text-[13px] font-semibold text-foreground">{title}</span>
         <span className="mt-0.5 block text-[12px] leading-5 text-muted-foreground">{caption}</span>
       </span>
+      {badge && (
+        <span className="shrink-0 rounded-[6px] bg-panel px-2 py-0.5 text-[11px] font-medium text-ink-2">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
@@ -125,8 +165,43 @@ function ChooseStep({
 }) {
   const { t } = useTranslation();
   const { loading, errorMessage } = useAuthStore();
+  // The footer already prints the effective URL in coral, but it is 10px type
+  // at the bottom of the window — easy to miss, and it says nothing about which
+  // of these three entries put the app there. Mark the entry itself too.
+  //
+  // `unconfigured` means no Cloud API at all: none baked into the build, none
+  // set by hand. Signing in and joining a team both dead-end in that state (the
+  // login screen refuses to send a code), so say it once up top and point
+  // everything at the one entry that can fix it.
+  const { override, unconfigured } = readServerSummary();
+
+  /**
+   * Run the first-run wizard again — language, runtime, model.
+   *
+   * Reload rather than flipping state in place: AuthGate reads the setup-ok
+   * cache once, at mount (`useState(() => …)`), and half the wizard's inputs
+   * (the setup store's probe, the daemon store) were seeded on the way here.
+   * A reload re-derives all of it from the two things this clears, which is
+   * what makes the re-run identical to a first run.
+   */
+  const rerunSetup = () => {
+    useOnboardingStore.getState().reset();
+    clearSetupSatisfied();
+    window.location.reload();
+  };
+
   return (
     <Shell>
+      {/* Sits inside the drag strip, opposite the traffic lights. Painted after
+          the drag region, so it stays clickable. */}
+      <button
+        type="button"
+        onClick={rerunSetup}
+        className="absolute right-6 top-6 inline-flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[12px] text-faint transition-colors hover:bg-panel hover:text-foreground"
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+        {t("auth.onboarding.rerunSetup", "Run setup again")}
+      </button>
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center">
         <div className="mb-5">
           <h1 className="text-[24px] font-semibold text-foreground">
@@ -135,36 +210,77 @@ function ChooseStep({
           <p className="mt-2 text-[13px] leading-6 text-muted-foreground">
             {t(
               "auth.onboarding.setupDesc",
-              "Try it first, sign in, join a team, or connect a self-hosted server.",
+              "Sign in, join a team, or connect a self-hosted server.",
             )}
           </p>
         </div>
+        {unconfigured && (
+          <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-border bg-panel px-3.5 py-3 text-[12px] leading-5 text-ink-2">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-coral" />
+            <span>
+              {t(
+                "auth.onboarding.noServerNotice",
+                "No server address is configured yet. Set your company's Cloud API below — signing in and joining a team both need one.",
+              )}
+            </span>
+          </div>
+        )}
         <div className="space-y-3">
           <ChoiceRow
-            primary
+            primary={!unconfigured}
             icon={<LogIn className="h-4 w-4" />}
             title={t("auth.onboarding.signInOrRegister", "Sign in or register")}
-            caption={t("auth.onboarding.signInOrRegisterDesc", "Continue with an email code, matching the iOS flow.")}
-            disabled={loading}
+            caption={t(
+              "auth.onboarding.signInOrRegisterDesc",
+              "Sign in directly with a verification code and bind a valid contact method.",
+            )}
+            disabled={loading || unconfigured}
             onClick={onLogin}
           />
           <ChoiceRow
             icon={<Link2 className="h-4 w-4" />}
             title={t("auth.onboarding.joinTeam", "Join the team")}
             caption={t("auth.onboarding.joinTeamDesc", "Paste an invite link or token to join an existing team.")}
-            disabled={loading}
+            disabled={loading || unconfigured}
             onClick={onInvite}
           />
-        </div>
-        <div className="mt-5 flex items-center justify-center gap-3 text-[12px] text-muted-foreground">
-          <button
-            type="button"
+          {/* Not disabled while auth is in flight, unlike the two above: this is
+              the way out of a backend that is not answering, which is exactly
+              when a request is left hanging. */}
+          <ChoiceRow
+            icon={<Server className="h-4 w-4" />}
+            // With nothing configured this is the only entry that does
+            // anything, so the accent moves here from the sign-in row.
+            primary={unconfigured}
+            active={Boolean(override)}
+            badge={override ? t("auth.onboarding.serverCustomTag", "custom") : undefined}
+            title={t("auth.onboarding.customServer", "Enterprise custom server")}
+            caption={
+              override ? (
+                // Which server, not just that there is one: the address is the
+                // whole answer to "what am I about to sign in against". Kept to
+                // one line — an internal host with a port and a path wraps to
+                // three and leaves this card taller than the two above it.
+                <span
+                  className="block truncate font-mono text-[11.5px] text-ink-2"
+                  title={displayHost(override)}
+                >
+                  {displayHost(override)}
+                </span>
+              ) : unconfigured ? (
+                t(
+                  "auth.onboarding.customServerRequiredDesc",
+                  "Start here: enter the Cloud API address of your company's own server.",
+                )
+              ) : (
+                t(
+                  "auth.onboarding.customServerDesc",
+                  "Point the app at your company's self-hosted Cloud API and sign in there.",
+                )
+              )
+            }
             onClick={onServer}
-            className="inline-flex items-center gap-1.5 rounded-[6px] px-1 py-0.5 underline-offset-4 transition-colors hover:text-foreground hover:underline"
-          >
-            <Server className="h-3.5 w-3.5" />
-            {t("auth.onboarding.customServer", "Custom server")}
-          </button>
+          />
         </div>
         {errorMessage && (
           <p className="mt-4 rounded-[8px] border border-destructive/20 bg-paper px-3 py-2 text-[12px] leading-5 text-destructive">
@@ -248,6 +364,16 @@ function ServerStep({ onBack }: { onBack: () => void }) {
   // a Cloud API before persisting anything.
   const verifyAndApply = async (value: string) => {
     setLocalError(null);
+    // Shape first. A scheme-less `api.mycorp.com` is fetched as a URL relative
+    // to tauri://localhost, fails, and comes back as "could not reach that
+    // address" — sending the user off to check a server that was never asked.
+    // The real problem only surfaced later, when setCloudApiUrlOverride threw.
+    if (!normalizeCloudApiUrl(value)) {
+      setLocalError(
+        t("auth.onboarding.serverUrlInvalid", "Enter a valid http(s) URL, e.g. https://api.example.com"),
+      );
+      return;
+    }
     setChecking(true);
     try {
       const probe = await probeCloudApi(value);
@@ -282,7 +408,7 @@ function ServerStep({ onBack }: { onBack: () => void }) {
         }}
         className="rounded-[16px] border border-border bg-paper p-5"
       >
-        <h1 className="text-[18px] font-semibold">{t("auth.onboarding.serverTitle", "Custom server")}</h1>
+        <h1 className="text-[18px] font-semibold">{t("auth.onboarding.serverTitle", "Enterprise custom server")}</h1>
         <p className="mt-2 text-[13px] leading-6 text-muted-foreground">
           {t(
             "auth.onboarding.serverDesc",
@@ -332,7 +458,10 @@ function ServerStep({ onBack }: { onBack: () => void }) {
             {t("auth.onboarding.serverSaveAnyway", "Save it anyway")}
           </button>
         )}
-        {override && (
+        {/* `defaultUrl` matters: with no baked default, "reset" would drop the
+            app back to having no backend at all — the state this screen exists
+            to get out of. Overwriting the address still works. */}
+        {override && defaultUrl && (
           <button
             type="button"
             onClick={() => applyAndReload(null)}

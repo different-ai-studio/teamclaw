@@ -26,6 +26,20 @@ const LANGUAGE_ACK_KEY = `${appStoragePrefix}-onboarding-language-ack`
 /** The setup step has been cleared. Persisted so quitting on the model step
  *  resumes there instead of re-running dependency setup from the top. */
 const SETUP_ACK_KEY = `${appStoragePrefix}-onboarding-setup-ack`
+/**
+ * The runtime picked on the setup step, waiting to be written into the daemon.
+ *
+ * `agents.local_agent` is team-scoped, and the wizard asks before sign-in —
+ * there is no team to write the answer to yet. So it waits here until the
+ * machine's agent is bound, at which point `stores/daemon-onboarding.ts`
+ * applies it and clears this key. A *pending* pick, never a mirror: the daemon
+ * stays the authority for what the runtime is, and this exists only to carry
+ * the answer across the gap between being asked and there being somewhere to
+ * put it. Without it the answer was simply dropped — nothing outside Settings
+ * ever wrote the key, so picking pi left you on the daemon default.
+ */
+const RUNTIME_KEY = `${appStoragePrefix}-onboarding-runtime`
+const RUNTIMES = ['opencode', 'pi', 'cursor', 'claude-code'] as const
 
 function readStored<T extends string>(key: string, valid: readonly T[]): T | null {
   try {
@@ -63,6 +77,8 @@ type OnboardingState = {
   started: () => boolean
   setRole: (role: OnboardingRole) => void
   setRuntime: (runtime: DaemonLocalAgent) => void
+  /** Drop the pending pick, once it has been applied (or given up on). */
+  clearRuntime: () => void
   markCompleted: () => void
   /** Test/dev helper — forget everything and run the flow again. */
   reset: () => void
@@ -80,7 +96,9 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
   languageAck: readFlag(LANGUAGE_ACK_KEY),
   setupAck: readFlag(SETUP_ACK_KEY),
   role: readStored<OnboardingRole>(ROLE_KEY, ['developer', 'guided']),
-  runtime: null,
+  // Restored so a quit between the setup step and sign-in does not lose the
+  // answer — that whole stretch is before the pick has anywhere to go.
+  runtime: readStored<DaemonLocalAgent>(RUNTIME_KEY, RUNTIMES),
   completed: readFlag(DONE_KEY),
 
   markLanguageAck: () => {
@@ -103,10 +121,18 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
     set({ role })
   },
 
-  // Deliberately not persisted: the authority for which runtime is active is
-  // the daemon's own `agents.local_agent`, and mirroring it here would just
-  // create a second copy to drift out of sync.
-  setRuntime: (runtime) => set({ runtime }),
+  // Persisted as a pending pick only — see RUNTIME_KEY. The daemon remains the
+  // authority for what the runtime *is*; this records what the user asked for
+  // before there was anywhere to write it.
+  setRuntime: (runtime) => {
+    write(RUNTIME_KEY, runtime)
+    set({ runtime })
+  },
+
+  clearRuntime: () => {
+    write(RUNTIME_KEY, null)
+    set({ runtime: null })
+  },
 
   markCompleted: () => {
     write(DONE_KEY, '1')
@@ -118,6 +144,7 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
     write(DONE_KEY, null)
     write(LANGUAGE_ACK_KEY, null)
     write(SETUP_ACK_KEY, null)
+    write(RUNTIME_KEY, null)
     set({ languageAck: false, setupAck: false, role: null, runtime: null, completed: false })
   },
 }))

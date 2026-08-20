@@ -254,9 +254,11 @@ export const deeplinkSchemes: readonly string[] = resolveDeeplinkSchemes(buildCo
 /**
  * Local agent runtime for this build. Defaults to opencode.
  *
- * This value is what onboarding seeds into `agents.local_agent`, so a missing
- * arm here does not just mislabel — it ships the wrong runtime. claude-code was
- * missing, and its build.config value silently became opencode.
+ * It is the runtime the dependency probe and the diagnostic report assume for
+ * this build — NOT what onboarding writes into `agents.local_agent`; that is
+ * the user's pick on the setup step (see `stores/daemon-onboarding.ts`). A
+ * missing arm here still mislabels every one of those, so keep them in sync:
+ * claude-code was missing, and its build.config value silently became opencode.
  */
 export const localAgent: 'opencode' | 'pi' | 'cursor' | 'claude-code' =
   buildConfig.localAgent === 'pi'

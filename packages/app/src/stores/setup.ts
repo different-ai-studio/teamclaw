@@ -10,6 +10,20 @@ import { appStoragePrefix, localAgent } from '@/lib/build-config'
 // daemon-onboarding gate remains the real backstop if a dependency is missing.
 const SETUP_OK_KEY = `${appStoragePrefix}-setup-ok`
 
+/**
+ * Forget the cached verdict, so the next launch re-runs the wizard instead of
+ * skipping it. Used by the "run setup again" entry on the sign-in screen: the
+ * gate is `!onboardingDone && (!setupAck || onboardingStarted)`, so clearing
+ * the onboarding flags alone leaves this cache holding the door shut.
+ */
+export function clearSetupSatisfied(): void {
+  try {
+    localStorage.removeItem(SETUP_OK_KEY)
+  } catch {
+    // Private mode / disabled storage: nothing was cached to begin with.
+  }
+}
+
 /** True if a prior probe confirmed all required deps were present. Sync, cheap. */
 export function setupPreviouslySatisfied(): boolean {
   try {
