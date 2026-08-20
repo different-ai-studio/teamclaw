@@ -42,6 +42,11 @@ public final class Session {
     /// mirroring the desktop's per-session permission mode — the daemon is
     /// never told; the client just answers on the user's behalf.
     public var autoApprovePermissions: Bool = false
+    /// How the session was created: `user` | `cron` | `gateway` (empty on
+    /// rows synced before the column existed). The list hides `cron`
+    /// sessions unless the scheduled-sessions view is toggled on,
+    /// mirroring the desktop's clock view.
+    public var source: String = ""
 
     public init(
         sessionId: String,

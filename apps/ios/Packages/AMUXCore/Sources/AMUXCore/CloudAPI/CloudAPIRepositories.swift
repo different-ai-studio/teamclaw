@@ -41,7 +41,8 @@ public actor CloudAPISessionsRepository: SessionsRepository {
                 participantCount: row.participantCount,
                 lastMessagePreview: row.lastMessagePreview ?? "",
                 lastMessageAt: parseCloudDate(row.lastMessageAt),
-                createdAt: parseCloudDate(row.createdAt) ?? .distantPast
+                createdAt: parseCloudDate(row.createdAt) ?? .distantPast,
+                source: row.source
             )
         }
     }
@@ -993,6 +994,8 @@ private struct CloudSessionFull: Decodable, Sendable {
     let hasUnread: Bool
     let createdAt: String?
     let updatedAt: String?
+    /// `user` | `cron` | `gateway`; absent on older servers.
+    let source: String?
 }
 
 private struct CloudSessionCreateRequest: Encodable, Sendable {

@@ -11,7 +11,7 @@ import SwiftData
 /// 3. Register a migration stage for the transition.
 public enum AMUXSchemaV1: VersionedSchema {
     // 1.17.0: AgentEvent grew diffPath/diffOldText/diffNewText and Session
-    // grew autoApprovePermissions (additive, lightweight migration).
+    // grew autoApprovePermissions + source (additive, lightweight migration).
     public static var versionIdentifier: Schema.Version { Schema.Version(1, 17, 0) }
 
     public static var models: [any PersistentModel.Type] {

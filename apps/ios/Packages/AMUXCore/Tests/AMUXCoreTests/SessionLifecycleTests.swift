@@ -129,6 +129,30 @@ final class SessionLifecycleTests: XCTestCase {
         XCTAssertNotNil(archives.first?.1, "archive must stamp archived_at, not clear it")
     }
 
+    func testCronSessionsHiddenByDefaultAndClockViewShowsOnlyThem() async throws {
+        let context = try makeContext()
+        let normal = Session(sessionId: "s-1", teamId: "t-1")
+        normal.title = "Chat"
+        normal.lastMessageAt = .now
+        let cron = Session(sessionId: "s-2", teamId: "t-1")
+        cron.title = "Cron: test"
+        cron.source = "cron"
+        cron.lastMessageAt = .now
+        context.insert(normal)
+        context.insert(cron)
+        try context.save()
+
+        let viewModel = SessionListViewModel()
+        viewModel.reloadSessions(modelContext: context)
+
+        var ids = viewModel.groupedSessions.flatMap(\.items).map(\.sessionId)
+        XCTAssertEqual(ids, ["s-1"], "cron-created sessions must not flood the default list")
+
+        viewModel.showCronSessions = true
+        ids = viewModel.groupedSessions.flatMap(\.items).map(\.sessionId)
+        XCTAssertEqual(ids, ["s-2"], "clock view shows only scheduled sessions")
+    }
+
     func testArchiveRevertsWhenServerRejects() async throws {
         let context = try makeContext()
         let session = Session(sessionId: "s-1", teamId: "t-1")

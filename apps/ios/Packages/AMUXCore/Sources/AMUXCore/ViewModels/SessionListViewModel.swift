@@ -683,6 +683,7 @@ public final class SessionListViewModel {
             session.lastMessageAt = record.lastMessageAt
             session.ideaId = record.ideaID ?? ""
             session.primaryAgentId = record.primaryAgentID
+            if let source = record.source { session.source = source }
         }
 
         for stale in byID.values {
@@ -695,10 +696,16 @@ public final class SessionListViewModel {
 
     // MARK: - Time Grouping
 
+    /// When true the list shows ONLY scheduled (cron-created) sessions —
+    /// the desktop's "clock view". Off by default: unattended cron runs
+    /// would otherwise flood the list several times an hour.
+    public var showCronSessions = false
+
     public var groupedSessions: [SessionGroup] {
         let q = searchText.lowercased()
         let visible = sessions
             .filter { !$0.isArchived }
+            .filter { ($0.source == "cron") == showCronSessions }
             .filter { q.isEmpty || $0.title.lowercased().contains(q) }
             .sorted { $0.listDate > $1.listDate }
 

@@ -180,7 +180,31 @@ struct SessionListContent: View {
     private var headerRow: some View {
         VStack(spacing: 8) {
             DaemonStatusBanner(pairing: pairing, mqtt: mqtt)
-            SessionListSearchField(text: $viewModel.searchText)
+            HStack(spacing: 8) {
+                SessionListSearchField(text: $viewModel.searchText)
+                // Clock view: show ONLY scheduled (cron) sessions — they are
+                // hidden from the default list, mirroring the desktop.
+                Button {
+                    withAnimation(AMUXAnimation.fast) {
+                        viewModel.showCronSessions.toggle()
+                    }
+                } label: {
+                    Image(systemName: viewModel.showCronSessions ? "clock.fill" : "clock")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(viewModel.showCronSessions ? Color.amux.cinnabar : Color.amux.basalt)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            Circle().fill(
+                                viewModel.showCronSessions
+                                    ? Color.amux.cinnabar.opacity(0.12)
+                                    : Color.amux.pebble
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(viewModel.showCronSessions ? "Show regular sessions" : "Show scheduled sessions")
+                .accessibilityIdentifier("sessions.cronToggle")
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)
@@ -208,6 +232,12 @@ struct SessionListContent: View {
         Group {
             if hasActiveSearch {
                 ContentUnavailableView.search(text: viewModel.searchText)
+            } else if viewModel.showCronSessions {
+                ContentUnavailableView(
+                    "No Scheduled Sessions",
+                    systemImage: "clock",
+                    description: Text("Sessions created by scheduled tasks appear here.")
+                )
             } else if noAccessibleAgent {
                 ContentUnavailableView {
                     Label("Invite your first agent", systemImage: "cpu")

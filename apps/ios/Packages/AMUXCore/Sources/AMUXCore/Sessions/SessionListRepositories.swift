@@ -18,6 +18,10 @@ public struct SessionRecord: Equatable, Sendable {
     public let lastMessagePreview: String
     public let lastMessageAt: Date?
     public let createdAt: Date
+    /// How the session was created: `user` | `cron` | `gateway`. nil on
+    /// rows from servers predating the column. The list hides `cron`
+    /// sessions by default, mirroring the desktop.
+    public let source: String?
 }
 
 public protocol SessionsRepository: Sendable {
