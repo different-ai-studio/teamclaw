@@ -241,7 +241,11 @@ vi.mock('@/stores/current-team', () => ({
     vi.fn((sel: (s: any) => any) =>
       sel({ team: null, currentMember: null, load: vi.fn(), reloadAndSwitchTo: vi.fn() })
     ),
-    { getState: () => ({ team: null, currentMember: null, load: vi.fn(), reloadAndSwitchTo: vi.fn() }) }
+    {
+      getState: () => ({ team: null, currentMember: null, load: vi.fn(), reloadAndSwitchTo: vi.fn() }),
+      // idea-detail subscribes at module scope to clear its pane on team switch.
+      subscribe: () => () => {},
+    }
   ),
 }))
 vi.mock('@/components/ui/sidebar', () => ({
