@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertCircle, ArrowLeft, Link2, LogIn, Server } from "lucide-react";
+import { AlertCircle, ArrowLeft, Link2, LogIn, RotateCcw, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ import {
 } from "@/lib/server-config";
 import { useAppVersion } from "@/lib/version";
 import { useAuthStore } from "@/stores/auth-store";
+import { useOnboardingStore } from "@/stores/onboarding";
+import { clearSetupSatisfied } from "@/stores/setup";
 import { LoginScreen } from "./LoginScreen";
 
 type Step = "choose" | "login" | "invite" | "server";
@@ -172,8 +174,34 @@ function ChooseStep({
   // login screen refuses to send a code), so say it once up top and point
   // everything at the one entry that can fix it.
   const { override, unconfigured } = readServerSummary();
+
+  /**
+   * Run the first-run wizard again — language, runtime, model.
+   *
+   * Reload rather than flipping state in place: AuthGate reads the setup-ok
+   * cache once, at mount (`useState(() => …)`), and half the wizard's inputs
+   * (the setup store's probe, the daemon store) were seeded on the way here.
+   * A reload re-derives all of it from the two things this clears, which is
+   * what makes the re-run identical to a first run.
+   */
+  const rerunSetup = () => {
+    useOnboardingStore.getState().reset();
+    clearSetupSatisfied();
+    window.location.reload();
+  };
+
   return (
     <Shell>
+      {/* Sits inside the drag strip, opposite the traffic lights. Painted after
+          the drag region, so it stays clickable. */}
+      <button
+        type="button"
+        onClick={rerunSetup}
+        className="absolute right-6 top-6 inline-flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[12px] text-faint transition-colors hover:bg-panel hover:text-foreground"
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+        {t("auth.onboarding.rerunSetup", "Run setup again")}
+      </button>
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center">
         <div className="mb-5">
           <h1 className="text-[24px] font-semibold text-foreground">

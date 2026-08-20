@@ -337,6 +337,7 @@
     "onboarding": {
       "setupTitle": "Choose setup",
       "setupDesc": "Sign in, join a team, or connect a self-hosted server.",
+      "rerunSetup": "Run setup again",
       "customServer": "Enterprise custom server",
       "customServerDesc": "Point the app at your company's self-hosted Cloud API and sign in there.",
       "customServerRequiredDesc": "Start here: enter the Cloud API address of your company's own server.",

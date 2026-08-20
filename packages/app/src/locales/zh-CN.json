@@ -337,6 +337,7 @@
     "onboarding": {
       "setupTitle": "选择启动方式",
       "setupDesc": "登录、加入团队，或连接企业自建服务。",
+      "rerunSetup": "重新配置本机",
       "customServer": "企业自定义服务",
       "customServerDesc": "连接企业自建的 Cloud API，登录到公司自己的服务。",
       "customServerRequiredDesc": "从这里开始：填入公司自建服务的 Cloud API 地址。",

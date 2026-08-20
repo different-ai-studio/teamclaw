@@ -72,6 +72,9 @@ vi.mock("@/lib/build-config", () => ({
   buildConfig: { app: { name: "TeamClu" } },
   appScheme: 'teamclu',
   deeplinkSchemes: ['teamclu', 'teamclaw', 'amux'],
+  // The onboarding + setup stores key their localStorage off these.
+  appStoragePrefix: 'teamclu',
+  localAgent: 'opencode',
 }));
 
 import { DesktopOnboarding } from "../DesktopOnboarding";
@@ -112,6 +115,23 @@ describe("DesktopOnboarding", () => {
     expect(screen.getByRole("button", { name: /custom server/i })).toBeInTheDocument();
   });
 
+
+  // The wizard's gate is `!onboardingDone && (!setupAck || onboardingStarted)`,
+  // and AuthGate reads the setup-ok cache once at mount — so clearing the
+  // onboarding flags alone leaves the cache holding the door shut.
+  it("re-runs the first-run wizard from the corner entry", () => {
+    localStorage.setItem("teamclu-onboarding-done", "1");
+    localStorage.setItem("teamclu-onboarding-role", "developer");
+    localStorage.setItem("teamclu-setup-ok", "1");
+    render(<DesktopOnboarding />);
+
+    fireEvent.click(screen.getByRole("button", { name: /run setup again/i }));
+
+    expect(localStorage.getItem("teamclu-onboarding-done")).toBeNull();
+    expect(localStorage.getItem("teamclu-onboarding-role")).toBeNull();
+    expect(localStorage.getItem("teamclu-setup-ok")).toBeNull();
+    expect(reload).toHaveBeenCalled();
+  });
 
   it("shows auth errors on the choices screen", () => {
     authState.errorMessage = "Sign-in failed. Try again in a moment.";
