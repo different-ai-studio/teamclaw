@@ -129,21 +129,14 @@ export function ShortcutsDrawer({
     };
   }, [isPresented, teamId]);
 
-  if (!mounted) return null;
-
-  const handleSettings = () => {
-    onClose();
-    setTimeout(() => onOpenSettings(), ANIMATION_DURATION + 16);
-  };
-
-  const handleOpenShortcut = (shortcut: Shortcut) => {
-    onClose();
-    setTimeout(() => onOpenShortcut(shortcut), ANIMATION_DURATION + 16);
-  };
-
   // Folders expand in place, as iOS `ShortcutMenuRow` does. Without this a
   // folder row was visible, tappable and inert — `openShortcutTarget` has no
   // folder branch, so nothing happened at all.
+  //
+  // These hooks must stay above the `mounted` early-return: when the drawer
+  // was closed the component returned before reaching them, then opening it
+  // added hooks mid-lifetime ("Rendered more hooks than during the previous
+  // render").
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -158,6 +151,18 @@ export function ShortcutsDrawer({
     for (const bucket of map.values()) bucket.sort((a, b) => a.order - b.order);
     return map;
   }, [shortcuts]);
+
+  if (!mounted) return null;
+
+  const handleSettings = () => {
+    onClose();
+    setTimeout(() => onOpenSettings(), ANIMATION_DURATION + 16);
+  };
+
+  const handleOpenShortcut = (shortcut: Shortcut) => {
+    onClose();
+    setTimeout(() => onOpenShortcut(shortcut), ANIMATION_DURATION + 16);
+  };
 
   const toggleFolder = (id: string) => {
     setExpandedIds((prev) => {
