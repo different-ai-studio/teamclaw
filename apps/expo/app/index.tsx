@@ -4,17 +4,20 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useOnboarding, routeToHref } from "./_layout";
 import { ApertureSplashScreen } from "../src/features/onboarding/screens/ApertureSplashScreen";
+import { ServerSettingsSheet } from "../src/features/onboarding/screens/ServerSettingsSheet";
+import { SheetModal } from "../src/ui/SheetModal";
 import { PrimaryButton } from "../src/ui/button";
 import { AppCard } from "../src/ui/card";
 import { colors, spacing, typography } from "../src/ui/theme";
 
 export default function IndexRoute() {
-  const { controller, retryBootstrap, state } = useOnboarding();
+  const { controller, retryBootstrap, applyServerChange, state } = useOnboarding();
   const href = routeToHref(state.route);
   // Bootstrap often resolves in well under one lap of the mark. iOS waits for
   // the animation before moving on (`ApertureSplashView.onLapFinished`); hold
   // the redirect the same way so the splash isn't torn down mid-lap.
   const [lapFinished, setLapFinished] = useState(false);
+  const [serverOpen, setServerOpen] = useState(false);
   const handleLapFinished = useCallback(() => setLapFinished(true), []);
 
   if (href && lapFinished) {
@@ -61,7 +64,35 @@ export default function IndexRoute() {
           >
             <Text style={styles.signOutLabel}>Sign out and start over</Text>
           </Pressable>
+
+          {/* Rescue hatch when the saved server is unreachable — mirrors iOS
+              OnboardingErrorView.onServerSettings. */}
+          <Pressable
+            accessibilityRole="button"
+            disabled={state.isBusy}
+            onPress={() => setServerOpen(true)}
+            style={({ pressed }) => [
+              styles.serverLink,
+              pressed && !state.isBusy ? styles.signOutPressed : null,
+            ]}
+            testID="onboardingError.serverSettingsButton"
+          >
+            <Text style={styles.serverLinkLabel}>Change server</Text>
+          </Pressable>
         </AppCard>
+
+        <SheetModal
+          onRequestClose={() => setServerOpen(false)}
+          visible={serverOpen}
+        >
+          <ServerSettingsSheet
+            onCancel={() => setServerOpen(false)}
+            onSaved={async () => {
+              setServerOpen(false);
+              await applyServerChange();
+            }}
+          />
+        </SheetModal>
       </View>
     );
   }
@@ -97,6 +128,15 @@ const styles = StyleSheet.create({
   },
   signOutPressed: {
     opacity: 0.6,
+  },
+  serverLink: {
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+  },
+  serverLinkLabel: {
+    color: colors.ink2,
+    ...typography.body,
+    fontWeight: "500",
   },
   title: {
     color: colors.foreground,

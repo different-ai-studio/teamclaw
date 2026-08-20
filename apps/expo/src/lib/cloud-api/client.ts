@@ -3,6 +3,11 @@
 // so every feature decorator can reuse one implementation. Identity comes from
 // the bearer token (getAccessToken); the FC facade derives the user server-side.
 
+import {
+  bundledCloudApiUrl,
+  getCloudApiUrlOverride,
+} from "./cloud-api-url";
+
 export type CloudApiClient = {
   get: <T>(path: string) => Promise<T>;
   post: <T>(path: string, body?: unknown, options?: { idempotencyKey?: string }) => Promise<T>;
@@ -32,9 +37,12 @@ export class CloudApiError extends Error {
   }
 }
 
-/** Resolve the Cloud API base URL (cloud_api is the only client backend). */
+/** Resolve the Cloud API base URL (cloud_api is the only client backend).
+ * User override (Custom server) wins over the build-time env default. */
 export function cloudApiBaseUrl(): string {
-  const baseUrl = process.env.EXPO_PUBLIC_CLOUD_API_URL?.trim();
+  const override = getCloudApiUrlOverride();
+  if (override) return override;
+  const baseUrl = bundledCloudApiUrl();
   if (!baseUrl) {
     throw new Error("EXPO_PUBLIC_CLOUD_API_URL is required (cloud_api is the only backend).");
   }

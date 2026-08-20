@@ -8,35 +8,55 @@ import {
   View,
 } from "react-native";
 
+import {
+  getCloudApiUrlOverride,
+  hasCloudApiUrlOverride,
+} from "../../../lib/cloud-api/cloud-api-url";
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { colors, radii, shadows, spacing, typography } from "../../../ui/theme";
 import { parseInviteToken } from "../invite-api";
 import { SheetModal } from "../../../ui/SheetModal";
+import { ServerSettingsSheet } from "./ServerSettingsSheet";
 
 export type ChooseAuthScreenProps = {
   errorMessage?: string | null;
   isBusy?: boolean;
   onSignInOrRegister: () => void;
   onJoinWithToken: (token: string) => void | Promise<void>;
+  /** Rebuild the Cloud API stack after a custom-server save (mirrors iOS). */
+  onServerChanged?: () => void | Promise<void>;
 };
 
 /**
- * The "set up TeamClu" picker — sign in, or join with an invite. Mirrors
- * `apps/ios/.../ChooseAuthView.swift`:
- *   - Sign in or register: go to the existing email OTP screen
- *   - Join a team: open InviteJoinSheet, paste the link, then sign in — the
- *     token is stashed and claimed once a real account exists
- *
- * The former "private workspace" path was anonymous sign-in; anonymous
- * accounts have been removed from the product.
+ * The "set up TeamClu" picker — sign in, join with an invite, or point at a
+ * custom Cloud API. Mirrors `apps/ios/.../ChooseAuthView.swift`.
  */
 export function ChooseAuthScreen({
   errorMessage,
   isBusy = false,
   onSignInOrRegister,
   onJoinWithToken,
+  onServerChanged,
 }: ChooseAuthScreenProps) {
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [serverOpen, setServerOpen] = useState(false);
+  // Bumped after every server-sheet save so the row caption re-reads the
+  // stored address.
+  const [serverEpoch, setServerEpoch] = useState(0);
+
+  const serverCaption = (() => {
+    void serverEpoch;
+    if (hasCloudApiUrlOverride()) {
+      const raw = getCloudApiUrlOverride();
+      try {
+        const host = raw ? new URL(raw).host : null;
+        if (host) return `Connected to ${host}.`;
+      } catch {
+        // Fall through.
+      }
+    }
+    return "Point the app at your own deployment.";
+  })();
 
   return (
     <View style={styles.screen}>
@@ -65,6 +85,14 @@ export function ChooseAuthScreen({
           onPress={() => setInviteOpen(true)}
           title="Join a team"
         />
+        <ActionRow
+          caption={serverCaption}
+          disabled={isBusy}
+          icon="server-outline"
+          onPress={() => setServerOpen(true)}
+          testID="choose.customServerButton"
+          title="Custom server"
+        />
       </View>
 
       {errorMessage ? (
@@ -81,6 +109,22 @@ export function ChooseAuthScreen({
           onCancel={() => setInviteOpen(false)}
           onSubmit={async (token) => {
             await onJoinWithToken(token);
+          }}
+        />
+      </SheetModal>
+
+      <SheetModal
+        onRequestClose={() => {
+          if (!isBusy) setServerOpen(false);
+        }}
+        visible={serverOpen}
+      >
+        <ServerSettingsSheet
+          onCancel={() => setServerOpen(false)}
+          onSaved={async () => {
+            setServerOpen(false);
+            setServerEpoch((value) => value + 1);
+            await onServerChanged?.();
           }}
         />
       </SheetModal>

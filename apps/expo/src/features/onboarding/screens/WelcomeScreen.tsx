@@ -1,13 +1,19 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { PrimaryButton } from "../../../ui/button";
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { StatusDot, type StatusDotKind } from "../../../ui/atoms/StatusDot";
+import { SheetModal } from "../../../ui/SheetModal";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
+import { ServerSettingsSheet } from "./ServerSettingsSheet";
 
 type WelcomeScreenProps = {
   onGetStarted: () => void;
   errorMessage?: string | null;
+  /** Rebuild the Cloud API stack after a custom-server save (mirrors iOS). */
+  onServerChanged?: () => void | Promise<void>;
 };
 
 type RoleCard = {
@@ -22,9 +28,32 @@ const ROLES: RoleCard[] = [
   { id: "ops", title: "Ops", status: "muted" },
 ];
 
-export function WelcomeScreen({ onGetStarted, errorMessage }: WelcomeScreenProps) {
+export function WelcomeScreen({
+  onGetStarted,
+  errorMessage,
+  onServerChanged,
+}: WelcomeScreenProps) {
+  const [serverOpen, setServerOpen] = useState(false);
+
   return (
     <View style={styles.screen}>
+      <View style={styles.toolbar}>
+        <View style={styles.toolbarSpacer} />
+        <Pressable
+          accessibilityLabel="Server settings"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => setServerOpen(true)}
+          style={({ pressed }) => [
+            styles.serverButton,
+            pressed ? styles.serverButtonPressed : null,
+          ]}
+          testID="welcome.serverSettingsButton"
+        >
+          <Ionicons color={colors.slate} name="globe-outline" size={22} />
+        </Pressable>
+      </View>
+
       <View style={styles.hero}>
         <RoleCardsRow />
         <Text style={styles.title}>TeamClu</Text>
@@ -44,6 +73,19 @@ export function WelcomeScreen({ onGetStarted, errorMessage }: WelcomeScreenProps
       <View style={styles.actions}>
         <PrimaryButton label="Get Started" onPress={onGetStarted} />
       </View>
+
+      <SheetModal
+        onRequestClose={() => setServerOpen(false)}
+        visible={serverOpen}
+      >
+        <ServerSettingsSheet
+          onCancel={() => setServerOpen(false)}
+          onSaved={async () => {
+            setServerOpen(false);
+            await onServerChanged?.();
+          }}
+        />
+      </SheetModal>
     </View>
   );
 }
@@ -142,9 +184,25 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginBottom: spacing.lg,
   },
+  toolbar: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+  },
+  toolbarSpacer: {
+    flex: 1,
+  },
   screen: {
     backgroundColor: colors.mist,
     flex: 1,
+  },
+  serverButton: {
+    padding: spacing.sm,
+  },
+  serverButtonPressed: {
+    opacity: 0.6,
   },
   tagline: {
     color: colors.slate,
