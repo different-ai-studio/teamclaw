@@ -45,14 +45,20 @@ async function adoptDeviceAgentAsDefault(teamId: string, agentId: string): Promi
 
 /**
  * Write the runtime the user picked in the first-run wizard into the team this
- * machine was just bound to.
+ * machine is bound to.
  *
  * The wizard asks before sign-in, and `agents.local_agent` is team-scoped —
  * there is no team to write to at that point, so the pick waits in
- * localStorage (see `stores/onboarding.ts`) until here. Nothing else outside
- * Settings ever wrote that key, so until this existed the wizard asked the
- * question and then dropped the answer: picking pi still landed you on the
+ * localStorage (see `stores/onboarding.ts`) until there is one. Nothing else
+ * outside Settings ever wrote that key, so until this existed the wizard asked
+ * the question and then dropped the answer: picking pi still landed you on the
  * daemon default, opencode, with a trip to Settings to fix it.
+ *
+ * Called from the `ready` paths, not from the bind: a machine that is already
+ * bound to the current team never binds again, so hanging this off the bind
+ * left the pick unapplied for the one case that is most likely to change it —
+ * running the wizard a second time on a machine that has been in use. (A fresh
+ * bind reaches `ready` in the same pass, so it is still covered.)
  *
  * One shot: the pick is cleared whether or not the write lands. Retrying it on
  * a later rebind would let a months-old wizard answer overrule a runtime the
@@ -344,8 +350,6 @@ async function bindDeviceAgent(
   await runStep('restart-daemon', () => invoke('daemon_restart_managed'))
   rememberDaemonIdentity(teamId)
   invalidateDaemonConnection()
-  // Now that there is a team, the wizard's runtime pick has somewhere to go.
-  await applyPendingLocalAgent()
   // The machine's agent is now this member's default recipient. Unconditional:
   // see adoptDeviceAgentAsDefault.
   await adoptDeviceAgentAsDefault(teamId, invite.agentId)
@@ -683,6 +687,9 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
       // `POST /v1/workspaces` fails with 500 while the refresh token is dead.
       await get().checkCloudSession()
       await maybeRegisterDefaultWorkspace(currentTeamId)
+      // Last, because it can restart the daemon and both steps above want the
+      // one that is already up.
+      await applyPendingLocalAgent()
       return
     }
     beginRun()
@@ -702,6 +709,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
     if (ok) {
       await get().checkCloudSession()
       await maybeRegisterDefaultWorkspace(currentTeamId)
+      await applyPendingLocalAgent()
     }
   },
 

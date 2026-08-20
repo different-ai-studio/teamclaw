@@ -239,6 +239,23 @@ describe('daemon-onboarding refresh() orchestration', () => {
   // to write `agents.local_agent` to. Nothing outside Settings ever wrote that
   // key, so the answer used to be dropped: picking pi still landed on the
   // daemon default.
+  // Re-running the wizard on a machine that is already bound is the case most
+  // likely to change the runtime, and it never binds again — so hanging this
+  // off the bind left exactly that case unapplied.
+  it('writes the runtime picked in onboarding without needing a re-bind', async () => {
+    useOnboardingStore.getState().setRuntime('pi')
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = 't1'
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+
+    await useDaemonOnboardingStore.getState().refresh()
+
+    expect(useDaemonOnboardingStore.getState().status).toBe('ready')
+    expect(h.invokeCalls).not.toContain('daemon_init')
+    expect(h.localAgentWrites).toEqual(['pi'])
+    expect(useOnboardingStore.getState().runtime).toBeNull()
+  })
+
   it('writes the runtime picked in onboarding into the team it just bound', async () => {
     useOnboardingStore.getState().setRuntime('pi')
     h.currentTeam = { id: 't1' }
