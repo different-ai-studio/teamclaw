@@ -155,16 +155,18 @@ function ChooseStep({
             disabled={loading}
             onClick={onInvite}
           />
-        </div>
-        <div className="mt-5 flex items-center justify-center gap-3 text-[12px] text-muted-foreground">
-          <button
-            type="button"
+          {/* Not disabled while auth is in flight, unlike the two above: this is
+              the way out of a backend that is not answering, which is exactly
+              when a request is left hanging. */}
+          <ChoiceRow
+            icon={<Server className="h-4 w-4" />}
+            title={t("auth.onboarding.customServer", "Enterprise custom server")}
+            caption={t(
+              "auth.onboarding.customServerDesc",
+              "Point the app at your company's self-hosted Cloud API and sign in there.",
+            )}
             onClick={onServer}
-            className="inline-flex items-center gap-1.5 rounded-[6px] px-1 py-0.5 underline-offset-4 transition-colors hover:text-foreground hover:underline"
-          >
-            <Server className="h-3.5 w-3.5" />
-            {t("auth.onboarding.customServer", "Custom server")}
-          </button>
+          />
         </div>
         {errorMessage && (
           <p className="mt-4 rounded-[8px] border border-destructive/20 bg-paper px-3 py-2 text-[12px] leading-5 text-destructive">

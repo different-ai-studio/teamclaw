@@ -337,9 +337,10 @@
     "onboarding": {
       "setupTitle": "Choose setup",
       "setupDesc": "Sign in, join a team, or connect a self-hosted server.",
-      "customServer": "Custom server",
+      "customServer": "Enterprise custom server",
+      "customServerDesc": "Point the app at your company's self-hosted Cloud API and sign in there.",
       "serverCustomTag": "custom",
-      "serverTitle": "Custom server",
+      "serverTitle": "Enterprise custom server",
       "serverDesc": "Point the app at a different TeamClu Cloud API. The app reloads and you sign in against that server.",
       "serverUrlLabel": "Cloud API URL",
       "serverUrlInvalid": "Enter a valid http(s) URL, e.g. https://api.example.com",
