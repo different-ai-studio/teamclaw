@@ -6,6 +6,22 @@ import { colors, typography } from "./theme";
 export const TAB_BAR_HEIGHT = 56;
 
 /**
+ * Whether the iOS `NativeTabs` bar should hide for this pathname.
+ *
+ * Session detail lives under the Sessions tab stack
+ * (`(tabs)/sessions/[sessionId]`). On iOS the bar is a real UITabBar via
+ * `NativeTabs`, which ignores the JS `tabBarStyle: { display: "none" }`
+ * path Android uses — leave it up and it covers the composer. `NativeTabs`
+ * exposes `hidden` for this; drive it from the path so the layout owns the
+ * decision and session detail does not need a context round-trip.
+ *
+ * Matches `/sessions/<id>` only — the list (`/sessions`) keeps the bar.
+ */
+export function shouldHideNativeTabBar(pathname: string): boolean {
+  return /^\/sessions\/[^/]+\/?$/.test(pathname);
+}
+
+/**
  * The Android tab bar's style, as one value that both the navigator and
  * anything which has to put it back can reach.
  *

@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { Tabs, usePathname } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useEffect, useState } from "react";
 import { Platform, StyleSheet, type ColorValue } from "react-native";
@@ -9,7 +9,11 @@ import {
   getUnreadSessionCount,
   subscribeUnreadSessionCount,
 } from "../../../src/features/sessions/unread-store";
-import { androidTabBarStyle, tabBarLabelStyle } from "../../../src/ui/tab-bar";
+import {
+  androidTabBarStyle,
+  shouldHideNativeTabBar,
+  tabBarLabelStyle,
+} from "../../../src/ui/tab-bar";
 import { colors } from "../../../src/ui/theme";
 
 type TabIconProps = {
@@ -70,6 +74,12 @@ export default function TabsLayout() {
  * default is what lets iOS 26 glaze it.
  */
 function IosNativeTabs({ unread }: { unread: number }) {
+  // Session detail covers the composer; hide the system tab bar while that
+  // route is showing. Driven from pathname (not a child setOptions) because
+  // NativeTabs is a real UITabBar — JS `tabBarStyle` cannot reach it.
+  const pathname = usePathname();
+  const hideTabBar = shouldHideNativeTabBar(pathname);
+
   return (
     <NativeTabs
       // Mirrors `.tabViewStyle(.sidebarAdaptable)` on iOS.
@@ -78,6 +88,7 @@ function IosNativeTabs({ unread }: { unread: number }) {
       badgeBackgroundColor={colors.cinnabar}
       // iOS 26: the bar shrinks out of the way as content scrolls under it.
       minimizeBehavior="onScrollDown"
+      hidden={hideTabBar}
     >
       <NativeTabs.Trigger name="sessions">
         <NativeTabs.Trigger.Icon sf="bubble.left.and.bubble.right" />

@@ -8,10 +8,15 @@ vi.mock("react-native", () => ({
   StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 0.5 },
 }));
 
-const { androidTabBarStyle, TAB_BAR_HEIGHT } = await import("../ui/tab-bar");
+const {
+  androidTabBarStyle,
+  shouldHideNativeTabBar,
+  TAB_BAR_HEIGHT,
+} = await import("../ui/tab-bar");
 
 const SELF = path.resolve(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(path.dirname(SELF), "..", "..");
+const TABS_LAYOUT = path.join(APP_ROOT, "app/(app)/(tabs)/_layout.tsx");
 
 /**
  * `tabBarStyle: undefined` is the trap this file exists for.
@@ -25,6 +30,8 @@ const APP_ROOT = path.resolve(path.dirname(SELF), "..", "..");
  * 182px against 200px everywhere else.
  */
 const CLEARED_TAB_BAR_STYLE = /tabBarStyle:\s*undefined/;
+const NATIVE_TAB_BAR_HIDDEN = /hidden=\{hideTabBar\}/;
+const NATIVE_TAB_BAR_PATH_HELPER = /shouldHideNativeTabBar/;
 
 function walk(dir: string, acc: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -65,5 +72,24 @@ describe("android tab bar style", () => {
       offenders,
       "restore the tab bar with androidTabBarStyle(insets.bottom); `undefined` overrides screenOptions instead of falling back to it",
     ).toEqual([]);
+  });
+});
+
+describe("native tab bar hide on session detail", () => {
+  it("hides only on /sessions/<id>, not the list or other tabs", () => {
+    expect(shouldHideNativeTabBar("/sessions")).toBe(false);
+    expect(shouldHideNativeTabBar("/sessions/")).toBe(false);
+    expect(shouldHideNativeTabBar("/ideas")).toBe(false);
+    expect(shouldHideNativeTabBar("/actors")).toBe(false);
+    expect(shouldHideNativeTabBar("/search")).toBe(false);
+    expect(shouldHideNativeTabBar("/sessions/abc-123")).toBe(true);
+    expect(shouldHideNativeTabBar("/sessions/abc-123/")).toBe(true);
+    expect(shouldHideNativeTabBar("/sessions/abc-123/extra")).toBe(false);
+  });
+
+  it("wires NativeTabs.hidden from the pathname helper", () => {
+    const layout = fs.readFileSync(TABS_LAYOUT, "utf8");
+    expect(layout).toMatch(NATIVE_TAB_BAR_PATH_HELPER);
+    expect(layout).toMatch(NATIVE_TAB_BAR_HIDDEN);
   });
 });

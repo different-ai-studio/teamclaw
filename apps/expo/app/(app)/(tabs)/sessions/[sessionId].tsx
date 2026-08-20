@@ -110,15 +110,13 @@ export default function SessionDetailRoute() {
     sessionId?: string | string[];
   }>();
 
-  // Hide the parent tab bar while a session detail is on screen, matching iOS's
-  // NavigationStack behaviour. Restore on unmount so the bar comes back on pop.
+  // Hide the parent tab bar while a session detail is on screen. Restore on
+  // unmount so the bar comes back on pop.
   //
-  // Android only. `tabBarStyle` is an option of the JS `Tabs` navigator, and
-  // iOS now runs `NativeTabs` (see `(tabs)/_layout.tsx`), where the bar is a
-  // real UITabBar that this cannot reach — hiding it there needs
-  // `hidesBottomBarWhenPushed` on the pushed view controller, which the
-  // installed react-native-screens does not expose. Guarded rather than left to
-  // silently no-op, so the gap is visible in the code that owns it.
+  // Android only here. `tabBarStyle` is an option of the JS `Tabs` navigator.
+  // iOS runs `NativeTabs` (see `(tabs)/_layout.tsx`): a real UITabBar that
+  // this cannot reach. That side hides via `NativeTabs`'s `hidden` prop,
+  // driven from pathname with `shouldHideNativeTabBar`.
   //
   // Restoring means putting the real style back, not clearing the override:
   // runtime options are merged *over* `screenOptions`, so `undefined` wins and
