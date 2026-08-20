@@ -8,7 +8,10 @@ import {
   probeDaemonHttp,
   invalidateDaemonConnection,
   fetchDaemonCloudAuthStatus,
+  getDaemonLocalAgent,
+  setDaemonLocalAgent,
 } from '@/lib/daemon-local-client'
+import { useOnboardingStore } from '@/stores/onboarding'
 import { markStartup } from '@/lib/startup-perf'
 import { appScheme } from '@/lib/build-config'
 import {
@@ -37,6 +40,41 @@ async function adoptDeviceAgentAsDefault(teamId: string, agentId: string): Promi
     }
   } catch (e) {
     console.warn('[daemon-onboarding] could not set local daemon as default agent', e)
+  }
+}
+
+/**
+ * Write the runtime the user picked in the first-run wizard into the team this
+ * machine was just bound to.
+ *
+ * The wizard asks before sign-in, and `agents.local_agent` is team-scoped —
+ * there is no team to write to at that point, so the pick waits in
+ * localStorage (see `stores/onboarding.ts`) until here. Nothing else outside
+ * Settings ever wrote that key, so until this existed the wizard asked the
+ * question and then dropped the answer: picking pi still landed you on the
+ * daemon default, opencode, with a trip to Settings to fix it.
+ *
+ * One shot: the pick is cleared whether or not the write lands. Retrying it on
+ * a later rebind would let a months-old wizard answer overrule a runtime the
+ * user has since chosen in Settings, and a failure here leaves them exactly
+ * where they were — able to switch there themselves.
+ *
+ * Best-effort, like every other post-bind step: it must not fail the binding.
+ */
+async function applyPendingLocalAgent(): Promise<void> {
+  const { runtime, clearRuntime } = useOnboardingStore.getState()
+  if (!runtime) return
+  clearRuntime()
+  try {
+    if ((await getDaemonLocalAgent()) === runtime) return
+    await setDaemonLocalAgent(runtime)
+    // `agents.local_agent` is restart-required: the backend is built once, at
+    // daemon start (`runtime::backend::create_backend`).
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('daemon_restart_managed')
+    invalidateDaemonConnection()
+  } catch (e) {
+    console.warn('[daemon-onboarding] could not apply the runtime picked in onboarding', e)
   }
 }
 
@@ -306,6 +344,8 @@ async function bindDeviceAgent(
   await runStep('restart-daemon', () => invoke('daemon_restart_managed'))
   rememberDaemonIdentity(teamId)
   invalidateDaemonConnection()
+  // Now that there is a team, the wizard's runtime pick has somewhere to go.
+  await applyPendingLocalAgent()
   // The machine's agent is now this member's default recipient. Unconditional:
   // see adoptDeviceAgentAsDefault.
   await adoptDeviceAgentAsDefault(teamId, invite.agentId)
