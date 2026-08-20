@@ -92,7 +92,7 @@ export const TEAM_SHARE_SECTIONS: TeamShareSection[] = ['skills', 'mcp', 'env', 
 
 export type TeamSkillKind = 'team-available' | 'team-installed' | 'personal'
 
-export type TeamMcpKind = 'team-available' | 'team-installed' | 'personal'
+export type TeamMcpKind = 'team-available' | 'team-installed' | 'personal' | 'builtin'
 
 /**
  * A row in the unified skills list.
@@ -210,6 +210,12 @@ interface TeamShareBrowserState {
   createMcp: (input: TeamMcpServerWrite) => Promise<void>
   updateMcp: (name: string, patch: TeamMcpServerWrite) => Promise<void>
   deleteMcp: (name: string) => Promise<void>
+  /** Add a server to this workspace only (the daemon's merged map, source `workspace`). */
+  createPersonalMcp: (input: TeamMcpServerWrite) => Promise<void>
+  /** Rewrite a personal or built-in entry in the daemon's workspace map. */
+  updateWorkspaceMcp: (id: string, patch: TeamMcpServerWrite) => Promise<void>
+  /** Enable/disable a personal or built-in entry (team servers have no local toggle). */
+  toggleMcp: (id: string, enabled: boolean) => Promise<void>
   /** Publish a personal MCP into the team catalog and install it for yourself. */
   sharePersonalMcp: (name: string, input?: Pick<TeamMcpServerWrite, 'description'>) => Promise<void>
   /** Copy-publish a personal skill to the team registry, then auto-install. */
@@ -599,21 +605,24 @@ export function planMcpItems(
     })
   }
 
-  // Daemon-only rows (legacy team entries / workspace custom not in catalog),
-  // plus independently selectable workspace overrides on catalog collisions.
+  // Daemon-only rows: built-ins, legacy team entries, workspace custom not in
+  // the catalog, plus independently selectable workspace overrides on catalog
+  // collisions. Built-ins used to be filtered out here and lived only in the
+  // (since removed) Settings MCP page — this panel is now the one MCP surface,
+  // so they show as a read-only kind of their own.
   for (const [name, cfg] of Object.entries(daemonConfig)) {
-    if (cfg.source === 'inherent') continue
     const collides = catalogNames.has(name)
     if (collides && cfg.source === 'team') continue
-    const personal = cfg.source !== 'team'
+    const kind: TeamMcpKind =
+      cfg.source === 'inherent' ? 'builtin' : cfg.source !== 'team' ? 'personal' : 'team-installed'
     items.push({
-      id: collides ? `personal:${name}` : name,
+      id: collides ? `${kind === 'builtin' ? 'builtin' : 'personal'}:${name}` : name,
       name,
       config: cfg,
       probeStatus: 'unknown',
       tools: [],
       error: null,
-      kind: personal ? 'personal' : 'team-installed',
+      kind,
       catalog: null,
       installed: true,
     })
@@ -632,11 +641,18 @@ export function applyMcpProbes(
   probes: Record<string, DaemonMcpServerProbeResult>,
 ): TeamMcpItem[] {
   const locallyOverridden = new Set(
-    items.filter((item) => item.kind === 'personal').map((item) => item.name),
+    items
+      .filter((item) => item.kind === 'personal' || item.kind === 'builtin')
+      .map((item) => item.name),
   )
 
   return items.map((item) => {
-    if (item.kind !== 'personal' && locallyOverridden.has(item.name)) return item
+    if (
+      item.kind !== 'personal' &&
+      item.kind !== 'builtin' &&
+      locallyOverridden.has(item.name)
+    )
+      return item
     const probe = probes[item.name]
     return probe
       ? { ...item, probeStatus: probe.probe_status, tools: probe.tools, error: probe.error }
@@ -770,6 +786,40 @@ function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
         command: [entry.command ?? '', ...(entry.args ?? [])].filter(Boolean),
         headers: {},
       } as DaemonMcpServerConfig)
+}
+
+/**
+ * Form input → the daemon's workspace-map entry shape. `prev` keeps fields the
+ * form does not own (source, enabled, timeout, unknown extras) so editing a
+ * built-in preserves its `source: 'inherent'` identity, and re-saving never
+ * silently re-enables a disabled server. Fields of the OTHER transport are
+ * cleared explicitly — a local→remote switch must not leave a stale command.
+ */
+function writeToDaemonConfig(
+  input: TeamMcpServerWrite,
+  prev?: DaemonMcpServerConfig,
+): DaemonMcpServerConfig {
+  const base: DaemonMcpServerConfig = {
+    ...(prev ?? {}),
+    enabled: prev?.enabled ?? true,
+    environment: input.env ?? {},
+  }
+  if (input.transport === 'remote') {
+    return {
+      ...base,
+      type: 'remote',
+      url: input.url ?? undefined,
+      headers: input.headers ?? {},
+      command: undefined,
+    }
+  }
+  return {
+    ...base,
+    type: 'local',
+    command: [input.command ?? '', ...(input.args ?? [])].filter(Boolean),
+    url: undefined,
+    headers: {},
+  }
 }
 
 function daemonConfigToCatalogWrite(
@@ -973,6 +1023,48 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     // Deliberately no auto-install: adding to the catalog is not a decision to
     // run the command, not even on the author's own machine.
     await get().loadSection('mcp', { force: true })
+  },
+
+  createPersonalMcp: async (input) => {
+    const wsPath = workspacePath()
+    if (!wsPath) throw new Error('no workspace open')
+    const name = (input.name ?? '').trim()
+    if (!name) throw new Error('name is required')
+    const wid = encodeWorkspaceId(wsPath)
+    const current = await getDaemonMcp(wid)
+    if (name in current) throw new Error(`mcp server ${name} already exists in this workspace`)
+    await putDaemonMcp(wid, { ...current, [name]: writeToDaemonConfig(input) })
+    await get().loadSection('mcp', { force: true, withTools: true })
+  },
+
+  updateWorkspaceMcp: async (id, patch) => {
+    const item = get().mcp.items.find((candidate) => candidate.id === id)
+    if (!item || (item.kind !== 'personal' && item.kind !== 'builtin')) {
+      throw new Error(`mcp server ${id} is not editable in this workspace`)
+    }
+    const wsPath = workspacePath()
+    if (!wsPath) throw new Error('no workspace open')
+    const wid = encodeWorkspaceId(wsPath)
+    const current = await getDaemonMcp(wid)
+    const prev = current[item.name]
+    if (!prev) throw new Error(`mcp server ${item.name} not found in this workspace`)
+    await putDaemonMcp(wid, { ...current, [item.name]: writeToDaemonConfig(patch, prev) })
+    await get().loadSection('mcp', { force: true, withTools: true })
+  },
+
+  toggleMcp: async (id, enabled) => {
+    const item = get().mcp.items.find((candidate) => candidate.id === id)
+    if (!item || (item.kind !== 'personal' && item.kind !== 'builtin')) {
+      throw new Error(`mcp server ${id} has no local toggle`)
+    }
+    const wsPath = workspacePath()
+    if (!wsPath) throw new Error('no workspace open')
+    const wid = encodeWorkspaceId(wsPath)
+    const current = await getDaemonMcp(wid)
+    const prev = current[item.name]
+    if (!prev) throw new Error(`mcp server ${item.name} not found in this workspace`)
+    await putDaemonMcp(wid, { ...current, [item.name]: { ...prev, enabled } })
+    await get().loadSection('mcp', { force: true, withTools: true })
   },
 
   updateMcp: async (name, patch) => {

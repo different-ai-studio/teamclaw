@@ -20,7 +20,6 @@ export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.Componen
   teamLlm: lazySection(() => import('./TeamLlmSection'), 'TeamLlmSection'),
   general: lazySection(() => import('./GeneralSection'), 'GeneralSection'),
   prompt: lazySection(() => import('./PromptSection'), 'PromptSection'),
-  mcp: lazySection(() => import('./MCPSection'), 'MCPSection'),
   channels: lazySection(() => import('./ChannelsSection'), 'ChannelsSection'),
   automation: lazySection(() => import('./CronSection'), 'CronSection'),
   daemonGeneral: lazySection(() => import('./DaemonGeneralSection'), 'DaemonGeneralSection'),

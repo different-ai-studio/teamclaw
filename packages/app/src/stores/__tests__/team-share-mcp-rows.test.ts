@@ -26,6 +26,15 @@ const workspaceOverride: DaemonMcpServerConfig = {
   headers: {},
 }
 
+const builtinServer: DaemonMcpServerConfig = {
+  source: 'inherent',
+  type: 'local',
+  enabled: true,
+  command: ['amuxd', 'send-mcp'],
+  environment: {},
+  headers: {},
+}
+
 describe('planMcpItems', () => {
   it('does not treat a colliding personal override as a team installation', () => {
     const rows = planMcpItems([catalogEntry(false)], { memory: workspaceOverride })
@@ -53,6 +62,32 @@ describe('planMcpItems', () => {
     expect(rows.map((row) => [row.id, row.kind])).toEqual([
       ['memory', 'team-available'],
       ['personal:memory', 'personal'],
+    ])
+  })
+
+  // The (removed) Settings MCP page was the only surface that showed built-in
+  // servers; this panel is the single MCP surface now, so they must appear —
+  // installed, with their own kind, never mistaken for team or personal rows.
+  it('shows built-in servers as their own installed kind', () => {
+    const rows = planMcpItems([], { 'amuxd-send': builtinServer })
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      id: 'amuxd-send',
+      name: 'amuxd-send',
+      kind: 'builtin',
+      installed: true,
+      catalog: null,
+      config: { source: 'inherent' },
+    })
+  })
+
+  it('keeps a colliding built-in row apart from the catalog row', () => {
+    const rows = planMcpItems([catalogEntry(false)], { memory: { ...builtinServer } })
+
+    expect(rows.map((row) => [row.id, row.kind])).toEqual([
+      ['builtin:memory', 'builtin'],
+      ['memory', 'team-available'],
     ])
   })
 })
@@ -87,6 +122,17 @@ describe('applyMcpProbes', () => {
 
     expect(applyMcpProbes(rows, { memory: readyProbe })[0]).toMatchObject({
       id: 'memory',
+      probeStatus: 'ready',
+      tools: ['remember'],
+    })
+  })
+
+  it('attributes probes to built-in rows (they are live daemon entries)', () => {
+    const rows = planMcpItems([], { 'amuxd-send': builtinServer })
+
+    expect(applyMcpProbes(rows, { 'amuxd-send': readyProbe })[0]).toMatchObject({
+      id: 'amuxd-send',
+      kind: 'builtin',
       probeStatus: 'ready',
       tools: ['remember'],
     })

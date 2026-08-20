@@ -297,7 +297,7 @@ export function DiscordChannel() {
                 ) : (
                   <>
                     <RefreshCw className="h-3.5 w-3.5" />
-                    {t('settings.mcp.restart', 'Restart')}
+                    {t('common.restart', 'Restart')}
                   </>
                 )}
               </Button>

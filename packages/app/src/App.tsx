@@ -51,7 +51,6 @@ import {
   useFileTabSync,
   useResizablePanels,
 } from "@/hooks/useFileEditorState";
-import { useMCPFileWatcher } from "@/hooks/useMCPFileWatcher";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarSecondColumn } from "@/components/sidebar/SidebarSecondColumn";
 import { SIDEBAR_INTERACTIVE_CURSOR } from "@/components/sidebar/sidebar-interactive-cursor";
@@ -725,7 +724,6 @@ function AppContent() {
   useGitReposInit();
   useCronInit();
   useWorkspaceRuntimeRefreshPoll();
-  useMCPFileWatcher(workspacePath);
   useExternalLinkHandler();
   usePanelAutoOpen();
   useFileTabSync();

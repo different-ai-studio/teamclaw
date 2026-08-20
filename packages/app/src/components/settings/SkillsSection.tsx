@@ -880,12 +880,12 @@ ${skillContent.trim()}`
               {isRestarting ? (
                 <>
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  {t('settings.mcp.restarting', 'Restarting...')}
+                  {t('common.restarting', 'Restarting...')}
                 </>
               ) : (
                 <>
                   <RefreshCw className="h-3 w-3" />
-                  {t('settings.mcp.restart', 'Restart')}
+                  {t('common.restart', 'Restart')}
                 </>
               )}
             </Button>
@@ -1044,7 +1044,7 @@ ${skillContent.trim()}`
                 'global-agent': 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300',
               }
               const SOURCE_LABEL: Record<string, string> = {
-                local: t('settings.mcp.local', 'Local'),
+                local: t('common.local', 'Local'),
                 claude: 'Claude',
                 clawhub: 'ClawHub',
                 shared: t('settings.skills.shared', 'Shared'),
@@ -1444,7 +1444,7 @@ ${skillContent.trim()}`
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {skillDialogMode === 'import'
                       ? t('settings.skills.importing', 'Importing...')
-                      : t('settings.mcp.saving', 'Saving...')}
+                      : t('common.saving', 'Saving...')}
                   </>
                 ) : skillDialogMode === 'import' ? (
                   <>
