@@ -108,9 +108,14 @@ platform :ios do
       },
     )
 
+    # Wait until ASC finishes processing. With skip_waiting, CI stayed green
+    # while rejected/invalid builds (e.g. build number behind an older train)
+    # never appeared in TestFlight — see the 1.2 (9) upload that never showed.
     upload_to_testflight(
       api_key: api_key,
-      skip_waiting_for_build_processing: true,
+      skip_waiting_for_build_processing: false,
+      # Default 30m is tight on cold runners; give ASC more room before failing.
+      wait_processing_timeout_duration: 60 * 60,
     )
   end
 end
