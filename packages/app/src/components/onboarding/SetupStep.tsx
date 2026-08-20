@@ -46,25 +46,36 @@ function RuntimeCard({
   const { t } = useTranslation()
   const Icon = RUNTIME_ICON[runtime.id] ?? Terminal
   const installed = usable(runtime)
+  const selectable = installed && !busy
   // Select and Install are siblings, never nested. As a <span role="button">
   // inside the card's own <button>, Install was unreachable the entire time a
   // runtime was missing: an uninstalled card is disabled, and a disabled button
   // swallows pointer events for everything inside it — so the one control that
   // only ever appears on an uninstalled runtime could never be clicked.
+  //
+  // The card is still one hit target: the select button stretches across it via
+  // an inset ::before, and the version line below is inert so a click there
+  // falls through to that overlay. Hitting the title alone was more precision
+  // than a card this size should ask for. The overlay is only laid down while
+  // the card is selectable — exactly when Install is not rendered — so it can
+  // never swallow Install the way nesting did.
   return (
     <div
       className={cn(
-        'flex flex-1 flex-col items-start gap-2 rounded-[14px] border p-4 transition-colors',
+        'relative flex flex-1 flex-col items-start gap-2 rounded-[14px] border p-4 transition-colors',
         selected ? 'border-coral bg-selected/35' : 'border-border bg-paper',
+        selectable && !selected && 'hover:bg-selected/20',
       )}
     >
       <button
         type="button"
         onClick={onSelect}
-        disabled={busy || !installed}
+        disabled={!selectable}
         className={cn(
           'flex w-full items-center justify-between text-left',
-          installed && !busy ? 'cursor-pointer' : 'cursor-default',
+          selectable
+            ? 'cursor-pointer before:absolute before:inset-0 before:rounded-[14px] before:content-[""]'
+            : 'cursor-default',
         )}
       >
         <span className="flex items-center gap-2">
@@ -74,7 +85,7 @@ function RuntimeCard({
         {selected && <Check className="h-4 w-4 text-coral" />}
       </button>
       {installed ? (
-        <span className="font-mono text-[11px] text-faint">
+        <span className="pointer-events-none font-mono text-[11px] text-faint">
           {runtime.version ?? t('onboarding.setup.installed', 'installed')}
         </span>
       ) : INSTALLABLE_RUNTIMES.has(runtime.id) ? (
@@ -82,7 +93,7 @@ function RuntimeCard({
           type="button"
           disabled={busy}
           onClick={onInstall}
-          className="inline-flex items-center gap-1.5 rounded-[6px] text-[11.5px] text-coral hover:underline disabled:opacity-50"
+          className="relative inline-flex items-center gap-1.5 rounded-[6px] text-[11.5px] text-coral hover:underline disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
           {t('onboarding.setup.install', 'Install')}
