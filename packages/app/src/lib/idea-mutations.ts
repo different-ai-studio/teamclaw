@@ -1,4 +1,5 @@
 import { getBackend } from '@/lib/backend'
+import { useCurrentTeamStore } from '@/stores/current-team'
 
 export type IdeaStatus = 'open' | 'in_progress' | 'done'
 
@@ -67,9 +68,33 @@ export async function updateIdea(ideaId: string, input: IdeaUpdateInput): Promis
   })
 }
 
+/**
+ * POST /v1/ideas/:id/activities requires the author's member actor id — the
+ * server does not derive it from the bearer token. Normally that is the
+ * current-team store's `currentMember`; when the store has not resolved yet,
+ * fall back to resolving against the idea's own team.
+ */
+async function resolveActivityActorId(ideaId: string): Promise<string> {
+  const member = useCurrentTeamStore.getState().currentMember
+  if (member?.id) return member.id
+  const backend = getBackend()
+  const session = await backend.auth.getSession()
+  const userId = session?.user.id
+  if (userId) {
+    const idea = await backend.ideas.getIdeaDetail(ideaId)
+    if (idea?.team_id) {
+      const resolved = await backend.directory.getCurrentTeamMember(idea.team_id, userId)
+      if (resolved?.id) return resolved.id
+    }
+  }
+  throw new Error('member actor not found for current user')
+}
+
 export async function createIdeaActivity(ideaId: string, input: IdeaActivityInput): Promise<void> {
+  const actorId = await resolveActivityActorId(ideaId)
   await getBackend().ideas.createIdeaActivity({
     ideaId,
+    actorId,
     activityType: input.activityType,
     content: input.content,
     metadata: input.metadata ?? {},

@@ -4,9 +4,15 @@ import { createIdeaActivity, updateIdea, updateIdeaStatus, renameIdea } from '..
 const getIdeaDetailMock = vi.fn()
 const updateIdeaMock = vi.fn()
 const createIdeaActivityMock = vi.fn()
+const getSessionMock = vi.fn()
+const getCurrentTeamMemberMock = vi.fn()
+
+let currentMemberState: { id: string } | null = null
 
 vi.mock('@/lib/backend', () => ({
   getBackend: () => ({
+    auth: { getSession: getSessionMock },
+    directory: { getCurrentTeamMember: getCurrentTeamMemberMock },
     ideas: {
       getIdeaDetail: getIdeaDetailMock,
       updateIdea: updateIdeaMock,
@@ -15,10 +21,19 @@ vi.mock('@/lib/backend', () => ({
   }),
 }))
 
+vi.mock('@/stores/current-team', () => ({
+  useCurrentTeamStore: {
+    getState: () => ({ currentMember: currentMemberState }),
+  },
+}))
+
 beforeEach(() => {
   getIdeaDetailMock.mockReset()
   updateIdeaMock.mockReset()
   createIdeaActivityMock.mockReset()
+  getSessionMock.mockReset()
+  getCurrentTeamMemberMock.mockReset()
+  currentMemberState = { id: 'actor-1' }
   updateIdeaMock.mockResolvedValue(undefined)
   createIdeaActivityMock.mockResolvedValue(undefined)
 })
@@ -92,7 +107,7 @@ describe('updateIdea', () => {
 })
 
 describe('createIdeaActivity', () => {
-  it('calls create_idea_activity with progress content', async () => {
+  it('posts with the current member actor id', async () => {
     await createIdeaActivity('idea-1', {
       activityType: 'progress',
       content: 'shipped first pass',
@@ -100,9 +115,41 @@ describe('createIdeaActivity', () => {
 
     expect(createIdeaActivityMock).toHaveBeenCalledWith({
       ideaId: 'idea-1',
+      actorId: 'actor-1',
       activityType: 'progress',
       content: 'shipped first pass',
       metadata: {},
     })
+  })
+
+  it('falls back to resolving the actor via the idea team when the store is empty', async () => {
+    currentMemberState = null
+    getSessionMock.mockResolvedValue({ user: { id: 'u-1' } })
+    getIdeaDetailMock.mockResolvedValue({ team_id: 'team-1' })
+    getCurrentTeamMemberMock.mockResolvedValue({ id: 'actor-2' })
+
+    await createIdeaActivity('idea-1', {
+      activityType: 'progress',
+      content: 'note',
+    })
+
+    expect(getCurrentTeamMemberMock).toHaveBeenCalledWith('team-1', 'u-1')
+    expect(createIdeaActivityMock).toHaveBeenCalledWith({
+      ideaId: 'idea-1',
+      actorId: 'actor-2',
+      activityType: 'progress',
+      content: 'note',
+      metadata: {},
+    })
+  })
+
+  it('throws without posting when no member actor can be resolved', async () => {
+    currentMemberState = null
+    getSessionMock.mockResolvedValue(null)
+
+    await expect(
+      createIdeaActivity('idea-1', { activityType: 'progress', content: 'note' }),
+    ).rejects.toThrow('member actor not found')
+    expect(createIdeaActivityMock).not.toHaveBeenCalled()
   })
 })
