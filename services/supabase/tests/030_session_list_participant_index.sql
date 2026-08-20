@@ -20,9 +20,10 @@ select has_function(
     'timestamp with time zone',
     'timestamp with time zone',
     'uuid',
-    'uuid'
+    'uuid',
+    'text'
   ],
-  'session list RPC retains its six-argument contract'
+  'session list RPC exposes the session-kind filter'
 );
 
 select * from finish();

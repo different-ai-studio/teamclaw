@@ -20,8 +20,27 @@ export function registerSessions(router) {
     const cursor = decodeCursor(ctx.query.get("cursor"));
     const teamId = requireString(ctx.query.get("teamId"), "teamId");
     const ideaId = ctx.query.get("ideaId") || null;
-    const items = await ctx.repository.listSessions({ limit, cursor, teamId, ideaId });
-    return { body: { items, nextCursor: nextSessionCursor(items, limit) } };
+    const kind = ctx.query.get("kind") || "all";
+    if (!["all", "regular", "cron"].includes(kind)) {
+      throw new ApiError(400, "validation_failed", "kind must be all, regular, or cron");
+    }
+    // Fetch one sentinel row so an exactly-full terminal page does not expose
+    // a dead "Load more" cursor. The sentinel is never returned to clients.
+    const fetched = await ctx.repository.listSessions({
+      limit: limit + 1,
+      cursor,
+      teamId,
+      ideaId,
+      kind,
+    });
+    const hasMore = fetched.length > limit;
+    const items = fetched.slice(0, limit);
+    return {
+      body: {
+        items,
+        nextCursor: hasMore ? nextSessionCursor(items, limit) : null,
+      },
+    };
   });
 
   router.post("/v1/sessions", async (ctx) => {

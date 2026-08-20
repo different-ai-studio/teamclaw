@@ -472,6 +472,15 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: kind
+          in: query
+          description: >-
+            Session type to paginate. The filter is applied before LIMIT so
+            regular and scheduled sessions have independent page boundaries.
+          schema:
+            type: string
+            enum: [all, regular, cron]
+            default: all
       responses:
         "200":
           description: Current actor sessions.

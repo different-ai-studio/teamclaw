@@ -30,8 +30,8 @@ select has_index('amux', 'messages', 'messages_session_created_idx',
 select has_function(
   'amux',
   'list_current_actor_sessions',
-  array['uuid', 'integer', 'timestamp with time zone', 'timestamp with time zone', 'uuid', 'uuid'],
-  'list_current_actor_sessions(team, limit, keyset…, idea) exists'
+  array['uuid', 'integer', 'timestamp with time zone', 'timestamp with time zone', 'uuid', 'uuid', 'text'],
+  'list_current_actor_sessions(team, limit, keyset…, idea, kind) exists'
 );
 select has_function('amux', 'mark_current_actor_session_viewed', array['uuid', 'uuid'],
                     'mark_current_actor_session_viewed(session, message) exists');

@@ -1178,7 +1178,7 @@ export function createSupabaseBusinessRepository(options) {
       };
     },
 
-    async listSessions({ limit = 50, cursor = null, teamId = null, ideaId = null }: any = {}) {
+    async listSessions({ limit = 50, cursor = null, teamId = null, ideaId = null, kind = "all" }: any = {}) {
       // p_team_id is what resolves the caller's actor as of 20260804020000,
       // since a user has one actor row per team. It is also load-bearing for
       // performance: only the team-scoped RPC can walk
@@ -1201,6 +1201,7 @@ export function createSupabaseBusinessRepository(options) {
         // and is what lets this replace GET /v1/teams/:teamId/sessions.
         p_team_id: teamId,
         p_idea_id: ideaId ?? null,
+        p_kind: kind,
       });
       if (error) throw error;
       return (data ?? []).map(mapSession);

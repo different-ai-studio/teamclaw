@@ -223,7 +223,6 @@ export function SessionListColumn({
   // last_message_preview, idea_id — no extra Supabase round-trip needed.
   const listRows = useSessionListStore((s) => s.rows)
   const listLoading = useSessionListStore((s) => s.loading)
-  const listHasMore = useSessionListStore((s) => s.hasMore)
   const loadMoreSessions = useSessionListStore((s) => s.loadMore)
 
   // Activity badges: useSessionListActivityMap (legacy + v2 ACP permissions).
@@ -237,6 +236,9 @@ export function SessionListColumn({
   const cronSessionIds = useCronStore((s) => s.cronSessionIds)
   const showCronSessions = useCronStore((s) => s.showCronSessions)
   const toggleShowCronSessions = useCronStore((s) => s.toggleShowCronSessions)
+  const listHasMore = useSessionListStore((s) =>
+    showCronSessions ? s.cronHasMore : s.regularHasMore,
+  )
 
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const hasWorkspace = !!workspacePath
@@ -1043,12 +1045,9 @@ export function SessionListColumn({
               )}
               disabled={!sessionHeaderActionsEnabled}
               onClick={() => {
-                // When switching *into* the scheduled-sessions view, refresh the
-                // session list once so newly-created cron runs show up.
-                if (!showCronSessions) {
-                  void useSessionListStore.getState().loadFirstPage()
-                }
+                const nextKind = showCronSessions ? 'regular' : 'cron'
                 toggleShowCronSessions()
+                void useSessionListStore.getState().loadFirstPage(50, nextKind)
               }}
               title={showCronSessions ? t('sidebar.showAllSessions', 'Show all sessions') : t('sidebar.showCronSessions', 'Show scheduled sessions')}
             >

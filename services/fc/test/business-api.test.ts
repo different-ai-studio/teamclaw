@@ -15,6 +15,7 @@ test("handleBusinessApiRequest routes list sessions with bearer-scoped repositor
     sessions: [
       session("s1", "2026-05-27T01:00:00Z"),
       session("s2", "2026-05-27T00:00:00Z"),
+      session("s3", "2026-05-26T23:00:00Z"),
     ],
   });
   const createCalls = [];
@@ -47,12 +48,32 @@ test("handleBusinessApiRequest routes list sessions with bearer-scoped repositor
   assert.deepEqual(repo.calls[0], {
     method: "listSessions",
     args: {
-      limit: 2,
+      limit: 3,
       cursor: null,
       teamId: "team-1",
       ideaId: null,
+      kind: "all",
     },
   });
+});
+
+test("GET /v1/sessions does not return a cursor for an exactly-full terminal page", async () => {
+  const repo = fakeRepo({
+    sessions: [
+      session("s1", "2026-05-27T01:00:00Z"),
+      session("s2", "2026-05-27T00:00:00Z"),
+    ],
+  });
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions",
+    headers: { Authorization: "Bearer token" },
+    queryParameters: { teamId: "team-1", limit: "2", kind: "regular" },
+  }, { createRepository: () => repo });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body).nextCursor, null);
+  assert.equal(repo.calls[0].args.limit, 3, "one sentinel row is requested");
 });
 
 test("list sessions decodes cursor before calling repository", async () => {
@@ -968,14 +989,14 @@ test("GET /v1/sessions narrows by teamId and ideaId server-side", async () => {
   const response = await handleBusinessApiRequest({
     httpMethod: "GET",
     path: "/v1/sessions",
-    queryParameters: { teamId: "team-1", ideaId: "idea-1", limit: "25" },
+    queryParameters: { teamId: "team-1", ideaId: "idea-1", kind: "regular", limit: "25" },
     headers: { Authorization: "Bearer token" },
   }, { createRepository: () => repo });
 
   assert.equal(response.statusCode, 200);
   assert.deepEqual(repo.calls[0], {
     method: "listSessions",
-    args: { limit: 25, cursor: null, teamId: "team-1", ideaId: "idea-1" },
+    args: { limit: 26, cursor: null, teamId: "team-1", ideaId: "idea-1", kind: "regular" },
   });
 });
 
@@ -1015,8 +1036,21 @@ test("GET /v1/sessions leaves ideaId null when not supplied", async () => {
   assert.equal(response.statusCode, 200);
   assert.deepEqual(repo.calls[0], {
     method: "listSessions",
-    args: { limit: 50, cursor: null, teamId: "team-1", ideaId: null },
+    args: { limit: 51, cursor: null, teamId: "team-1", ideaId: null, kind: "all" },
   });
+});
+
+test("GET /v1/sessions rejects an unknown session kind", async () => {
+  const repo = fakeRepo();
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions",
+    headers: { Authorization: "Bearer token" },
+    queryParameters: { teamId: "team-1", kind: "scheduled-ish" },
+  }, { createRepository: () => repo });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(repo.calls.length, 0);
 });
 
 

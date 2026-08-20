@@ -88,6 +88,7 @@ export function createSessionsModule(client: CloudApiClient): SessionsBackend {
       limit: number;
       cursor: SessionListCursor | null;
       teamId: string;
+      kind?: "all" | "regular" | "cron";
     }): Promise<SessionListPage> {
       // Without this an undefined teamId serializes to the literal string
       // "undefined", which sails past the server's truthiness check and reaches
@@ -97,6 +98,7 @@ export function createSessionsModule(client: CloudApiClient): SessionsBackend {
       const params = new URLSearchParams({
         limit: String(args.limit),
         teamId,
+        kind: args.kind ?? "all",
       });
       if (args.cursor) params.set("cursor", encodeCursor(args.cursor));
       const page = await client.get<Page<CloudSession>>(`/v1/sessions?${params.toString()}`);

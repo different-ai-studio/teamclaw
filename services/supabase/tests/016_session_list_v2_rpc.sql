@@ -1,6 +1,6 @@
 begin;
 
-select plan(9);
+select plan(11);
 
 -- The three-argument forms are deliberate. pgTAP overloads these on
 -- (schema, object) AND (object, description), and two untyped literals resolve
@@ -17,7 +17,7 @@ select has_index('amux', 'sessions', 'sessions_team_last_message_idx',
 select has_function(
   'amux',
   'list_current_actor_sessions',
-  array['uuid', 'integer', 'timestamp with time zone', 'timestamp with time zone', 'uuid', 'uuid']
+  array['uuid', 'integer', 'timestamp with time zone', 'timestamp with time zone', 'uuid', 'uuid', 'text']
 );
 select has_function('amux', 'mark_current_actor_session_viewed', array['uuid', 'uuid']);
 
@@ -128,6 +128,10 @@ values
   ('51000000-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000001', 'member'),
   ('51000000-0000-0000-0000-000000000004', '11000000-0000-0000-0000-000000000002', 'member');
 
+update amux.sessions
+set source = 'cron', cron_job_id = 'fixture-cron'
+where id = '51000000-0000-0000-0000-000000000003';
+
 -- team_id became NOT NULL on this table in 20260804020000 so its policies can
 -- resolve the caller per team.
 insert into amux.session_read_markers (
@@ -151,6 +155,24 @@ select is(
   (select count(*)::int from amux.list_current_actor_sessions('01000000-0000-0000-0000-000000000001', 50, null, null, null)),
   3,
   'list_current_actor_sessions returns only current actor participant sessions'
+);
+
+select is(
+  (select count(*)::int from amux.list_current_actor_sessions(
+    p_team_id => '01000000-0000-0000-0000-000000000001',
+    p_kind => 'regular'
+  )),
+  2,
+  'regular sessions are filtered before pagination'
+);
+
+select is(
+  (select count(*)::int from amux.list_current_actor_sessions(
+    p_team_id => '01000000-0000-0000-0000-000000000001',
+    p_kind => 'cron'
+  )),
+  1,
+  'cron sessions have an independent page'
 );
 
 select ok(
