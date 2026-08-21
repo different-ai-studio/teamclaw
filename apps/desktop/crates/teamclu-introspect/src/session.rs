@@ -47,7 +47,7 @@ fn resolve_scheme(arguments: &Value) -> Result<String, String> {
     Ok(scheme)
 }
 
-fn resolve_session_id(workspace: &str, arguments: &Value) -> Result<String, String> {
+pub(crate) fn resolve_session_id(workspace: &str, arguments: &Value) -> Result<String, String> {
     if let Some(id) = arguments
         .get("session_id")
         .and_then(|v| v.as_str())
