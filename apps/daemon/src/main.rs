@@ -109,7 +109,19 @@ fn main() -> anyhow::Result<()> {
                             // Without its own directive the gateway crate matches
                             // nothing and every warn! it emits — inbound attachment
                             // failures included — is discarded before it reaches a file.
-                            .add_directive("teamclu_gateway=info".parse().unwrap()),
+                            .add_directive("teamclu_gateway=info".parse().unwrap())
+                            // Child-process output is emitted under its own target
+                            // (`warn!(target: "pi_rpc", ...)`), which matches none
+                            // of the directives above — and `from_default_env`
+                            // defaults to ERROR, so every one of these lines was
+                            // dropped in a packaged build. They are the ONLY record
+                            // of why a runtime child died: a pi host that fails to
+                            // boot writes its stack to stderr and nothing at all to
+                            // stdout.
+                            .add_directive("pi_rpc=info".parse().unwrap())
+                            .add_directive("opencode_serve=info".parse().unwrap())
+                            .add_directive("cursor_bridge=info".parse().unwrap())
+                            .add_directive("claude_bridge=info".parse().unwrap()),
                     )
                     .with(
                         tracing_subscriber::fmt::layer()
