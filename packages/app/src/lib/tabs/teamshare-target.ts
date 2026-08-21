@@ -12,6 +12,10 @@ export type TeamShareTarget =
   | { kind: 'env'; keyId: string }
   /** The compose surface for a new MCP server or env key. */
   | { kind: 'create'; section: 'mcp' | 'env' }
+  /** First-party skills marketplace browse view (design §10.2). */
+  | { kind: 'marketplace' }
+  /** One marketplace catalog item's detail view. */
+  | { kind: 'marketplace-item'; slug: string }
 
 /** @deprecated Team-share items now render in a single direct detail pane. */
 export type TeamShareTabTarget = TeamShareTarget
@@ -33,6 +37,12 @@ export function encodeTeamShareTarget(t: TeamShareTarget): string {
       return `${PREFIX}env/${t.keyId}`
     case 'create':
       return `${PREFIX}create/${t.section}`
+    // No id to carry, but the decoder requires a non-empty body after the
+    // kind — a placeholder segment, never inspected on decode.
+    case 'marketplace':
+      return `${PREFIX}marketplace/_`
+    case 'marketplace-item':
+      return `${PREFIX}marketplace-item/${t.slug}`
   }
 }
 
@@ -68,6 +78,10 @@ export function decodeTeamShareTarget(target: string): TeamShareTarget | null {
       return { kind: 'env', keyId: rest }
     case 'create':
       return rest === 'mcp' || rest === 'env' ? { kind: 'create', section: rest } : null
+    case 'marketplace':
+      return { kind: 'marketplace' }
+    case 'marketplace-item':
+      return { kind: 'marketplace-item', slug: rest }
     default:
       return null
   }
@@ -124,6 +138,9 @@ export function teamShareSectionForTarget(
   if (target.kind === 'skill' || target.kind === 'skill-file') return 'skills'
   if (target.kind === 'mcp') return 'mcp'
   if (target.kind === 'env') return 'env'
+  // The marketplace lives under the Skills nav row — it is a second way into
+  // the same registry, not a section of its own.
+  if (target.kind === 'marketplace' || target.kind === 'marketplace-item') return 'skills'
   return target.section
 }
 

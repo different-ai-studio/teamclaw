@@ -35,9 +35,20 @@ create table if not exists team_skills (
   latest_version integer not null default 0,
   created_by uuid references actors(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Marketplace subscription columns (design 4.3). This bootstrap is a hand
+  -- kept copy of services/supabase/migrations/*, and the marketplace migration
+  -- added these without updating it, so every test in this file died on
+  -- 'column origin of relation team_skills does not exist' - taking the whole
+  -- team-skill write path out of coverage.
+  origin text not null default 'local',
+  upstream_slug text,
+  upstream_subscribed boolean not null default false,
+  upstream_detached_at timestamptz
 );
 create unique index if not exists uniq_team_skills_team_slug on team_skills (team_id, slug);
+create index if not exists idx_team_skills_upstream_slug_marketplace
+  on team_skills (upstream_slug) where origin = 'marketplace';
 
 create table if not exists team_skill_versions (
   id uuid primary key default gen_random_uuid(),
@@ -51,7 +62,12 @@ create table if not exists team_skill_versions (
   when_not_to_use text not null,
   requires jsonb,
   created_by uuid references actors(id) on delete set null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Where this version's package lives. Rows scoped to the marketplace resolve
+  -- through object_path and are deliberately absent from amuxc_blobs (4.1).
+  upstream_version integer,
+  blob_scope text not null default 'team',
+  object_path text
 );
 create unique index if not exists uniq_team_skill_version on team_skill_versions (skill_id, version);
 
@@ -180,4 +196,62 @@ test("someone outside the team still cannot touch it", async () => {
     () => outsider.deleteTeamSkill(team.id, "deploy-check"),
     (e: any) => e.statusCode === 403,
   );
+});
+
+/**
+ * Reverting a marketplace-adopted skill.
+ *
+ * Two defects lived here and they compound: the new version carried neither
+ * `blob_scope` nor `object_path`, so its download fell into the team-blob
+ * branch and 409'd forever (marketplace packages are deliberately absent from
+ * amuxc_blobs); and revert was the only team-skill write path without the
+ * detach guard, so the next lazy align read `upstream_version = null` as
+ * "upstream 0" and re-projected marketplace latest — erasing the revert on the
+ * very next list request, silently.
+ */
+test("revert on a subscribed marketplace skill keeps the blob and detaches", async () => {
+  const { db, team, ownerActor, memberRepo } = await scenario();
+  const [skillRow] = await db.execute(
+    `select id from team_skills where team_id = '${team.id}' and slug = 'deploy-check'`,
+  ).then((r: any) => r.rows ?? r);
+
+  // Make it look adopted-and-aligned: subscribed skill at v2, both versions
+  // marketplace-scoped, exactly as adopt + align would leave it.
+  await db.execute(
+    `update team_skills
+       set origin = 'marketplace', upstream_slug = 'deploy-check',
+           upstream_subscribed = true, latest_version = 2
+     where id = '${skillRow.id}'`,
+  );
+  await db.execute(
+    `update team_skill_versions
+       set blob_scope = 'marketplace', object_path = 'marketplace/blobs/sha256/aa/aa/${"a".repeat(64)}',
+           upstream_version = 1
+     where skill_id = '${skillRow.id}' and version = 1`,
+  );
+  await db.execute(
+    `insert into team_skill_versions
+       (skill_id, version, content_hash, size, changelog, summary, when_to_use,
+        when_not_to_use, created_by, blob_scope, object_path, upstream_version)
+     values ('${skillRow.id}', 2, '${"b".repeat(64)}', 20, 'upstream v2', 's', 'w',
+             'n', '${ownerActor!.id}',
+             'marketplace', 'marketplace/blobs/sha256/bb/bb/${"b".repeat(64)}', 2)`,
+  );
+
+  const reverted = await memberRepo.revertTeamSkillVersion(team.id, "deploy-check", 1);
+
+  assert.equal(reverted.version, 3);
+  // The package has to remain resolvable, which means the blob's home travels
+  // with the content it belongs to.
+  assert.equal(reverted.contentHash, "a".repeat(64));
+  const [v3] = await db.execute(
+    `select blob_scope, object_path, upstream_version from team_skill_versions
+      where skill_id = '${skillRow.id}' and version = 3`,
+  ).then((r: any) => r.rows ?? r);
+  assert.equal(v3.blob_scope, "marketplace");
+  assert.equal(v3.object_path, `marketplace/blobs/sha256/aa/aa/${"a".repeat(64)}`);
+
+  // And the subscription is off, so nothing overwrites the revert.
+  const after = await memberRepo.getTeamSkill(team.id, "deploy-check");
+  assert.equal(after.upstreamSubscribed, false);
 });

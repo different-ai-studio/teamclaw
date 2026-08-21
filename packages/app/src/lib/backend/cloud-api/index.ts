@@ -20,6 +20,7 @@ import { createTelemetryModule } from "./telemetry";
 import { createSyncModule } from "./sync";
 import { createSystemModule } from "./system";
 import { createTeamSkillsModule } from "./team-skills";
+import { createMarketplaceModule } from "./marketplace";
 import { createTeamMcpModule } from "./team-mcp";
 import { createTeamEnvSecretsModule } from "./team-env-secrets";
 
@@ -60,6 +61,7 @@ export function createCloudApiBackend(
     sync: createSyncModule(client),
     system: createSystemModule(client),
     teamSkills: createTeamSkillsModule(client),
+    marketplace: createMarketplaceModule(client),
     teamMcp: createTeamMcpModule(client),
     teamEnvSecrets: createTeamEnvSecretsModule(client),
   };

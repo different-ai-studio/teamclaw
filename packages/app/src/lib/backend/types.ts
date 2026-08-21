@@ -1,4 +1,5 @@
 import type { TeamSkillsBackend } from "./cloud-api/team-skills";
+import type { MarketplaceBackend } from "./cloud-api/marketplace";
 import type { TeamMcpBackend } from "./cloud-api/team-mcp";
 import type { TeamEnvSecretsBackend } from "./cloud-api/team-env-secrets";
 import type { OAuthProvider } from "@/lib/auth";
@@ -1066,6 +1067,7 @@ export interface TeamCluBackend {
   telemetry: TelemetryBackend;
   system: SystemBackend;
   teamSkills: TeamSkillsBackend;
+  marketplace: MarketplaceBackend;
   teamMcp: TeamMcpBackend;
   teamEnvSecrets: TeamEnvSecretsBackend;
 }

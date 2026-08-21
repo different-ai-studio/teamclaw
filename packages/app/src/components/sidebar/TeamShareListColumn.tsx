@@ -17,6 +17,7 @@ import {
   FolderPlus,
   RefreshCw,
   ChevronRight,
+  Store,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,6 +32,8 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useCurrentTeamStore } from '@/stores/current-team'
+import { getBackend } from '@/lib/backend/provider'
 import {
   createNewFile,
   createNewFolder,
@@ -217,6 +220,40 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const reconcileSkills = useTeamShareBrowserStore((s) => s.reconcileSkills)
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
   const setCreating = useTeamShareBrowserStore((s) => s.setCreating)
+  const openDetail = useTeamShareBrowserStore((s) => s.openDetail)
+  const currentTeamId = useCurrentTeamStore((s) => s.team?.id ?? null)
+  const [marketplaceAvailable, setMarketplaceAvailable] = React.useState(false)
+
+  /**
+   * Whether to show the "browse marketplace" button at all (design §10.1: a
+   * deployment with no catalog hides the entry rather than offering an empty
+   * one).
+   *
+   * Asks for one row, not the catalog. This used to pull the full listing —
+   * up to 100 rows, plus a requireActorForTeam and a team_skills adoption scan
+   * server-side — on every switch into the Skills section, then throw all of
+   * it away except `length > 0`, while MarketplacePane fetched the same list
+   * again the moment it opened.
+   *
+   * The team id is read reactively; the old `useCurrentTeamStore.getState()`
+   * with deps `[section]` left the button computed for the previous team after
+   * a team switch.
+   */
+  React.useEffect(() => {
+    if (section !== 'skills') return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const items = await getBackend().marketplace.listMarketplaceSkills({ limit: 1 })
+        if (!cancelled) setMarketplaceAvailable(items.length > 0)
+      } catch {
+        if (!cancelled) setMarketplaceAvailable(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [section, currentTeamId])
 
   // Which skill packages are showing their files, and which one is being added
   // to. View state, not persisted: it says nothing about the skill itself.
@@ -631,6 +668,24 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          {section === 'skills' && marketplaceAvailable ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'h-7 w-7 text-muted-foreground hover:text-foreground',
+                (detailTarget?.kind === 'marketplace' ||
+                  detailTarget?.kind === 'marketplace-item') &&
+                  'bg-selected text-foreground',
+              )}
+              onClick={() => openDetail({ kind: 'marketplace' })}
+              title={t('teamShare.browseMarketplace', '浏览市场')}
+              data-testid="teamshare-marketplace"
+            >
+              <Store className="h-4 w-4" />
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="ghost"

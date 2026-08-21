@@ -69,6 +69,7 @@
     "release:bump": "node scripts/bump-desktop-version.mjs",
     "release:preflight": "./scripts/preflight-desktop-release.sh",
     "release:desktop": "./scripts/release-desktop.sh",
+    "marketplace:publish": "node scripts/marketplace-publish.mjs",
     "ship": "./scripts/ship-pr.sh"
   },
   "devDependencies": {

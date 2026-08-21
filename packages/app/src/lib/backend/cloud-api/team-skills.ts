@@ -51,6 +51,10 @@ export interface TeamSkill {
   createdBy: string;
   createdAt: string | null;
   updatedAt: string | null;
+  origin?: "local" | "marketplace";
+  upstreamSlug?: string | null;
+  upstreamSubscribed?: boolean;
+  upstreamDetachedAt?: string | null;
   installed: boolean;
   installedVersion: number | null;
   installScope: "global" | "workspace" | null;
