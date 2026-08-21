@@ -5,6 +5,7 @@ mod cron;
 mod env_vars;
 mod knowledge;
 mod mcp;
+mod participants;
 mod roles;
 mod send;
 mod session;
@@ -340,6 +341,33 @@ fn tool_definitions() -> Value {
             }
         },
         {
+            "name": "manage_participants",
+            "description": "Read the roster of a TeamClu session, and pull people into it or take them out. Requires the desktop app to be running and the user to be signed in. When session_id is omitted, acts on the current TeamClu session (TEAMCLU_SESSION_ID env or workspace .teamclu/active-session-id). Actions: 'list' (the full roster, people and agents), 'list_candidates' (people who can be added, excluding those already present), 'add', 'remove'. add/remove handle HUMAN MEMBERS ONLY — agents are joined from the app's session member sheet, which also starts their runtime; asking for one here is refused rather than half-done. Adding someone makes the session, including its history, visible to them, so the target is never guessed: pass actor_id, or a name that matches exactly one person. A name matching none or several comes back as the candidate list instead of a write.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "list_candidates", "add", "remove"],
+                        "description": "What to do with the roster."
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Cloud session UUID. Optional — omit to act on the current TeamClu session."
+                    },
+                    "actor_id": {
+                        "type": "string",
+                        "description": "Actor UUID to add or remove. Use this when you have the id from 'list' or 'list_candidates'."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Display name to add or remove, as an alternative to actor_id. Must match exactly one actor in the team; otherwise the candidate list is returned and nothing is written."
+                    }
+                },
+                "required": ["action"]
+            }
+        },
+        {
             "name": "archive_session",
             "description": "Archive a TeamClu cloud session (soft-hide from the active session list). Requires the desktop app to be running and the user to be signed in. When session_id is omitted, archives the current TeamClu session (TEAMCLU_SESSION_ID env or workspace .teamclu/active-session-id).",
             "inputSchema": {
@@ -525,6 +553,15 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
                     }
                     Err(e) => tool_err(&e),
                 },
+                "manage_participants" => {
+                    match participants::handle(workspace, api_port, &arguments).await {
+                        Ok(v) => {
+                            let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                            tool_ok(&text)
+                        }
+                        Err(e) => tool_err(&e),
+                    }
+                }
                 "archive_session" => {
                     match session::archive(workspace, api_port, &arguments).await {
                         Ok(v) => {

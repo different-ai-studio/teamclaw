@@ -17,6 +17,10 @@ use tracing::{info, warn};
 const INTROSPECT_API_PORT: u16 = 13144;
 const TEAM_SKILLS_PATH: &str = "teamclu-team/skills";
 const REMOTE_TOOLS_MCP_SERVER_NAME: &str = "amuxd-remote-tools";
+
+/// Inherent MCP servers that older builds wrote into workspace configs under a
+/// name this build no longer maintains. Removed on sight — see the call site.
+const LEGACY_MCP_NAMES: &[&str] = &["teamclaw-introspect"];
 const INSTRUCTION_PLUGIN_TEMPLATE: &str = include_str!(
     "../../../../packages/app/src/lib/opencode/templates/teamclu-instruction-plugin.mjs.txt"
 );
@@ -159,6 +163,24 @@ fn mutate_inherent_mcp(
     for name in device_names {
         mcp_obj.remove(&name);
         changed = true;
+    }
+
+    // Renamed inherent servers. The 2026-08-09 teamclaw→teamclu rename changed
+    // the sidecar's binary name; the entries already written into every
+    // workspace kept the old name AND an absolute path into the app bundle, and
+    // nothing owned them afterwards: `is_device_scoped` does not list them and
+    // the introspect self-heal below matches the new name only. Under opencode
+    // a dead server is merely ignored, so they sat there until someone switched
+    // to pi — where the extension's bridge spawn took the whole runtime down.
+    for name in LEGACY_MCP_NAMES {
+        if mcp_obj.remove(*name).is_some() {
+            info!(
+                workspace = %workspace_path.display(),
+                server = name,
+                "dropping renamed inherent MCP entry from workspace config"
+            );
+            changed = true;
+        }
     }
 
     ensure_extended_inherent_config(workspace_path, config, &mut changed)?;
@@ -2442,5 +2464,39 @@ mod tests {
                 .unwrap_or(false)
         }));
         assert!(crate::runtime::instruction_plugin_installed(dir.path()));
+    }
+
+    #[test]
+    fn prepare_workspace_drops_renamed_inherent_mcp_entry() {
+        // A workspace written before the 2026-08-09 teamclaw→teamclu rename
+        // carries `teamclaw-introspect` with an absolute path into an app
+        // bundle that no longer ships that binary. Nothing owned the old name
+        // afterwards, and under pi the extension's bridge spawn took the whole
+        // runtime down with it, so every session in the workspace failed with
+        // "process exited before responding".
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("opencode.json"),
+            r#"{"mcp":{"teamclaw-introspect":{"type":"local","enabled":true,
+                 "command":["/Applications/Old.app/Contents/MacOS/teamclaw-introspect"]},
+                 "user-server":{"type":"local","enabled":true,"command":["npx","-y","x"]}}}"#,
+        )
+        .unwrap();
+
+        prepare_workspace(dir.path()).unwrap();
+
+        let cfg: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("opencode.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            cfg["mcp"].get("teamclaw-introspect").is_none(),
+            "the renamed inherent entry must be dropped"
+        );
+        assert!(
+            cfg["mcp"].get("user-server").is_some(),
+            "a user's own server must survive the migration"
+        );
     }
 }

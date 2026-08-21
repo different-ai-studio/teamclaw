@@ -228,6 +228,24 @@ fn remote_tools_cmd_from_mcp_config(path: &Path) -> Option<String> {
 /// Excluded: disabled servers, non-`local` (remote/url) servers the stdio bridge
 /// can't spawn, and `amuxd-remote-tools` (already bridged via
 /// `TEAMCLU_REMOTE_TOOLS_CMD`).
+/// The `command[0]` of an MCP server entry when it names a path that does not
+/// exist on this machine.
+///
+/// Only *paths* are checked. A bare name (`npx`, `uvx`, `node`) is resolved by
+/// the OS through the child's enriched PATH, which this process cannot
+/// faithfully reproduce, so second-guessing it here would drop servers that
+/// work fine.
+fn missing_command_path(command: &[serde_json::Value]) -> Option<String> {
+    let first = command.first()?.as_str()?;
+    if !first.contains(std::path::MAIN_SEPARATOR) {
+        return None;
+    }
+    if Path::new(first).exists() {
+        return None;
+    }
+    Some(first.to_string())
+}
+
 fn mcp_servers_from_value(root: &serde_json::Value) -> Option<String> {
     let mcp = root.get("mcp")?.as_object()?;
     let mut out = serde_json::Map::new();
@@ -250,6 +268,19 @@ fn mcp_servers_from_value(root: &serde_json::Value) -> Option<String> {
             Some(c) if !c.is_empty() && c.iter().all(|a| a.is_string()) => c.clone(),
             _ => continue,
         };
+        if let Some(missing) = missing_command_path(&command) {
+            // A path that is not there cannot become a working bridge, and a
+            // whole workspace was once taken down by one of these: a leftover
+            // `teamclaw-introspect` entry from before the rename, pointing into
+            // an app bundle that no longer has that binary. Drop it here rather
+            // than hand pi a server it can only fail to spawn.
+            warn!(
+                server = %name,
+                path = %missing,
+                "MCP server command not found on this machine; not bridging it into pi"
+            );
+            continue;
+        }
         let mut entry = serde_json::Map::new();
         entry.insert("command".to_string(), serde_json::Value::Array(command));
         if let Some(env) = obj.get("environment").and_then(|v| v.as_object()) {
@@ -332,6 +363,21 @@ struct AttachArgs {
     force_env_override: bool,
 }
 
+/// Append the child's stderr tail to an establish failure.
+///
+/// A pi child that dies during startup answers nothing and prints nothing to
+/// stdout — the reason is on stderr and only there. Reporting the bare
+/// "process exited before responding" cost two people half a day each: the
+/// actual cause (an MCP bridge whose binary had been renamed) was one line
+/// away the whole time.
+fn with_stderr_tail(proc: &Arc<PiProcess>, error: String) -> String {
+    let tail = proc.stderr_tail();
+    if tail.trim().is_empty() {
+        return error;
+    }
+    format!("{error}\n--- pi stderr (last lines) ---\n{tail}")
+}
+
 /// The session a child established for us, mode-independently.
 struct EstablishedSession {
     acp_session_id: String,
@@ -372,12 +418,13 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
     let established = match proc.mode {
         PiSessionMode::Host => {
             host_establish_session(shared, &proc, resume_path, args.forbid_new_session_fallback)
-                .await?
+                .await
         }
         PiSessionMode::LegacyRpc => {
-            legacy_establish_session(&proc, resume_path, args.forbid_new_session_fallback).await?
+            legacy_establish_session(&proc, resume_path, args.forbid_new_session_fallback).await
         }
-    };
+    }
+    .map_err(|e| with_stderr_tail(&proc, e))?;
     let acp_session_id = established.acp_session_id.clone();
 
     // Model catalog + initial model.
@@ -1450,7 +1497,13 @@ impl AgentBackend for PiRpcBackend {
             remote_tools_cmd: None,
             mcp_servers: mcp_servers_from_opencode_json(&worktree),
         };
-        let proc = self.shared.pool.ensure_with_env(&self.shared, &key, env)?;
+        // `ensure_for_catalog`, never `ensure_with_env`: this env is missing
+        // fields the attach env has, so its fingerprint can never match and
+        // `ensure` would kill the session's child to spawn a probe one.
+        let proc = self
+            .shared
+            .pool
+            .ensure_for_catalog(&self.shared, &key, env)?;
         let resp = proc
             .client
             .request(serde_json::json!({"type": "get_available_models"}))
@@ -1624,5 +1677,40 @@ mod tests {
             result.is_err(),
             "expected spawn attempt to fail, got {result:?}"
         );
+    }
+
+    #[test]
+    fn dead_command_paths_are_not_bridged_into_pi() {
+        // A path that is not on this machine cannot become a working bridge —
+        // and one of them (a `teamclaw-introspect` entry left behind by the
+        // rename) took every pi session in a workspace down. Bare names are
+        // left alone: the child resolves those through its enriched PATH.
+        let root = serde_json::json!({
+            "mcp": {
+                "gone": {"type": "local", "enabled": true,
+                         "command": ["/no/such/path/teamclaw-introspect", "--workspace", "/w"]},
+                "bare": {"type": "local", "enabled": true,
+                         "command": ["npx", "-y", "@scope/server"]},
+            }
+        });
+        let payload = mcp_servers_from_value(&root).expect("bare server survives");
+        let parsed: serde_json::Value = serde_json::from_str(&payload).unwrap();
+        assert!(parsed.get("gone").is_none(), "dead path must be dropped");
+        assert!(parsed.get("bare").is_some(), "bare name must be kept");
+    }
+
+    #[test]
+    fn missing_command_path_only_judges_paths() {
+        let here = std::env::current_exe()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            missing_command_path(&[serde_json::json!("/no/such/path/x")]).as_deref(),
+            Some("/no/such/path/x")
+        );
+        assert_eq!(missing_command_path(&[serde_json::json!(here)]), None);
+        assert_eq!(missing_command_path(&[serde_json::json!("npx")]), None);
+        assert_eq!(missing_command_path(&[]), None);
     }
 }

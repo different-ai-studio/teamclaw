@@ -91,6 +91,13 @@ pub(crate) struct PiProcess {
     /// pass the busy check with the answer the first one already invalidated.
     pub(crate) switch_lock: tokio::sync::Mutex<()>,
     child: parking_lot::Mutex<tokio::process::Child>,
+    /// Last few stderr lines from this child, for error reporting.
+    ///
+    /// When a child dies during startup its stdout carries nothing at all —
+    /// node prints the reason (a bad extension, a bridge that could not spawn)
+    /// to stderr and exits. Without this the daemon could only report "process
+    /// exited before responding", which names the symptom and nothing else.
+    stderr_tail: Arc<parking_lot::Mutex<std::collections::VecDeque<String>>>,
     /// Fingerprint of what this child was spawned with (binary + mode + env).
     /// `ensure` respawns when it no longer matches the wanted spawn.
     env_fingerprint: String,
@@ -101,7 +108,18 @@ pub(crate) struct PiProcess {
     retired: std::sync::atomic::AtomicBool,
 }
 
+/// How many stderr lines to keep per child. Enough to carry a node stack trace
+/// without turning an error message into a log dump.
+const STDERR_TAIL_LINES: usize = 12;
+
 impl PiProcess {
+    /// The child's last stderr lines, newest last, as one string. Empty when it
+    /// said nothing.
+    pub(crate) fn stderr_tail(&self) -> String {
+        let tail = self.stderr_tail.lock();
+        tail.iter().cloned().collect::<Vec<_>>().join("\n")
+    }
+
     pub(crate) fn is_alive(&self) -> bool {
         matches!(self.child.lock().try_wait(), Ok(None))
     }
@@ -273,6 +291,33 @@ impl PiProcessPool {
         Ok(proc)
     }
 
+    /// Ensure a live child for a *catalog probe*, without ever replacing one.
+    ///
+    /// `model_catalog_for_context` builds its [`SpawnEnv`] from a trait method
+    /// that carries neither `force_env_override` nor the remote-tools command,
+    /// so a probe's env is a strictly poorer copy of the attach env for the
+    /// same key and the two fingerprints can never match. Routed through
+    /// [`Self::ensure`], every catalog publish therefore killed the child the
+    /// session had just attached to — and a probe landing while an attach was
+    /// mid-`new_session` surfaced as "pi new_session: process exited before
+    /// responding".
+    ///
+    /// A probe only needs *a* live child to ask for the model list, and the
+    /// catalog is host-level in both modes, so reusing whatever is already
+    /// running costs nothing. Only a cold key spawns, and the probe's env is
+    /// deliberately not recorded for the key: the next attach owns that.
+    pub(crate) fn ensure_for_catalog(
+        &self,
+        shared: &Arc<Shared>,
+        key: &PoolKey,
+        env: SpawnEnv,
+    ) -> crate::error::Result<Arc<PiProcess>> {
+        if let Some(p) = self.get(key) {
+            return Ok(p);
+        }
+        self.ensure_with_env(shared, key, env)
+    }
+
     /// Resolve what to spawn: binary + host/legacy mode. Read fresh per spawn
     /// so a config flip (`[agents.pi] session_host`) or a pi upgrade takes
     /// effect on the next respawn without a daemon restart.
@@ -429,10 +474,21 @@ impl PiProcessPool {
             .stdout
             .take()
             .ok_or_else(|| crate::error::AmuxError::Agent("pi stdout unavailable".into()))?;
+        let stderr_tail = Arc::new(parking_lot::Mutex::new(
+            std::collections::VecDeque::<String>::with_capacity(STDERR_TAIL_LINES),
+        ));
         if let Some(stderr) = child.stderr.take() {
+            let tail = Arc::clone(&stderr_tail);
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    {
+                        let mut tail = tail.lock();
+                        if tail.len() == STDERR_TAIL_LINES {
+                            tail.pop_front();
+                        }
+                        tail.push_back(line.clone());
+                    }
                     warn!(target: "pi_rpc", "{line}");
                 }
             });
@@ -449,6 +505,7 @@ impl PiProcessPool {
             child: parking_lot::Mutex::new(child),
             env_fingerprint: fingerprint,
             retired: std::sync::atomic::AtomicBool::new(false),
+            stderr_tail,
         });
         events::spawn_reader(
             Arc::clone(shared),
@@ -906,5 +963,134 @@ mod tests {
         assert_eq!(worktree_hash("/a/b"), worktree_hash("/a/b"));
         assert_ne!(worktree_hash("/a/b"), worktree_hash("/a/c"));
         assert_eq!(worktree_hash("/a/b").len(), 16);
+    }
+
+    /// A catalog probe and an attach land on the same [`PoolKey`] with
+    /// fingerprints that can never match: `model_catalog_for_context`
+    /// implements a trait method carrying neither `force_env_override` nor the
+    /// remote-tools command, while an attach passes the assembled spawn env
+    /// through, whose `force_env_override` is unconditionally true
+    /// (`runtime/env_assembly.rs`). This asserts the divergence rather than
+    /// wishing it away — it is why the probe must not go through `ensure`.
+    #[test]
+    fn probe_and_attach_fingerprints_diverge_by_construction() {
+        let pool = PiProcessPool::new();
+        let launch = ResolvedLaunch {
+            binary: "pi".into(),
+            mode: LaunchMode::LegacyRpc,
+        };
+        let extra_env = HashMap::from([("BASE_URL".to_string(), "https://gw".to_string())]);
+        let attach = SpawnEnv {
+            extra_env: extra_env.clone(),
+            force_env_override: true,
+            remote_tools_cmd: Some(r#"["amuxd","remote-tools-mcp"]"#.to_string()),
+            mcp_servers: None,
+        };
+        let probe = SpawnEnv {
+            extra_env,
+            force_env_override: false,
+            remote_tools_cmd: None,
+            mcp_servers: None,
+        };
+        assert_ne!(
+            pool.spawn_fingerprint(&attach, &launch),
+            pool.spawn_fingerprint(&probe, &launch),
+        );
+    }
+
+    /// The regression: a catalog probe on a key an attached session already
+    /// owns must reuse that child, never replace it. Before
+    /// [`PiProcessPool::ensure_for_catalog`] the probe went through `ensure`,
+    /// whose fingerprint check killed the session's child — and a probe landing
+    /// while an attach was mid-`new_session` reported "pi new_session: process
+    /// exited before responding".
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn catalog_probe_reuses_the_attached_session_child() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Hermetic home: spawning materializes the extension and the
+        // per-worktree permissions file under `cache/`.
+        let home = tempfile::tempdir().unwrap();
+        let _env = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(home.path());
+
+        // Stand-in for pi: stays alive, answers nothing. Enough to own a pool
+        // slot and to have a request in flight when it would be killed.
+        let bin_dir = tempfile::tempdir().unwrap();
+        let fake_pi = bin_dir.path().join("fake-pi");
+        std::fs::write(
+            &fake_pi,
+            "#!/bin/sh\necho 'fake-pi startup noise' >&2\ncat > /dev/null\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake_pi, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let worktree = tempfile::tempdir().unwrap();
+        let shared = super::Shared::new();
+        shared.pool.set_binary_hint(&fake_pi.to_string_lossy());
+        let key = PoolKey {
+            domain: IsolationDomainKey::Workspace("ws-1".into()),
+            env_revision: ProcessEnvRevision::from_bindings(&HashMap::new()),
+            worktree: worktree.path().to_string_lossy().into_owned(),
+        };
+
+        // 1. attach: assembled env => force_env_override = true.
+        let attached = shared
+            .pool
+            .ensure_with_env(
+                &shared,
+                &key,
+                SpawnEnv {
+                    force_env_override: true,
+                    ..Default::default()
+                },
+            )
+            .expect("attach spawn");
+        assert!(attached.is_alive(), "attach child is up");
+
+        // 2. a command in flight on it, exactly as `new_session` is mid-attach.
+        let client = attached.client.clone();
+        let in_flight = tokio::spawn(async move {
+            client
+                .request(serde_json::json!({"type":"new_session"}))
+                .await
+        });
+        // Poll rather than sleep a fixed span: spawning a shell and getting its
+        // first stderr line back takes longer than any constant is safe to
+        // assume on a loaded machine.
+        for _ in 0..100 {
+            if !attached.stderr_tail().is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(
+            attached.stderr_tail().contains("fake-pi startup noise"),
+            "stderr is captured for error reporting, got {:?}",
+            attached.stderr_tail()
+        );
+
+        // 3. the catalog probe: same key, poorer env.
+        let probed = shared
+            .pool
+            .ensure_for_catalog(&shared, &key, SpawnEnv::default())
+            .expect("probe");
+
+        assert!(
+            Arc::ptr_eq(&attached, &probed),
+            "the probe must reuse the attached session's child"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(
+            attached.is_alive(),
+            "the session's child survived the probe"
+        );
+        assert!(
+            !in_flight.is_finished(),
+            "the session's in-flight command was not killed"
+        );
+
+        in_flight.abort();
+        shared.pool.kill_all();
     }
 }

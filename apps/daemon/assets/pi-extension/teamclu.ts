@@ -149,6 +149,9 @@ class McpBridge {
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private buffer = "";
+  /** First fatal error seen (spawn failure or child exit). Once set, every
+   *  request fails immediately instead of writing to a dead pipe. */
+  private failure: Error | null = null;
 
   constructor(cmd: string[], env?: Record<string, string>) {
     this.child = spawn(cmd[0], cmd.slice(1), {
@@ -157,18 +160,34 @@ class McpBridge {
     });
     this.child.stdout!.setEncoding("utf8");
     this.child.stdout!.on("data", (chunk: string) => this.onData(chunk));
-    this.child.on("exit", () => {
-      const err = new Error("remote-tools MCP server exited");
-      for (const p of this.pending.values()) p.reject(err);
-      this.pending.clear();
+    // A ChildProcess "error" event with NO listener is an uncaught exception in
+    // node — it takes the whole pi process down, before `host_ready` and before
+    // any response. That is how one stale entry in the workspace MCP config (a
+    // renamed binary, an absolute path from another machine) turned every
+    // session in that workspace into "pi exited before responding". Bridging is
+    // best-effort by design (`bridgeMcpServer` catches and carries on); this
+    // listener is what lets that catch ever run.
+    this.child.on("error", (e: unknown) => {
+      this.fail(e instanceof Error ? e : new Error(String(e)));
     });
+    this.child.on("exit", (code, signal) => {
+      this.fail(
+        new Error(`MCP server "${cmd[0]}" exited (code=${code ?? "null"} signal=${signal ?? "null"})`),
+      );
+    });
+  }
+
+  /** Record the first fatal error and fail everything in flight. */
+  private fail(err: Error): void {
+    if (!this.failure) this.failure = err;
+    for (const p of this.pending.values()) p.reject(err);
+    this.pending.clear();
   }
 
   /** Kill the child and fail anything still in flight. Used when a server's
    *  command changed or it was removed from the config. */
   dispose(): void {
-    for (const p of this.pending.values()) p.reject(new Error("MCP bridge disposed"));
-    this.pending.clear();
+    this.fail(new Error("MCP bridge disposed"));
     try {
       this.child.kill();
     } catch {
@@ -198,6 +217,7 @@ class McpBridge {
   }
 
   request(method: string, params?: unknown, timeoutMs = 60_000): Promise<any> {
+    if (this.failure) return Promise.reject(this.failure);
     const id = this.nextId++;
     const payload = JSON.stringify({ jsonrpc: "2.0", id, method, params: params ?? {} });
     return new Promise((resolve, reject) => {
@@ -215,12 +235,25 @@ class McpBridge {
           reject(e);
         },
       });
-      this.child.stdin!.write(payload + "\n");
+      try {
+        this.child.stdin!.write(payload + "\n");
+      } catch (e) {
+        // Dead pipe (child already gone): reject rather than throw out of the
+        // executor, so the caller sees a normal bridge failure.
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
     });
   }
 
   notify(method: string, params?: unknown): void {
-    this.child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", method, params: params ?? {} }) + "\n");
+    if (this.failure) return;
+    try {
+      this.child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", method, params: params ?? {} }) + "\n");
+    } catch {
+      // Same as `request`: a dead bridge is not a fatal condition.
+    }
   }
 }
 

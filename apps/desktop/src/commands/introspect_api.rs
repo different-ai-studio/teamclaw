@@ -13,6 +13,7 @@
 //   POST /mcp-get           — fetch merged workspace MCP map (daemon)
 //   POST /mcp-put           — replace workspace MCP map (daemon)
 //   POST /session-archive   — archive a cloud session (PATCH archivedAt)
+//   POST /session-participants — list/add/remove a session's participants
 //   POST /session-export    — export session messages as opencode-compatible JSON
 //
 // Uses raw TCP + manual HTTP parsing to stay minimal (no axum state needed).
@@ -108,6 +109,9 @@ pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
                 ("POST", "/mcp-put") => handle_mcp_put(&app_clone, body_bytes).await,
                 ("POST", "/session-archive") => {
                     handle_session_archive(&app_clone, body_bytes).await
+                }
+                ("POST", "/session-participants") => {
+                    handle_session_participants(&app_clone, body_bytes).await
                 }
                 _ => Err(format!("Not found: {} {}", method, path)),
             };
@@ -717,39 +721,7 @@ async fn handle_session_archive(app: &AppHandle, body: &[u8]) -> Result<String, 
         .map(|s| s.to_string())
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
-    let body_token = v
-        .get("accessToken")
-        .or_else(|| v.get("access_token"))
-        .and_then(|x| x.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
-    let body_url = v
-        .get("cloudApiUrl")
-        .or_else(|| v.get("cloud_api_url"))
-        .and_then(|x| x.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.trim_end_matches('/').to_string());
-
-    let (access_token, cloud_api_url) = match (body_token, body_url) {
-        (Some(token), Some(url)) => (token, url),
-        (Some(token), None) => {
-            let url = super::oss_sync::get_fc_endpoint("");
-            (token, url)
-        }
-        (None, url_opt) => {
-            let bridge = app.state::<super::introspect_auth::IntrospectAuthState>();
-            let (token, bridged_url) = bridge.get().ok_or_else(|| {
-                "Not signed in: open TeamClu and sign in so archive_session can call the Cloud API."
-                    .to_string()
-            })?;
-            (token, url_opt.unwrap_or(bridged_url))
-        }
-    };
-
-    let endpoint = super::oss_sync::resolve_runtime_fc_endpoint(&cloud_api_url)?;
-    let fc = super::oss_sync::fc_client::FcClient::new(endpoint, access_token);
+    let fc = introspect_fc_client(app, &v, "archive_session").await?;
     let path = format!("/v1/sessions/{}", session_id);
     let patch = serde_json::json!({ "archivedAt": archived_at });
     fc.patch_json(&path, &patch)
@@ -779,6 +751,316 @@ async fn handle_session_archive(app: &AppHandle, body: &[u8]) -> Result<String, 
 /// Find the position of `\r\n\r\n` in `data`, returning the index of the first `\r`.
 fn find_double_crlf(data: &[u8]) -> Option<usize> {
     data.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+/// Cloud API client for an introspect tool call, on behalf of the signed-in user.
+///
+/// Body-supplied credentials win: the caller may be pointed at a different
+/// server than this desktop is. Otherwise the in-memory bridge the frontend
+/// pushes on sign-in — nothing is read from disk, and nothing here escalates
+/// past what the user themselves may do (RLS still decides).
+async fn introspect_fc_client(
+    app: &AppHandle,
+    v: &serde_json::Value,
+    tool: &str,
+) -> Result<super::oss_sync::fc_client::FcClient, String> {
+    let body_token = v
+        .get("accessToken")
+        .or_else(|| v.get("access_token"))
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let body_url = v
+        .get("cloudApiUrl")
+        .or_else(|| v.get("cloud_api_url"))
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_end_matches('/').to_string());
+
+    let (access_token, cloud_api_url) = match (body_token, body_url) {
+        (Some(token), Some(url)) => (token, url),
+        (Some(token), None) => {
+            let url = super::oss_sync::get_fc_endpoint("");
+            (token, url)
+        }
+        (None, url_opt) => {
+            let bridge = app.state::<super::introspect_auth::IntrospectAuthState>();
+            let (token, bridged_url) = bridge.get().ok_or_else(|| {
+                format!("Not signed in: open TeamClu and sign in so {tool} can call the Cloud API.")
+            })?;
+            (token, url_opt.unwrap_or(bridged_url))
+        }
+    };
+
+    let endpoint = super::oss_sync::resolve_runtime_fc_endpoint(&cloud_api_url)?;
+    Ok(super::oss_sync::fc_client::FcClient::new(
+        endpoint,
+        access_token,
+    ))
+}
+
+fn str_body_field(v: &serde_json::Value, snake: &str, camel: &str) -> Option<String> {
+    v.get(snake)
+        .or_else(|| v.get(camel))
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// One roster row, flattened for an agent to read.
+fn participant_brief(row: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "actor_id": row.get("actorId").and_then(|x| x.as_str()).unwrap_or_default(),
+        "name": row.get("displayName").and_then(|x| x.as_str()),
+        "actor_type": row.get("actorType").and_then(|x| x.as_str()),
+        "role": row.get("role").and_then(|x| x.as_str()),
+    })
+}
+
+fn actor_brief(row: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "actor_id": row.get("id").and_then(|x| x.as_str()).unwrap_or_default(),
+        "name": row.get("displayName").and_then(|x| x.as_str()),
+        "actor_type": row.get("kind").and_then(|x| x.as_str()),
+    })
+}
+
+/// Actors that can take part in a session at all — the filter the desktop's own
+/// member sheet applies before showing candidates.
+fn actor_is_participant_kind(row: &serde_json::Value) -> bool {
+    matches!(
+        row.get("kind").and_then(|x| x.as_str()),
+        Some("member") | Some("agent")
+    )
+}
+
+/// Actors this tool will add or remove: human members only.
+///
+/// Agents are deliberately out of scope. Adding one is only half of what the
+/// app's member sheet does — it goes on to resolve the agent's workspace, pick
+/// its backend and start a runtime (`SessionActorSheet.tsx`). Writing the
+/// participant row alone leaves the agent in the roster and mute, which reads
+/// as a broken agent rather than an unfinished step.
+fn actor_is_human_member(row: &serde_json::Value) -> bool {
+    row.get("kind").and_then(|x| x.as_str()) == Some("member")
+}
+
+/// Fail unless `actor_id` is a human member. Checked BEFORE any write, so a
+/// refusal never leaves a half-added agent behind.
+async fn ensure_human_member(
+    fc: &super::oss_sync::fc_client::FcClient,
+    actor_id: &str,
+    verb: &str,
+) -> Result<(), String> {
+    let actor = fc
+        .get_json(&format!("/v1/actors/{}", urlencoding::encode(actor_id)))
+        .await
+        .map_err(|e| format!("Cloud API actor lookup failed: {e}"))?;
+    if actor_is_human_member(&actor) {
+        return Ok(());
+    }
+    let kind = actor
+        .get("kind")
+        .and_then(|x| x.as_str())
+        .unwrap_or("unknown");
+    let name = actor
+        .get("displayName")
+        .and_then(|x| x.as_str())
+        .unwrap_or(actor_id);
+    Err(format!(
+        "{name} is a {kind}, not a human member — this tool only {verb}s people. Agents are added from the app's session member sheet, which also starts their runtime."
+    ))
+}
+
+fn items_of(v: &serde_json::Value) -> Vec<serde_json::Value> {
+    v.get("items")
+        .and_then(|x| x.as_array())
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The team the desktop is currently in — kept by the team-switch flow.
+///
+/// Not derived from the session: `GET /v1/sessions/{id}` is itself team-scoped
+/// (teamId is a required query param), so there is no team-free way to ask
+/// which team a session belongs to.
+async fn introspect_current_team(app: &AppHandle) -> Result<String, String> {
+    let cache = app.state::<crate::local_cache::commands::LocalCacheState>();
+    let team = cache.current_team_id.read().await.clone();
+    team.filter(|t| !t.is_empty())
+        .ok_or_else(|| "No current team: open TeamClu and select a team first.".to_string())
+}
+
+/// Resolve the `actor_id` / `name` argument to exactly one actor id.
+///
+/// A name is only accepted when it identifies one actor. Adding the wrong
+/// person hands them the session and its history — an effect no fuzzy match is
+/// worth — so zero or several matches come back as the candidate list and
+/// nothing is written.
+async fn resolve_participant_actor_id(
+    app: &AppHandle,
+    fc: &super::oss_sync::fc_client::FcClient,
+    v: &serde_json::Value,
+) -> Result<String, String> {
+    if let Some(id) = str_body_field(v, "actor_id", "actorId") {
+        return Ok(id);
+    }
+    let name = str_body_field(v, "name", "displayName")
+        .ok_or("Missing field: actor_id or name is required")?;
+    let team_id = introspect_current_team(app).await?;
+    let listing = fc
+        .get_json(&format!(
+            "/v1/teams/{}/actors?limit=500",
+            urlencoding::encode(&team_id)
+        ))
+        .await
+        .map_err(|e| format!("Cloud API actor list failed: {e}"))?;
+
+    let wanted = name.to_lowercase();
+    let addable: Vec<serde_json::Value> = items_of(&listing)
+        .into_iter()
+        .filter(actor_is_participant_kind)
+        .collect();
+    let matches: Vec<&serde_json::Value> = addable
+        .iter()
+        .filter(|a| {
+            a.get("displayName")
+                .and_then(|x| x.as_str())
+                .map(|n| n.trim().to_lowercase() == wanted)
+                .unwrap_or(false)
+        })
+        .collect();
+
+    match matches.len() {
+        1 => Ok(matches[0]
+            .get("id")
+            .and_then(|x| x.as_str())
+            .unwrap_or_default()
+            .to_string()),
+        0 => Err(format!(
+            "No actor named {:?} in this team. Candidates: {}",
+            name,
+            serde_json::Value::Array(addable.iter().map(actor_brief).collect())
+        )),
+        n => Err(format!(
+            "{:?} matches {} actors — pass actor_id instead. Matches: {}",
+            name,
+            n,
+            serde_json::Value::Array(matches.iter().map(|a| actor_brief(a)).collect())
+        )),
+    }
+}
+
+/// `manage_participants` — read or change a session's roster.
+///
+/// Every call runs with the signed-in user's bearer, so RLS is what decides
+/// whether an agent may pull someone in; this handler never escalates.
+async fn handle_session_participants(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    let action = str_body_field(&v, "action", "action").ok_or("Missing field: action")?;
+    let session_id =
+        str_body_field(&v, "session_id", "sessionId").ok_or("Missing field: session_id")?;
+    let fc = introspect_fc_client(app, &v, "manage_participants").await?;
+    let roster_path = format!(
+        "/v1/sessions/{}/participants",
+        urlencoding::encode(&session_id)
+    );
+
+    match action.as_str() {
+        "list" => {
+            let out = fc
+                .get_json(&roster_path)
+                .await
+                .map_err(|e| format!("Cloud API participant list failed: {e}"))?;
+            Ok(serde_json::json!({
+                "action": "list",
+                "session_id": session_id,
+                "participants": items_of(&out).iter().map(participant_brief).collect::<Vec<_>>(),
+            })
+            .to_string())
+        }
+        "list_candidates" => {
+            let team_id = introspect_current_team(app).await?;
+            let present = fc
+                .get_json(&roster_path)
+                .await
+                .map_err(|e| format!("Cloud API participant list failed: {e}"))?;
+            let present_ids: std::collections::HashSet<String> = items_of(&present)
+                .iter()
+                .filter_map(|r| {
+                    r.get("actorId")
+                        .and_then(|x| x.as_str())
+                        .map(str::to_string)
+                })
+                .collect();
+            let listing = fc
+                .get_json(&format!(
+                    "/v1/teams/{}/actors?limit=500",
+                    urlencoding::encode(&team_id)
+                ))
+                .await
+                .map_err(|e| format!("Cloud API actor list failed: {e}"))?;
+            let candidates: Vec<serde_json::Value> = items_of(&listing)
+                .iter()
+                .filter(|a| actor_is_human_member(a))
+                .filter(|a| {
+                    !a.get("id")
+                        .and_then(|x| x.as_str())
+                        .map(|id| present_ids.contains(id))
+                        .unwrap_or(false)
+                })
+                .map(actor_brief)
+                .collect();
+            Ok(serde_json::json!({
+                "action": "list_candidates",
+                "session_id": session_id,
+                "team_id": team_id,
+                "candidates": candidates,
+            })
+            .to_string())
+        }
+        "add" => {
+            let actor_id = resolve_participant_actor_id(app, &fc, &v).await?;
+            ensure_human_member(&fc, &actor_id, "add").await?;
+            fc.post_json(
+                &roster_path,
+                &serde_json::json!({ "actorId": actor_id, "role": "member" }),
+            )
+            .await
+            .map_err(|e| format!("Cloud API add participant failed: {e}"))?;
+            Ok(serde_json::json!({
+                "ok": true, "action": "add",
+                "session_id": session_id, "actor_id": actor_id,
+            })
+            .to_string())
+        }
+        "remove" => {
+            let actor_id = resolve_participant_actor_id(app, &fc, &v).await?;
+            // Same restriction as `add`, deliberately: a tool that can drop an
+            // agent it cannot put back is a trap, not a capability.
+            ensure_human_member(&fc, &actor_id, "remove").await?;
+            fc.delete_json(&format!(
+                "{}/{}",
+                roster_path,
+                urlencoding::encode(&actor_id)
+            ))
+            .await
+            .map_err(|e| format!("Cloud API remove participant failed: {e}"))?;
+            Ok(serde_json::json!({
+                "ok": true, "action": "remove",
+                "session_id": session_id, "actor_id": actor_id,
+            })
+            .to_string())
+        }
+        other => Err(format!(
+            "Unknown action: {other} (expected list, list_candidates, add or remove)"
+        )),
+    }
 }
 
 async fn write_response(

@@ -1143,10 +1143,21 @@ pub fn delete_role(
 
 #[cfg(test)]
 mod tests {
+    // EVERY test here takes a `BrandEnvGuard`, including the ones that never
+    // change the brand. The workspace meta dir is named after the *process*
+    // brand (`workspace_meta_read_roots` + `brand_short_name_from_env`), which
+    // is a process-global env var, and the white-label tests below flip it to
+    // `copilot361` under `TEST_HOME_LOCK`. A test that only reads those paths
+    // and does not take the lock therefore has the directory renamed out from
+    // under it mid-run: `upsert_skill` writes `.teamclu/skills/<slug>` and the
+    // `delete_skill` that follows looks in `.copilot361/skills/` and reports
+    // NotFound. That is a real CI failure, not a hypothetical. Pinning the
+    // official brand takes the same lock and makes the name deterministic.
     use super::*;
 
     #[test]
     fn scan_empty_workspace_returns_empty_state() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let dir = tempfile::tempdir().unwrap();
         let state = scan_roles_skills_state(dir.path()).unwrap();
         assert!(state.roles.is_empty());
@@ -1163,6 +1174,7 @@ mod tests {
     /// `collect_team_skill_paths`.
     #[test]
     fn scan_finds_nested_team_bundle_skills() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path();
 
@@ -1207,6 +1219,7 @@ mod tests {
     /// the team retired.
     #[test]
     fn team_share_leftovers_are_no_longer_scanned() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path();
 
@@ -1227,6 +1240,7 @@ mod tests {
 
     #[test]
     fn scan_finds_role_and_skill() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path();
 
@@ -1257,6 +1271,7 @@ mod tests {
 
     #[test]
     fn upsert_and_delete_skill_round_trip() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let ws = tempfile::tempdir().unwrap();
         let req = UpsertSkillRequest {
             content: "# Demo\n\nBody".to_owned(),
@@ -1291,6 +1306,7 @@ mod tests {
 
     #[test]
     fn the_team_pack_root_outranks_a_personal_copy() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         // A member with a same-named skill of their own must not decide what the
         // team's procedure is. Only the workspace's own meta dir and
         // `.claude/skills` sit above the pack root.
@@ -1317,6 +1333,7 @@ mod tests {
 
     #[test]
     fn a_duplicated_slug_resolves_by_root_rank_not_by_scan_order() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         // `.claude/skills` (rank 1) outranks `.agents/skills` (3), which
         // outranks `.opencode/skills` (11) — regardless of the order the specs
         // happen to be listed in. Ordering used to be derived from the source
@@ -1341,6 +1358,7 @@ mod tests {
 
     #[test]
     fn only_the_brand_meta_dir_gets_the_local_builtin_clawhub_labels() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         // `builtin` and `clawhub` are read out of the workspace's own inherent
         // list and lockfile, so they describe the brand meta directory and
         // nothing else. This used to be applied to every root whose parent name
@@ -1384,6 +1402,7 @@ mod tests {
 
     #[test]
     fn upsert_reports_the_directory_it_wrote_even_when_a_higher_source_shadows_the_slug() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         // The share-then-edit case, which used to 404 with "not found after
         // write".
         //
@@ -1451,6 +1470,7 @@ mod tests {
 
     #[test]
     fn upsert_skill_rejects_dir_path_outside_workspace_and_home() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let ws = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let req = UpsertSkillRequest {
@@ -1467,6 +1487,7 @@ mod tests {
 
     #[test]
     fn upsert_skill_rejects_traversal_in_filename() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let ws = tempfile::tempdir().unwrap();
         let req = UpsertSkillRequest {
             content: "# Evil".to_owned(),
@@ -1481,6 +1502,7 @@ mod tests {
 
     #[test]
     fn delete_skill_rejects_traversal_slug() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let ws = tempfile::tempdir().unwrap();
         let err = delete_skill(ws.path(), "../../../etc", None).unwrap_err();
         assert!(matches!(err, WorkspaceControlError::InvalidInput(_)));
@@ -1488,6 +1510,7 @@ mod tests {
 
     #[test]
     fn delete_role_rejects_file_path_outside_role_roots() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let ws = tempfile::tempdir().unwrap();
         // A victim directory that lives under the workspace but NOT under a
         // managed role root. delete_role must refuse to remove it.
@@ -1501,6 +1524,7 @@ mod tests {
 
     #[test]
     fn delete_role_removes_managed_role_dir_via_file_path() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let ws = tempfile::tempdir().unwrap();
         let role_dir = ws.path().join(".teamclu/roles/reviewer");
         std::fs::create_dir_all(&role_dir).unwrap();
