@@ -1,6 +1,6 @@
 {
   "name": "@teamclu/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TeamClu ops CLI — marketplace publish today; mcp / env / knowledge later",
   "type": "module",
   "bin": {

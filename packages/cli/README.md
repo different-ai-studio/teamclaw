@@ -91,3 +91,5 @@ npm publish --access public
 ```
 
 Zero runtime dependencies — Node ≥20 (`fetch` built-in).
+
+Ops docs (install, `NPM_TOKEN`, GitHub Action): [`docs/ops/teamclu-cli.md`](../../docs/ops/teamclu-cli.md).
