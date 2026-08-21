@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useOnboarding } from "../_layout";
 import { ActorResourceListScreen } from "../../src/features/actors/screens/ActorResourceListScreen";
@@ -18,6 +19,7 @@ function parseKind(value: unknown): TeamResourceKind {
 }
 
 export default function ActorResourcesRoute() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { state } = useOnboarding();
   const params = useLocalSearchParams<{
@@ -26,7 +28,7 @@ export default function ActorResourcesRoute() {
     kind?: string;
   }>();
   const actorId = typeof params.actorId === "string" ? params.actorId : null;
-  const actorName = typeof params.actorName === "string" ? params.actorName : "This actor";
+  const actorName = typeof params.actorName === "string" ? params.actorName : t("This actor");
   const kind = parseKind(params.kind);
   const teamId = state.currentTeam?.id ?? "";
 
@@ -38,7 +40,7 @@ export default function ActorResourcesRoute() {
 
   useEffect(() => {
     if (!teamId) {
-      setErrorMessage("Not signed in to a team.");
+      setErrorMessage(t("Not signed in to a team."));
       setIsLoading(false);
       return;
     }
@@ -60,7 +62,7 @@ export default function ActorResourcesRoute() {
         }
       } catch (err) {
         if (!cancelled) {
-          setErrorMessage(err instanceof Error ? err.message : "Couldn't load resources.");
+          setErrorMessage(err instanceof Error ? err.message : t("Couldn't load resources."));
         }
       } finally {
         if (!cancelled) setIsLoading(false);

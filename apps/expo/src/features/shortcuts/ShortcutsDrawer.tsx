@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Animated,
@@ -57,6 +58,7 @@ export function ShortcutsDrawer({
   profileName,
   profileSubtitle,
 }: ShortcutsDrawerProps) {
+  const { t } = useTranslation();
   const { width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const drawerWidth = Math.min(360, screenWidth * 0.86);
@@ -117,7 +119,7 @@ export function ShortcutsDrawer({
       } catch (err) {
         if (!cancelled) {
           setError(
-            err instanceof Error ? err.message : "Couldn't load shortcuts.",
+            err instanceof Error ? err.message : t("Couldn't load shortcuts."),
           );
         }
       } finally {
@@ -200,7 +202,7 @@ export function ShortcutsDrawer({
         ]}
       >
         <Pressable
-          accessibilityLabel="Close shortcuts"
+          accessibilityLabel={t("Close shortcuts")}
           accessibilityRole="button"
           onPress={onClose}
           style={StyleSheet.absoluteFill}
@@ -234,9 +236,9 @@ export function ShortcutsDrawer({
           ) : isEmpty ? (
             <View style={styles.emptyState}>
               <Ionicons color={colors.basalt} name="star-outline" size={40} />
-              <Text style={styles.emptyTitle}>No Shortcuts</Text>
+              <Text style={styles.emptyTitle}>{t("No Shortcuts")}</Text>
               <Text style={styles.emptyBody}>
-                Shortcuts you or your team create will appear here.
+                {t("Shortcuts you or your team create will appear here.")}
               </Text>
             </View>
           ) : (
@@ -249,7 +251,7 @@ export function ShortcutsDrawer({
                   onOpen={handleOpenShortcut}
                   onToggleFolder={toggleFolder}
                   rows={personalRoots}
-                  title="Personal"
+                  title={t("Personal")}
                 />
               ) : null}
               {teamRoots.length > 0 ? (
@@ -260,7 +262,7 @@ export function ShortcutsDrawer({
                   onOpen={handleOpenShortcut}
                   onToggleFolder={toggleFolder}
                   rows={teamRoots}
-                  title="Team"
+                  title={t("Team")}
                 />
               ) : null}
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -271,7 +273,7 @@ export function ShortcutsDrawer({
         <View style={styles.footer}>
           <Hairline />
           <Pressable
-            accessibilityLabel="Settings"
+            accessibilityLabel={t("Settings")}
             accessibilityRole="button"
             onPress={handleSettings}
             style={({ pressed }) => [
@@ -286,7 +288,7 @@ export function ShortcutsDrawer({
               size={18}
               style={styles.footerIcon}
             />
-            <Text style={styles.footerLabel}>Settings</Text>
+            <Text style={styles.footerLabel}>{t("Settings")}</Text>
             <View style={styles.footerSpacer} />
             {appVersion ? (
               <Text style={styles.footerVersion}>{appVersion}</Text>
@@ -390,6 +392,7 @@ function ShortcutTree({
   onToggleFolder: (id: string) => void;
   row: Shortcut;
 }) {
+  const { t } = useTranslation();
   const isFolder = row.nodeType === "folder";
   const isExpanded = expandedIds.has(row.id);
   const children = isFolder ? childrenByParent.get(row.id) ?? [] : [];
@@ -405,7 +408,7 @@ function ShortcutTree({
       {isFolder && isExpanded ? (
         children.length === 0 ? (
           <Text style={[styles.shortcutEmpty, { paddingLeft: (depth + 1) * CHILD_INDENT + 12 }]}>
-            Empty
+            {t("Empty")}
           </Text>
         ) : (
           children.map((child) => (

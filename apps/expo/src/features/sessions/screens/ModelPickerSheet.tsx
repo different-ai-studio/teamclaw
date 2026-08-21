@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Hairline } from "../../../ui/atoms/Hairline";
@@ -29,6 +30,7 @@ export function ModelPickerSheet({
   onCancel,
   onSelect,
 }: ModelPickerSheetProps) {
+  const { t } = useTranslation();
   return (
     <View style={styles.screen}>
       <GlassHeader>
@@ -43,7 +45,7 @@ export function ModelPickerSheet({
 
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.caption}>
-          The model this runtime uses for its next turn.
+          {t("The model this runtime uses for its next turn.")}
         </Text>
         <View style={styles.card}>
           {models.map((model, index) => {

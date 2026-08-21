@@ -1,4 +1,5 @@
 import { Redirect } from "expo-router";
+import { useTranslation } from "react-i18next";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 import { useOnboarding, routeToHref } from "./_layout";
@@ -52,10 +53,11 @@ export default function AuthCallbackRoute() {
 }
 
 function Progress() {
+  const { t } = useTranslation();
   return (
     <View style={styles.screen}>
       <ActivityIndicator color={colors.coral} size="small" />
-      <Text style={styles.title}>Finishing sign-in</Text>
+      <Text style={styles.title}>{t("Finishing sign-in")}</Text>
     </View>
   );
 }

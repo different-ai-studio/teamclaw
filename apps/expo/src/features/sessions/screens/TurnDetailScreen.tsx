@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Hairline } from "../../../ui/atoms/Hairline";
@@ -47,6 +48,7 @@ export function TurnDetailScreen({
   onGrantPermission,
   onDenyPermission,
 }: TurnDetailScreenProps) {
+  const { t } = useTranslation();
   const scrollRef = useRef<ScrollView | null>(null);
 
   const events = useMemo(() => {
@@ -85,7 +87,7 @@ export function TurnDetailScreen({
     <View style={styles.screen}>
       <View style={styles.header}>
         <Pressable
-          accessibilityLabel="Back"
+          accessibilityLabel={t("Back")}
           accessibilityRole="button"
           hitSlop={8}
           onPress={onClose}
@@ -105,7 +107,7 @@ export function TurnDetailScreen({
         </View>
         {isStreaming && onInterrupt ? (
           <Pressable
-            accessibilityLabel="Interrupt agent"
+            accessibilityLabel={t("Interrupt agent")}
             accessibilityRole="button"
             hitSlop={8}
             onPress={() => onInterrupt(turn.agentId)}
@@ -123,7 +125,7 @@ export function TurnDetailScreen({
         {isEmpty ? (
           <View style={styles.emptyBlock}>
             <Ionicons color={colors.slate} name="sparkles-outline" size={36} />
-            <Text style={styles.emptyText}>Waiting for the agent…</Text>
+            <Text style={styles.emptyText}>{t("Waiting for the agent…")}</Text>
           </View>
         ) : null}
 
@@ -149,7 +151,7 @@ export function TurnDetailScreen({
         {turn.isActive ? (
           <View style={styles.typingRow}>
             <StatusDot kind="working" size={6} />
-            <Text style={styles.typingText}>Working…</Text>
+            <Text style={styles.typingText}>{t("Working…")}</Text>
           </View>
         ) : null}
       </ScrollView>

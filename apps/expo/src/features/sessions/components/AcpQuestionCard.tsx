@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
@@ -31,6 +32,7 @@ export function AcpQuestionCard({
   onSubmit,
   pending,
 }: AcpQuestionCardProps) {
+  const { t } = useTranslation();
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
@@ -66,7 +68,7 @@ export function AcpQuestionCard({
     }
     const answers = buildQuestionAnswers(pending.questions, selected, custom);
     if (!areAnswersComplete(answers)) {
-      setLocalError("Answer each question before submitting.");
+      setLocalError(t("Answer each question before submitting."));
       return;
     }
     setLocalError(null);
@@ -78,11 +80,11 @@ export function AcpQuestionCard({
   return (
     <View style={styles.card} testID="session.questionCard">
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{prompt.header || "Question"}</Text>
+        <Text style={styles.headerTitle}>{prompt.header || t("Question")}</Text>
         {pending.questions.length > 1 ? (
           <View style={styles.pager}>
             <Pressable
-              accessibilityLabel="Previous question"
+              accessibilityLabel={t("Previous question")}
               accessibilityRole="button"
               disabled={page === 0 || isSubmitting}
               hitSlop={6}
@@ -95,10 +97,10 @@ export function AcpQuestionCard({
               />
             </Pressable>
             <Text style={styles.pagerLabel}>
-              {page + 1} of {pending.questions.length}
+              {t("{{current}} of {{total}}", { current: page + 1, total: pending.questions.length })}
             </Text>
             <Pressable
-              accessibilityLabel="Next question"
+              accessibilityLabel={t("Next question")}
               accessibilityRole="button"
               disabled={isLastPage || isSubmitting}
               hitSlop={6}
@@ -150,7 +152,7 @@ export function AcpQuestionCard({
           editable={!isSubmitting}
           onChangeText={(value) => setCustom((prev) => ({ ...prev, [prompt.id]: value }))}
           placeholder={
-            prompt.options.length === 0 ? "Type your answer…" : "Or type a custom answer…"
+            prompt.options.length === 0 ? t("Type your answer…") : t("Or type a custom answer…")
           }
           placeholderTextColor={colors.slate}
           selectionColor={colors.cinnabar}
@@ -163,7 +165,7 @@ export function AcpQuestionCard({
           hitSlop={6}
           onPress={onSkip}
         >
-          <Text style={styles.skip}>Skip</Text>
+          <Text style={styles.skip}>{t("Skip")}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -171,7 +173,7 @@ export function AcpQuestionCard({
           onPress={continueOrSubmit}
           style={[styles.submit, canContinue ? null : styles.submitDisabled]}
         >
-          <Text style={styles.submitText}>{isLastPage ? "Submit" : "Continue"}</Text>
+          <Text style={styles.submitText}>{isLastPage ? t("Submit") : t("Continue")}</Text>
         </Pressable>
       </View>
 

@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActionSheetIOS,
   Alert,
@@ -65,6 +66,7 @@ function HeaderBar({
   onOpenArchived?: () => void;
   onOpenStats?: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <PageHeader
       count={count}
@@ -72,7 +74,7 @@ function HeaderBar({
         <View style={styles.toolbarGroup}>
           {onOpenStats ? (
             <Pressable
-              accessibilityLabel="Idea statistics"
+              accessibilityLabel={t("Idea statistics")}
               accessibilityRole="button"
               hitSlop={8}
               onPress={onOpenStats}
@@ -83,7 +85,7 @@ function HeaderBar({
           ) : null}
           {onOpenArchived ? (
             <Pressable
-              accessibilityLabel="Archived ideas"
+              accessibilityLabel={t("Archived ideas")}
               accessibilityRole="button"
               hitSlop={8}
               onPress={onOpenArchived}
@@ -93,7 +95,7 @@ function HeaderBar({
             </Pressable>
           ) : null}
           <Pressable
-            accessibilityLabel="Create Idea"
+            accessibilityLabel={t("Create Idea")}
             accessibilityRole="button"
             disabled={!onCreate}
             hitSlop={8}
@@ -108,7 +110,7 @@ function HeaderBar({
           </Pressable>
         </View>
       }
-      title="Ideas"
+      title={t("Ideas")}
     />
   );
 }
@@ -127,6 +129,7 @@ export function IdeasListScreen({
   onSelectIdea,
   state,
 }: IdeasListScreenProps) {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [workspaceFilter, setWorkspaceFilter] = useState<string | null>(null);
@@ -174,27 +177,27 @@ export function IdeasListScreen({
       type Entry = { label: string; destructive?: boolean; run: () => void };
       const entries: Entry[] = [
         {
-          label: "归档",
+          label: t("Archive"),
           destructive: true,
           run: () => {
             if (onArchiveBatch) void onArchiveBatch([ideaId]);
           },
         },
-        { label: "选择更多…", run: () => toggleSelection(ideaId) },
+        { label: t("Select more…"), run: () => toggleSelection(ideaId) },
       ];
       if (canMoveUp) {
-        entries.push({ label: "上移", run: () => onReorder?.(ideaId, position - 1) });
-        entries.push({ label: "移到顶部", run: () => onReorder?.(ideaId, 0) });
+        entries.push({ label: t("Move up"), run: () => onReorder?.(ideaId, position - 1) });
+        entries.push({ label: t("Move to top"), run: () => onReorder?.(ideaId, 0) });
       }
       if (canMoveDown) {
-        entries.push({ label: "下移", run: () => onReorder?.(ideaId, position + 1) });
+        entries.push({ label: t("Move down"), run: () => onReorder?.(ideaId, position + 1) });
         entries.push({
-          label: "移到底部",
+          label: t("Move to bottom"),
           run: () => onReorder?.(ideaId, state.ideas.length - 1),
         });
       }
 
-      const labels = [...entries.map((entry) => entry.label), "取消"];
+      const labels = [...entries.map((entry) => entry.label), t("Cancel")];
       const dispatch = (index: number) => {
         entries[index]?.run();
       };
@@ -209,16 +212,16 @@ export function IdeasListScreen({
         );
         return;
       }
-      Alert.alert("想法操作", undefined, [
+      Alert.alert(t("Idea actions"), undefined, [
         ...entries.map((entry, index) => ({
           text: entry.label,
           style: entry.destructive ? ("destructive" as const) : undefined,
           onPress: () => dispatch(index),
         })),
-        { text: "取消", style: "cancel" as const },
+        { text: t("Cancel"), style: "cancel" as const },
       ]);
     },
-    [isFiltered, onArchiveBatch, onReorder, state.ideas],
+    [isFiltered, onArchiveBatch, onReorder, state.ideas, t],
   );
 
   const handleArchiveSelected = async () => {
@@ -256,12 +259,12 @@ export function IdeasListScreen({
   }, [searched, currentActorId]);
 
   const segments: SegmentedFilterSegment<Filter>[] = [
-    { tag: "all", title: "All", count: searched.length },
+    { tag: "all", title: t("All"), count: searched.length },
     ...(currentActorId
-      ? [{ tag: "mine" as const, title: "Mine", count: counts.mine }]
+      ? [{ tag: "mine" as const, title: t("Mine"), count: counts.mine }]
       : []),
-    { tag: "open", title: "Open", count: counts.open },
-    { tag: "done", title: "Done", count: counts.done },
+    { tag: "open", title: t("Open"), count: counts.open },
+    { tag: "done", title: t("Done"), count: counts.done },
   ];
 
   const filteredIdeas = searched.filter((idea) => {
@@ -309,9 +312,9 @@ export function IdeasListScreen({
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]} style={styles.screen}>
         {headerBar}
         <View style={styles.stateBlock}>
-          <Text style={styles.stateTitle}>Couldn't load ideas</Text>
-          <Text style={styles.stateBody}>{state.errorMessage ?? "Try again in a moment."}</Text>
-          <PrimaryButton fullWidth={false} label="Retry" onPress={onLoad} />
+          <Text style={styles.stateTitle}>{t("Couldn't load ideas")}</Text>
+          <Text style={styles.stateBody}>{state.errorMessage ?? t("Try again in a moment.")}</Text>
+          <PrimaryButton fullWidth={false} label={t("Retry")} onPress={onLoad} />
         </View>
       </ScrollView>
     );
@@ -340,7 +343,7 @@ export function IdeasListScreen({
           autoCapitalize="none"
           autoCorrect={false}
           onChangeText={setQuery}
-          placeholder="Search ideas"
+          placeholder={t("Search ideas")}
           placeholderTextColor={colors.slate}
           selectionColor={colors.cinnabar}
           style={styles.searchInput}
@@ -348,7 +351,7 @@ export function IdeasListScreen({
         />
         {query.length > 0 ? (
           <Pressable
-            accessibilityLabel="Clear search"
+            accessibilityLabel={t("Clear search")}
             accessibilityRole="button"
             hitSlop={6}
             onPress={() => setQuery("")}
@@ -376,7 +379,7 @@ export function IdeasListScreen({
                 !workspaceFilter ? styles.workspaceChipTextSelected : null,
               ]}
             >
-              All workspaces
+              {t("All workspaces")}
             </Text>
           </Pressable>
           {workspaceOptions.map((name) => {
@@ -407,28 +410,28 @@ export function IdeasListScreen({
 
       {state.ideas.length === 0 ? (
         <View style={styles.stateBlock}>
-          <Text style={styles.stateTitle}>No Ideas</Text>
-          <Text style={styles.stateBody}>Tap + to create an idea.</Text>
+          <Text style={styles.stateTitle}>{t("No Ideas")}</Text>
+          <Text style={styles.stateBody}>{t("Tap + to create an idea.")}</Text>
         </View>
       ) : filteredIdeas.length === 0 ? (
         <View style={styles.stateBlock}>
           <Text style={styles.emptyFilterTitle}>
             {filter === "mine"
-              ? "Nothing here yet"
+              ? t("Nothing here yet")
               : filter === "open"
-              ? "No open ideas"
+              ? t("No open ideas")
               : filter === "done"
-              ? "No completed ideas"
-              : "No ideas"}
+              ? t("No completed ideas")
+              : t("No ideas")}
           </Text>
           <Text style={styles.emptyFilterBody}>
             {filter === "mine"
-              ? "Ideas you create will show up here."
+              ? t("Ideas you create will show up here.")
               : filter === "open"
-              ? "Open ideas will appear once created."
+              ? t("Open ideas will appear once created.")
               : filter === "done"
-              ? "Mark an idea as Done to see it here."
-              : "Tap + to create an idea."}
+              ? t("Mark an idea as Done to see it here.")
+              : t("Tap + to create an idea.")}
           </Text>
         </View>
       ) : (
@@ -443,7 +446,7 @@ export function IdeasListScreen({
                     onArchiveBatch
                       ? [
                           {
-                            label: "Archive",
+                            label: t("Archive"),
                             iconName: "archive-outline",
                             destructive: true,
                             onPress: () => {
@@ -507,7 +510,7 @@ export function IdeasListScreen({
 
       {selectionMode ? (
         <View style={styles.batchBar}>
-          <Text style={styles.batchCount}>{selection.size} selected</Text>
+          <Text style={styles.batchCount}>{t("{{count}} selected", { count: selection.size })}</Text>
           <Pressable
             accessibilityRole="button"
             onPress={clearSelection}
@@ -516,7 +519,7 @@ export function IdeasListScreen({
               pressed ? styles.batchActionPressed : null,
             ]}
           >
-            <Text style={styles.batchActionText}>Cancel</Text>
+            <Text style={styles.batchActionText}>{t("Cancel")}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -529,7 +532,7 @@ export function IdeasListScreen({
             ]}
           >
             <Text style={styles.batchPrimaryText}>
-              {isBatchBusy ? "Archiving…" : "Archive"}
+              {isBatchBusy ? t("Archiving…") : t("Archive")}
             </Text>
           </Pressable>
         </View>

@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { colors, hai, radii, shadows, spacing, typography } from "../../../ui/theme";
@@ -47,6 +48,7 @@ export function SessionComposerShell({
   selectedAgentNames = [],
   sendErrorMessage,
 }: SessionComposerShellProps) {
+  const { t } = useTranslation();
   const presentation = buildComposerPresentation({
     composerText,
     connectionState,
@@ -76,7 +78,7 @@ export function SessionComposerShell({
         await recorder.start();
       }
     } catch (err) {
-      setRecordError(err instanceof Error ? err.message : "Couldn't access microphone.");
+      setRecordError(err instanceof Error ? err.message : t("Couldn't access microphone."));
     }
   };
 
@@ -128,7 +130,7 @@ export function SessionComposerShell({
         {/* Row 2 — [+] · agent button · spacer · one right button. */}
         <View style={styles.actionRow}>
           <Pressable
-            accessibilityLabel="Attach"
+            accessibilityLabel={t("Attach")}
             accessibilityRole="button"
             disabled={!onAttach}
             onPress={onAttach}
@@ -138,7 +140,7 @@ export function SessionComposerShell({
           </Pressable>
 
           <Pressable
-            accessibilityLabel={`Agents, ${selectedAgentNames.length} selected`}
+            accessibilityLabel={t("Agents, {{count}} selected", { count: selectedAgentNames.length })}
             accessibilityRole="button"
             disabled={!onOpenAgents}
             onPress={onOpenAgents}
@@ -156,7 +158,7 @@ export function SessionComposerShell({
 
           {rightButton === "send" ? (
             <Pressable
-              accessibilityLabel="Send"
+              accessibilityLabel={t("Send")}
               accessibilityRole="button"
               accessibilityState={{ disabled: presentation.isDisabled }}
               disabled={presentation.isDisabled}
@@ -173,7 +175,7 @@ export function SessionComposerShell({
           ) : (
             <Pressable
               accessibilityLabel={
-                rightButton === "stopRecording" ? "Stop recording" : "Voice memo"
+                rightButton === "stopRecording" ? t("Stop recording") : t("Voice memo")
               }
               accessibilityRole="button"
               onPress={handleMicToggle}
@@ -209,9 +211,10 @@ function PendingAttachmentTile({
   attachment: UploadedAttachment;
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation();
   const mime = attachment.mime ?? "";
   const isImage = mime.startsWith("image/");
-  const label = attachment.path.split("/").pop() ?? "Attachment";
+  const label = attachment.path.split("/").pop() ?? t("Attachment");
   return (
     <View style={styles.attachmentTile}>
       {isImage && attachment.publicUrl ? (
@@ -231,7 +234,7 @@ function PendingAttachmentTile({
       )}
       {onRemove ? (
         <Pressable
-          accessibilityLabel={`Remove ${label}`}
+          accessibilityLabel={t("Remove {{value}}", { value: label })}
           accessibilityRole="button"
           hitSlop={6}
           onPress={onRemove}

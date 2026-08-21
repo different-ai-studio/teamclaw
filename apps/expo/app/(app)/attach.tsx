@@ -2,6 +2,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useOnboarding } from "../_layout";
 import { uploadAttachment } from "../../src/features/sessions/attachment-upload";
@@ -20,6 +21,7 @@ type PickedAsset = {
 };
 
 export default function AttachRoute() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { state } = useOnboarding();
   const params = useLocalSearchParams<{ sessionId?: string }>();
@@ -31,7 +33,7 @@ export default function AttachRoute() {
 
   const persist = async (assets: PickedAsset[]) => {
     if (!teamId || !sessionId) {
-      setErrorMessage("Open a session before attaching files.");
+      setErrorMessage(t("Open a session before attaching files."));
       return;
     }
     setIsUploading(true);
@@ -48,7 +50,7 @@ export default function AttachRoute() {
       }
       router.back();
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Couldn't upload the file.");
+      setErrorMessage(err instanceof Error ? err.message : t("Couldn't upload the file."));
     } finally {
       setIsUploading(false);
     }
@@ -58,7 +60,7 @@ export default function AttachRoute() {
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
-        setErrorMessage("Camera permission denied.");
+        setErrorMessage(t("Camera permission denied."));
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
@@ -70,7 +72,7 @@ export default function AttachRoute() {
         result.assets.map((asset) => ({ uri: asset.uri, mime: asset.mimeType ?? undefined })),
       );
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Couldn't open the camera.");
+      setErrorMessage(err instanceof Error ? err.message : t("Couldn't open the camera."));
     }
   };
 
@@ -78,7 +80,7 @@ export default function AttachRoute() {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        setErrorMessage("Photo library permission denied.");
+        setErrorMessage(t("Photo library permission denied."));
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -92,7 +94,7 @@ export default function AttachRoute() {
         result.assets.map((asset) => ({ uri: asset.uri, mime: asset.mimeType ?? undefined })),
       );
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Couldn't open the picker.");
+      setErrorMessage(err instanceof Error ? err.message : t("Couldn't open the picker."));
     }
   };
 
@@ -109,7 +111,7 @@ export default function AttachRoute() {
           result.assets.map((asset) => ({ uri: asset.uri, mime: asset.mimeType ?? undefined })),
         );
       } catch (err) {
-        setErrorMessage(err instanceof Error ? err.message : "Couldn't open the picker.");
+        setErrorMessage(err instanceof Error ? err.message : t("Couldn't open the picker."));
       }
       return;
     }
@@ -130,21 +132,21 @@ export default function AttachRoute() {
   return (
     <>
       <AttachmentDrawerSheet
-        errorMessage={errorMessage ?? (isUploading ? "Uploading…" : null)}
+        errorMessage={errorMessage ?? (isUploading ? t("Uploading…") : null)}
         onClose={() => router.back()}
         onPickSource={handlePick}
       />
       <PermissionPrimerSheet
         body={
           primer === "camera"
-            ? "TeamClu needs the camera to capture and attach photos or videos to your sessions."
-            : "TeamClu needs the photo library so you can choose images and videos to attach."
+            ? t("TeamClu needs the camera to capture and attach photos or videos to your sessions.")
+            : t("TeamClu needs the photo library so you can choose images and videos to attach.")
         }
-        ctaLabel="Continue"
+        ctaLabel={t("Continue")}
         iconName={primer === "camera" ? "camera-outline" : "images-outline"}
         onCancel={() => setPrimer(null)}
         onContinue={handlePrimerContinue}
-        title={primer === "camera" ? "Allow camera access" : "Allow photo library access"}
+        title={primer === "camera" ? t("Allow camera access") : t("Allow photo library access")}
         visible={primer !== null}
       />
     </>

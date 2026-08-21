@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -30,6 +31,7 @@ import {
   type IdeaImageSource,
 } from "../components/IdeaProgressComposer";
 import type { Idea, IdeaActivity, IdeaStatus } from "../idea-types";
+import { t } from "../../../lib/i18n";
 
 export type IdeaDetailScreenProps = {
   busyAction: "toggleStatus" | "archive" | "save" | null;
@@ -72,20 +74,20 @@ function statusPill(status: IdeaStatus): StatusPill {
   switch (status) {
     case "done":
       return {
-        label: "DONE",
+        label: t("DONE"),
         foreground: hai.sage,
         background: "rgba(107,142,90,0.12)",
       };
     case "in_progress":
       return {
-        label: "IN PROGRESS",
+        label: t("IN PROGRESS"),
         foreground: hai.basalt,
         background: hai.pebble,
       };
     case "open":
     default:
       return {
-        label: "OPEN",
+        label: t("OPEN"),
         foreground: hai.cinnabar,
         background: "rgba(184,75,54,0.10)",
       };
@@ -129,6 +131,7 @@ export function IdeaDetailScreen({
   onRemoveProgressAttachment,
   onSubmitProgress,
 }: IdeaDetailScreenProps) {
+  const { t: tHook } = useTranslation();
   const [titleDraft, setTitleDraft] = useState("");
   const [descDraft, setDescDraft] = useState("");
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -146,7 +149,7 @@ export function IdeaDetailScreen({
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Idea</Text>
+        <Text style={styles.headerTitle}>{tHook("Idea")}</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -167,26 +170,31 @@ export function IdeaDetailScreen({
         {isLoading && idea === null ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.slate} />
-            <Text style={styles.loadingText}>Loading idea…</Text>
+            <Text style={styles.loadingText}>{tHook("Loading idea…")}</Text>
           </View>
         ) : idea === null ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>Idea not found</Text>
+            <Text style={styles.stateTitle}>{tHook("Idea not found")}</Text>
             <Text style={styles.stateBody}>
-              The idea may have been archived or removed.
+              {tHook("The idea may have been archived or removed.")}
             </Text>
           </View>
         ) : (
           <>
             <View style={styles.hero}>
               <Pressable
-                accessibilityLabel="Change idea status"
+                accessibilityLabel={tHook("Change idea status")}
                 accessibilityRole={onSetStatus ? "button" : undefined}
                 disabled={!onSetStatus || busyAction !== null}
                 hitSlop={4}
                 onPress={() => {
                   if (!onSetStatus) return;
-                  const labels = ["Open", "In Progress", "Done", "Cancel"];
+                  const labels = [
+                    tHook("Open"),
+                    tHook("In Progress"),
+                    tHook("Done"),
+                    tHook("Cancel"),
+                  ];
                   const values: IdeaStatus[] = ["open", "in_progress", "done"];
                   const dispatch = (index: number) => {
                     if (index < 0 || index >= values.length) return;
@@ -200,7 +208,7 @@ export function IdeaDetailScreen({
                     );
                     return;
                   }
-                  Alert.alert("设置状态", undefined, [
+                  Alert.alert(tHook("Set status"), undefined, [
                     { text: labels[0], onPress: () => dispatch(0) },
                     { text: labels[1], onPress: () => dispatch(1) },
                     { text: labels[2], onPress: () => dispatch(2) },
@@ -218,7 +226,7 @@ export function IdeaDetailScreen({
                 editable={!busyAction}
                 multiline
                 onChangeText={setTitleDraft}
-                placeholder="Title"
+                placeholder={tHook("Title")}
                 placeholderTextColor={hai.slate}
                 selectionColor={hai.cinnabar}
                 style={[styles.heroTitle, idea.status === "done" ? styles.heroTitleDone : null]}
@@ -227,13 +235,13 @@ export function IdeaDetailScreen({
             </View>
 
             <View style={styles.section}>
-              <SectionEyebrow label="DESCRIPTION" style={styles.sectionEyebrow} />
+              <SectionEyebrow label={tHook("DESCRIPTION")} style={styles.sectionEyebrow} />
               <View style={styles.card}>
                 <TextInput
                   editable={!busyAction}
                   multiline
                   onChangeText={setDescDraft}
-                  placeholder="Add a description"
+                  placeholder={tHook("Add a description")}
                   placeholderTextColor={hai.slate}
                   selectionColor={hai.cinnabar}
                   style={styles.descriptionText}
@@ -256,21 +264,21 @@ export function IdeaDetailScreen({
                 ]}
               >
                 <Text style={styles.saveButtonText}>
-                  {busyAction === "save" ? "Saving…" : "Save changes"}
+                  {busyAction === "save" ? tHook("Saving…") : tHook("Save changes")}
                 </Text>
               </Pressable>
             ) : null}
 
             <View style={styles.section}>
-              <SectionEyebrow label="META" style={styles.sectionEyebrow} />
+              <SectionEyebrow label={tHook("META")} style={styles.sectionEyebrow} />
               <View style={styles.card}>
-                <DetailRow label="Workspace" value={idea.workspaceName ?? "—"} />
+                <DetailRow label={tHook("Workspace")} value={idea.workspaceName ?? "—"} />
                 <Hairline />
-                <DetailRow label="Created by" value={creatorName ?? "—"} />
+                <DetailRow label={tHook("Created by")} value={creatorName ?? "—"} />
                 <Hairline />
-                <DetailRow label="Created" value={formatTimestamp(idea.createdAt)} />
+                <DetailRow label={tHook("Created")} value={formatTimestamp(idea.createdAt)} />
                 <Hairline />
-                <DetailRow label="Updated" value={formatTimestamp(idea.updatedAt)} />
+                <DetailRow label={tHook("Updated")} value={formatTimestamp(idea.updatedAt)} />
               </View>
             </View>
 
@@ -279,8 +287,8 @@ export function IdeaDetailScreen({
                 <SectionEyebrow
                   label={
                     activities.length > 0
-                      ? `ACTIVITY · ${activities.length}`
-                      : "ACTIVITY"
+                      ? tHook("ACTIVITY · {{count}}", { count: activities.length })
+                      : tHook("ACTIVITY")
                   }
                   style={styles.sectionEyebrow}
                 />
@@ -298,7 +306,7 @@ export function IdeaDetailScreen({
             {relatedSessions && relatedSessions.length > 0 ? (
               <View style={styles.section}>
                 <SectionEyebrow
-                  label={`RELATED SESSIONS · ${relatedSessions.length}`}
+                  label={tHook("RELATED SESSIONS · {{count}}", { count: relatedSessions.length })}
                   style={styles.sectionEyebrow}
                 />
                 <View style={styles.card}>
@@ -317,7 +325,7 @@ export function IdeaDetailScreen({
                         ]}
                       >
                         <Text numberOfLines={1} style={styles.detailLabel}>
-                          {row.title || "Untitled session"}
+                          {row.title || tHook("Untitled session")}
                         </Text>
                         <Text style={styles.detailValue}>
                           {row.lastMessageAt
@@ -343,7 +351,7 @@ export function IdeaDetailScreen({
                 ]}
               >
                 <Text style={[styles.actionText, styles.actionStartText]}>
-                  Start a session
+                  {tHook("Start a session")}
                 </Text>
               </Pressable>
             ) : null}
@@ -373,10 +381,10 @@ export function IdeaDetailScreen({
                       ]}
                     >
                       {busyAction === "toggleStatus"
-                        ? "Saving…"
+                        ? tHook("Saving…")
                         : idea.status === "done"
-                        ? "Reopen"
-                        : "Mark done"}
+                        ? tHook("Reopen")
+                        : tHook("Mark done")}
                     </Text>
                   </Pressable>
                 ) : null}
@@ -393,7 +401,7 @@ export function IdeaDetailScreen({
                     ]}
                   >
                     <Text style={[styles.actionText, styles.actionArchiveText]}>
-                      {busyAction === "archive" ? "Archiving…" : "Archive"}
+                      {busyAction === "archive" ? tHook("Archiving…") : tHook("Archive")}
                     </Text>
                   </Pressable>
                 ) : null}

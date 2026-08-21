@@ -1,6 +1,7 @@
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ActionSheetIOS, Alert, Platform } from "react-native";
 
 import { useOnboarding } from "../_layout";
@@ -30,6 +31,7 @@ function canEditTeamDefault(role: string | null | undefined): boolean {
 
 export default function SettingsRoute() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { state } = useOnboarding();
   const teamId = state.currentTeam?.id ?? "";
   const currentActorId = state.currentMemberActorId;
@@ -135,7 +137,9 @@ export default function SettingsRoute() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setTeamDetailsError(err instanceof Error ? err.message : "Couldn't load team details.");
+        setTeamDetailsError(
+          err instanceof Error ? err.message : t("Couldn't load team details."),
+        );
       });
     return () => {
       cancelled = true;
@@ -149,7 +153,7 @@ export default function SettingsRoute() {
       setAgents(await agentAccessApi.listConnectedAgents(teamId));
       setAgentsError(null);
     } catch (err) {
-      setAgentsError(err instanceof Error ? err.message : "Couldn't load agents.");
+      setAgentsError(err instanceof Error ? err.message : t("Couldn't load agents."));
     } finally {
       setIsLoadingAgents(false);
     }
@@ -204,7 +208,7 @@ export default function SettingsRoute() {
     } catch (err) {
       setTeamDefaultAgentId(previous);
       setTeamDefaultAgentError(
-        err instanceof Error ? err.message : "Couldn't set the team default agent.",
+        err instanceof Error ? err.message : t("Couldn't set the team default agent."),
       );
     } finally {
       setIsSavingTeamDefaultAgent(false);
@@ -212,10 +216,10 @@ export default function SettingsRoute() {
   };
 
   const pickTeamDefaultAgent = () => {
-    const options = [{ label: "Not set", id: null as string | null }].concat(
+    const options = [{ label: t("Not set"), id: null as string | null }].concat(
       teamAgents.map((agent) => ({ label: agent.displayName, id: agent.agentId })),
     );
-    const labels = [...options.map((option) => option.label), "Cancel"];
+    const labels = [...options.map((option) => option.label), t("Cancel")];
     const dispatch = (index: number) => {
       const option = options[index];
       if (!option) return;
@@ -228,12 +232,12 @@ export default function SettingsRoute() {
       );
       return;
     }
-    Alert.alert("Team default agent", undefined, [
+    Alert.alert(t("Team default agent"), undefined, [
       ...options.map((option, index) => ({
         text: option.label,
         onPress: () => dispatch(index),
       })),
-      { text: "Cancel", style: "cancel" as const },
+      { text: t("Cancel"), style: "cancel" as const },
     ]);
   };
 
@@ -247,19 +251,19 @@ export default function SettingsRoute() {
       setPushPrefs(previous);
       showToast(
         "error",
-        err instanceof Error ? err.message : "Couldn't save notification prefs",
+        err instanceof Error ? err.message : t("Couldn't save notification prefs"),
       );
     }
   };
 
   const handleSignOut = () => {
     Alert.alert(
-      "Sign out",
-      "You'll need to verify your email again next time.",
+      t("Sign out"),
+      t("You'll need to verify your email again next time."),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel"), style: "cancel" },
         {
-          text: "Sign out",
+          text: t("Sign out"),
           style: "destructive",
           onPress: async () => {
             setIsSigningOut(true);
@@ -299,11 +303,11 @@ export default function SettingsRoute() {
           try {
             await agentAccessApi.shareAgentToTeam(agentId);
             await reloadAgents();
-            showToast("success", "Agent shared to team.");
+            showToast("success", t("Agent shared to team."));
           } catch (err) {
             showToast(
               "error",
-              err instanceof Error ? err.message : "Couldn't share the agent.",
+              err instanceof Error ? err.message : t("Couldn't share the agent."),
             );
           }
         })();

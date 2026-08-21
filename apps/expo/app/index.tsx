@@ -1,5 +1,6 @@
 import { Redirect } from "expo-router";
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useOnboarding, routeToHref } from "./_layout";
@@ -11,6 +12,7 @@ import { AppCard } from "../src/ui/card";
 import { colors, spacing, typography } from "../src/ui/theme";
 
 export default function IndexRoute() {
+  const { t } = useTranslation();
   const { controller, retryBootstrap, applyServerChange, state } = useOnboarding();
   const href = routeToHref(state.route);
   // Bootstrap often resolves in well under one lap of the mark. iOS waits for
@@ -28,13 +30,13 @@ export default function IndexRoute() {
     return (
       <View style={styles.screen}>
         <AppCard elevated style={styles.card}>
-          <Text style={styles.title}>We hit a loading problem</Text>
+          <Text style={styles.title}>{t("We hit a loading problem")}</Text>
           <Text style={styles.body}>
-            {state.errorMessage ?? "We couldn't open TeamClu right now."}
+            {state.errorMessage ?? t("We couldn't open TeamClu right now.")}
           </Text>
           <PrimaryButton
             isLoading={state.isBusy}
-            label="Try again"
+            label={t("Try again")}
             onPress={() => {
               void retryBootstrap().catch(() => {});
             }}
@@ -62,7 +64,7 @@ export default function IndexRoute() {
             ]}
             testID="onboardingError.signOutButton"
           >
-            <Text style={styles.signOutLabel}>Sign out and start over</Text>
+            <Text style={styles.signOutLabel}>{t("Sign out and start over")}</Text>
           </Pressable>
 
           {/* Rescue hatch when the saved server is unreachable — mirrors iOS
@@ -77,7 +79,7 @@ export default function IndexRoute() {
             ]}
             testID="onboardingError.serverSettingsButton"
           >
-            <Text style={styles.serverLinkLabel}>Change server</Text>
+            <Text style={styles.serverLinkLabel}>{t("Change server")}</Text>
           </Pressable>
         </AppCard>
 

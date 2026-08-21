@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Hairline } from "../../../ui/atoms/Hairline";
+import { t } from "../../../lib/i18n";
 import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../../ui/GlassHeader";
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
 import {
@@ -32,28 +34,28 @@ export type ActorResourceListScreenProps = {
 export function resourceKindTitle(kind: TeamResourceKind): string {
   switch (kind) {
     case "skills":
-      return "Skills";
+      return t("Skills");
     case "mcp":
-      return "MCP";
+      return t("MCP");
     case "env":
-      return "Env";
+      return t("Env");
   }
 }
 
 function emptyTitle(kind: TeamResourceKind): string {
   switch (kind) {
     case "skills":
-      return "No skills installed";
+      return t("No skills installed");
     case "mcp":
-      return "No MCP servers installed";
+      return t("No MCP servers installed");
     case "env":
-      return "No environment keys";
+      return t("No environment keys");
   }
 }
 
 function emptyDescription(kind: TeamResourceKind, actorName: string): string {
-  if (kind === "env") return "This team has not set any shared environment variables.";
-  return `${actorName} has nothing installed from the team catalog yet.`;
+  if (kind === "env") return t("This team has not set any shared environment variables.");
+  return t("{{value}} has nothing installed from the team catalog yet.", { value: actorName });
 }
 
 function formatUpdated(value: string | null): string {
@@ -73,6 +75,7 @@ export function ActorResourceListScreen({
   servers,
   skills,
 }: ActorResourceListScreenProps) {
+  const { t: tHook } = useTranslation();
   const rows =
     kind === "skills" ? skills ?? [] : kind === "mcp" ? servers ?? [] : envKeys ?? [];
   const isEmpty = rows.length === 0;
@@ -90,8 +93,8 @@ export function ActorResourceListScreen({
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.scopeNote}>
           {isActorScopedResource(kind)
-            ? `Installed for ${actorName}.`
-            : "Shared by the whole team. Values are encrypted and never leave the server in the clear."}
+            ? tHook("Installed for {{value}}.", { value: actorName })
+            : tHook("Shared by the whole team. Values are encrypted and never leave the server in the clear.")}
         </Text>
 
         {errorMessage ? (
@@ -116,7 +119,7 @@ export function ActorResourceListScreen({
                       <View style={styles.rowHeader}>
                         <Text style={styles.rowTitle}>{skill.slug}</Text>
                         {skill.hasUpdate ? (
-                          <Text style={styles.updateTag}>UPDATE</Text>
+                          <Text style={styles.updateTag}>{tHook("UPDATE")}</Text>
                         ) : null}
                         <View style={styles.rowSpacer} />
                         {skill.installedVersion !== null ? (

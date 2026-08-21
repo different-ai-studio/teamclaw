@@ -1,5 +1,7 @@
+import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { t } from "../../../lib/i18n";
 import { colors, hai, iosType, spacing } from "../../../ui/theme";
 import { type SlashCommand } from "./slash-commands";
 
@@ -22,6 +24,7 @@ const MAX_POPUP_HEIGHT = 200;
  * the hint, the type carries it, and only the view discarded it.
  */
 export function SlashCommandsPopup({ candidates, onSelect }: SlashCommandsPopupProps) {
+  const { t: tHook } = useTranslation();
   if (candidates.length === 0) return null;
 
   return (
@@ -29,7 +32,7 @@ export function SlashCommandsPopup({ candidates, onSelect }: SlashCommandsPopupP
       <ScrollView bounces={false} style={styles.scroll}>
         {candidates.map((command, index) => (
           <Pressable
-            accessibilityHint="Inserts this command into the message"
+            accessibilityHint={tHook("Inserts this command into the message")}
             accessibilityLabel={accessibilityLabel(command)}
             accessibilityRole="button"
             key={command.name}
@@ -61,8 +64,13 @@ export function SlashCommandsPopup({ candidates, onSelect }: SlashCommandsPopupP
 }
 
 function accessibilityLabel(command: SlashCommand): string {
-  const base = `slash ${command.name}. ${command.description}`;
-  return command.inputHint ? `${base}. argument ${command.inputHint}` : base;
+  const base = t("slash {{name}}. {{description}}", {
+    name: command.name,
+    description: command.description,
+  });
+  return command.inputHint
+    ? t("{{base}}. argument {{hint}}", { base, hint: command.inputHint })
+    : base;
 }
 
 const styles = StyleSheet.create({

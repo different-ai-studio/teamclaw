@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { Image, Modal, Pressable, StyleSheet, View } from "react-native";
 
 import { hai } from "../../../ui/theme";
@@ -15,6 +16,7 @@ export type ImageLightboxProps = {
  * pan/zoom can land later with `react-native-image-zoom-viewer`.
  */
 export function ImageLightbox({ onClose, url }: ImageLightboxProps) {
+  const { t } = useTranslation();
   if (!url) return null;
   return (
     <Modal animationType="fade" onRequestClose={onClose} transparent visible>
@@ -26,7 +28,7 @@ export function ImageLightbox({ onClose, url }: ImageLightboxProps) {
           style={styles.image}
         />
         <Pressable
-          accessibilityLabel="Close"
+          accessibilityLabel={t("Close")}
           accessibilityRole="button"
           hitSlop={12}
           onPress={onClose}

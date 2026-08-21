@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { colors, radii, spacing, typography } from "../../../ui/theme";
@@ -53,6 +54,7 @@ export function AgentConfigSheet({
   onConfirm,
   onCancel,
 }: AgentConfigSheetProps) {
+  const { t } = useTranslation();
   const offeredTypes = supportedAgentTypes(agentTypes);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(
     initialWorkspaceId(workspaces),
@@ -67,18 +69,18 @@ export function AgentConfigSheet({
     <View style={styles.screen}>
       <View style={styles.toolbar}>
         <Pressable
-          accessibilityLabel="Cancel"
+          accessibilityLabel={t("Cancel")}
           accessibilityRole="button"
           hitSlop={8}
           onPress={onCancel}
         >
-          <Text style={styles.toolbarMuted}>Cancel</Text>
+          <Text style={styles.toolbarMuted}>{t("Cancel")}</Text>
         </Pressable>
         <Text numberOfLines={1} style={styles.toolbarTitle}>
-          Configure {actorDisplayName}
+          {t("Configure {{value}}", { value: actorDisplayName })}
         </Text>
         <Pressable
-          accessibilityLabel="Add"
+          accessibilityLabel={t("Add")}
           accessibilityRole="button"
           disabled={!canConfirm}
           hitSlop={8}
@@ -88,15 +90,15 @@ export function AgentConfigSheet({
           }}
         >
           <Text style={[styles.toolbarPrimary, !canConfirm && styles.toolbarDisabled]}>
-            Add
+            {t("Add")}
           </Text>
         </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
-        <Text style={styles.sectionHeader}>WORKSPACE</Text>
+        <Text style={styles.sectionHeader}>{t("WORKSPACE")}</Text>
         {workspaces.length === 0 ? (
-          <Text style={styles.emptyHint}>No workspaces available.</Text>
+          <Text style={styles.emptyHint}>{t("No workspaces available.")}</Text>
         ) : (
           workspaces.map((ws) => {
             const selected = ws.id === selectedWorkspaceId;
@@ -124,7 +126,7 @@ export function AgentConfigSheet({
         )}
 
         <Text style={[styles.sectionHeader, styles.sectionHeaderSpaced]}>
-          AGENT TYPE
+          {t("AGENT TYPE")}
         </Text>
         <View style={styles.segmented}>
           {offeredTypes.map((type) => {

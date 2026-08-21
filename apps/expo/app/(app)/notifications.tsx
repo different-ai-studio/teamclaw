@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActionSheetIOS,
   Alert,
@@ -45,6 +46,7 @@ const DEFAULT_PREFS: Prefs = {
 
 export default function NotificationsRoute() {
   const router = useRouter();
+  const { t } = useTranslation();
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [hydrated, setHydrated] = useState(false);
   const [pushPrefs, setPushPrefs] = useState<PushPrefs>(defaultNotificationPrefs);
@@ -95,7 +97,7 @@ export default function NotificationsRoute() {
     } catch (err) {
       showToast(
         "error",
-        err instanceof Error ? err.message : "Couldn't save notification prefs",
+        err instanceof Error ? err.message : t("Couldn't save notification prefs"),
       );
     }
   };
@@ -118,7 +120,7 @@ export default function NotificationsRoute() {
   ];
 
   const showDndPicker = (which: "start" | "end") => {
-    const labels = [...presetMinuteOptions.map((o) => o.label), "Cancel"];
+    const labels = [...presetMinuteOptions.map((o) => o.label), t("Cancel")];
     const dispatch = (index: number) => {
       if (index < 0 || index >= presetMinuteOptions.length) return;
       const v = presetMinuteOptions[index].value;
@@ -133,7 +135,7 @@ export default function NotificationsRoute() {
       return;
     }
     Alert.alert(
-      which === "start" ? "DND start time" : "DND end time",
+      which === "start" ? t("DND start time") : t("DND end time"),
       undefined,
       labels.map((label, index) => {
         if (index === labels.length - 1) {
@@ -148,7 +150,7 @@ export default function NotificationsRoute() {
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Notifications</Text>
+        <Text style={styles.headerTitle}>{t("Notifications")}</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -156,20 +158,20 @@ export default function NotificationsRoute() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.section}>
-          <SectionEyebrow label="MESSAGES" style={styles.sectionEyebrow} />
+          <SectionEyebrow label={t("MESSAGES")} style={styles.sectionEyebrow} />
           <View style={styles.card}>
             <ToggleRow
               disabled={!hydrated}
-              helper="Notify me when an agent finishes a turn."
-              label="Agent replies"
+              helper={t("Notify me when an agent finishes a turn.")}
+              label={t("Agent replies")}
               onChange={(value) => update({ agentReply: value })}
               value={prefs.agentReply}
             />
             <Hairline />
             <ToggleRow
               disabled={!hydrated}
-              helper="Ping me when someone @mentions me in any session."
-              label="@mentions"
+              helper={t("Ping me when someone @mentions me in any session.")}
+              label={t("@mentions")}
               onChange={(value) => update({ mention: value })}
               value={prefs.mention}
             />
@@ -177,20 +179,20 @@ export default function NotificationsRoute() {
         </View>
 
         <View style={styles.section}>
-          <SectionEyebrow label="ACTIVITY" style={styles.sectionEyebrow} />
+          <SectionEyebrow label={t("ACTIVITY")} style={styles.sectionEyebrow} />
           <View style={styles.card}>
             <ToggleRow
               disabled={!hydrated}
-              helper="Let me know when a teammate spins up a new session."
-              label="New sessions"
+              helper={t("Let me know when a teammate spins up a new session.")}
+              label={t("New sessions")}
               onChange={(value) => update({ newSession: value })}
               value={prefs.newSession}
             />
             <Hairline />
             <ToggleRow
               disabled={!hydrated}
-              helper="Track status changes on ideas I created or commented on."
-              label="Idea updates"
+              helper={t("Track status changes on ideas I created or commented on.")}
+              label={t("Idea updates")}
               onChange={(value) => update({ ideaUpdate: value })}
               value={prefs.ideaUpdate}
             />
@@ -198,20 +200,20 @@ export default function NotificationsRoute() {
         </View>
 
         <View style={styles.section}>
-          <SectionEyebrow label="PUSH" style={styles.sectionEyebrow} />
+          <SectionEyebrow label={t("PUSH")} style={styles.sectionEyebrow} />
           <View style={styles.card}>
             <ToggleRow
               disabled={!hydrated}
-              helper="Master switch for push delivery (honored by the FC notification fan-out)."
-              label="Enable push"
+              helper={t("Master switch for push delivery (honored by the FC notification fan-out).")}
+              label={t("Enable push")}
               onChange={(value) => updatePush({ enabled: value })}
               value={pushPrefs.enabled}
             />
             <Hairline />
             <ToggleRow
               disabled={!hydrated}
-              helper="Skip push delivery during a fixed window each day."
-              label="Do not disturb"
+              helper={t("Skip push delivery during a fixed window each day.")}
+              label={t("Do not disturb")}
               onChange={(value) => {
                 if (value) {
                   void updatePush({
@@ -233,7 +235,7 @@ export default function NotificationsRoute() {
                   style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
                 >
                   <View style={styles.rowBody}>
-                    <Text style={styles.rowLabel}>Start</Text>
+                    <Text style={styles.rowLabel}>{t("Start")}</Text>
                   </View>
                   <Text style={styles.rowValue}>{formatDndMinutes(pushPrefs.dndStartMin)}</Text>
                 </Pressable>
@@ -244,7 +246,7 @@ export default function NotificationsRoute() {
                   style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
                 >
                   <View style={styles.rowBody}>
-                    <Text style={styles.rowLabel}>End</Text>
+                    <Text style={styles.rowLabel}>{t("End")}</Text>
                   </View>
                   <Text style={styles.rowValue}>{formatDndMinutes(pushPrefs.dndEndMin)}</Text>
                 </Pressable>
@@ -254,9 +256,9 @@ export default function NotificationsRoute() {
         </View>
 
         <Text style={styles.footnote}>
-          Per-event preferences live on this device. iOS APNs registration,
-          foreground presence, and notification tap routing sync with Supabase
-          and the FC fan-out; Android FCM delivery still needs backend support.
+          {t(
+            "Per-event preferences live on this device. iOS APNs registration, foreground presence, and notification tap routing sync with Supabase and the FC fan-out; Android FCM delivery still needs backend support.",
+          )}
         </Text>
       </ScrollView>
     </View>

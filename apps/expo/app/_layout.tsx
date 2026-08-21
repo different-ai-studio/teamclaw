@@ -1,4 +1,5 @@
 import "../src/lib/polyfills";
+import "../src/lib/i18n";
 
 import { initSentry, wrapRoot } from "../src/lib/telemetry/sentry";
 

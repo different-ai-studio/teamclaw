@@ -1,12 +1,14 @@
+import { t } from "../../../lib/i18n";
+import { dateLocale } from "../../../lib/i18n/locale";
+
 /**
  * Returns the localized label for the day boundary above a message
  * dated `iso`. Mirrors `formatRelativeTime` for the Sessions list, but
  * resolves to a date eyebrow instead of a time delta.
  *
- * - same calendar day in `nowMs` → "今天"
- * - exactly one calendar day earlier → "昨天"
- * - within current ISO year → "M月D日"
- * - older → "YYYY年M月D日"
+ * - same calendar day in `nowMs` → "Today"
+ * - exactly one calendar day earlier → "Yesterday"
+ * - otherwise → locale-formatted date (`dateLocale()`: zh-CN or en-US)
  */
 export function dayLabel(iso: string, nowMs: number = Date.now()): string {
   const dateMs = Date.parse(iso);
@@ -16,12 +18,13 @@ export function dayLabel(iso: string, nowMs: number = Date.now()): string {
   const startOfDay = (d: Date) =>
     new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const dayDiff = Math.round((startOfDay(now) - startOfDay(target)) / 86400000);
-  if (dayDiff === 0) return "今天";
-  if (dayDiff === 1) return "昨天";
-  if (target.getFullYear() === now.getFullYear()) {
-    return `${target.getMonth() + 1}月${target.getDate()}日`;
-  }
-  return `${target.getFullYear()}年${target.getMonth() + 1}月${target.getDate()}日`;
+  if (dayDiff === 0) return t("Today");
+  if (dayDiff === 1) return t("Yesterday");
+  const options: Intl.DateTimeFormatOptions =
+    target.getFullYear() === now.getFullYear()
+      ? { month: "long", day: "numeric" }
+      : { year: "numeric", month: "long", day: "numeric" };
+  return target.toLocaleDateString(dateLocale(), options);
 }
 
 export function isSameCalendarDay(aIso: string, bIso: string): boolean {

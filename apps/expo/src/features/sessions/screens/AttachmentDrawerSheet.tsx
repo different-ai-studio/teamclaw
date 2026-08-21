@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import type { ComponentProps } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Hairline } from "../../../ui/atoms/Hairline";
@@ -19,8 +20,8 @@ export type AttachmentDrawerSheetProps = {
 };
 
 type SourceRow = {
-  label: string;
-  helper: string;
+  labelKey: string;
+  helperKey: string;
   iconName: IconName;
   source: AttachmentSource;
 };
@@ -28,20 +29,20 @@ type SourceRow = {
 const SOURCES: SourceRow[] = [
   {
     source: "files",
-    label: "Files",
-    helper: "Attach a document from the on-device file system.",
+    labelKey: "Files",
+    helperKey: "Attach a document from the on-device file system.",
     iconName: "document-outline",
   },
   {
     source: "camera",
-    label: "Camera",
-    helper: "Take a photo or video right now.",
+    labelKey: "Camera",
+    helperKey: "Take a photo or video right now.",
     iconName: "camera-outline",
   },
   {
     source: "photos",
-    label: "Photos",
-    helper: "Pick up to five images from the library.",
+    labelKey: "Photos",
+    helperKey: "Pick up to five images from the library.",
     iconName: "images-outline",
   },
 ];
@@ -58,18 +59,19 @@ export function AttachmentDrawerSheet({
   onClose,
   onPickSource,
 }: AttachmentDrawerSheetProps) {
+  const { t } = useTranslation();
   return (
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Attach</Text>
+        <Text style={styles.headerTitle}>{t("Attach")}</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
       </GlassHeader>
 
       <View style={styles.body}>
-        <SectionEyebrow label="SOURCE" style={styles.sectionEyebrow} />
+        <SectionEyebrow label={t("SOURCE")} style={styles.sectionEyebrow} />
         <View style={styles.card}>
           {SOURCES.map((row, index) => (
             <View key={row.source}>
@@ -86,8 +88,8 @@ export function AttachmentDrawerSheet({
                   <Ionicons color={colors.cinnabar} name={row.iconName} size={20} />
                 </View>
                 <View style={styles.rowBody}>
-                  <Text style={styles.rowLabel}>{row.label}</Text>
-                  <Text style={styles.rowHelper}>{row.helper}</Text>
+                  <Text style={styles.rowLabel}>{t(row.labelKey)}</Text>
+                  <Text style={styles.rowHelper}>{t(row.helperKey)}</Text>
                 </View>
                 <Ionicons color={colors.slate} name="chevron-forward" size={16} />
               </Pressable>
@@ -110,7 +112,7 @@ export function AttachmentDrawerSheet({
                   pressed ? styles.openSettingsPressed : null,
                 ]}
               >
-                <Text style={styles.openSettingsText}>Open Settings</Text>
+                <Text style={styles.openSettingsText}>{t("Open Settings")}</Text>
               </Pressable>
             ) : null}
           </View>

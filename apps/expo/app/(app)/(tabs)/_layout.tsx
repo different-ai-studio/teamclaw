@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Tabs, usePathname } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Platform, StyleSheet, type ColorValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -74,6 +75,7 @@ export default function TabsLayout() {
  * default is what lets iOS 26 glaze it.
  */
 function IosNativeTabs({ unread }: { unread: number }) {
+  const { t } = useTranslation();
   // Session detail covers the composer; hide the system tab bar while that
   // route is showing. Driven from pathname (not a child setOptions) because
   // NativeTabs is a real UITabBar — JS `tabBarStyle` cannot reach it.
@@ -92,7 +94,7 @@ function IosNativeTabs({ unread }: { unread: number }) {
     >
       <NativeTabs.Trigger name="sessions">
         <NativeTabs.Trigger.Icon sf="bubble.left.and.bubble.right" />
-        <NativeTabs.Trigger.Label>Sessions</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>{t("Sessions")}</NativeTabs.Trigger.Label>
         {unread > 0 ? (
           <NativeTabs.Trigger.Badge>{String(unread)}</NativeTabs.Trigger.Badge>
         ) : null}
@@ -100,12 +102,12 @@ function IosNativeTabs({ unread }: { unread: number }) {
 
       <NativeTabs.Trigger name="ideas">
         <NativeTabs.Trigger.Icon sf="lightbulb" />
-        <NativeTabs.Trigger.Label>Ideas</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>{t("Ideas")}</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="actors">
         <NativeTabs.Trigger.Icon sf="person.2" />
-        <NativeTabs.Trigger.Label>Actors</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>{t("Actors")}</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       {/* iOS declares this one as `Tab(value:role: .search)` — on iOS 26 the
@@ -113,13 +115,14 @@ function IosNativeTabs({ unread }: { unread: number }) {
           others, so the role matters more than the icon here. */}
       <NativeTabs.Trigger name="search" role="search">
         <NativeTabs.Trigger.Icon sf="magnifyingglass" />
-        <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>{t("Search")}</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
 
 function AndroidPlainTabs({ unread }: { unread: number }) {
+  const { t } = useTranslation();
   // The bar owns the bottom inset now: it sits flush against the display edge
   // and pads its own content clear of the gesture pill. The root reserves the
   // top only — see the note there.
@@ -151,7 +154,7 @@ function AndroidPlainTabs({ unread }: { unread: number }) {
       <Tabs.Screen
         name="sessions"
         options={{
-          title: "Sessions",
+          title: t("Sessions"),
           tabBarBadge: unread > 0 ? unread : undefined,
           tabBarBadgeStyle: {
             backgroundColor: colors.cinnabar,
@@ -165,21 +168,21 @@ function AndroidPlainTabs({ unread }: { unread: number }) {
       <Tabs.Screen
         name="ideas"
         options={{
-          title: "Ideas",
+          title: t("Ideas"),
           tabBarIcon: makeIcon("bulb", "bulb-outline"),
         }}
       />
       <Tabs.Screen
         name="actors"
         options={{
-          title: "Actors",
+          title: t("Actors"),
           tabBarIcon: makeIcon("people", "people-outline"),
         }}
       />
       <Tabs.Screen
         name="search"
         options={{
-          title: "Search",
+          title: t("Search"),
           tabBarIcon: makeIcon("search", "search-outline"),
         }}
       />

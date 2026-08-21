@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Pressable,
   RefreshControl,
@@ -23,6 +24,7 @@ import { colors, radii, spacing, typography } from "../../src/ui/theme";
 import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
 
 export default function ArchivedIdeasRoute() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { state } = useOnboarding();
   const teamId = state.currentTeam?.id ?? "";
@@ -62,7 +64,7 @@ export default function ArchivedIdeasRoute() {
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Archived Ideas</Text>
+        <Text style={styles.headerTitle}>{t("Archived Ideas")}</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -87,16 +89,15 @@ export default function ArchivedIdeasRoute() {
           </View>
         ) : ideas.length === 0 ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>No archived ideas</Text>
+            <Text style={styles.stateTitle}>{t("No archived ideas")}</Text>
             <Text style={styles.stateBody}>
-              Archived ideas land here. Restore one to bring it back to the
-              Ideas tab.
+              {t("Archived ideas land here. Restore one to bring it back to the Ideas tab.")}
             </Text>
           </View>
         ) : (
           <View style={styles.section}>
             <SectionEyebrow
-              label={`ARCHIVED · ${ideas.length}`}
+              label={t("ARCHIVED · {{count}}", { count: ideas.length })}
               style={styles.sectionEyebrow}
             />
             <View style={styles.card}>
@@ -107,7 +108,7 @@ export default function ArchivedIdeasRoute() {
                       <IdeaRow idea={idea} />
                     </View>
                     <Pressable
-                      accessibilityLabel="Restore"
+                      accessibilityLabel={t("Restore")}
                       accessibilityRole="button"
                       disabled={restoring === idea.ideaId}
                       hitSlop={6}
@@ -120,7 +121,7 @@ export default function ArchivedIdeasRoute() {
                       ]}
                     >
                       <Text style={styles.restoreText}>
-                        {restoring === idea.ideaId ? "…" : "Restore"}
+                        {restoring === idea.ideaId ? "…" : t("Restore")}
                       </Text>
                     </Pressable>
                   </View>

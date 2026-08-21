@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Pressable,
@@ -35,6 +36,7 @@ export type ServerSettingsSheetProps = {
  * shell can rebuild the Cloud API stack — no relaunch required.
  */
 export function ServerSettingsSheet({ onCancel, onSaved }: ServerSettingsSheetProps) {
+  const { t } = useTranslation();
   const bundledDefault = bundledCloudApiUrl();
   const [urlText, setUrlText] = useState(() => {
     try {
@@ -55,7 +57,7 @@ export function ServerSettingsSheet({ onCancel, onSaved }: ServerSettingsSheetPr
     setErrorMessage(null);
     const url = normalizeServerEndpoint(urlText);
     if (!url) {
-      setErrorMessage("Enter a server address like https://api.example.com.");
+      setErrorMessage(t("Enter a server address like https://api.example.com."));
       return;
     }
     setIsProbing(true);
@@ -63,12 +65,15 @@ export function ServerSettingsSheet({ onCancel, onSaved }: ServerSettingsSheetPr
       const outcome = await probeServerEndpoint(url);
       if (outcome.kind === "badStatus") {
         setErrorMessage(
-          `That server answered with HTTP ${outcome.status} — it doesn't look like a TeamClu Cloud API.`,
+          t(
+            "That server answered with HTTP {{status}} — it doesn't look like a TeamClu Cloud API.",
+            { status: outcome.status },
+          ),
         );
         return;
       }
       if (outcome.kind === "unreachable") {
-        setErrorMessage(`Can't reach that server: ${outcome.reason}`);
+        setErrorMessage(t("Can't reach that server: {{reason}}", { reason: outcome.reason }));
         return;
       }
       await setCloudApiUrlOverride(url);
@@ -83,7 +88,7 @@ export function ServerSettingsSheet({ onCancel, onSaved }: ServerSettingsSheetPr
     <View style={styles.sheet}>
       <View style={styles.header}>
         <Pressable
-          accessibilityLabel="Cancel"
+          accessibilityLabel={t("Cancel")}
           accessibilityRole="button"
           disabled={isProbing}
           hitSlop={8}
@@ -91,15 +96,15 @@ export function ServerSettingsSheet({ onCancel, onSaved }: ServerSettingsSheetPr
           testID="serverSettings.cancelButton"
         >
           <Text style={[styles.headerAction, isProbing ? styles.disabled : null]}>
-            Cancel
+            {t("Cancel")}
           </Text>
         </Pressable>
-        <Text style={styles.title}>Server</Text>
+        <Text style={styles.title}>{t("Server")}</Text>
         {isProbing ? (
           <ActivityIndicator color={colors.cinnabar} style={styles.saveSpinner} />
         ) : (
           <Pressable
-            accessibilityLabel="Save"
+            accessibilityLabel={t("Save")}
             accessibilityRole="button"
             hitSlop={8}
             onPress={() => {
@@ -107,13 +112,13 @@ export function ServerSettingsSheet({ onCancel, onSaved }: ServerSettingsSheetPr
             }}
             testID="serverSettings.saveButton"
           >
-            <Text style={[styles.headerAction, styles.saveAction]}>Save</Text>
+            <Text style={[styles.headerAction, styles.saveAction]}>{t("Save")}</Text>
           </Pressable>
         )}
       </View>
       <Hairline />
       <View style={styles.body}>
-        <Text style={styles.label}>Server address</Text>
+        <Text style={styles.label}>{t("Server address")}</Text>
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
@@ -131,8 +136,9 @@ export function ServerSettingsSheet({ onCancel, onSaved }: ServerSettingsSheetPr
           value={urlText}
         />
         <Text style={styles.footer}>
-          The TeamClu Cloud API this app talks to. Everything else — including
-          the message broker — is discovered from it.
+          {t(
+            "The TeamClu Cloud API this app talks to. Everything else — including the message broker — is discovered from it.",
+          )}
         </Text>
 
         {errorMessage ? (
@@ -157,12 +163,12 @@ export function ServerSettingsSheet({ onCancel, onSaved }: ServerSettingsSheetPr
               ]}
               testID="serverSettings.useDefaultButton"
             >
-              <Text style={styles.resetLabel}>Use default server</Text>
+              <Text style={styles.resetLabel}>{t("Use default server")}</Text>
             </Pressable>
-            <Text style={styles.resetHint}>Default: {bundledDefault}</Text>
+            <Text style={styles.resetHint}>{t("Default: {{url}}", { url: bundledDefault })}</Text>
             {getCloudApiUrlOverride() ? (
               <Text style={styles.resetHint}>
-                Currently: {getCloudApiUrlOverride()}
+                {t("Currently: {{url}}", { url: getCloudApiUrlOverride() })}
               </Text>
             ) : null}
           </View>
@@ -213,9 +219,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.pebble,
     borderRadius: radii.card,
     color: colors.onyx,
-    fontFamily: "monospace",
     padding: spacing.md,
     ...typography.body,
+    fontFamily: "monospace",
   },
   label: {
     color: colors.basalt,

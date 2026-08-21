@@ -1,10 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { PrimaryButton } from "../../../ui/button";
 import { Hairline } from "../../../ui/atoms/Hairline";
-import { StatusDot, type StatusDotKind } from "../../../ui/atoms/StatusDot";
+import { StatusDot } from "../../../ui/atoms/StatusDot";
 import { SheetModal } from "../../../ui/SheetModal";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
 import { ServerSettingsSheet } from "./ServerSettingsSheet";
@@ -16,16 +17,10 @@ type WelcomeScreenProps = {
   onServerChanged?: () => void | Promise<void>;
 };
 
-type RoleCard = {
-  id: string;
-  title: string;
-  status: StatusDotKind;
-};
-
-const ROLES: RoleCard[] = [
-  { id: "sales", title: "Sales", status: "error" },
-  { id: "support", title: "Support", status: "active" },
-  { id: "ops", title: "Ops", status: "muted" },
+const ROLE_IDS = [
+  { id: "sales", titleKey: "Sales", status: "error" as const },
+  { id: "support", titleKey: "Support", status: "active" as const },
+  { id: "ops", titleKey: "Ops", status: "muted" as const },
 ];
 
 export function WelcomeScreen({
@@ -33,6 +28,7 @@ export function WelcomeScreen({
   errorMessage,
   onServerChanged,
 }: WelcomeScreenProps) {
+  const { t } = useTranslation();
   const [serverOpen, setServerOpen] = useState(false);
 
   return (
@@ -40,7 +36,7 @@ export function WelcomeScreen({
       <View style={styles.toolbar}>
         <View style={styles.toolbarSpacer} />
         <Pressable
-          accessibilityLabel="Server settings"
+          accessibilityLabel={t("Server settings")}
           accessibilityRole="button"
           hitSlop={8}
           onPress={() => setServerOpen(true)}
@@ -58,10 +54,10 @@ export function WelcomeScreen({
         <RoleCardsRow />
         <Text style={styles.title}>TeamClu</Text>
         <View style={styles.copyBlock}>
-          <Text style={styles.body}>AI digital employees</Text>
-          <Text style={styles.body}>for every role.</Text>
+          <Text style={styles.body}>{t("AI digital employees")}</Text>
+          <Text style={styles.body}>{t("for every role.")}</Text>
         </View>
-        <Text style={styles.tagline}>Your Ally. Together.</Text>
+        <Text style={styles.tagline}>{t("Your Ally. Together.")}</Text>
       </View>
 
       {errorMessage ? (
@@ -71,7 +67,7 @@ export function WelcomeScreen({
       ) : null}
 
       <View style={styles.actions}>
-        <PrimaryButton label="Get Started" onPress={onGetStarted} />
+        <PrimaryButton label={t("Get Started")} onPress={onGetStarted} />
       </View>
 
       <SheetModal
@@ -91,13 +87,14 @@ export function WelcomeScreen({
 }
 
 function RoleCardsRow() {
+  const { t } = useTranslation();
   return (
     <View style={styles.rolesRow}>
-      {ROLES.map((role) => (
+      {ROLE_IDS.map((role) => (
         <View key={role.id} style={styles.roleCard}>
           <View style={styles.roleHeader}>
             <StatusDot kind={role.status} size={9} />
-            <Text style={styles.roleTitle}>{role.title}</Text>
+            <Text style={styles.roleTitle}>{t(role.titleKey)}</Text>
           </View>
           <View style={styles.rolePlaceholder}>
             <Hairline style={styles.placeholderTop} />

@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Image,
@@ -90,7 +91,7 @@ function formatTimestamp(value: string | null): string {
 }
 
 /** `Claude · prompt · personal` — the meta line under a connected agent. */
-function agentMetaLine(agent: ConnectedAgent): string {
+function agentMetaLine(agent: ConnectedAgent, t: (key: string) => string): string {
   const typeLabel = (() => {
     switch (agent.defaultAgentType) {
       case "claude":
@@ -106,7 +107,7 @@ function agentMetaLine(agent: ConnectedAgent): string {
   })();
   const parts = [typeLabel, agent.permissionLevel, agent.visibility].filter(Boolean);
   if (parts.length > 0) return parts.join(" · ");
-  return isAgentOnline(agent) ? "online" : "offline";
+  return isAgentOnline(agent) ? t("online") : t("offline");
 }
 
 export function SettingsScreen({
@@ -141,6 +142,7 @@ export function SettingsScreen({
   teamDetailsError,
   userEmail,
 }: SettingsScreenProps) {
+  const { t } = useTranslation();
   const teamDefaultAgentName =
     (teamAgents ?? []).find((agent) => agent.agentId === teamDefaultAgentId)?.displayName ??
     null;
@@ -148,7 +150,7 @@ export function SettingsScreen({
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={styles.headerTitle}>{t("Settings")}</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -194,7 +196,7 @@ export function SettingsScreen({
         {connectedAgents ? (
           <View style={styles.section}>
             <SectionEyebrow
-              label="CONNECTED PERSONAL AGENTS"
+              label={t("CONNECTED PERSONAL AGENTS")}
               style={styles.sectionEyebrow}
             />
             <View style={styles.card}>
@@ -204,9 +206,9 @@ export function SettingsScreen({
                 </View>
               ) : connectedAgents.length === 0 ? (
                 <View style={styles.emptyBlock}>
-                  <Text style={styles.emptyTitle}>No agents connected to you yet.</Text>
+                  <Text style={styles.emptyTitle}>{t("No agents connected to you yet.")}</Text>
                   <Text style={styles.rowHelper}>
-                    Personal agents registered from your devices will appear here.
+                    {t("Personal agents registered from your devices will appear here.")}
                   </Text>
                 </View>
               ) : (
@@ -226,7 +228,7 @@ export function SettingsScreen({
                             {agent.displayName}
                           </Text>
                           <Text numberOfLines={1} style={styles.agentMeta}>
-                            {agentMetaLine(agent)}
+                            {agentMetaLine(agent, t)}
                           </Text>
                         </View>
                         {agent.isOwner && onShareAgentToTeam ? (
@@ -235,7 +237,7 @@ export function SettingsScreen({
                             hitSlop={6}
                             onPress={() => onShareAgentToTeam(agent.agentId)}
                           >
-                            <Text style={styles.agentAction}>Share to team</Text>
+                            <Text style={styles.agentAction}>{t("Share to team")}</Text>
                           </Pressable>
                         ) : null}
                         <Text
@@ -244,7 +246,7 @@ export function SettingsScreen({
                             { color: online ? hai.sage : hai.slate },
                           ]}
                         >
-                          {online ? "Online" : "Offline"}
+                          {online ? t("Online") : t("Offline")}
                         </Text>
                       </View>
                       {index < connectedAgents.length - 1 ? <Hairline /> : null}
@@ -264,12 +266,12 @@ export function SettingsScreen({
 
         {team ? (
           <View style={styles.section}>
-            <SectionEyebrow label="TEAM" style={styles.sectionEyebrow} />
+            <SectionEyebrow label={t("TEAM")} style={styles.sectionEyebrow} />
             <View style={styles.card}>
               {teamDetails?.orgName ? (
                 <>
                   <View style={styles.row}>
-                    <Text style={styles.rowLabel}>Org</Text>
+                    <Text style={styles.rowLabel}>{t("Org")}</Text>
                     <Text numberOfLines={1} style={styles.rowValue}>
                       {teamDetails.orgName}
                     </Text>
@@ -278,26 +280,26 @@ export function SettingsScreen({
                 </>
               ) : null}
               <View style={styles.row}>
-                <Text style={styles.rowLabel}>Name</Text>
+                <Text style={styles.rowLabel}>{t("Name")}</Text>
                 <Text style={styles.rowValue}>{team.name}</Text>
               </View>
               <Hairline />
               <View style={styles.row}>
-                <Text style={styles.rowLabel}>Role</Text>
-                <Text style={styles.rowValue}>{team.role ?? "member"}</Text>
+                <Text style={styles.rowLabel}>{t("Role")}</Text>
+                <Text style={styles.rowValue}>{team.role ?? t("member")}</Text>
               </View>
               {teamDetails ? (
                 <>
                   <Hairline />
                   <View style={styles.row}>
-                    <Text style={styles.rowLabel}>Owner</Text>
+                    <Text style={styles.rowLabel}>{t("Owner")}</Text>
                     <Text numberOfLines={1} style={styles.rowValue}>
                       {teamDetails.ownerDisplayName ?? "—"}
                     </Text>
                   </View>
                   <Hairline />
                   <View style={styles.row}>
-                    <Text style={styles.rowLabel}>Created</Text>
+                    <Text style={styles.rowLabel}>{t("Created")}</Text>
                     <Text style={styles.rowValue}>{formatTimestamp(teamDetails.createdAt)}</Text>
                   </View>
                 </>
@@ -312,7 +314,7 @@ export function SettingsScreen({
                 <>
                   <Hairline />
                   <View style={styles.row}>
-                    <Text style={styles.rowLabel}>ID</Text>
+                    <Text style={styles.rowLabel}>{t("ID")}</Text>
                     <Text style={[styles.rowValue, styles.rowValueMono]} numberOfLines={1}>
                       {team.id}
                     </Text>
@@ -330,7 +332,7 @@ export function SettingsScreen({
                       pressed ? styles.rowPressed : null,
                     ]}
                   >
-                    <Text style={styles.rowLabel}>Workspaces</Text>
+                    <Text style={styles.rowLabel}>{t("Workspaces")}</Text>
                     <Ionicons color={colors.slate} name="chevron-forward" size={16} />
                   </Pressable>
                 </>
@@ -346,7 +348,7 @@ export function SettingsScreen({
                       pressed ? styles.rowPressed : null,
                     ]}
                   >
-                    <Text style={styles.rowLabel}>All teams</Text>
+                    <Text style={styles.rowLabel}>{t("All teams")}</Text>
                     <Ionicons color={colors.slate} name="chevron-forward" size={16} />
                   </Pressable>
                 </>
@@ -357,11 +359,11 @@ export function SettingsScreen({
 
         {team && teamAgents ? (
           <View style={styles.section}>
-            <SectionEyebrow label="TEAM DEFAULT AGENT" style={styles.sectionEyebrow} />
+            <SectionEyebrow label={t("TEAM DEFAULT AGENT")} style={styles.sectionEyebrow} />
             <View style={styles.card}>
               {teamAgents.length === 0 ? (
                 <View style={styles.emptyBlock}>
-                  <Text style={styles.rowHelper}>No team agents yet.</Text>
+                  <Text style={styles.rowHelper}>{t("No team agents yet.")}</Text>
                 </View>
               ) : canEditTeamDefaultAgent && onPickTeamDefaultAgent ? (
                 <Pressable
@@ -370,13 +372,13 @@ export function SettingsScreen({
                   onPress={onPickTeamDefaultAgent}
                   style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
                 >
-                  <Text style={styles.rowLabel}>Default agent</Text>
+                  <Text style={styles.rowLabel}>{t("Default agent")}</Text>
                   {isSavingTeamDefaultAgent ? (
                     <ActivityIndicator color={colors.slate} />
                   ) : (
                     <View style={styles.pickerValueRow}>
                       <Text numberOfLines={1} style={styles.rowValue}>
-                        {teamDefaultAgentName ?? "Not set"}
+                        {teamDefaultAgentName ?? t("Not set")}
                       </Text>
                       <Ionicons color={colors.slate} name="chevron-down" size={14} />
                     </View>
@@ -384,9 +386,9 @@ export function SettingsScreen({
                 </Pressable>
               ) : (
                 <View style={styles.row}>
-                  <Text style={styles.rowLabel}>Default agent</Text>
+                  <Text style={styles.rowLabel}>{t("Default agent")}</Text>
                   <Text numberOfLines={1} style={styles.rowValue}>
-                    {teamDefaultAgentName ?? "Not set"}
+                    {teamDefaultAgentName ?? t("Not set")}
                   </Text>
                 </View>
               )}
@@ -401,13 +403,13 @@ export function SettingsScreen({
         ) : null}
 
         <View style={styles.section}>
-          <SectionEyebrow label="NOTIFICATIONS" style={styles.sectionEyebrow} />
+          <SectionEyebrow label={t("NOTIFICATIONS")} style={styles.sectionEyebrow} />
           <View style={styles.card}>
             <View style={styles.row}>
               <View style={styles.rowBody}>
-                <Text style={styles.rowLabel}>Push alerts</Text>
+                <Text style={styles.rowLabel}>{t("Push alerts")}</Text>
                 <Text style={styles.rowHelper}>
-                  Get a heads-up when an agent finishes a turn.
+                  {t("Get a heads-up when an agent finishes a turn.")}
                 </Text>
               </View>
               <Switch
@@ -429,7 +431,7 @@ export function SettingsScreen({
                     pressed ? styles.rowPressed : null,
                   ]}
                 >
-                  <Text style={styles.rowLabel}>Per-event preferences</Text>
+                  <Text style={styles.rowLabel}>{t("Per-event preferences")}</Text>
                   <Ionicons color={colors.slate} name="chevron-forward" size={16} />
                 </Pressable>
               </>
@@ -438,29 +440,29 @@ export function SettingsScreen({
         </View>
 
         <View style={styles.section}>
-          <SectionEyebrow label="ABOUT" style={styles.sectionEyebrow} />
+          <SectionEyebrow label={t("ABOUT")} style={styles.sectionEyebrow} />
           <View style={styles.card}>
             <View style={styles.row}>
-              <Text style={styles.rowLabel}>App version</Text>
+              <Text style={styles.rowLabel}>{t("App version")}</Text>
               <Text style={styles.rowValueMono}>{appVersion}</Text>
             </View>
             <Hairline />
             <View style={styles.row}>
-              <Text style={styles.rowLabel}>Build</Text>
+              <Text style={styles.rowLabel}>{t("Build")}</Text>
               <Text style={styles.rowValueMono}>{buildNumber}</Text>
             </View>
             {/* The endpoints this build actually talks to. Support asks for
                 these first when a device "can't connect". */}
             <Hairline />
             <View style={styles.row}>
-              <Text style={styles.rowLabel}>Cloud API</Text>
+              <Text style={styles.rowLabel}>{t("Cloud API")}</Text>
               <Text numberOfLines={1} style={styles.rowValueMono}>
                 {cloudApiAddress || "—"}
               </Text>
             </View>
             <Hairline />
             <View style={styles.row}>
-              <Text style={styles.rowLabel}>MQTT</Text>
+              <Text style={styles.rowLabel}>{t("MQTT")}</Text>
               <Text numberOfLines={1} style={styles.rowValueMono}>
                 {mqttBrokerAddress || "—"}
               </Text>
@@ -480,7 +482,7 @@ export function SettingsScreen({
             ]}
           >
             <Text style={styles.signOutText}>
-              {isSigningOut ? "Signing out…" : "Sign out"}
+              {isSigningOut ? t("Signing out…") : t("Sign out")}
             </Text>
           </Pressable>
         ) : null}

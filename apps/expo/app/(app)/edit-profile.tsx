@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Image,
@@ -26,6 +27,7 @@ import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
 
 export default function EditProfileRoute() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { state } = useOnboarding();
   const memberActorId = state.currentMemberActorId;
   const teamId = state.currentTeam?.id ?? "";
@@ -60,7 +62,7 @@ export default function EditProfileRoute() {
         setInitialAvatarUrl(avatar);
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Couldn't load your profile.");
+        setError(err instanceof Error ? err.message : t("Couldn't load your profile."));
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -83,7 +85,7 @@ export default function EditProfileRoute() {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        setError("Photo library permission denied.");
+        setError(t("Photo library permission denied."));
         return;
       }
       const picked = await ImagePicker.launchImageLibraryAsync({
@@ -103,7 +105,7 @@ export default function EditProfileRoute() {
       });
       setAvatarUrl(publicUrl);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't upload avatar.");
+      setError(err instanceof Error ? err.message : t("Couldn't upload avatar."));
     } finally {
       setIsUploading(false);
     }
@@ -120,10 +122,10 @@ export default function EditProfileRoute() {
         displayName: displayName.trim(),
         avatarUrl,
       });
-      showToast("success", "Profile saved");
+      showToast("success", t("Profile saved"));
       router.back();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save your profile.");
+      setError(err instanceof Error ? err.message : t("Couldn't save your profile."));
       setIsSaving(false);
     }
   };
@@ -132,7 +134,7 @@ export default function EditProfileRoute() {
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Edit Profile</Text>
+        <Text style={styles.headerTitle}>{t("Edit Profile")}</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -146,17 +148,17 @@ export default function EditProfileRoute() {
         {isLoading ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.slate} />
-            <Text style={styles.body}>Loading profile…</Text>
+            <Text style={styles.body}>{t("Loading profile…")}</Text>
           </View>
         ) : !memberActorId ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>Not a member yet</Text>
-            <Text style={styles.body}>Finish onboarding before editing your profile.</Text>
+            <Text style={styles.stateTitle}>{t("Not a member yet")}</Text>
+            <Text style={styles.body}>{t("Finish onboarding before editing your profile.")}</Text>
           </View>
         ) : (
           <>
             <View style={styles.section}>
-              <SectionEyebrow label="AVATAR" style={styles.sectionEyebrow} />
+              <SectionEyebrow label={t("AVATAR")} style={styles.sectionEyebrow} />
               <Pressable
                 accessibilityRole="button"
                 disabled={isUploading || isSaving}
@@ -181,10 +183,12 @@ export default function EditProfileRoute() {
                 </View>
                 <View style={styles.avatarBody}>
                   <Text style={styles.avatarLabel}>
-                    {avatarUrl ? "Replace photo" : "Add photo"}
+                    {avatarUrl ? t("Replace photo") : t("Add photo")}
                   </Text>
                   <Text style={styles.avatarHelper}>
-                    {isUploading ? "Uploading…" : "Square crop, used everywhere your name shows."}
+                    {isUploading
+                      ? t("Uploading…")
+                      : t("Square crop, used everywhere your name shows.")}
                   </Text>
                 </View>
                 <Ionicons color={colors.slate} name="chevron-forward" size={16} />
@@ -192,7 +196,7 @@ export default function EditProfileRoute() {
             </View>
 
             <View style={styles.section}>
-              <SectionEyebrow label="DISPLAY NAME" style={styles.sectionEyebrow} />
+              <SectionEyebrow label={t("DISPLAY NAME")} style={styles.sectionEyebrow} />
               <View style={styles.card}>
                 <TextInput
                   autoCapitalize="words"
@@ -200,7 +204,7 @@ export default function EditProfileRoute() {
                   editable={!isSaving}
                   maxLength={64}
                   onChangeText={setDisplayName}
-                  placeholder="How you'd like teammates to address you"
+                  placeholder={t("How you'd like teammates to address you")}
                   placeholderTextColor={colors.slate}
                   selectionColor={colors.cinnabar}
                   style={styles.input}
@@ -208,8 +212,7 @@ export default function EditProfileRoute() {
                 />
               </View>
               <Text style={styles.footnote}>
-                This is the name agents and teammates see when you appear in a
-                session.
+                {t("This is the name agents and teammates see when you appear in a session.")}
               </Text>
             </View>
 
@@ -226,7 +229,7 @@ export default function EditProfileRoute() {
               ]}
             >
               <Text style={[styles.ctaText, canSave ? styles.ctaTextActive : styles.ctaTextInactive]}>
-                {isSaving ? "Saving…" : "Save changes"}
+                {isSaving ? t("Saving…") : t("Save changes")}
               </Text>
             </Pressable>
           </>

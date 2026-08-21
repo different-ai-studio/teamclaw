@@ -18,6 +18,7 @@
     "plugins": [
       "./plugins/withTeamCluMqtt",
       "expo-audio",
+      "expo-localization",
       "expo-web-browser",
       "expo-router",
       "expo-sqlite",
@@ -30,7 +31,11 @@
       ]
     ],
     "ios": {
-      "bundleIdentifier": "com.teamclu"
+      "bundleIdentifier": "com.teamclu",
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "en",
+        "CFBundleLocalizations": ["en", "zh-Hans"]
+      }
     },
     "extra": {
       "eas": {

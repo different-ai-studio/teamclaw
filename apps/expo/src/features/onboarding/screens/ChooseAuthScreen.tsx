@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Pressable,
   StyleSheet,
@@ -38,6 +39,7 @@ export function ChooseAuthScreen({
   onJoinWithToken,
   onServerChanged,
 }: ChooseAuthScreenProps) {
+  const { t } = useTranslation();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [serverOpen, setServerOpen] = useState(false);
   // Bumped after every server-sheet save so the row caption re-reads the
@@ -50,40 +52,41 @@ export function ChooseAuthScreen({
       const raw = getCloudApiUrlOverride();
       try {
         const host = raw ? new URL(raw).host : null;
-        if (host) return `Connected to ${host}.`;
+        if (host) return t("Connected to {{host}}.", { host });
       } catch {
         // Fall through.
       }
     }
-    return "Point the app at your own deployment.";
+    return t("Point the app at your own deployment.");
   })();
 
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>Set up TeamClu</Text>
+        <Text style={styles.title}>{t("Set up TeamClu")}</Text>
         <Text style={styles.subtitle}>
-          Create your workspace or join the team that already works with your AI
-          allies.
+          {t(
+            "Create your workspace or join the team that already works with your AI allies.",
+          )}
         </Text>
       </View>
 
       <View style={styles.actions}>
         <ActionRow
-          caption="Use email, Apple, or Google to sync across devices."
+          caption={t("Use email, Apple, or Google to sync across devices.")}
           disabled={isBusy}
           icon="mail-outline"
           isPrimary
           onPress={onSignInOrRegister}
           testID="choose.signInButton"
-          title="Sign in or register"
+          title={t("Sign in or register")}
         />
         <ActionRow
-          caption="Paste an invite link from a teammate."
+          caption={t("Paste an invite link from a teammate.")}
           disabled={isBusy}
           icon="link-outline"
           onPress={() => setInviteOpen(true)}
-          title="Join a team"
+          title={t("Join a team")}
         />
         <ActionRow
           caption={serverCaption}
@@ -91,7 +94,7 @@ export function ChooseAuthScreen({
           icon="server-outline"
           onPress={() => setServerOpen(true)}
           testID="choose.customServerButton"
-          title="Custom server"
+          title={t("Custom server")}
         />
       </View>
 
@@ -196,6 +199,7 @@ function InviteJoinSheet({
   onCancel: () => void;
   onSubmit: (token: string) => void | Promise<void>;
 }) {
+  const { t } = useTranslation();
   const [raw, setRaw] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const visibleError = localError ?? errorMessage;
@@ -203,13 +207,13 @@ function InviteJoinSheet({
   const submit = () => {
     const trimmed = raw.trim();
     if (!trimmed) {
-      setLocalError("Paste an invite link or token first.");
+      setLocalError(t("Paste an invite link or token first."));
       return;
     }
     // Accept either a full `teamclu://invite?token=...` link or a bare token.
     const parsed = parseInviteToken(trimmed) ?? trimmed;
     if (!parsed) {
-      setLocalError("Couldn't read a token from that link.");
+      setLocalError(t("Couldn't read a token from that link."));
       return;
     }
     setLocalError(null);
@@ -219,9 +223,9 @@ function InviteJoinSheet({
   return (
     <View style={styles.sheet}>
       <View style={styles.sheetHeader}>
-        <Text style={styles.sheetTitle}>Join with invite link</Text>
+        <Text style={styles.sheetTitle}>{t("Join with invite link")}</Text>
         <Pressable
-          accessibilityLabel="Cancel"
+          accessibilityLabel={t("Cancel")}
           accessibilityRole="button"
           hitSlop={8}
           onPress={onCancel}
@@ -232,8 +236,9 @@ function InviteJoinSheet({
       <Hairline />
       <View style={styles.sheetBody}>
         <Text style={styles.sheetCaption}>
-          Paste the link your teammate shared. TeamClu will sign you in and add
-          you to their team.
+          {t(
+            "Paste the link your teammate shared. TeamClu will sign you in and add you to their team.",
+          )}
         </Text>
         <TextInput
           autoCapitalize="none"
@@ -245,7 +250,7 @@ function InviteJoinSheet({
             setRaw(value);
             if (localError) setLocalError(null);
           }}
-          placeholder="teamclu://invite?token=… or just the token"
+          placeholder={t("teamclu://invite?token=… or just the token")}
           placeholderTextColor={colors.slate}
           selectionColor={colors.cinnabar}
           style={styles.sheetInput}
@@ -270,7 +275,7 @@ function InviteJoinSheet({
           ]}
         >
           <Text style={styles.sheetSubmitLabel}>
-            {isBusy ? "Joining…" : "Continue"}
+            {isBusy ? t("Joining…") : t("Continue")}
           </Text>
         </Pressable>
       </View>

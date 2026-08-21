@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect } from "expo-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { routeToHref, useOnboarding } from "./_layout";
@@ -18,6 +19,7 @@ import { colors, iosType, radii, spacing } from "../src/ui/theme";
  * to empty. The choice is remembered, so this is asked once.
  */
 export default function SelectTeamRoute() {
+  const { t } = useTranslation();
   const { state, controller } = useOnboarding();
   const [busyTeamId, setBusyTeamId] = useState<string | null>(null);
 
@@ -40,10 +42,9 @@ export default function SelectTeamRoute() {
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerBlock}>
-          <Text style={styles.title}>Choose a team</Text>
+          <Text style={styles.title}>{t("Choose a team")}</Text>
           <Text style={styles.body}>
-            You're on more than one. Pick where to start — TeamClu will remember
-            it.
+            {t("You're on more than one. Pick where to start — TeamClu will remember it.")}
           </Text>
         </View>
 

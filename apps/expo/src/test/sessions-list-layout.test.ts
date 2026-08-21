@@ -54,7 +54,7 @@ describe("SessionGroupSection layout", () => {
       "../features/sessions/screens/SessionsListScreen"
     );
     const group: SessionGroup = {
-      label: "今天",
+      label: "Today",
       sessions: [
         {
           sessionId: "session-1",

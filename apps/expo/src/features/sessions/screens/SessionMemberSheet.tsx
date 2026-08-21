@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -94,6 +95,7 @@ export function SessionMemberSheet({
   onRemoveActor,
   onRestartAgentRuntime,
 }: SessionMemberSheetProps) {
+  const { t } = useTranslation();
   const isEmpty = humans.length === 0 && agents.length === 0;
 
   const confirmRemoveHuman = useCallback(
@@ -103,7 +105,7 @@ export function SessionMemberSheet({
       if (Platform.OS === "ios") {
         ActionSheetIOS.showActionSheetWithOptions(
           {
-            options: [`Remove ${human.displayName}`, "Cancel"],
+            options: [t("Remove {{value}}", { value: human.displayName }), t("Cancel")],
             cancelButtonIndex: 1,
             destructiveButtonIndex: 0,
           },
@@ -113,12 +115,12 @@ export function SessionMemberSheet({
         );
         return;
       }
-      Alert.alert("Remove from session", human.displayName, [
-        { text: "Remove", style: "destructive", onPress: remove },
-        { text: "Cancel", style: "cancel" },
+      Alert.alert(t("Remove from session"), human.displayName, [
+        { text: t("Remove"), style: "destructive", onPress: remove },
+        { text: t("Cancel"), style: "cancel" },
       ]);
     },
-    [onRemoveActor],
+    [onRemoveActor, t],
   );
 
   return (
@@ -127,15 +129,15 @@ export function SessionMemberSheet({
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
-        <Text style={styles.headerTitle}>Actors</Text>
+        <Text style={styles.headerTitle}>{t("Actors")}</Text>
         <View style={styles.headerActions}>
           <ToolbarButton
-            accessibilityLabel="Add member"
+            accessibilityLabel={t("Add member")}
             iconName="person-add-outline"
             onPress={onAddMember}
           />
           <ToolbarButton
-            accessibilityLabel="Add agent"
+            accessibilityLabel={t("Add agent")}
             iconName="sparkles-outline"
             onPress={onAddAgent}
           />
@@ -146,22 +148,22 @@ export function SessionMemberSheet({
         {isLoading && isEmpty ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.slate} />
-            <Text style={styles.loadingText}>Loading actors…</Text>
+            <Text style={styles.loadingText}>{t("Loading actors…")}</Text>
           </View>
         ) : isEmpty ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>No participants</Text>
+            <Text style={styles.stateTitle}>{t("No participants")}</Text>
             <Text style={styles.stateBody}>
-              This session doesn't have any actors yet.
+              {t("This session doesn't have any actors yet.")}
             </Text>
           </View>
         ) : (
           <View style={styles.groups}>
             <View style={styles.section}>
-              <SectionEyebrow label="MEMBERS" style={styles.sectionLabel} />
+              <SectionEyebrow label={t("MEMBERS")} style={styles.sectionLabel} />
               <View style={styles.card}>
                 {humans.length === 0 ? (
-                  <Text style={styles.sectionEmpty}>No members yet.</Text>
+                  <Text style={styles.sectionEmpty}>{t("No members yet.")}</Text>
                 ) : (
                   humans.map((human, index) => (
                     <View key={human.actorId}>
@@ -181,11 +183,11 @@ export function SessionMemberSheet({
             </View>
 
             <View style={styles.section}>
-              <SectionEyebrow label="AGENTS" style={styles.sectionLabel} />
+              <SectionEyebrow label={t("AGENTS")} style={styles.sectionLabel} />
               <View style={styles.card}>
                 {agents.length === 0 ? (
                   <Text style={styles.sectionEmpty}>
-                    No agents in this session yet. Add one from the toolbar.
+                    {t("No agents in this session yet. Add one from the toolbar.")}
                   </Text>
                 ) : (
                   agents.map((agent, index) => (
@@ -228,6 +230,7 @@ function HumanMemberRow({
   human: MemberSheetHuman;
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.row}>
       <StatusDot breathing={false} kind={human.isOnline ? "active" : "muted"} size={8} />
@@ -237,7 +240,7 @@ function HumanMemberRow({
       <View style={styles.rowSpacer} />
       {onRemove ? (
         <Pressable
-          accessibilityLabel={`Remove ${human.displayName}`}
+          accessibilityLabel={t("Remove {{value}}", { value: human.displayName })}
           accessibilityRole="button"
           hitSlop={8}
           onPress={onRemove}
@@ -261,6 +264,7 @@ function AgentMemberRow({
   onRemove?: () => void;
   onRestart?: () => void;
 }) {
+  const { t } = useTranslation();
   const trailing = agentTrailingLabel({
     currentModel: agent.currentModel,
     state: agent.state,
@@ -274,12 +278,12 @@ function AgentMemberRow({
 
   const actions = [
     ...(onRestart
-      ? [{ label: "Restart", iconName: "refresh-outline" as const, onPress: onRestart }]
+      ? [{ label: t("Restart"), iconName: "refresh-outline" as const, onPress: onRestart }]
       : []),
     ...(onRemove
       ? [
           {
-            label: "Remove",
+            label: t("Remove"),
             iconName: "close-outline" as const,
             onPress: onRemove,
             destructive: true,
@@ -305,20 +309,20 @@ function AgentMemberRow({
           <ActivityIndicator color={colors.slate} size="small" />
         ) : interactive ? (
           <Pressable
-            accessibilityLabel={`Change model for ${agent.displayName}`}
+            accessibilityLabel={t("Change model for {{value}}", { value: agent.displayName })}
             accessibilityRole="button"
             hitSlop={6}
             onPress={onChangeModel}
             style={styles.modelChip}
           >
             <Text numberOfLines={1} style={styles.modelText}>
-              {trailing.kind === "model" ? trailing.text : "default"}
+              {trailing.kind === "model" ? trailing.text : t("default")}
             </Text>
             <Ionicons color={colors.slate} name="chevron-expand" size={12} />
           </Pressable>
         ) : (
           <Text numberOfLines={1} style={styles.modelText}>
-            {trailing.kind === "model" ? trailing.text : "default"}
+            {trailing.kind === "model" ? trailing.text : t("default")}
           </Text>
         )}
       </View>

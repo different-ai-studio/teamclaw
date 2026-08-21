@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useOnboarding } from "../_layout";
 import { createActorsApi } from "../../src/features/actors/actor-api";
@@ -14,11 +15,13 @@ import { IdeaDetailScreen } from "../../src/features/ideas/screens/IdeaDetailScr
 import { createConfiguredSessionsApi } from "../../src/features/sessions/api-provider";
 import { supabase } from "../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
+import { t } from "../../src/lib/i18n";
 import { showToast } from "../../src/ui/Toast";
 
 type BusyAction = "toggleStatus" | "archive" | "save" | null;
 
 export default function IdeaDetailRoute() {
+  const { t: tHook } = useTranslation();
   const router = useRouter();
   const { state } = useOnboarding();
   const params = useLocalSearchParams<{ ideaId?: string }>();
@@ -150,7 +153,7 @@ export default function IdeaDetailRoute() {
     async (text: string) => {
       if (!ideaId) return;
       if (!currentActorId) {
-        showToast("error", "Sign in to a team before posting progress.");
+        showToast("error", tHook("Sign in to a team before posting progress."));
         return;
       }
       const attachmentUrls = images.uploadedUrls;
@@ -170,12 +173,12 @@ export default function IdeaDetailRoute() {
         images.reset();
         await loadActivities();
       } catch (err) {
-        showToast("error", err instanceof Error ? err.message : "Couldn't post progress.");
+        showToast("error", err instanceof Error ? err.message : tHook("Couldn't post progress."));
       } finally {
         setIsSubmittingProgress(false);
       }
     },
-    [currentActorId, ideaId, ideasApi, images, loadActivities],
+    [currentActorId, ideaId, ideasApi, images, loadActivities, tHook],
   );
 
   /**
@@ -189,7 +192,10 @@ export default function IdeaDetailRoute() {
       try {
         await ideasApi.createActivity(ideaId, {
           activityType: "status_change",
-          content: `Changed status from ${statusLabel(from)} to ${statusLabel(to)}`,
+          content: tHook("Changed status from {{from}} to {{to}}", {
+            from: statusLabel(from),
+            to: statusLabel(to),
+          }),
           actorId: currentActorId,
           metadata: { from_status: from, to_status: to },
         });
@@ -198,7 +204,7 @@ export default function IdeaDetailRoute() {
         // The status itself already saved; the audit row is best-effort.
       }
     },
-    [currentActorId, ideaId, ideasApi, loadActivities],
+    [currentActorId, ideaId, ideasApi, loadActivities, tHook],
   );
 
   const handleToggleStatus = idea
@@ -226,12 +232,12 @@ export default function IdeaDetailRoute() {
         try {
           await ideasApi.updateStatus(idea.ideaId, next);
           setIdea({ ...idea, status: next, updatedAt: new Date().toISOString() });
-          showToast("success", `Marked ${next.replace("_", " ")}`);
+          showToast("success", tHook("Marked {{status}}", { status: next.replace("_", " ") }));
           await logStatusChange(previous, next);
         } catch (err) {
           showToast(
             "error",
-            err instanceof Error ? err.message : "Couldn't update status",
+            err instanceof Error ? err.message : tHook("Couldn't update status"),
           );
         } finally {
           setBusyAction(null);
@@ -244,12 +250,12 @@ export default function IdeaDetailRoute() {
         setBusyAction("archive");
         try {
           await ideasApi.archive(idea.ideaId);
-          showToast("success", "Idea archived");
+          showToast("success", tHook("Idea archived"));
           router.back();
         } catch (err) {
           showToast(
             "error",
-            err instanceof Error ? err.message : "Couldn't archive",
+            err instanceof Error ? err.message : tHook("Couldn't archive"),
           );
           setBusyAction(null);
         }
@@ -267,11 +273,11 @@ export default function IdeaDetailRoute() {
             description: patch.description,
             updatedAt: new Date().toISOString(),
           });
-          showToast("success", "Saved");
+          showToast("success", tHook("Saved"));
         } catch (err) {
           showToast(
             "error",
-            err instanceof Error ? err.message : "Couldn't save",
+            err instanceof Error ? err.message : tHook("Couldn't save"),
           );
         } finally {
           setBusyAction(null);
@@ -323,10 +329,10 @@ export default function IdeaDetailRoute() {
 function statusLabel(status: IdeaStatus): string {
   switch (status) {
     case "in_progress":
-      return "In Progress";
+      return t("In Progress");
     case "done":
-      return "Done";
+      return t("Done");
     default:
-      return "Open";
+      return t("Open");
   }
 }

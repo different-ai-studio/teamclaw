@@ -3,6 +3,8 @@
  * it can be tested without pulling React Native's Flow sources into vitest.
  */
 
+import { t } from "../../lib/i18n";
+
 /**
  * Convert `expo-audio`'s decibel metering to the 0…1 level iOS derives.
  *
@@ -47,7 +49,7 @@ export type DaemonConnectionState =
 
 /** Mirrors the iOS `DaemonStatusBanner.label`. */
 export function daemonStatusLabel(state: DaemonConnectionState): string {
-  if (state === "connected") return "daemon online";
-  if (state === "connecting" || state === "reconnecting") return "daemon connecting";
-  return "daemon offline";
+  if (state === "connected") return t("daemon online");
+  if (state === "connecting" || state === "reconnecting") return t("daemon connecting");
+  return t("daemon offline");
 }
