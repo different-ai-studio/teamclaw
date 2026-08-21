@@ -108,6 +108,20 @@ export function TeamShareNavSection() {
     (section: TeamShareSection) => {
       setFilter({ kind: 'teamShare', section })
       void loadSection(section, { force: true, withTools: section === 'mcp' })
+      // Skills with nothing selected used to leave the main column blank. Default
+      // to the marketplace browse view — same entry as the store button, so the
+      // list header stays consistent with what's on the right.
+      if (section === 'skills') {
+        const detail = useTeamShareBrowserStore.getState().detailTarget
+        const skillSelected =
+          detail?.kind === 'skill' ||
+          detail?.kind === 'skill-file' ||
+          detail?.kind === 'marketplace' ||
+          detail?.kind === 'marketplace-item'
+        if (!skillSelected) {
+          useTeamShareBrowserStore.getState().openDetail({ kind: 'marketplace' })
+        }
+      }
     },
     [setFilter, loadSection],
   )

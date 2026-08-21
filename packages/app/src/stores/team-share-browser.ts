@@ -893,9 +893,14 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   select: (section, id) => {
     if (section === 'knowledge') return // documents are plain file tabs
     if (!id) {
-      if (teamShareSectionForTarget(get().detailTarget) === section) {
-        set({ detailTarget: null })
+      // Only clear/replace a detail owned by this section. Deselecting a skill
+      // falls back to the marketplace instead of blanking the main column.
+      if (teamShareSectionForTarget(get().detailTarget) !== section) return
+      if (section === 'skills') {
+        set({ detailTarget: { kind: 'marketplace' } })
+        return
       }
+      set({ detailTarget: null })
       return
     }
     set({

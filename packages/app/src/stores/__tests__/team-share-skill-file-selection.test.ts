@@ -48,6 +48,12 @@ describe('team-share selection lives in the detail pane', () => {
     expect(detailTarget()).toBeNull()
   })
 
+  test('deselecting a skill falls back to the marketplace', () => {
+    store().select('skills', 'deploy-check')
+    store().select('skills', null)
+    expect(detailTarget()).toEqual({ kind: 'marketplace' })
+  })
+
   test('deleting a directory clears an active file inside it', () => {
     store().selectSkillFile('deploy-check', 'scripts/nested/run.sh')
 
