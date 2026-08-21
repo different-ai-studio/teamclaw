@@ -178,6 +178,21 @@ test("every createApp() call wires the vanity lookup", () => {
   }
 });
 
+test("every createApp() call wires the marketplace system repository", () => {
+  // Same two-entry trap as vanity: marketplace admin was wired only on the
+  // Aliyun FC handler. Self-host Docker uses server.ts and returned 503
+  // "marketplace admin repository not configured" for every admin publish.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  for (const entry of ["server.ts", "index.ts"]) {
+    const src = fs.readFileSync(path.join(here, "../src", entry), "utf8");
+    assert.match(
+      src,
+      /createApp\(\{[\s\S]*?createSystemRepository[\s\S]*?\}\)/,
+      `${entry} builds an app without createSystemRepository`,
+    );
+  }
+});
+
 // --- which database the lookup reads --------------------------------------
 
 test("the supabase lookup filters by slug and matches the id prefix in memory", async () => {

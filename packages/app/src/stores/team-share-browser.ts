@@ -750,13 +750,16 @@ async function materializeSkill(
   const wsPath = workspacePath()
   const detail = await backend.teamSkills.getTeamSkill(teamId, slug)
   const { url } = await backend.teamSkills.resolveDownload(teamId, slug, version)
+  // Download URLs are storage-presigned (S3/MinIO/Supabase). Passing a Bearer
+  // JWT makes MinIO answer 400 "multiple authentication types" and is what
+  // made marketplace auto-follow stuck on "Update failed — retry".
   const result = await invoke<{ archivedPath?: string }>('team_skill_install', {
     request: {
       workspacePath: wsPath,
       slug,
       teamId,
       downloadUrl: url,
-      accessToken: await getFreshAccessToken().catch(() => null),
+      accessToken: null,
       version,
       owner: detail.ownerActorId,
       category: detail.category,
@@ -890,9 +893,14 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   select: (section, id) => {
     if (section === 'knowledge') return // documents are plain file tabs
     if (!id) {
-      if (teamShareSectionForTarget(get().detailTarget) === section) {
-        set({ detailTarget: null })
+      // Only clear/replace a detail owned by this section. Deselecting a skill
+      // falls back to the marketplace instead of blanking the main column.
+      if (teamShareSectionForTarget(get().detailTarget) !== section) return
+      if (section === 'skills') {
+        set({ detailTarget: { kind: 'marketplace' } })
+        return
       }
+      set({ detailTarget: null })
       return
     }
     set({
@@ -944,8 +952,10 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       slug: opts.slug,
     })
     await backend.teamSkills.installTeamSkill(teamId, created.slug)
+    // Stay on the marketplace list (or whatever pane is open). MarketplacePane
+    // refreshes its own catalog after adopt; jumping to skill detail felt like
+    // the main column "navigated away" from Add to team.
     await get().loadSection('skills', { force: true })
-    set({ detailTarget: { kind: 'skill', id: created.slug } })
   },
 
   detachMarketplaceSkill: async (slug) => {
@@ -1504,7 +1514,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       request: {
         slug,
         downloadUrl: url,
-        accessToken: await getFreshAccessToken().catch(() => null),
+        accessToken: null,
         version: installedVersion,
         owner: detail.ownerActorId,
         category: detail.category,

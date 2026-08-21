@@ -1,0 +1,113 @@
+# Publish @teamclu/cli to the public npm registry.
+#
+# Triggers:
+#   - workflow_dispatch (Actions UI) — publishes packages/cli/package.json version
+#   - push tag cli-v* — tag must match package.json version (e.g. cli-v0.1.1)
+#
+# Secret (repo → Settings → Secrets → Actions):
+#   NPM_TOKEN  Granular Access Token for @teamclu with Packages Read and write
+#              + Bypass two-factor authentication (Security Key accounts need this).
+#              Do not use a session login cookie; Automation / GAT only.
+#
+# Docs: docs/ops/teamclu-cli.md
+
+name: publish-cli
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack only; do not publish"
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "cli-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-cli
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/cli
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://registry.npmjs.org
+          scope: "@teamclu"
+
+      - name: Read package version
+        id: pkg
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Package version: $VERSION"
+
+      - name: Check tag matches package.json (tag builds only)
+        if: github.event_name == 'push'
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          EXPECTED="cli-v${{ steps.pkg.outputs.version }}"
+          if [ "$TAG" != "$EXPECTED" ]; then
+            echo "::error::Tag '$TAG' must be '$EXPECTED' (cli-v + package.json version)."
+            exit 1
+          fi
+
+      - name: Skip if version already on npm
+        id: exists
+        run: |
+          VERSION="${{ steps.pkg.outputs.version }}"
+          # Version metadata often resolves before the packument root; use that.
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://registry.npmjs.org/@teamclu%2fcli/${VERSION}")
+          if [ "$CODE" = "200" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION is already published — nothing to do."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dry-run pack
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        if: >
+          steps.exists.outputs.exists != 'true' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error::Missing secret NPM_TOKEN. See docs/ops/teamclu-cli.md"
+            exit 1
+          fi
+          # Token-only auth — avoids interactive 2FA / Security Key prompts.
+          npm publish --access public
+
+      - name: Verify
+        if: >
+          steps.exists.outputs.exists != 'true' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        run: |
+          VERSION="${{ steps.pkg.outputs.version }}"
+          for i in 1 2 3 4 5 6; do
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
+              "https://registry.npmjs.org/@teamclu%2fcli/${VERSION}")
+            echo "poll $i → HTTP $CODE"
+            [ "$CODE" = "200" ] && exit 0
+            sleep 5
+          done
+          echo "::warning::Publish may have succeeded but version URL not visible yet; check npm later."

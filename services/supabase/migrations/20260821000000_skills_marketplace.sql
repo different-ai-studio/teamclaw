@@ -144,4 +144,7 @@ create policy marketplace_skill_versions_select_published on amux.marketplace_sk
 
 grant select on amux.marketplace_skills to authenticated;
 grant select on amux.marketplace_skill_versions to authenticated;
--- service_role already has full access via supabase defaults / postgres owner.
+-- Admin publishes via FC + service-role client (bypasses RLS but still needs GRANT).
+-- amux is not covered by Supabase's public-schema default privileges.
+grant select, insert, update, delete on amux.marketplace_skills to service_role;
+grant select, insert, update, delete on amux.marketplace_skill_versions to service_role;

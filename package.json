@@ -69,7 +69,8 @@
     "release:bump": "node scripts/bump-desktop-version.mjs",
     "release:preflight": "./scripts/preflight-desktop-release.sh",
     "release:desktop": "./scripts/release-desktop.sh",
-    "marketplace:publish": "node scripts/marketplace-publish.mjs",
+    "marketplace:publish": "node packages/cli/bin/teamclu.js marketplace publish",
+    "cli": "node packages/cli/bin/teamclu.js",
     "ship": "./scripts/ship-pr.sh"
   },
   "devDependencies": {
