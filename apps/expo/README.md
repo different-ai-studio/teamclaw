@@ -63,11 +63,23 @@ should be made in the `app/` directory.
 
 ## Environment
 
-Create `apps/expo/.env` from `.env.example` and provide:
+```sh
+cp apps/expo/.env.example apps/expo/.env
+```
 
-- `EXPO_PUBLIC_CLOUD_API_URL` — **required**
+- `EXPO_PUBLIC_CLOUD_API_URL` — **required**; the template already carries the
+  right value
 - `EXPO_PUBLIC_MQTT_URL` — optional, only when pinning a broker for local
   development
+- `EXPO_TOKEN` — only for `eas build` / publishing; leave blank otherwise
+
+EAS builds ignore `.env` entirely — their values come from the `env` block of
+each profile in `eas.json`. Keep the two in step: a `.env` that has drifted
+breaks only LOCAL builds, so cloud builds keep passing and nobody notices. That
+is exactly how a `.env` left over from before the teamclaw → teamclu rename
+survived — it still named `api.teamclaw-dev.ucar.cc`, a host whose DNS record
+was deliberately deleted, so the local Android build compiled, installed, and
+failed only when someone tapped sign-in.
 
 `EXPO_PUBLIC_CLOUD_API_URL` is the one that must be set. Without it the app
 throws on its first render (`EXPO_PUBLIC_CLOUD_API_URL is required (cloud_api is

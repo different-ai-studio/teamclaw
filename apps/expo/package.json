@@ -30,7 +30,7 @@
     "expo-image-picker": "^57.0.8",
     "expo-linear-gradient": "~57.0.1",
     "expo-linking": "~57.0.5",
-    "expo-localization": "~17.0.7",
+    "expo-localization": "~57.0.1",
     "expo-notifications": "~57.0.9",
     "expo-router": "~57.0.11",
     "expo-sqlite": "~57.0.1",
