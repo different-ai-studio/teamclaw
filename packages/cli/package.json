@@ -4,7 +4,7 @@
   "description": "TeamClu ops CLI — marketplace publish today; mcp / env / knowledge later",
   "type": "module",
   "bin": {
-    "teamclu": "./bin/teamclu.mjs"
+    "teamclu": "bin/teamclu.js"
   },
   "files": [
     "bin",
