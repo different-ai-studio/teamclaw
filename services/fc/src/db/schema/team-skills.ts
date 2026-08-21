@@ -6,14 +6,17 @@ import {
   bigint,
   jsonb,
   timestamp,
+  boolean,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 import { teams, actors } from "./teams.js";
 
-// Mirrors services/supabase/migrations/20260806000000_team_skills_registry.sql.
+// Mirrors services/supabase/migrations/20260806000000_team_skills_registry.sql
+// + marketplace columns from 20260821000000_skills_marketplace.sql.
 // Design: docs/architecture/team-skills-registry.md
+//         docs/architecture/skills-marketplace.md
 
 export const teamSkills = pgTable(
   "team_skills",
@@ -36,6 +39,11 @@ export const teamSkills = pgTable(
     supersededBy: text("superseded_by"),
     latestVersion: integer("latest_version").notNull().default(0),
     createdBy: uuid("created_by").references(() => actors.id, { onDelete: "set null" }),
+    // Marketplace origin (skills-marketplace.md §4.3).
+    origin: text("origin").notNull().default("local"),
+    upstreamSlug: text("upstream_slug"),
+    upstreamSubscribed: boolean("upstream_subscribed").notNull().default(false),
+    upstreamDetachedAt: timestamp("upstream_detached_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -43,6 +51,7 @@ export const teamSkills = pgTable(
     teamSlugUniq: uniqueIndex("uniq_team_skills_team_slug").on(t.teamId, t.slug),
     teamStatusIdx: index("idx_team_skills_team_status").on(t.teamId, t.status),
     ownerIdx: index("idx_team_skills_owner").on(t.ownerActorId),
+    upstreamSlugIdx: index("idx_team_skills_upstream_slug_marketplace").on(t.upstreamSlug),
   }),
 );
 
@@ -62,6 +71,9 @@ export const teamSkillVersions = pgTable(
     whenNotToUse: text("when_not_to_use").notNull(),
     requires: jsonb("requires"),
     createdBy: uuid("created_by").references(() => actors.id, { onDelete: "set null" }),
+    upstreamVersion: integer("upstream_version"),
+    blobScope: text("blob_scope").notNull().default("team"),
+    objectPath: text("object_path"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

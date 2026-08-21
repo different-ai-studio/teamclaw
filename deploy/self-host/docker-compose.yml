@@ -388,6 +388,7 @@ services:
       APNS_TOPIC: "${APNS_TOPIC:-}"
       APNS_ENV: "${APNS_ENV:-}"
       PUSH_WEBHOOK_SECRET: "${PUSH_WEBHOOK_SECRET:-}"
+      MARKETPLACE_ADMIN_SECRET: "${MARKETPLACE_ADMIN_SECRET:-}"
       # Email OTP delivery. Only used when FC sends the mail itself; with
       # BACKEND_KIND=supabase, GoTrue's own SMTP config does it instead.
       OTP_EMAIL_SMTP_HOST: "${OTP_EMAIL_SMTP_HOST:-}"

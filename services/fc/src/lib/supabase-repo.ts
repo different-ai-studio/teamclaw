@@ -26,6 +26,7 @@ function assertNewOrgAllowed(): void {
   }
 }
 
+import { makeSupabaseMarketplaceMethods } from "./supabase-repo/marketplace.js";
 import { isLegalStatusTransition } from "./pg-repo/app-status.js";
 // Shared with the pg-repo twin on purpose — see the "Team MCP / env helpers"
 // note below. These are validation rules, not backend-specific plumbing.
@@ -3137,9 +3138,25 @@ export function createSupabaseBusinessRepository(options) {
       let query = supabase.from("team_skills").select("*").eq("team_id", teamId);
       if (opts.status) query = query.eq("status", opts.status);
       if (opts.category) query = query.eq("category", opts.category);
-      const { data, error } = await query.order("slug", { ascending: true });
+      let { data, error } = await query.order("slug", { ascending: true });
       if (error) throw error;
-      const rows = data ?? [];
+      let rows = data ?? [];
+
+      // Lazy marketplace align (§7.1).
+      for (const r of rows) {
+        if (r.upstream_subscribed && r.origin === "marketplace") {
+          await this._alignMarketplaceSkillRow(r);
+        }
+      }
+      ({ data, error } = await supabase
+        .from("team_skills")
+        .select("*")
+        .eq("team_id", teamId)
+        .order("slug", { ascending: true }));
+      if (error) throw error;
+      rows = data ?? [];
+      if (opts.status) rows = rows.filter((r: any) => r.status === opts.status);
+      if (opts.category) rows = rows.filter((r: any) => r.category === opts.category);
       if (!rows.length) return [];
 
       const installs = subjectActorId
@@ -3246,7 +3263,7 @@ export function createSupabaseBusinessRepository(options) {
       const contentHash = String(body.contentHash ?? "").trim();
       if (!contentHash) throw new ApiError(400, "validation_failed", "contentHash is required");
 
-      const { data: skill, error } = await supabase
+      let { data: skill, error } = await supabase
         .from("team_skills")
         .select("*")
         .eq("team_id", teamId)
@@ -3257,6 +3274,21 @@ export function createSupabaseBusinessRepository(options) {
 
       const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id;
       if (!callerActorId) throw new ApiError(403, "forbidden", "not a member of this team");
+
+      if (skill.upstream_subscribed) {
+        const { data: detached, error: dErr } = await supabase
+          .from("team_skills")
+          .update({
+            upstream_subscribed: false,
+            upstream_detached_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", skill.id)
+          .select("*")
+          .single();
+        if (dErr) throw dErr;
+        skill = detached;
+      }
 
       const patch = requireTeamSkillFields(body, { partial: true });
       const merged = {
@@ -3281,6 +3313,7 @@ export function createSupabaseBusinessRepository(options) {
           when_not_to_use: merged.when_not_to_use,
           requires: merged.requires ?? null,
           created_by: callerActorId,
+          blob_scope: "team",
         })
         .select("*")
         .single();
@@ -3354,6 +3387,24 @@ export function createSupabaseBusinessRepository(options) {
     },
 
     async updateTeamSkill(teamId, slug, patch: any = {}) {
+      const { data: existing, error: eErr } = await supabase
+        .from("team_skills")
+        .select("*")
+        .eq("team_id", teamId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (eErr) throw eErr;
+      if (!existing) throw new ApiError(404, "not_found", `skill not found: ${slug}`);
+
+      const snapshotKeys = ["summary", "category", "whenToUse", "whenNotToUse", "requires"];
+      if (existing.upstream_subscribed && snapshotKeys.some((k) => patch[k] !== undefined)) {
+        throw new ApiError(
+          409,
+          "subscribed",
+          "disconnect from the marketplace before editing metadata",
+        );
+      }
+
       const fields = requireTeamSkillFields(patch, { partial: true });
       const update: any = {};
       if (fields.summary !== undefined) update.summary = fields.summary;
@@ -3415,14 +3466,46 @@ export function createSupabaseBusinessRepository(options) {
     },
 
     async getTeamSkillDownload(teamId, slug, version) {
-      const v = await this.getTeamSkillVersion(teamId, slug, version);
-      const { data, error } = await supabase
+      const { data: skill, error } = await supabase
+        .from("team_skills")
+        .select("id, slug")
+        .eq("team_id", teamId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (error) throw error;
+      if (!skill) throw new ApiError(404, "not_found", `skill not found: ${slug}`);
+
+      const { data: ver, error: vErr } = await supabase
+        .from("team_skill_versions")
+        .select("*")
+        .eq("skill_id", skill.id)
+        .eq("version", version)
+        .maybeSingle();
+      if (vErr) throw vErr;
+      if (!ver) throw new ApiError(404, "not_found", `version ${version} not found`);
+
+      if (ver.blob_scope === "marketplace") {
+        if (!ver.object_path) {
+          throw new ApiError(
+            409,
+            "blob_missing",
+            `marketplace package path missing for ${slug}@${version}`,
+          );
+        }
+        return {
+          contentHash: ver.content_hash,
+          size: ver.size ?? 0,
+          ossKey: ver.object_path,
+        };
+      }
+
+      const { data, error: bErr } = await supabase
         .from("amuxc_blobs")
         .select("oss_key")
         .eq("team_id", teamId)
-        .eq("content_hash", v.contentHash)
+        .eq("content_hash", ver.content_hash)
         .maybeSingle();
-      if (error) throw error;
+      if (bErr) throw bErr;
       if (!data?.oss_key) {
         throw new ApiError(
           409,
@@ -3430,7 +3513,7 @@ export function createSupabaseBusinessRepository(options) {
           `package blob for ${slug}@${version} is not uploaded yet`,
         );
       }
-      return { contentHash: v.contentHash, size: v.size ?? 0, ossKey: data.oss_key };
+      return { contentHash: ver.content_hash, size: ver.size ?? 0, ossKey: data.oss_key };
     },
 
     async prepareTeamSkillBlob(teamId, body: any = {}) {
@@ -3666,6 +3749,27 @@ export function createSupabaseBusinessRepository(options) {
       if (error) throw error;
       return (data ?? []).map((r: any) => r.actor_id).filter(Boolean);
     },
+
+    ...makeSupabaseMarketplaceMethods({
+      supabase,
+      serviceRoleClient,
+      mapTeamSkillRow,
+      resolveCallerActorForTeam: async (teamId: string) => {
+        const { data: userData, error: userErr } = await supabase.auth.getUser();
+        if (userErr) throw userErr;
+        const userId = userData?.user?.id;
+        if (!userId) return null;
+        const { data, error } = await supabase
+          .from("actors")
+          .select("id")
+          .eq("team_id", teamId)
+          .eq("user_id", userId)
+          .limit(1)
+          .maybeSingle();
+        if (error) throw error;
+        return data ? { id: data.id } : null;
+      },
+    }),
 
     // ─── Team MCP catalog ────────────────────────────────────────────────────
     // docs/architecture/team-mcp-and-env-cloud.md
@@ -4089,6 +4193,10 @@ function mapTeamSkillRow(r: any, install?: any) {
     supersededBy: r.superseded_by ?? null,
     latestVersion: r.latest_version ?? 0,
     createdBy: r.created_by,
+    origin: r.origin ?? "local",
+    upstreamSlug: r.upstream_slug ?? null,
+    upstreamSubscribed: !!r.upstream_subscribed,
+    upstreamDetachedAt: appIso(r.upstream_detached_at),
     createdAt: appIso(r.created_at),
     updatedAt: appIso(r.updated_at),
     installed: !!install,

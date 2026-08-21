@@ -134,6 +134,11 @@ export interface TeamSkillItem {
   hasUpdate: boolean
   createdAt: string | null
   updatedAt: string | null
+  /** Marketplace provenance (API `origin` / subscription flags). */
+  marketplaceOrigin?: 'local' | 'marketplace'
+  upstreamSlug?: string | null
+  upstreamSubscribed?: boolean
+  upstreamDetachedAt?: string | null
 }
 
 export interface TeamMcpItem {
@@ -199,6 +204,11 @@ interface TeamShareBrowserState {
   closeSkillFiles: (id: string, rel: string) => void
   setCreating: (section: TeamShareSection | null) => void
   clearDetail: () => void
+  /** Open a direct detail target (marketplace browse, etc.). */
+  openDetail: (target: TeamShareTarget) => void
+  /** Adopt a marketplace catalog entry, then install it for the caller. */
+  adoptMarketplaceSkill: (marketplaceSlug: string, opts?: { slug?: string }) => Promise<void>
+  detachMarketplaceSkill: (slug: string) => Promise<void>
   setSubjectActor: (actorId: string | null) => Promise<void>
   installSkill: (slug: string) => Promise<void>
   uninstallSkill: (slug: string) => Promise<void>
@@ -372,6 +382,10 @@ function registryItem(
     hasUpdate: skill.hasUpdate,
     createdAt: skill.createdAt,
     updatedAt: skill.updatedAt,
+    marketplaceOrigin: skill.origin ?? 'local',
+    upstreamSlug: skill.upstreamSlug ?? null,
+    upstreamSubscribed: skill.upstreamSubscribed ?? false,
+    upstreamDetachedAt: skill.upstreamDetachedAt ?? null,
   }
 }
 
@@ -918,6 +932,28 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   },
 
   clearDetail: () => set({ detailTarget: null }),
+
+  openDetail: (target) => set({ detailTarget: target }),
+
+  adoptMarketplaceSkill: async (marketplaceSlug, opts = {}) => {
+    const teamId = useCurrentTeamStore.getState().team?.id
+    if (!teamId) throw new Error('no team')
+    const backend = getBackend()
+    const created = await backend.marketplace.adoptTeamSkill(teamId, {
+      marketplaceSlug,
+      slug: opts.slug,
+    })
+    await backend.teamSkills.installTeamSkill(teamId, created.slug)
+    await get().loadSection('skills', { force: true })
+    set({ detailTarget: { kind: 'skill', id: created.slug } })
+  },
+
+  detachMarketplaceSkill: async (slug) => {
+    const teamId = useCurrentTeamStore.getState().team?.id
+    if (!teamId) throw new Error('no team')
+    await getBackend().marketplace.detachTeamSkill(teamId, slug)
+    await get().loadSection('skills', { force: true })
+  },
 
   setSubjectActor: async (actorId) => {
     set({ subjectActorId: actorId })

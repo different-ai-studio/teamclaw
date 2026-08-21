@@ -198,11 +198,44 @@ export function makeBusinessRepoFactory(
     });
 }
 
+/** System/admin repository — no user JWT (marketplace admin shared-secret routes). */
+export function makeSystemRepoFactory(kind: "supabase" | "postgres") {
+  if (kind === "postgres") {
+    return () =>
+      createPgBusinessRepository({
+        db: getDb(),
+        // Admin marketplace methods do not call requireUser().
+        userId: undefined,
+        ...makeDeployDeps(),
+      });
+  }
+  return () => {
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+    if (!serviceKey) {
+      throw new ApiError(
+        503,
+        "unavailable",
+        "SUPABASE_SERVICE_ROLE_KEY is required for marketplace admin",
+      );
+    }
+    return createSupabaseBusinessRepository({
+      supabaseUrl: SUPABASE_URL_FN(),
+      supabasePublicUrl: SUPABASE_PUBLIC_URL_FN(),
+      // Service-role key as both the client key and bearer — bypasses RLS for
+      // catalog writes. Admin endpoints never call getUser().
+      publishableKey: serviceKey,
+      accessToken: serviceKey,
+      ...makeDeployDeps(),
+    });
+  };
+}
+
 // The single Hono app owns ALL routing (OPTIONS, /v1, /sync, admin, 404, 500,
 // rate-limiting). The repository deps build lazily per-request.
 const app = createApp({
   createRepository: makeBusinessRepoFactory(resolveBackendKind()),
   createAuthRepository: makeAuthRepoFactory(resolveBackendKind()),
+  createSystemRepository: makeSystemRepoFactory(resolveBackendKind()),
   runCron: (task: string) => runCronTask(getDb(), task),
   lookupVanityApp: vanityLookup(),
 });

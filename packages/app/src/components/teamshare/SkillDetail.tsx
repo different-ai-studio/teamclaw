@@ -877,6 +877,8 @@ export function SkillDetail({ slug }: { slug: string }) {
   const reconcileSkills = useTeamShareBrowserStore((s) => s.reconcileSkills)
   const revertSkillVersion = useTeamShareBrowserStore((s) => s.revertSkillVersion)
   const select = useTeamShareBrowserStore((s) => s.select)
+  const openDetail = useTeamShareBrowserStore((s) => s.openDetail)
+  const detachMarketplaceSkill = useTeamShareBrowserStore((s) => s.detachMarketplaceSkill)
 
   const [content, setContent] = React.useState(item?.content ?? '')
   const [saving, setSaving] = React.useState(false)
@@ -1087,6 +1089,15 @@ export function SkillDetail({ slug }: { slug: string }) {
       whenNotToUse?: string
     }) => {
       if (!item || busy) return
+      if (item.upstreamSubscribed) {
+        const ok = window.confirm(
+          t(
+            'teamShare.marketplaceDetachOnPublish',
+            '发布团队版本会断开与市场的订阅，之后市场更新不再自动同步。继续？',
+          ),
+        )
+        if (!ok) return
+      }
       setBusy(true)
       try {
         await publishSkillVersion(item.slug, input)
@@ -1259,6 +1270,20 @@ export function SkillDetail({ slug }: { slug: string }) {
           </div>
           <div className="flex items-center gap-2">
             <span className="truncate text-[15px] font-bold text-foreground">{item.name}</span>
+            {item.marketplaceOrigin === 'marketplace' && (
+              <button
+                type="button"
+                className="shrink-0 rounded border border-border bg-paper px-1.5 py-0.5 text-[10.5px] text-muted-foreground hover:text-foreground"
+                onClick={() =>
+                  openDetail({
+                    kind: 'marketplace-item',
+                    slug: item.upstreamSlug || item.slug,
+                  })
+                }
+              >
+                {t('teamShare.marketplaceBadge', '市场')}
+              </button>
+            )}
             {item.status === 'deprecated' && (
               <span className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
                 <Archive className="h-3 w-3" />
@@ -1271,6 +1296,34 @@ export function SkillDetail({ slug }: { slug: string }) {
               </span>
             )}
           </div>
+          {item.marketplaceOrigin === 'marketplace' && (
+            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11.5px] text-muted-foreground">
+              <span>
+                {item.upstreamSubscribed
+                  ? t('teamShare.marketplaceFollowingShort', '跟随市场 v{{v}}', {
+                      v: item.latestVersion,
+                    })
+                  : t('teamShare.marketplaceDetachedShort', '已断开 · 停在市场版本')}
+              </span>
+              {item.upstreamSubscribed ? (
+                <button
+                  type="button"
+                  className="underline-offset-2 hover:underline"
+                  onClick={() => {
+                    void detachMarketplaceSkill(item.slug)
+                      .then(() =>
+                        toast.success(t('teamShare.marketplaceDetachedToast', '已断开订阅')),
+                      )
+                      .catch((e) =>
+                        toast.error(e instanceof Error ? e.message : String(e)),
+                      )
+                  }}
+                >
+                  {t('teamShare.marketplaceDetach', '断开订阅')}
+                </button>
+              ) : null}
+            </div>
+          )}
         </div>
         <span className="shrink-0 font-mono text-[12px] text-muted-foreground">{item.invocationName}</span>
 

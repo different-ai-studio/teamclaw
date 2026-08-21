@@ -5,13 +5,17 @@ import {
   normalizeHeaders,
   parseJsonBody,
   resolveRequestId,
+  ApiError,
 } from "./http-utils.js";
+import { sharedSecretMatches } from "./shared-secret.js";
 
 type Deps = {
   createRepository: (args: { accessToken: string }) => unknown | Promise<unknown>;
   createAuthRepository: () => unknown;
+  /** Unauthenticated system repo for marketplace admin (shared-secret routes). */
+  createSystemRepository?: () => unknown | Promise<unknown>;
 };
-type RouteOptions = { auth?: "bearer" | "none"; rawBody?: boolean };
+type RouteOptions = { auth?: "bearer" | "none" | "marketplace-admin"; rawBody?: boolean };
 type LegacyCtx = Record<string, unknown>;
 type LegacyHandler = (ctx: LegacyCtx) => Promise<any> | any;
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -115,7 +119,20 @@ export function createHonoRouterAdapter(app: Hono, deps: Deps) {
       const requestId = resolveRequestId(Object.fromEntries(c.req.raw.headers));
       try {
         let repository: unknown;
-        if (auth !== "none") {
+        if (auth === "marketplace-admin") {
+          if (
+            !sharedSecretMatches(
+              c.req.header("x-webhook-secret"),
+              process.env.MARKETPLACE_ADMIN_SECRET,
+            )
+          ) {
+            throw new ApiError(401, "unauthorized", "marketplace admin secret required");
+          }
+          if (!deps.createSystemRepository) {
+            throw new ApiError(503, "unavailable", "marketplace admin repository not configured");
+          }
+          repository = await deps.createSystemRepository();
+        } else if (auth !== "none") {
           const token = extractBearerToken(Object.fromEntries(c.req.raw.headers));
           // createRepository may be async (postgres factory verifies the JWT and
           // resolves userId before constructing the repo). Awaiting a sync return

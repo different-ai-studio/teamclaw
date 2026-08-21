@@ -31,12 +31,15 @@ import {
   teamSkills,
   teamSkillVersions,
   teamSkillInstalls,
+  marketplaceSkills,
+  marketplaceSkillVersions,
   actors,
   agents,
   amuxcBlobs,
 } from "../../db/schema/index.js";
 import { ApiError } from "../http-utils.js";
 import { requireActorForTeam, resolveTeamRole } from "./authz.js";
+import { alignTeamSkillToMarketplace } from "./marketplace.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbLike = PgDatabase<any, any>;
@@ -126,6 +129,10 @@ function mapSkill(row: any, extra: Record<string, unknown> = {}) {
     supersededBy: row.supersededBy ?? null,
     latestVersion: row.latestVersion ?? 0,
     createdBy: row.createdBy,
+    origin: row.origin ?? "local",
+    upstreamSlug: row.upstreamSlug ?? null,
+    upstreamSubscribed: !!row.upstreamSubscribed,
+    upstreamDetachedAt: iso(row.upstreamDetachedAt),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
     ...extra,
@@ -251,7 +258,20 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
       }
       if (opts.category) conditions.push(eq(teamSkills.category, opts.category));
 
-      const rows = await db
+      let rows = await db
+        .select()
+        .from(teamSkills)
+        .where(and(...conditions))
+        .orderBy(teamSkills.slug);
+
+      // Lazy marketplace align (§7.1): project upstream latest into subscribed
+      // rows before decorating install state. Idempotent under concurrent polls.
+      for (const r of rows) {
+        if (r.upstreamSubscribed && r.origin === "marketplace") {
+          await alignTeamSkillToMarketplace(db, r);
+        }
+      }
+      rows = await db
         .select()
         .from(teamSkills)
         .where(and(...conditions))
@@ -389,7 +409,20 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
     async createTeamSkillVersion(teamId: string, slug: string, body: any = {}) {
       const userId = requireUser();
       const callerActorId = await requireActorForTeam(db, userId, teamId);
-      const skill = await loadSkill(teamId, slug);
+      let skill = await loadSkill(teamId, slug);
+
+      // Publishing a team version on a subscribed marketplace skill detaches
+      // first — otherwise the next align tick would overwrite the team's work.
+      if (skill.upstreamSubscribed) {
+        await (db.update(teamSkills) as any)
+          .set({
+            upstreamSubscribed: false,
+            upstreamDetachedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(teamSkills.id, skill.id));
+        skill = await loadSkill(teamId, slug);
+      }
 
       const changelog = String(body.changelog ?? "").trim();
       if (!changelog) throw new ApiError(400, "validation_failed", "changelog is required");
@@ -420,6 +453,7 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
           whenNotToUse: merged.whenNotToUse,
           requires: (merged.requires as any) ?? null,
           createdBy: callerActorId,
+          blobScope: "team",
         })
         .returning();
 
@@ -515,6 +549,17 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
       await requireActorForTeam(db, userId, teamId);
       const skill = await loadSkill(teamId, slug);
 
+      // Subscribed marketplace skills: snapshot fields are owned by upstream
+      // align. Refuse edits rather than silently overwrite next tick (§7.2).
+      const snapshotKeys = ["summary", "category", "whenToUse", "whenNotToUse", "requires"];
+      if (skill.upstreamSubscribed && snapshotKeys.some((k) => patch[k] !== undefined)) {
+        throw new ApiError(
+          409,
+          "subscribed",
+          "disconnect from the marketplace before editing metadata",
+        );
+      }
+
       const fields = requirePublishFields(patch, { partial: true });
       const update: Record<string, unknown> = { ...fields };
 
@@ -574,13 +619,33 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
 
     /**
      * Resolve a version to its blob location so the route can hand back a
-     * signed URL. Package bytes ride the existing amuxc blob store rather than
-     * a second one — that is also what gives cross-version dedupe for free.
+     * signed URL. Marketplace-origin versions skip amuxc_blobs and use the
+     * object_path snapshotted onto the version row (§4.3 / §8.2).
      */
     async getTeamSkillDownload(teamId: string, slug: string, version: number) {
       const userId = requireUser();
       await requireActorForTeam(db, userId, teamId);
       const skill = await loadSkill(teamId, slug);
+      const [ver] = await db
+        .select()
+        .from(teamSkillVersions)
+        .where(
+          and(eq(teamSkillVersions.skillId, skill.id), eq(teamSkillVersions.version, version)),
+        )
+        .limit(1);
+      if (!ver) throw new ApiError(404, "not_found", `version ${version} not found`);
+
+      if (ver.blobScope === "marketplace") {
+        if (!ver.objectPath) {
+          throw new ApiError(
+            409,
+            "blob_missing",
+            `marketplace package path missing for ${slug}@${version}`,
+          );
+        }
+        return { contentHash: ver.contentHash, size: ver.size ?? 0, ossKey: ver.objectPath };
+      }
+
       const [row] = await db
         .select({
           contentHash: teamSkillVersions.contentHash,
@@ -608,6 +673,136 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
         );
       }
       return { contentHash: row.contentHash, size: row.size ?? 0, ossKey: row.ossKey };
+    },
+
+    /**
+     * Adopt a marketplace catalog entry into the team registry (subscribed).
+     * Zero-byte: package already lives at marketplace/blobs/….
+     */
+    async adoptMarketplaceSkill(teamId: string, body: any = {}) {
+      const userId = requireUser();
+      const callerActorId = await requireActorForTeam(db, userId, teamId);
+      const marketplaceSlug = String(body.marketplaceSlug ?? "").trim();
+      if (!marketplaceSlug) {
+        throw new ApiError(400, "validation_failed", "marketplaceSlug is required");
+      }
+
+      const [m] = await db
+        .select()
+        .from(marketplaceSkills)
+        .where(eq(marketplaceSkills.slug, marketplaceSlug))
+        .limit(1);
+      if (!m || m.status !== "published" || !m.latestVersion) {
+        throw new ApiError(404, "not_found", `marketplace skill not found: ${marketplaceSlug}`);
+      }
+
+      const teamSlug = String(body.slug ?? marketplaceSlug).trim();
+      if (!SLUG_RE.test(teamSlug)) {
+        throw new ApiError(
+          400,
+          "validation_failed",
+          "slug must be 2-64 chars of [a-z0-9-] and start with a letter or digit",
+        );
+      }
+
+      const [existing] = await db
+        .select({ id: teamSkills.id })
+        .from(teamSkills)
+        .where(and(eq(teamSkills.teamId, teamId), eq(teamSkills.slug, teamSlug)))
+        .limit(1);
+      if (existing) {
+        throw new ApiError(
+          409,
+          "conflict",
+          `a skill named ${teamSlug} already exists — pick a different slug`,
+        );
+      }
+
+      const wantVersion = body.version != null ? Number(body.version) : m.latestVersion;
+      const [mVer] = await db
+        .select()
+        .from(marketplaceSkillVersions)
+        .where(
+          and(
+            eq(marketplaceSkillVersions.skillId, m.id),
+            eq(marketplaceSkillVersions.version, wantVersion),
+          ),
+        )
+        .limit(1);
+      if (!mVer || !mVer.publishedAt) {
+        throw new ApiError(404, "not_found", `marketplace version ${wantVersion} not found`);
+      }
+
+      // Similarity hint (P2): surface overlapping when_to_use among existing skills.
+      const siblings = await db
+        .select({ slug: teamSkills.slug, summary: teamSkills.summary, whenToUse: teamSkills.whenToUse })
+        .from(teamSkills)
+        .where(and(eq(teamSkills.teamId, teamId), eq(teamSkills.status, "published")));
+      const needle = (m.whenToUse || m.summary || "").toLowerCase();
+      const similar = siblings
+        .filter((s: any) => {
+          const hay = `${s.whenToUse || ""} ${s.summary || ""}`.toLowerCase();
+          if (!needle || !hay) return false;
+          const words = needle.split(/\s+/).filter((w: string) => w.length > 2);
+          return words.filter((w: string) => hay.includes(w)).length >= 2;
+        })
+        .slice(0, 3)
+        .map((s: any) => ({ slug: s.slug, summary: s.summary }));
+
+      const [skill] = await (db.insert(teamSkills) as any)
+        .values({
+          teamId,
+          slug: teamSlug,
+          ownerActorId: callerActorId,
+          summary: m.summary,
+          category: m.category,
+          whenToUse: m.whenToUse,
+          whenNotToUse: m.whenNotToUse,
+          requires: m.requires,
+          status: "published",
+          latestVersion: 1,
+          createdBy: callerActorId,
+          origin: "marketplace",
+          upstreamSlug: marketplaceSlug,
+          upstreamSubscribed: true,
+        })
+        .returning();
+
+      await (db.insert(teamSkillVersions) as any).values({
+        skillId: skill.id,
+        version: 1,
+        contentHash: mVer.contentHash,
+        size: mVer.size,
+        changelog: `引自市场 ${marketplaceSlug} v${wantVersion}`,
+        summary: mVer.summary,
+        whenToUse: mVer.whenToUse,
+        whenNotToUse: mVer.whenNotToUse,
+        requires: mVer.requires,
+        createdBy: callerActorId,
+        upstreamVersion: wantVersion,
+        blobScope: "marketplace",
+        objectPath: mVer.objectPath,
+      });
+
+      return { ...mapSkill(skill), similarSkills: similar };
+    },
+
+    async detachMarketplaceSkill(teamId: string, slug: string) {
+      const userId = requireUser();
+      await requireActorForTeam(db, userId, teamId);
+      const skill = await loadSkill(teamId, slug);
+      if (skill.origin !== "marketplace") {
+        throw new ApiError(400, "validation_failed", "skill is not from the marketplace");
+      }
+      const [row] = await (db.update(teamSkills) as any)
+        .set({
+          upstreamSubscribed: false,
+          upstreamDetachedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(teamSkills.id, skill.id))
+        .returning();
+      return mapSkill(row);
     },
 
     /**

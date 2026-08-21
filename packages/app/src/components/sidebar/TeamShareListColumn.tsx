@@ -17,6 +17,7 @@ import {
   FolderPlus,
   RefreshCw,
   ChevronRight,
+  Store,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -217,6 +218,29 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const reconcileSkills = useTeamShareBrowserStore((s) => s.reconcileSkills)
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
   const setCreating = useTeamShareBrowserStore((s) => s.setCreating)
+  const openDetail = useTeamShareBrowserStore((s) => s.openDetail)
+  const [marketplaceAvailable, setMarketplaceAvailable] = React.useState(false)
+
+  React.useEffect(() => {
+    if (section !== 'skills') return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { getBackend } = await import('@/lib/backend/provider')
+        const { useCurrentTeamStore } = await import('@/stores/current-team')
+        const teamId = useCurrentTeamStore.getState().team?.id
+        const items = await getBackend().marketplace.listMarketplaceSkills({
+          teamId: teamId ?? undefined,
+        })
+        if (!cancelled) setMarketplaceAvailable(items.length > 0)
+      } catch {
+        if (!cancelled) setMarketplaceAvailable(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [section])
 
   // Which skill packages are showing their files, and which one is being added
   // to. View state, not persisted: it says nothing about the skill itself.
@@ -631,6 +655,24 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          {section === 'skills' && marketplaceAvailable ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'h-7 w-7 text-muted-foreground hover:text-foreground',
+                (detailTarget?.kind === 'marketplace' ||
+                  detailTarget?.kind === 'marketplace-item') &&
+                  'bg-selected text-foreground',
+              )}
+              onClick={() => openDetail({ kind: 'marketplace' })}
+              title={t('teamShare.browseMarketplace', '浏览市场')}
+              data-testid="teamshare-marketplace"
+            >
+              <Store className="h-4 w-4" />
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="ghost"

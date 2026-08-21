@@ -14,6 +14,7 @@ import { parseAppPublicHost } from "./lib/apps-public-host.js";
 export type AppDeps = {
   createRepository: (args: { accessToken: string }) => unknown;
   createAuthRepository: () => unknown;
+  createSystemRepository?: () => unknown | Promise<unknown>;
   runCron?: (task: string) => Promise<unknown>;
   /** Resolves a vanity app host to its row; injected so tests need no database. */
   lookupVanityApp?: LookupVanityApp;
@@ -94,7 +95,7 @@ export function createApp(deps: AppDeps): Hono {
         return origin;
       },
       allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowHeaders: ["Authorization", "Content-Type", "X-Request-Id", "Idempotency-Key"],
+      allowHeaders: ["Authorization", "Content-Type", "X-Request-Id", "Idempotency-Key", "X-Webhook-Secret"],
       maxAge: 86400,
     }));
   }

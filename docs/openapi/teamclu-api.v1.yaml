@@ -1735,6 +1735,258 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/marketplace/skills:
+    get:
+      operationId: listMarketplaceSkills
+      summary: Browse the first-party skills marketplace catalog
+      description: >
+        Published catalog entries. Pass teamId to decorate each row with
+        adoptedByTeam. Design: docs/architecture/skills-marketplace.md
+      tags: [Marketplace]
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: category
+          in: query
+          schema: { $ref: "#/components/schemas/TeamSkillCategory" }
+        - name: teamId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Catalog entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/MarketplaceSkill" }
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/marketplace/skills/{slug}:
+    get:
+      operationId: getMarketplaceSkill
+      summary: Marketplace skill detail + published versions
+      tags: [Marketplace]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/TeamSkillSlug" }
+        - name: teamId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Catalog detail.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketplaceSkillDetail" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/skills/adopt:
+    post:
+      operationId: adoptMarketplaceSkill
+      summary: Adopt a marketplace skill into the team registry (subscribed)
+      tags: [Marketplace, TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [marketplaceSlug]
+              properties:
+                marketplaceSlug: { type: string }
+                slug: { $ref: "#/components/schemas/TeamSkillSlug" }
+                version: { type: integer, minimum: 1 }
+      responses:
+        "201":
+          description: Team skill created from catalog.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSkill" }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/skills/{slug}/detach:
+    post:
+      operationId: detachMarketplaceSkill
+      summary: Stop following marketplace updates for an adopted skill
+      tags: [Marketplace, TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamSkillSlug"
+      responses:
+        "200":
+          description: Detached skill.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSkill" }
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/admin/marketplace/skill-blobs/prepare:
+    post:
+      operationId: prepareMarketplaceSkillBlob
+      summary: Prepare a marketplace package upload (admin secret)
+      tags: [MarketplaceAdmin]
+      parameters:
+        - name: x-webhook-secret
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentHash, size]
+              properties:
+                contentHash: { type: string, pattern: '^[a-f0-9]{64}$' }
+                size: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Upload instructions.
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/admin/marketplace/skill-blobs/complete:
+    post:
+      operationId: completeMarketplaceSkillBlob
+      summary: Verify a marketplace package blob (admin secret)
+      tags: [MarketplaceAdmin]
+      parameters:
+        - name: x-webhook-secret
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentHash, size]
+              properties:
+                contentHash: { type: string }
+                size: { type: integer }
+      responses:
+        "200":
+          description: Verified.
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /v1/admin/marketplace/skills:
+    post:
+      operationId: createMarketplaceSkill
+      summary: Create a marketplace catalog item (admin secret)
+      tags: [MarketplaceAdmin]
+      parameters:
+        - name: x-webhook-secret
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        "201":
+          description: Created.
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/admin/marketplace/skills/{slug}/versions:
+    post:
+      operationId: createMarketplaceSkillVersion
+      summary: Upload a marketplace version without promoting (admin secret)
+      tags: [MarketplaceAdmin]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: x-webhook-secret
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        "201":
+          description: Version row created (unpublished).
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/admin/marketplace/skills/{slug}/versions/{version}/promote:
+    post:
+      operationId: promoteMarketplaceSkillVersion
+      summary: Promote a marketplace version to latest (admin secret)
+      tags: [MarketplaceAdmin]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: version
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: x-webhook-secret
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Promoted.
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/admin/marketplace/skills/{slug}/versions/{version}/revert:
+    post:
+      operationId: revertMarketplaceSkillVersion
+      summary: Roll forward a revert of an earlier marketplace version (admin secret)
+      tags: [MarketplaceAdmin]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: version
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: x-webhook-secret
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        "201":
+          description: New version published as revert.
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/admin/marketplace/skills/{slug}:
+    patch:
+      operationId: updateMarketplaceSkill
+      summary: Patch marketplace metadata or delist (admin secret)
+      tags: [MarketplaceAdmin]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: x-webhook-secret
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Updated.
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/admin/marketplace/align:
+    post:
+      operationId: alignMarketplaceSubscriptions
+      summary: Eagerly align all subscribed teams (optional latency cut)
+      tags: [MarketplaceAdmin]
+      parameters:
+        - name: x-webhook-secret
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Align count.
+        "401": { $ref: "#/components/responses/Error" }
   /v1/teams/{teamId}/skills:
     get:
       operationId: listTeamSkills
@@ -5076,6 +5328,47 @@ components:
         same category can be compared side by side; an open vocabulary defeats
         that within a week.
       enum: [general, coding, devops, data, research, writing, communication, integration]
+    MarketplaceSkill:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        displayName: { type: string }
+        publisher: { type: string }
+        summary: { type: string, maxLength: 200 }
+        category: { $ref: "#/components/schemas/TeamSkillCategory" }
+        whenToUse: { type: string }
+        whenNotToUse: { type: string }
+        requires: { type: [object, "null"] }
+        tags:
+          type: array
+          items: { type: string }
+        status: { type: string, enum: [draft, published, delisted] }
+        latestVersion: { type: integer }
+        adoptedByTeam:
+          type: [object, "null"]
+          properties:
+            slug: { type: string }
+            latestVersion: { type: integer }
+            upstreamSubscribed: { type: boolean }
+        adoptCount: { type: integer }
+        createdAt: { type: [string, "null"], format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
+    MarketplaceSkillDetail:
+      allOf:
+        - $ref: "#/components/schemas/MarketplaceSkill"
+        - type: object
+          properties:
+            versions:
+              type: array
+              items:
+                type: object
+                properties:
+                  version: { type: integer }
+                  contentHash: { type: string }
+                  size: { type: integer }
+                  changelog: { type: string }
+                  publishedAt: { type: [string, "null"], format: date-time }
     TeamSkill:
       type: object
       properties:
@@ -5103,6 +5396,10 @@ components:
         createdBy: { type: string, format: uuid }
         createdAt: { type: [string, "null"], format: date-time }
         updatedAt: { type: [string, "null"], format: date-time }
+        origin: { type: string, enum: [local, marketplace], default: local }
+        upstreamSlug: { type: [string, "null"] }
+        upstreamSubscribed: { type: boolean, default: false }
+        upstreamDetachedAt: { type: [string, "null"], format: date-time }
         installed: { type: boolean }
         installedVersion: { type: [integer, "null"] }
         installScope: { type: [string, "null"], enum: [global, workspace, null] }

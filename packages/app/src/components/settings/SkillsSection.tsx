@@ -8,7 +8,6 @@ import remarkGfm from 'remark-gfm'
 const CodeEditor = lazy(() => import('@/components/editors/CodeEditor'))
 import {
   Sparkles,
-  Award,
   Loader2,
   Plus,
   RefreshCw,
@@ -146,6 +145,11 @@ export const SkillsSection = React.memo(function SkillsSection({
   const [exitingSkillKeys, setExitingSkillKeys] = React.useState<Set<string>>(new Set())
   const [marketplaceRefreshSignal, setMarketplaceRefreshSignal] = React.useState(0)
   const [marketplaceSource, setMarketplaceSource] = React.useState<'clawhub' | 'skillssh'>('clawhub')
+
+  React.useEffect(() => {
+    // P3: skills.sh scrape UI retired — force ClawHub if a stale preference remains.
+    if (marketplaceSource === 'skillssh') setMarketplaceSource('clawhub')
+  }, [marketplaceSource])
   const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false)
   const installedTabRef = React.useRef<HTMLButtonElement>(null)
   const marketplaceTabRef = React.useRef<HTMLButtonElement>(null)
@@ -721,7 +725,7 @@ ${skillContent.trim()}`
           {isMarketplaceTabActive ? (
             <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
               <span>{t('settings.skills.sourceLabel', 'Source')}</span>
-              <Select value={marketplaceSource} onValueChange={(value) => switchMarketplaceSource(value as 'clawhub' | 'skillssh')}>
+              <Select value={marketplaceSource === 'skillssh' ? 'clawhub' : marketplaceSource} onValueChange={(value) => switchMarketplaceSource(value as 'clawhub' | 'skillssh')}>
                 <SelectTrigger className="h-8 min-w-[11rem] rounded-md border-border/70 bg-background px-2.5 text-[13px] shadow-none">
                   <SelectValue />
                 </SelectTrigger>
@@ -732,12 +736,8 @@ ${skillContent.trim()}`
                       ClawHub
                     </span>
                   </SelectItem>
-                  <SelectItem value="skillssh">
-                    <span className="inline-flex items-center gap-2">
-                      <Award className="h-4 w-4" />
-                      skills.sh
-                    </span>
-                  </SelectItem>
+                  {/* skills.sh HTML scrape retired — first-party marketplace replaces it
+                      (docs/architecture/skills-marketplace.md §13 P3). */}
                 </SelectContent>
               </Select>
             </div>

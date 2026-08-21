@@ -7,6 +7,7 @@ import { useTeamShareBrowserStore } from '@/stores/team-share-browser'
 import { type TeamShareTarget } from '@/lib/tabs/teamshare-target'
 import { SkillDetail } from './SkillDetail'
 import { SkillFileEditor } from './SkillFileEditor'
+import { MarketplacePane } from './MarketplacePane'
 import { McpDetail, McpEditForm } from './McpDetail'
 import { EnvDetail, EnvCreateForm } from './EnvDetail'
 
@@ -133,6 +134,10 @@ export function TeamShareDetailContent({ target }: { target: TeamShareTarget }) 
           rel={target.rel}
         />
       )
+    case 'marketplace':
+      return <MarketplacePane key="marketplace" />
+    case 'marketplace-item':
+      return <MarketplacePane key={target.slug} slug={target.slug} />
     case 'mcp':
       return <McpDetail key={target.name} name={target.name} />
     case 'env':
