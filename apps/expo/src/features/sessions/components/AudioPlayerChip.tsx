@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
@@ -23,6 +24,7 @@ function formatTime(seconds: number): string {
  * session don't fight over a shared audio session.
  */
 export function AudioPlayerChip({ isOwn, url }: AudioPlayerChipProps) {
+  const { t } = useTranslation();
   const player = useAudioPlayer(url);
   const status = useAudioPlayerStatus(player);
   const duration = status.duration ?? 0;
@@ -43,7 +45,7 @@ export function AudioPlayerChip({ isOwn, url }: AudioPlayerChipProps) {
   return (
     <View style={[styles.chip, isOwn ? styles.chipOwn : styles.chipOther]}>
       <Pressable
-        accessibilityLabel={isPlaying ? "Pause voice memo" : "Play voice memo"}
+        accessibilityLabel={isPlaying ? t("Pause voice memo") : t("Play voice memo")}
         accessibilityRole="button"
         hitSlop={6}
         onPress={handleToggle}
@@ -59,7 +61,7 @@ export function AudioPlayerChip({ isOwn, url }: AudioPlayerChipProps) {
         <Text
           style={[styles.label, isOwn ? styles.labelOwn : styles.labelOther]}
         >
-          Voice memo
+          {t("Voice memo")}
         </Text>
         <Text
           style={[styles.meta, isOwn ? styles.metaOwn : styles.metaOther]}

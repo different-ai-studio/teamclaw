@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
@@ -33,6 +34,7 @@ type Membership = {
 
 export default function TeamsRoute() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { state } = useOnboarding();
   const memberActorId = state.currentMemberActorId;
   const activeTeamId = state.currentTeam?.id ?? "";
@@ -58,19 +60,19 @@ export default function TeamsRoute() {
       setEditingTeamId(null);
       setRenameDraft("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't rename team.");
+      setError(err instanceof Error ? err.message : t("Couldn't rename team."));
     }
   };
 
   const confirmLeave = (membership: Membership) => {
     if (!memberActorId) return;
     Alert.alert(
-      "Leave team",
-      `You'll lose access to ${membership.name}. Continue?`,
+      t("Leave team"),
+      t("You'll lose access to {{value}}. Continue?", { value: membership.name }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel"), style: "cancel" },
         {
-          text: "Leave",
+          text: t("Leave"),
           style: "destructive",
           onPress: async () => {
             try {
@@ -79,7 +81,7 @@ export default function TeamsRoute() {
                 prev.filter((m) => m.teamId !== membership.teamId),
               );
             } catch (err) {
-              setError(err instanceof Error ? err.message : "Couldn't leave team.");
+              setError(err instanceof Error ? err.message : t("Couldn't leave team."));
             }
           },
         },
@@ -98,7 +100,7 @@ export default function TeamsRoute() {
       setMemberships(next);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't load teams.");
+      setError(err instanceof Error ? err.message : t("Couldn't load teams."));
     } finally {
       setIsLoading(false);
     }
@@ -112,7 +114,7 @@ export default function TeamsRoute() {
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Teams</Text>
+        <Text style={styles.headerTitle}>{t("Teams")}</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -135,17 +137,17 @@ export default function TeamsRoute() {
         {isLoading ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.slate} />
-            <Text style={styles.body}>Loading teams…</Text>
+            <Text style={styles.body}>{t("Loading teams…")}</Text>
           </View>
         ) : error ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>Couldn't load teams</Text>
+            <Text style={styles.stateTitle}>{t("Couldn't load teams")}</Text>
             <Text style={styles.body}>{error}</Text>
           </View>
         ) : memberships.length === 0 ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>No memberships</Text>
-            <Text style={styles.body}>You're not on any teams yet.</Text>
+            <Text style={styles.stateTitle}>{t("No memberships")}</Text>
+            <Text style={styles.body}>{t("You're not on any teams yet.")}</Text>
           </View>
         ) : (
           groupMembershipsByOrg(memberships).map((group) => (
@@ -202,7 +204,7 @@ export default function TeamsRoute() {
                         />
                       ) : (
                         <Pressable
-                          accessibilityLabel="Leave team"
+                          accessibilityLabel={t("Leave team")}
                           accessibilityRole="button"
                           hitSlop={6}
                           onPress={() => confirmLeave(membership)}
@@ -213,7 +215,7 @@ export default function TeamsRoute() {
                       )}
                       {isOwnerOrAdmin && !isEditing ? (
                         <Pressable
-                          accessibilityLabel="Rename team"
+                          accessibilityLabel={t("Rename team")}
                           accessibilityRole="button"
                           hitSlop={6}
                           onPress={() => {
@@ -237,9 +239,9 @@ export default function TeamsRoute() {
 
         {memberships.length > 0 ? (
           <Text style={styles.footnote}>
-            Grouped by org because that is what decides whether a team is
-            usable: the server keeps one active org per session, and teams from
-            another org are filtered out by RLS after they are picked.
+            {t(
+              "Grouped by org because that is what decides whether a team is usable: the server keeps one active org per session, and teams from another org are filtered out by RLS after they are picked.",
+            )}
           </Text>
         ) : null}
       </ScrollView>

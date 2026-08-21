@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { formatRelativeTime } from "../../../lib/relative-time";
+import { t } from "../../../lib/i18n";
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
 import type { IdeaActivity } from "../idea-types";
 
@@ -56,11 +58,11 @@ type ActivityPresentation = {
 export function presentActivity(activity: IdeaActivity): ActivityPresentation {
   switch (activity.activityType) {
     case "status_change":
-      return { glyph: "sync-outline", glyphColor: hai.basalt, label: "Status changed" };
+      return { glyph: "sync-outline", glyphColor: hai.basalt, label: t("Status changed") };
     case "reorder":
-      return { glyph: "swap-vertical-outline", glyphColor: hai.cinnabar, label: "Reordered" };
+      return { glyph: "swap-vertical-outline", glyphColor: hai.cinnabar, label: t("Reordered") };
     default:
-      return { glyph: "chevron-forward-outline", glyphColor: hai.cinnabar, label: "Progress" };
+      return { glyph: "chevron-forward-outline", glyphColor: hai.cinnabar, label: t("Progress") };
   }
 }
 
@@ -70,17 +72,18 @@ export function IdeaActivityTimeline({
   isLoading,
   onSelectImage,
 }: IdeaActivityTimelineProps) {
+  const { t: tHook } = useTranslation();
   if (isLoading && activities.length === 0) {
     return (
       <View style={styles.stateRow}>
         <ActivityIndicator color={colors.slate} />
-        <Text style={styles.stateText}>Loading activity…</Text>
+        <Text style={styles.stateText}>{tHook("Loading activity…")}</Text>
       </View>
     );
   }
 
   if (activities.length === 0) {
-    return <Text style={styles.emptyText}>No activity yet.</Text>;
+    return <Text style={styles.emptyText}>{tHook("No activity yet.")}</Text>;
   }
 
   return (
@@ -109,8 +112,9 @@ function IdeaActivityRow({
   isLast: boolean;
   onSelectImage?: (url: string) => void;
 }) {
+  const { t } = useTranslation();
   const presentation = presentActivity(activity);
-  const actorName = author?.displayName.trim() || "Unknown";
+  const actorName = author?.displayName.trim() || t("Unknown");
   const body = activity.content.trim() || activity.activityType;
 
   return (
@@ -130,7 +134,7 @@ function IdeaActivityRow({
           </Text>
           {author?.isAgent ? (
             <View style={styles.agentTag}>
-              <Text style={styles.agentTagText}>AGENT</Text>
+              <Text style={styles.agentTagText}>{t("AGENT")}</Text>
             </View>
           ) : null}
           <View style={styles.rowHeaderSpacer} />

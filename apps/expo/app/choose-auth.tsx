@@ -7,7 +7,7 @@ import { routeToHref, useOnboarding } from "./_layout";
 
 export default function ChooseAuthRoute() {
   const router = useRouter();
-  const { controller, state } = useOnboarding();
+  const { state, applyServerChange } = useOnboarding();
 
   if (state.route !== "needsAuth") {
     const href = routeToHref(state.route);
@@ -18,6 +18,7 @@ export default function ChooseAuthRoute() {
     <ChooseAuthScreen
       errorMessage={state.errorMessage}
       isBusy={state.isBusy}
+      onServerChanged={applyServerChange}
       onSignInOrRegister={() => {
         router.push("/auth");
       }}

@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Pressable,
@@ -45,6 +46,7 @@ export function MemberPickerSheet({
   onConfirm,
   primaryAgentId = null,
 }: MemberPickerSheetProps) {
+  const { t } = useTranslation();
   const excluded = useMemo(() => toSet(excludeActorIds), [excludeActorIds]);
   const [selected, setSelected] = useState<Set<string>>(() => toSet(initialSelectedIds));
   const [query, setQuery] = useState("");
@@ -87,12 +89,12 @@ export function MemberPickerSheet({
   return (
     <View style={styles.screen}>
       <GlassHeader>
-        <Pressable accessibilityLabel="Cancel" hitSlop={8} onPress={onCancel} style={styles.headerSlot}>
+        <Pressable accessibilityLabel={t("Cancel")} hitSlop={8} onPress={onCancel} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
-        <Text style={styles.headerTitle}>Add actors</Text>
+        <Text style={styles.headerTitle}>{t("Add actors")}</Text>
         <Pressable
-          accessibilityLabel="Confirm"
+          accessibilityLabel={t("Confirm")}
           accessibilityState={{ disabled: !canConfirm }}
           disabled={!canConfirm}
           hitSlop={8}
@@ -113,7 +115,7 @@ export function MemberPickerSheet({
           autoCapitalize="none"
           autoCorrect={false}
           onChangeText={setQuery}
-          placeholder="Search actors"
+          placeholder={t("Search actors")}
           placeholderTextColor={colors.slate}
           selectionColor={colors.cinnabar}
           style={styles.searchInput}
@@ -121,7 +123,7 @@ export function MemberPickerSheet({
         />
         {query.length > 0 ? (
           <Pressable
-            accessibilityLabel="Clear search"
+            accessibilityLabel={t("Clear search")}
             accessibilityRole="button"
             hitSlop={6}
             onPress={() => setQuery("")}
@@ -139,15 +141,15 @@ export function MemberPickerSheet({
         {isLoading && filtered.length === 0 ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.slate} />
-            <Text style={styles.loadingText}>Loading actors…</Text>
+            <Text style={styles.loadingText}>{t("Loading actors…")}</Text>
           </View>
         ) : filtered.length === 0 ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>No matches</Text>
+            <Text style={styles.stateTitle}>{t("No matches")}</Text>
             <Text style={styles.stateBody}>
               {query.trim()
-                ? "Nothing in the directory matches that search."
-                : "Invite teammates or agents on the Actors tab first."}
+                ? t("Nothing in the directory matches that search.")
+                : t("Invite teammates or agents on the Actors tab first.")}
             </Text>
           </View>
         ) : (
@@ -155,7 +157,7 @@ export function MemberPickerSheet({
             {humans.length > 0 ? (
               <View style={styles.section}>
                 <SectionEyebrow
-                  label={`MEMBERS · ${humans.length}`}
+                  label={`${t("MEMBERS")} · ${humans.length}`}
                   style={styles.sectionLabel}
                 />
                 <View>
@@ -175,7 +177,7 @@ export function MemberPickerSheet({
             {agents.length > 0 ? (
               <View style={styles.section}>
                 <SectionEyebrow
-                  label={`AGENTS · ${agents.length}`}
+                  label={`${t("AGENTS")} · ${agents.length}`}
                   style={styles.sectionLabel}
                 />
                 <View>
@@ -214,6 +216,7 @@ function SelectableRow({
   onPress,
   showDivider,
 }: SelectableRowProps) {
+  const { t } = useTranslation();
   return (
     <Pressable
       accessibilityRole="button"
@@ -232,7 +235,7 @@ function SelectableRow({
         {isPrimary ? (
           <View style={styles.primaryBadge}>
             <Ionicons color={colors.cinnabar} name="star" size={12} />
-            <Text style={styles.primaryBadgeText}>PRIMARY</Text>
+            <Text style={styles.primaryBadgeText}>{t("PRIMARY")}</Text>
           </View>
         ) : null}
       </View>

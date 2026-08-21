@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import type { ComponentProps } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
@@ -59,6 +60,7 @@ export function AuthScreen({
   onSignInWithApple,
   onSignInWithGoogle,
 }: AuthScreenProps) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState(pendingEmail ?? "");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -112,7 +114,7 @@ export function AuthScreen({
       void onSignInWithApple();
       return;
     }
-    Alert.alert("Sign in with Apple", "Coming soon on Expo. Use email for now.");
+    Alert.alert(t("Sign in with Apple"), t("Coming soon on Expo. Use email for now."));
   };
 
   const handleGoogle = () => {
@@ -120,7 +122,7 @@ export function AuthScreen({
       void onSignInWithGoogle();
       return;
     }
-    Alert.alert("Sign in with Google", "Coming soon on Expo. Use email for now.");
+    Alert.alert(t("Sign in with Google"), t("Coming soon on Expo. Use email for now."));
   };
 
   const canSubmit = isCodeStep
@@ -132,10 +134,17 @@ export function AuthScreen({
   // Mirrors iOS `headerSubtitle`: the copy tracks the selected method, so the
   // screen never promises a code when the user picked password.
   const subtitle = isCodeStep
-    ? "Check your inbox for a 6-digit code."
+    ? t("Check your inbox for a 6-digit code.")
     : method === "password"
-      ? "Use your email and password to sign in."
-      : "We'll email you a 6-digit code.";
+      ? t("Use your email and password to sign in.")
+      : t("We'll email you a 6-digit code.");
+
+  // "Code sent to {{email}}" places the address at the end in both locales,
+  // so splitting on the interpolated value keeps the address bold without
+  // hardcoding word order.
+  const [codeSentPrefix, codeSentSuffix] = t("Code sent to {{email}}", {
+    email: "\u0000",
+  }).split("\u0000");
 
   return (
     <KeyboardAvoidingView
@@ -143,7 +152,7 @@ export function AuthScreen({
       style={styles.screen}
     >
       <Pressable
-        accessibilityLabel="Back"
+        accessibilityLabel={t("Back")}
         accessibilityRole="button"
         hitSlop={12}
         onPress={onBack}
@@ -158,7 +167,7 @@ export function AuthScreen({
       >
         <View style={styles.header}>
           <Text style={styles.title}>
-            {isCodeStep ? "Enter the code" : "Sign in"}
+            {isCodeStep ? t("Enter the code") : t("Sign in")}
           </Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
@@ -167,13 +176,13 @@ export function AuthScreen({
           <View style={styles.methodPicker} testID="login.methodPicker">
             <MethodTab
               disabled={isBusy}
-              label="Email"
+              label={t("Email")}
               onPress={() => setMethod("email")}
               selected={method === "email"}
             />
             <MethodTab
               disabled={isBusy}
-              label="Password"
+              label={t("Password")}
               onPress={() => setMethod("password")}
               selected={method === "password"}
             />
@@ -183,18 +192,19 @@ export function AuthScreen({
         {isCodeStep ? (
           <View style={styles.section}>
             <Text style={styles.helper}>
-              Code sent to{" "}
+              {codeSentPrefix}
               <Text style={styles.helperStrong}>{pendingEmail}</Text>
+              {codeSentSuffix}
             </Text>
 
             <View style={styles.authField}>
               <TextInput
-                accessibilityLabel="6-digit code"
+                accessibilityLabel={t("6-digit code")}
                 editable={!isBusy}
                 keyboardType="number-pad"
                 maxLength={OTP_CODE_LENGTH}
                 onChangeText={(value) => setCode(sanitizeOtpInput(value))}
-                placeholder="6-digit code"
+                placeholder={t("6-digit code")}
                 placeholderTextColor={colors.slate}
                 selectionColor={colors.cinnabar}
                 style={styles.fieldText}
@@ -206,7 +216,7 @@ export function AuthScreen({
             <PrimaryButton
               busy={isBusy}
               enabled={canSubmit}
-              label="Verify"
+              label={t("Verify")}
               onPress={() => {
                 void verify();
               }}
@@ -221,21 +231,21 @@ export function AuthScreen({
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.linkText}>Use a different email</Text>
+              <Text style={styles.linkText}>{t("Use a different email")}</Text>
             </Pressable>
           </View>
         ) : (
           <View style={styles.section}>
             <View style={styles.authField}>
               <TextInput
-                accessibilityLabel="Email"
+                accessibilityLabel={t("Email")}
                 autoCapitalize="none"
                 autoComplete="email"
                 autoCorrect={false}
                 editable={!isBusy}
                 keyboardType="email-address"
                 onChangeText={setEmail}
-                placeholder="Email"
+                placeholder={t("Email")}
                 placeholderTextColor={colors.slate}
                 selectionColor={colors.cinnabar}
                 style={styles.fieldText}
@@ -248,7 +258,7 @@ export function AuthScreen({
             {method === "password" ? (
               <View style={styles.authField}>
                 <TextInput
-                  accessibilityLabel="Password"
+                  accessibilityLabel={t("Password")}
                   autoCapitalize="none"
                   autoComplete="current-password"
                   autoCorrect={false}
@@ -257,7 +267,7 @@ export function AuthScreen({
                   onSubmitEditing={() => {
                     void submitPassword();
                   }}
-                  placeholder="Password"
+                  placeholder={t("Password")}
                   placeholderTextColor={colors.slate}
                   returnKeyType="go"
                   secureTextEntry
@@ -273,7 +283,7 @@ export function AuthScreen({
             <PrimaryButton
               busy={isBusy}
               enabled={canSubmit}
-              label={method === "password" ? "Sign in" : "Send code"}
+              label={method === "password" ? t("Sign in") : t("Send code")}
               onPress={() => {
                 void (method === "password" ? submitPassword() : sendCode());
               }}
@@ -287,7 +297,7 @@ export function AuthScreen({
 
         <View style={styles.divider}>
           <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or</Text>
+          <Text style={styles.dividerText}>{t("or")}</Text>
           <View style={styles.dividerLine} />
         </View>
 
@@ -295,13 +305,13 @@ export function AuthScreen({
           <SocialButton
             disabled={isBusy}
             icon="logo-apple"
-            label="Sign in with Apple"
+            label={t("Sign in with Apple")}
             onPress={handleApple}
           />
           <SocialButton
             disabled={isBusy}
             icon="globe-outline"
-            label="Sign in with Google"
+            label={t("Sign in with Google")}
             onPress={handleGoogle}
           />
         </View>

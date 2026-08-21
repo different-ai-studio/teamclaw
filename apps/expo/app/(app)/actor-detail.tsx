@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Alert, Share } from "react-native";
 
 import { useOnboarding, useTeamMqtt } from "../_layout";
@@ -35,6 +36,7 @@ type RecentSession = {
 };
 
 export default function ActorDetailRoute() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { state } = useOnboarding();
   const teamMqtt = useTeamMqtt();
@@ -142,7 +144,7 @@ export default function ActorDetailRoute() {
       } catch (err) {
         showToast(
           "error",
-          err instanceof Error ? err.message : "Couldn't update your default agent.",
+          err instanceof Error ? err.message : t("Couldn't update your default agent."),
         );
       } finally {
         setIsSavingMyDefaultAgent(false);
@@ -290,11 +292,11 @@ export default function ActorDetailRoute() {
     try {
       const rows = await agentAccessApi.listAuthorizedHumans(actorId);
       setAuthorizedHumans(rows);
-    } catch (err) {
-      showToast(
-        "error",
-        err instanceof Error ? err.message : "Couldn't load authorized members.",
-      );
+      } catch (err) {
+        showToast(
+          "error",
+          err instanceof Error ? err.message : t("Couldn't load authorized members."),
+        );
     } finally {
       setIsLoadingAuthorizedHumans(false);
     }
@@ -303,25 +305,25 @@ export default function ActorDetailRoute() {
   const removeActor = useCallback(() => {
     if (!actorId || !actor || isRemoving) return;
     Alert.alert(
-      "Remove actor",
-      `Remove ${actor.displayName} from this team?`,
+      t("Remove actor"),
+      t("Remove {{value}} from the team?", { value: actor.displayName }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel"), style: "cancel" },
         {
-          text: "Remove",
+          text: t("Remove"),
           style: "destructive",
           onPress: () => {
             setIsRemoving(true);
             void actorsApi
               .removeActor(actorId)
               .then(() => {
-                showToast("success", "Actor removed from team.");
+                showToast("success", t("Actor removed from team."));
                 router.back();
               })
               .catch((err) => {
                 showToast(
                   "error",
-                  err instanceof Error ? err.message : "Couldn't remove actor.",
+                  err instanceof Error ? err.message : t("Couldn't remove actor."),
                 );
               })
               .finally(() => {
@@ -331,7 +333,7 @@ export default function ActorDetailRoute() {
         },
       ],
     );
-  }, [actor, actorId, actorsApi, isRemoving, router]);
+  }, [actor, actorId, actorsApi, isRemoving, router, t]);
 
   const createReinvite = useCallback(async () => {
     if (!teamId || !actor || isCreatingReinvite) return;
@@ -339,12 +341,12 @@ export default function ActorDetailRoute() {
     try {
       const invite = await actorsApi.createReinvite({ teamId, actor });
       await Clipboard.setStringAsync(invite.deeplink);
-      showToast("success", "Invite link copied.");
+      showToast("success", t("Invite link copied."));
       await Share.share({ message: invite.deeplink });
     } catch (err) {
       showToast(
         "error",
-        err instanceof Error ? err.message : "Couldn't create invite link.",
+        err instanceof Error ? err.message : t("Couldn't create invite link."),
       );
     } finally {
       setIsCreatingReinvite(false);
@@ -362,12 +364,12 @@ export default function ActorDetailRoute() {
           "prompt",
           state.currentMemberActorId,
         );
-        showToast("success", "Member authorized.");
+        showToast("success", t("Member authorized."));
         await reloadAuthorizedHumans();
       } catch (err) {
         showToast(
           "error",
-          err instanceof Error ? err.message : "Couldn't authorize member.",
+          err instanceof Error ? err.message : t("Couldn't authorize member."),
         );
       } finally {
         setIsGrantingAuthorizedHuman(false);
@@ -388,12 +390,12 @@ export default function ActorDetailRoute() {
       setIsRevokingAuthorizedHuman(true);
       try {
         await agentAccessApi.revokeAuthorizedHuman(actorId, memberActorId);
-        showToast("success", "Member access revoked.");
+        showToast("success", t("Member access revoked."));
         await reloadAuthorizedHumans();
       } catch (err) {
         showToast(
           "error",
-          err instanceof Error ? err.message : "Couldn't revoke member access.",
+          err instanceof Error ? err.message : t("Couldn't revoke member access."),
         );
       } finally {
         setIsRevokingAuthorizedHuman(false);
@@ -427,11 +429,11 @@ export default function ActorDetailRoute() {
               }
             : prev,
         );
-        showToast("success", "Agent defaults saved.");
+        showToast("success", t("Agent defaults saved."));
       } catch (err) {
         showToast(
           "error",
-          err instanceof Error ? err.message : "Couldn't save agent defaults.",
+          err instanceof Error ? err.message : t("Couldn't save agent defaults."),
         );
       } finally {
         setIsSavingAgentDefaults(false);
@@ -443,7 +445,7 @@ export default function ActorDetailRoute() {
   const addAgentWorkspace = useCallback(
     async (path: string) => {
       if (actor?.actorType !== "agent" || !actor?.actorId || !teamMqtt || !teamId || !state.currentMemberActorId) {
-        showToast("error", "Daemon routing is unavailable.");
+        showToast("error", t("Daemon routing is unavailable."));
         return;
       }
       if (isAddingAgentWorkspace) return;
@@ -459,12 +461,12 @@ export default function ActorDetailRoute() {
           path,
           timeoutMs: 25_000,
         });
-        showToast("success", "Workspace add requested.");
+        showToast("success", t("Workspace add requested."));
         await Promise.all([refresh(), reloadAgentWorkspaces()]);
       } catch (err) {
         showToast(
           "error",
-          err instanceof Error ? err.message : "Couldn't add workspace.",
+          err instanceof Error ? err.message : t("Couldn't add workspace."),
         );
       } finally {
         setIsAddingAgentWorkspace(false);
@@ -485,7 +487,7 @@ export default function ActorDetailRoute() {
   const removeAgentWorkspace = useCallback(
     async (workspaceId: string) => {
       if (actor?.actorType !== "agent" || !actor?.actorId || !teamMqtt || !teamId || !state.currentMemberActorId) {
-        showToast("error", "Daemon routing is unavailable.");
+        showToast("error", t("Daemon routing is unavailable."));
         return;
       }
       if (isRemovingAgentWorkspace) return;
@@ -501,12 +503,12 @@ export default function ActorDetailRoute() {
           workspaceId,
           timeoutMs: 25_000,
         });
-        showToast("success", "Workspace remove requested.");
+        showToast("success", t("Workspace remove requested."));
         await Promise.all([refresh(), reloadAgentWorkspaces()]);
       } catch (err) {
         showToast(
           "error",
-          err instanceof Error ? err.message : "Couldn't remove workspace.",
+          err instanceof Error ? err.message : t("Couldn't remove workspace."),
         );
       } finally {
         setIsRemovingAgentWorkspace(false);
@@ -537,13 +539,13 @@ export default function ActorDetailRoute() {
         setActor((prev) => (prev?.actorId === actorId ? { ...prev, visibility } : prev));
         showToast(
           "success",
-          visibility === "team" ? "Agent shared to team." : "Agent made personal.",
+          visibility === "team" ? t("Agent shared to team.") : t("Agent made personal."),
         );
         await refresh();
       } catch (err) {
         showToast(
           "error",
-          err instanceof Error ? err.message : "Couldn't update agent visibility.",
+          err instanceof Error ? err.message : t("Couldn't update agent visibility."),
         );
       } finally {
         setIsUpdatingAgentVisibility(false);
@@ -595,7 +597,7 @@ export default function ActorDetailRoute() {
       onSelectResource={
         actorId
           ? (kind) => {
-              const name = encodeURIComponent(actor?.displayName ?? "This actor");
+              const name = encodeURIComponent(actor?.displayName ?? t("This actor"));
               router.push(
                 `/(app)/actor-resources?actorId=${encodeURIComponent(actorId)}&actorName=${name}&kind=${kind}`,
               );

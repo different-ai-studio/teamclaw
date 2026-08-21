@@ -73,11 +73,11 @@ describe("createSessionsController", () => {
       ],
       groups: [
         {
-          label: "今天",
+          label: "Today",
           sessions: [expect.objectContaining({ sessionId: "session-1" })],
         },
         {
-          label: "昨天",
+          label: "Yesterday",
           sessions: [expect.objectContaining({ sessionId: "session-2" })],
         },
       ],
@@ -186,7 +186,7 @@ describe("createSessionsController", () => {
       sessions: initialRows,
       groups: [
         {
-          label: "今天",
+          label: "Today",
           sessions: initialRows,
         },
       ],
@@ -203,7 +203,7 @@ describe("createSessionsController", () => {
       sessions: refreshedRows,
       groups: [
         {
-          label: "今天",
+          label: "Today",
           sessions: refreshedRows,
         },
       ],
@@ -252,7 +252,7 @@ describe("createSessionsController", () => {
       sessions: [expect.objectContaining({ sessionId: "session-new" })],
       groups: [
         {
-          label: "今天",
+          label: "Today",
           sessions: [expect.objectContaining({ sessionId: "session-new" })],
         },
       ],

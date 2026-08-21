@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -55,11 +56,12 @@ export function IdeaProgressComposer({
   onRemoveAttachment,
   onSubmit,
 }: IdeaProgressComposerProps) {
+  const { t } = useTranslation();
   const [text, setText] = useState("");
   const canSubmit = canSubmitProgress(text, attachments, isSubmitting);
 
   const promptForSource = () => {
-    const labels = ["Photo Library", "Camera", "Cancel"];
+    const labels = [t("Photo Library"), t("Camera"), t("Cancel")];
     const dispatch = (index: number) => {
       if (index === 0) onAddImage("library");
       else if (index === 1) onAddImage("camera");
@@ -71,7 +73,7 @@ export function IdeaProgressComposer({
       );
       return;
     }
-    Alert.alert("Add image", undefined, [
+    Alert.alert(t("Add image"), undefined, [
       { text: labels[0], onPress: () => dispatch(0) },
       { text: labels[1], onPress: () => dispatch(1) },
       { text: labels[2], style: "cancel" },
@@ -88,7 +90,7 @@ export function IdeaProgressComposer({
 
       <View style={styles.capsule}>
         <Pressable
-          accessibilityLabel="Add image"
+          accessibilityLabel={t("Add image")}
           accessibilityRole="button"
           disabled={isSubmitting}
           hitSlop={6}
@@ -102,7 +104,7 @@ export function IdeaProgressComposer({
           editable={!isSubmitting}
           multiline
           onChangeText={setText}
-          placeholder="Submit progress, or @mention an agent…"
+          placeholder={t("Submit progress, or @mention an agent…")}
           placeholderTextColor={colors.slate}
           selectionColor={colors.cinnabar}
           style={styles.input}
@@ -122,7 +124,7 @@ export function IdeaProgressComposer({
           {isSubmitting ? (
             <ActivityIndicator color={hai.mist} size="small" />
           ) : (
-            <Text style={styles.submitText}>Submit</Text>
+            <Text style={styles.submitText}>{t("Submit")}</Text>
           )}
         </Pressable>
       </View>

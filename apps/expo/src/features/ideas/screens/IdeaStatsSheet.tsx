@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Hairline } from "../../../ui/atoms/Hairline";
@@ -29,6 +30,7 @@ export type IdeaStatsSheetProps = {
 };
 
 export function IdeaStatsSheet({ actors, ideas, onClose }: IdeaStatsSheetProps) {
+  const { t } = useTranslation();
   const [period, setPeriod] = useState<StatsPeriod>("week");
   const stats = useMemo(
     () => buildIdeaStats({ actors, ideas, period }),
@@ -40,7 +42,7 @@ export function IdeaStatsSheet({ actors, ideas, onClose }: IdeaStatsSheetProps) 
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Idea Statistics</Text>
+        <Text style={styles.headerTitle}>{t("Idea Statistics")}</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -72,19 +74,19 @@ export function IdeaStatsSheet({ actors, ideas, onClose }: IdeaStatsSheetProps) 
         </View>
 
         <View style={styles.summaryRow}>
-          <SummaryCard icon="bulb-outline" label="TOTAL" value={stats.total} />
-          <SummaryCard icon="ellipse-outline" label="OPEN" value={stats.open} />
-          <SummaryCard icon="checkmark-circle-outline" label="DONE" value={stats.done} />
+          <SummaryCard icon="bulb-outline" label={t("TOTAL")} value={stats.total} />
+          <SummaryCard icon="ellipse-outline" label={t("OPEN")} value={stats.open} />
+          <SummaryCard icon="checkmark-circle-outline" label={t("DONE")} value={stats.done} />
         </View>
 
         {stats.contributors.length === 0 ? (
           <View style={styles.emptyBlock}>
-            <Text style={styles.emptyTitle}>No ideas in this period</Text>
-            <Text style={styles.emptyBody}>Pick a longer period, or create an idea.</Text>
+            <Text style={styles.emptyTitle}>{t("No ideas in this period")}</Text>
+            <Text style={styles.emptyBody}>{t("Pick a longer period, or create an idea.")}</Text>
           </View>
         ) : (
           <View style={styles.section}>
-            <SectionEyebrow label="TOP CONTRIBUTORS" style={styles.sectionEyebrow} />
+            <SectionEyebrow label={t("TOP CONTRIBUTORS")} style={styles.sectionEyebrow} />
             <View style={styles.card}>
               {stats.contributors.map((stat, index) => (
                 <View key={stat.actorId || `unattributed-${index}`}>
@@ -98,7 +100,7 @@ export function IdeaStatsSheet({ actors, ideas, onClose }: IdeaStatsSheetProps) 
 
         {stats.workspaces.length > 0 ? (
           <View style={styles.section}>
-            <SectionEyebrow label="BY WORKSPACE" style={styles.sectionEyebrow} />
+            <SectionEyebrow label={t("BY WORKSPACE")} style={styles.sectionEyebrow} />
             <View style={styles.card}>
               {stats.workspaces.map((stat, index) => (
                 <View key={stat.id}>

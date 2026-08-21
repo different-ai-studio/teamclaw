@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActionSheetIOS,
   Alert,
@@ -20,6 +21,7 @@ import { PrimaryButton } from "../../../ui/button";
 import { AppCard } from "../../../ui/card";
 import { PageHeader } from "../../../ui/PageHeader";
 import { impactLight, selectionTick } from "../../../lib/haptics";
+import { t } from "../../../lib/i18n";
 import { colors, spacing, typography } from "../../../ui/theme";
 import { matchesAnyField } from "../../search/search-matcher";
 import { DaemonStatusBanner, type DaemonConnectionState } from "../components/DaemonStatusBanner";
@@ -79,9 +81,12 @@ export function SessionGroupSection({
   selection: ReadonlySet<string>;
   workspaceBySessionId?: ReadonlyMap<string, string>;
 }) {
+  // `t()` here (not `useTranslation()`) deliberately: this component is
+  // exercised in tests by calling it as a plain function outside of a React
+  // render pass, where hooks have no dispatcher to attach to.
   return (
     <View style={styles.group}>
-      <SectionEyebrow label={group.label} style={styles.groupLabel} />
+      <SectionEyebrow label={t(group.label)} style={styles.groupLabel} />
       <View style={styles.groupItems}>
         {group.sessions.map((session, index) => {
           const checked = selection.has(session.sessionId);
@@ -134,6 +139,7 @@ function HeaderBar({
   onNewSession: () => void;
   onShortcuts: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <PageHeader
       left={
@@ -146,7 +152,7 @@ function HeaderBar({
           <Ionicons name="create-outline" size={24} color={colors.onyx} />
         </Pressable>
       }
-      title="Sessions"
+      title={t("Sessions")}
     />
   );
 }
@@ -174,6 +180,7 @@ export function SessionsListScreen({
   state,
   workspaceBySessionId,
 }: SessionsListScreenProps) {
+  const { t } = useTranslation();
   const [placeholderMessage, setPlaceholderMessage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
@@ -195,12 +202,12 @@ export function SessionsListScreen({
       impactLight();
       const isPinned = pinnedSessionIds?.has(sessionId) ?? false;
       const labels = [
-        isPinned ? "取消置顶" : "置顶",
-        "标为未读",
-        "标为已读",
-        "归档",
-        "选择更多…",
-        "取消",
+        isPinned ? t("Unpin") : t("Pin"),
+        t("Mark as unread"),
+        t("Mark as read"),
+        t("Archive"),
+        t("More…"),
+        t("Cancel"),
       ];
       const dispatch = (index: number) => {
         switch (index) {
@@ -234,7 +241,7 @@ export function SessionsListScreen({
         );
         return;
       }
-      Alert.alert("会话操作", undefined, [
+      Alert.alert(t("Session actions"), undefined, [
         { text: labels[0], onPress: () => dispatch(0) },
         { text: labels[1], onPress: () => dispatch(1) },
         { text: labels[2], onPress: () => dispatch(2) },
@@ -296,7 +303,7 @@ export function SessionsListScreen({
 
     if (!pinnedSessionIds || pinnedSessionIds.size === 0) return filtered;
     const pinned: SessionGroup["sessions"] = [];
-    const rest: SessionGroup = { label: "今天", sessions: [] };
+    const rest: SessionGroup = { label: "Today", sessions: [] };
     const remainingGroups: SessionGroup[] = [];
     for (const group of filtered) {
       const remaining: SessionGroup["sessions"] = [];
@@ -307,7 +314,7 @@ export function SessionsListScreen({
       if (remaining.length > 0) remainingGroups.push({ ...group, sessions: remaining });
     }
     if (pinned.length === 0) return remainingGroups;
-    const pinnedGroup: SessionGroup = { label: "今天", sessions: pinned };
+    const pinnedGroup: SessionGroup = { label: "Today", sessions: pinned };
     // Reuse the existing eyebrow look but force a synthetic group label.
     (pinnedGroup as unknown as { label: string }).label = `PINNED · ${pinned.length}`;
     void rest;
@@ -319,7 +326,7 @@ export function SessionsListScreen({
       onNewSession();
       return;
     }
-    setPlaceholderMessage("New session — coming next.");
+    setPlaceholderMessage(t("New session — coming next."));
   };
 
   const handleShortcuts = () => {
@@ -327,7 +334,7 @@ export function SessionsListScreen({
       onShortcuts();
       return;
     }
-    setPlaceholderMessage("Shortcuts drawer — coming with the Shortcuts sub-spec.");
+    setPlaceholderMessage(t("Shortcuts drawer — coming with the Shortcuts sub-spec."));
   };
 
   const headerBar = (
@@ -368,12 +375,12 @@ export function SessionsListScreen({
         {headerBar}
         {placeholderMessage ? <Text style={styles.feedback}>{placeholderMessage}</Text> : null}
         <View style={styles.stateBlock}>
-          <Text style={styles.stateTitle}>Couldn't load sessions</Text>
-          <Text style={styles.stateBody}>{state.errorMessage ?? "Try again in a moment."}</Text>
+          <Text style={styles.stateTitle}>{t("Couldn't load sessions")}</Text>
+          <Text style={styles.stateBody}>{state.errorMessage ?? t("Try again in a moment.")}</Text>
           <PrimaryButton
             fullWidth={false}
             isLoading={state.isLoading}
-            label="Retry"
+            label={t("Retry")}
             onPress={onLoad}
           />
         </View>
@@ -420,7 +427,7 @@ export function SessionsListScreen({
           autoCapitalize="none"
           autoCorrect={false}
           onChangeText={setQuery}
-          placeholder="Search sessions"
+          placeholder={t("Search sessions")}
           placeholderTextColor={colors.slate}
           selectionColor={colors.cinnabar}
           style={styles.searchInput}
@@ -428,7 +435,7 @@ export function SessionsListScreen({
         />
         {query.length > 0 ? (
           <Pressable
-            accessibilityLabel="Clear search"
+            accessibilityLabel={t("Clear search")}
             accessibilityRole="button"
             hitSlop={6}
             onPress={() => setQuery("")}
@@ -473,21 +480,20 @@ export function SessionsListScreen({
         <View style={styles.stateBlock}>
           {!hasAgents && onInviteAgent ? (
             <>
-              <Text style={styles.stateTitle}>Invite your first agent</Text>
+              <Text style={styles.stateTitle}>{t("Invite your first agent")}</Text>
               <Text style={styles.stateBody}>
-                You don't have access to any agent in this team yet. Invite one
-                to start a session.
+                {t("You don't have access to any agent in this team yet. Invite one to start a session.")}
               </Text>
               <PrimaryButton
                 fullWidth={false}
-                label="Invite agent"
+                label={t("Invite agent")}
                 onPress={onInviteAgent}
               />
             </>
           ) : (
             <>
-              <Text style={styles.stateTitle}>No Sessions</Text>
-              <Text style={styles.stateBody}>Start a new session to begin</Text>
+              <Text style={styles.stateTitle}>{t("No Sessions")}</Text>
+              <Text style={styles.stateBody}>{t("Start a new session to begin")}</Text>
             </>
           )}
         </View>
@@ -496,13 +502,13 @@ export function SessionsListScreen({
 
     {selectionMode ? (
       <View style={styles.batchBar}>
-        <Text style={styles.batchCount}>{selection.size} selected</Text>
+        <Text style={styles.batchCount}>{t("{{count}} selected", { count: selection.size })}</Text>
         <Pressable
           accessibilityRole="button"
           onPress={clearSelection}
           style={({ pressed }) => [styles.batchAction, pressed ? styles.batchActionPressed : null]}
         >
-          <Text style={styles.batchActionText}>Cancel</Text>
+          <Text style={styles.batchActionText}>{t("Cancel")}</Text>
         </Pressable>
         {onTogglePin ? (
           <Pressable
@@ -517,7 +523,7 @@ export function SessionsListScreen({
               pressed && !isBatchBusy ? styles.batchActionPressed : null,
             ]}
           >
-            <Text style={styles.batchActionText}>Pin</Text>
+            <Text style={styles.batchActionText}>{t("Pin")}</Text>
           </Pressable>
         ) : null}
         {onMarkBatchRead ? (
@@ -530,7 +536,7 @@ export function SessionsListScreen({
               pressed && !isBatchBusy ? styles.batchActionPressed : null,
             ]}
           >
-            <Text style={styles.batchActionText}>Mark read</Text>
+            <Text style={styles.batchActionText}>{t("Mark read")}</Text>
           </Pressable>
         ) : null}
         {onMarkBatchUnread ? (
@@ -543,7 +549,7 @@ export function SessionsListScreen({
               pressed && !isBatchBusy ? styles.batchActionPressed : null,
             ]}
           >
-            <Text style={styles.batchActionText}>Mark unread</Text>
+            <Text style={styles.batchActionText}>{t("Mark unread")}</Text>
           </Pressable>
         ) : null}
         <Pressable
@@ -557,7 +563,7 @@ export function SessionsListScreen({
           ]}
         >
           <Text style={styles.batchPrimaryText}>
-            {isBatchBusy ? "Archiving…" : "Archive"}
+            {isBatchBusy ? t("Archiving…") : t("Archive")}
           </Text>
         </Pressable>
       </View>

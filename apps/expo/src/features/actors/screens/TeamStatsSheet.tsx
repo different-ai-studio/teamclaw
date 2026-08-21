@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Hairline } from "../../../ui/atoms/Hairline";
@@ -48,6 +49,7 @@ function agentGlyphColor(agentType: string | null): string {
 }
 
 export function TeamStatsSheet({ actors, onClose }: TeamStatsSheetProps) {
+  const { t } = useTranslation();
   const [period, setPeriod] = useState<StatsPeriod>("week");
   const stats = useMemo(() => buildTeamStats({ actors, period }), [actors, period]);
   const maxSkillCount = Math.max(1, ...stats.skills.map((skill) => skill.count));
@@ -56,7 +58,7 @@ export function TeamStatsSheet({ actors, onClose }: TeamStatsSheetProps) {
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Team Statistics</Text>
+        <Text style={styles.headerTitle}>{t("Team Statistics")}</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -87,19 +89,19 @@ export function TeamStatsSheet({ actors, onClose }: TeamStatsSheetProps) {
         <View style={styles.summaryRow}>
           <SummaryCard
             icon="sparkles-outline"
-            label="TOKENS"
+            label={t("TOKENS")}
             value={formatTokens(stats.totalTokens)}
           />
           <SummaryCard
             icon="chatbubbles-outline"
-            label="SESSIONS"
+            label={t("SESSIONS")}
             value={`${stats.totalSessions}`}
           />
-          <SummaryCard icon="hammer-outline" label="SKILLS" value={`${stats.totalSkills}`} />
+          <SummaryCard icon="hammer-outline" label={t("SKILLS")} value={`${stats.totalSkills}`} />
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionEyebrow}>TOKEN RANKING</Text>
+          <Text style={styles.sectionEyebrow}>{t("TOKEN RANKING")}</Text>
           <View style={styles.card}>
             {stats.actors.map((stat, index) => (
               <View key={stat.actorId}>
@@ -113,7 +115,7 @@ export function TeamStatsSheet({ actors, onClose }: TeamStatsSheetProps) {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionEyebrow}>SKILLS USAGE</Text>
+          <Text style={styles.sectionEyebrow}>{t("SKILLS USAGE")}</Text>
           <View style={styles.card}>
             {stats.skills.map((skill, index) => (
               <View key={skill.name}>

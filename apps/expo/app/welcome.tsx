@@ -6,7 +6,7 @@ import { routeToHref, useOnboarding } from "./_layout";
 
 export default function WelcomeRoute() {
   const router = useRouter();
-  const { state } = useOnboarding();
+  const { state, applyServerChange } = useOnboarding();
 
   if (state.route !== "needsAuth") {
     const href = routeToHref(state.route);
@@ -18,6 +18,7 @@ export default function WelcomeRoute() {
       onGetStarted={() => {
         router.push("/choose-auth");
       }}
+      onServerChanged={applyServerChange}
     />
   );
 }

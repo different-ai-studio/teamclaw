@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, radii, spacing, typography } from "../../../ui/theme";
@@ -14,14 +15,15 @@ export type ZeroAgentReminderSheetProps = {
  * — same copy, same two-button layout, same medium detent.
  */
 export function ZeroAgentReminderSheet({ onAdd, onDismiss }: ZeroAgentReminderSheetProps) {
+  const { t } = useTranslation();
   return (
     <View style={styles.screen}>
       <View style={styles.spacer} />
       <View style={styles.iconWrap}>
         <Ionicons color={colors.cinnabar} name="hardware-chip-outline" size={56} />
-        <Text style={styles.title}>Add your first agent</Text>
+        <Text style={styles.title}>{t("Add your first agent")}</Text>
         <Text style={styles.body}>
-          This team doesn't have any agents yet. Add one to start streaming sessions.
+          {t("This team doesn't have any agents yet. Add one to start streaming sessions.")}
         </Text>
       </View>
       <View style={styles.spacer} />
@@ -34,7 +36,7 @@ export function ZeroAgentReminderSheet({ onAdd, onDismiss }: ZeroAgentReminderSh
             pressed ? styles.primaryPressed : null,
           ]}
         >
-          <Text style={styles.primaryLabel}>Add agent</Text>
+          <Text style={styles.primaryLabel}>{t("Add agent")}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -42,7 +44,7 @@ export function ZeroAgentReminderSheet({ onAdd, onDismiss }: ZeroAgentReminderSh
           onPress={onDismiss}
           style={styles.secondary}
         >
-          <Text style={styles.secondaryLabel}>Maybe later</Text>
+          <Text style={styles.secondaryLabel}>{t("Maybe later")}</Text>
         </Pressable>
       </View>
     </View>

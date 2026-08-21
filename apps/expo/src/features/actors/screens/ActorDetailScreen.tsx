@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Pressable,
@@ -15,6 +16,7 @@ import { Hairline } from "../../../ui/atoms/Hairline";
 import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
 import { StatusDot } from "../../../ui/atoms/StatusDot";
 import { formatRelativeTime } from "../../../lib/relative-time";
+import { t } from "../../../lib/i18n";
 import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../../ui/GlassHeader";
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
 import { isActorOnline, type Actor } from "../actor-types";
@@ -116,15 +118,15 @@ function deriveHeroStyle(actor: Actor, isMe: boolean) {
 }
 
 function deriveKindLabel(actor: Actor): string {
-  if (actor.actorType === "member") return "Human";
-  if (actor.actorType === "agent") return "Agent";
-  return "External";
+  if (actor.actorType === "member") return t("Human");
+  if (actor.actorType === "agent") return t("Agent");
+  return t("External");
 }
 
 function deriveSubtitle(actor: Actor, isMe: boolean): string {
-  if (isMe) return "you";
-  if (actor.actorType === "agent") return "Agent";
-  return actor.role ?? "member";
+  if (isMe) return t("you");
+  if (actor.actorType === "agent") return t("Agent");
+  return actor.role ?? t("member");
 }
 
 export function ActorDetailScreen({
@@ -164,11 +166,12 @@ export function ActorDetailScreen({
   resourceCounts,
   stats,
 }: ActorDetailScreenProps) {
+  const { t: tHook } = useTranslation();
   return (
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Actor</Text>
+        <Text style={styles.headerTitle}>{tHook("Actor")}</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -189,13 +192,13 @@ export function ActorDetailScreen({
         {isLoading && actor === null ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.slate} />
-            <Text style={styles.loadingText}>Loading actor…</Text>
+            <Text style={styles.loadingText}>{tHook("Loading actor…")}</Text>
           </View>
         ) : actor === null ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>Actor not found</Text>
+            <Text style={styles.stateTitle}>{tHook("Actor not found")}</Text>
             <Text style={styles.stateBody}>
-              The actor may have been removed from this team.
+              {tHook("The actor may have been removed from this team.")}
             </Text>
           </View>
         ) : (
@@ -206,11 +209,11 @@ export function ActorDetailScreen({
               <View style={styles.statsRow}>
                 <View style={styles.statTile}>
                   <Text style={styles.statValue}>{stats.sessions}</Text>
-                  <Text style={styles.statLabel}>Sessions</Text>
+                  <Text style={styles.statLabel}>{tHook("Sessions")}</Text>
                 </View>
                 <View style={styles.statTile}>
                   <Text style={styles.statValue}>{stats.ideas}</Text>
-                  <Text style={styles.statLabel}>Ideas</Text>
+                  <Text style={styles.statLabel}>{tHook("Ideas")}</Text>
                 </View>
               </View>
             ) : null}
@@ -235,14 +238,14 @@ export function ActorDetailScreen({
                 <SectionEyebrow
                   label={
                     recentSessions.length > 0
-                      ? `RECENT SESSIONS · ${recentSessions.length}`
-                      : "RECENT SESSIONS"
+                      ? tHook("RECENT SESSIONS · {{count}}", { count: recentSessions.length })
+                      : tHook("RECENT SESSIONS")
                   }
                   style={styles.sectionEyebrow}
                 />
                 <View style={styles.card}>
                   {recentSessions.length === 0 ? (
-                    <Text style={styles.emptyRecent}>No recent sessions yet.</Text>
+                    <Text style={styles.emptyRecent}>{tHook("No recent sessions yet.")}</Text>
                   ) : null}
                   {recentSessions.map((row, index) => {
                     const ts = row.lastMessageAt
@@ -265,7 +268,7 @@ export function ActorDetailScreen({
                         >
                           <StatusDot kind={isFresh ? "active" : "muted"} size={8} />
                           <Text numberOfLines={1} style={styles.recentSessionTitle}>
-                            {row.title || "Untitled session"}
+                            {row.title || tHook("Untitled session")}
                           </Text>
                           <Text style={styles.recentSessionTime}>
                             {row.lastMessageAt ? formatRelativeTime(row.lastMessageAt) : "—"}
@@ -280,27 +283,27 @@ export function ActorDetailScreen({
             ) : null}
 
             <View style={styles.section}>
-              <SectionEyebrow label="INFO" style={styles.sectionEyebrow} />
+              <SectionEyebrow label={tHook("INFO")} style={styles.sectionEyebrow} />
               <View style={styles.card}>
-                <DetailRow label="Name" value={actor.displayName} />
+                <DetailRow label={tHook("Name")} value={actor.displayName} />
                 <Hairline />
-                <DetailRow label="Kind" value={deriveKindLabel(actor)} />
+                <DetailRow label={tHook("Kind")} value={deriveKindLabel(actor)} />
                 {actor.actorType === "member" ? (
                   <>
                     <Hairline />
-                    <DetailRow label="Role" value={actor.role ?? "member"} />
+                    <DetailRow label={tHook("Role")} value={actor.role ?? tHook("member")} />
                     <Hairline />
-                    <DetailRow label="Status" value={capitalize(actor.memberStatus)} />
+                    <DetailRow label={tHook("Status")} value={capitalize(actor.memberStatus)} />
                     {actor.email ? (
                       <>
                         <Hairline />
-                        <DetailRow label="Email" selectable value={actor.email} />
+                        <DetailRow label={tHook("Email")} selectable value={actor.email} />
                       </>
                     ) : null}
                     {actor.phone ? (
                       <>
                         <Hairline />
-                        <DetailRow label="Phone" selectable value={actor.phone} />
+                        <DetailRow label={tHook("Phone")} selectable value={actor.phone} />
                       </>
                     ) : null}
                   </>
@@ -308,31 +311,31 @@ export function ActorDetailScreen({
                   <>
                     <Hairline />
                     <DetailRow
-                      label="Agent type"
+                      label={tHook("Agent type")}
                       value={actor.defaultAgentType ?? actor.agentTypes[0] ?? "—"}
                     />
                     <Hairline />
-                    <DetailRow label="Status" value={capitalize(actor.agentStatus)} />
+                    <DetailRow label={tHook("Status")} value={capitalize(actor.agentStatus)} />
                     <Hairline />
                     <DetailRow
-                      label="Visibility"
-                      value={actor.visibility === "personal" ? "Personal" : "Team"}
+                      label={tHook("Visibility")}
+                      value={actor.visibility === "personal" ? tHook("Personal") : tHook("Team")}
                     />
                   </>
                 )}
                 <Hairline />
                 <DetailRow
-                  label="Online"
-                  value={isActorOnline(actor) ? "Yes" : "No"}
+                  label={tHook("Online")}
+                  value={isActorOnline(actor) ? tHook("Yes") : tHook("No")}
                 />
                 <Hairline />
-                <DetailRow label="Joined" value={formatJoined(actor.createdAt)} />
+                <DetailRow label={tHook("Joined")} value={formatJoined(actor.createdAt)} />
               </View>
             </View>
 
             {actor.actorType === "agent" && onSetMyDefaultAgent ? (
               <View style={styles.section}>
-                <SectionEyebrow label="MY DEFAULT" style={styles.sectionEyebrow} />
+                <SectionEyebrow label={tHook("MY DEFAULT")} style={styles.sectionEyebrow} />
                 <View style={styles.card}>
                   <Pressable
                     accessibilityRole="button"
@@ -351,17 +354,17 @@ export function ActorDetailScreen({
                     />
                     <View style={styles.managementBody}>
                       <Text style={styles.neutralActionTitle}>
-                        {isMyDefaultAgent ? "Your default agent" : "Not your default"}
+                        {isMyDefaultAgent ? tHook("Your default agent") : tHook("Not your default")}
                       </Text>
                       <Text style={styles.managementHelper}>
-                        Your personal default agent — pre-selected when you start a new session.
+                        {tHook("Your personal default agent — pre-selected when you start a new session.")}
                       </Text>
                     </View>
                     {isSavingMyDefaultAgent ? (
                       <ActivityIndicator color={colors.slate} />
                     ) : (
                       <Text style={styles.optionChipText}>
-                        {isMyDefaultAgent ? "Remove" : "Set as default"}
+                        {isMyDefaultAgent ? tHook("Remove") : tHook("Set as default")}
                       </Text>
                     )}
                   </Pressable>
@@ -409,7 +412,7 @@ export function ActorDetailScreen({
 
             {onCreateReinvite ? (
               <View style={styles.section}>
-                <SectionEyebrow label="RE-INVITE" style={styles.sectionEyebrow} />
+                <SectionEyebrow label={tHook("RE-INVITE")} style={styles.sectionEyebrow} />
                 <View style={styles.card}>
                   <Pressable
                     accessibilityRole="button"
@@ -425,13 +428,13 @@ export function ActorDetailScreen({
                     <View style={styles.managementBody}>
                       <Text style={styles.neutralActionTitle}>
                         {actor.actorType === "agent"
-                          ? "Regenerate invite link"
-                          : "Generate re-invite link"}
+                          ? tHook("Regenerate invite link")
+                          : tHook("Generate re-invite link")}
                       </Text>
                       <Text style={styles.managementHelper}>
                         {actor.actorType === "agent"
-                          ? "Use this if the daemon needs to pair again."
-                          : "Useful for anonymous members who lost access."}
+                          ? tHook("Use this if the daemon needs to pair again.")
+                          : tHook("Useful for anonymous members who lost access.")}
                       </Text>
                     </View>
                     {isCreatingReinvite ? <ActivityIndicator color={colors.slate} /> : null}
@@ -442,7 +445,7 @@ export function ActorDetailScreen({
 
             {onRemoveActor ? (
               <View style={styles.section}>
-                <SectionEyebrow label="MANAGEMENT" style={styles.sectionEyebrow} />
+                <SectionEyebrow label={tHook("MANAGEMENT")} style={styles.sectionEyebrow} />
                 <View style={styles.card}>
                   <Pressable
                     accessibilityRole="button"
@@ -456,9 +459,9 @@ export function ActorDetailScreen({
                   >
                     <Ionicons color={hai.cinnabar} name="trash-outline" size={18} />
                     <View style={styles.managementBody}>
-                      <Text style={styles.managementTitle}>Remove from team</Text>
+                      <Text style={styles.managementTitle}>{tHook("Remove from team")}</Text>
                       <Text style={styles.managementHelper}>
-                        Revokes this actor's access and removes it from team lists.
+                        {tHook("Revokes this actor's access and removes it from team lists.")}
                       </Text>
                     </View>
                     {isRemoving ? <ActivityIndicator color={colors.slate} /> : null}
@@ -474,6 +477,7 @@ export function ActorDetailScreen({
 }
 
 function HeroCard({ actor, isMe }: { actor: Actor; isMe: boolean }) {
+  const { t } = useTranslation();
   const style = deriveHeroStyle(actor, isMe);
   const initials = avatarInitials(actor.displayName);
   const online = isActorOnline(actor);
@@ -501,7 +505,7 @@ function HeroCard({ actor, isMe }: { actor: Actor; isMe: boolean }) {
               { backgroundColor: online ? hai.sage : hai.slate },
             ]}
           />
-          <Text style={styles.heroStatus}>{online ? "Online" : "Offline"}</Text>
+          <Text style={styles.heroStatus}>{online ? t("Online") : t("Offline")}</Text>
           <Text style={styles.heroSeparator}>·</Text>
           <Text style={styles.heroKind}>{deriveKindLabel(actor)}</Text>
         </View>
@@ -525,6 +529,7 @@ function ResourceBlock({
   kind: TeamResourceKind;
   onPress: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Pressable
       accessibilityRole="button"
@@ -542,7 +547,7 @@ function ResourceBlock({
         <Text style={styles.statLabel}>{kind.toUpperCase()}</Text>
         {isActorScopedResource(kind) ? null : (
           <View style={styles.teamTag}>
-            <Text style={styles.teamTagText}>TEAM</Text>
+            <Text style={styles.teamTagText}>{t("TEAM")}</Text>
           </View>
         )}
       </View>
@@ -632,18 +637,19 @@ function AgentDefaultsSection({
   }) => void;
   workspaces: ReadonlyArray<AgentWorkspaceChoice>;
 }) {
+  const { t } = useTranslation();
   const typeChoices = supportedAgentTypes(actor);
   const selectedType = normalizeAgentType(
     actor.defaultAgentType ?? actor.agentTypes[0] ?? "",
   );
   return (
     <View style={styles.section}>
-      <SectionEyebrow label="DEFAULTS" style={styles.sectionEyebrow} />
+      <SectionEyebrow label={t("DEFAULTS")} style={styles.sectionEyebrow} />
       <View style={styles.card}>
         <View style={styles.optionBlock}>
-          <Text style={styles.optionLabel}>Default workspace</Text>
+          <Text style={styles.optionLabel}>{t("Default workspace")}</Text>
           {workspaces.length === 0 ? (
-            <Text style={styles.optionEmpty}>No active workspaces yet.</Text>
+            <Text style={styles.optionEmpty}>{t("No active workspaces yet.")}</Text>
           ) : (
             <View style={styles.chipWrap}>
               {workspaces.map((workspace) => {
@@ -678,9 +684,9 @@ function AgentDefaultsSection({
         </View>
         <Hairline />
         <View style={styles.optionBlock}>
-          <Text style={styles.optionLabel}>Agent type</Text>
+          <Text style={styles.optionLabel}>{t("Agent type")}</Text>
           {typeChoices.length === 0 ? (
-            <Text style={styles.optionEmpty}>No supported agent type reported.</Text>
+            <Text style={styles.optionEmpty}>{t("No supported agent type reported.")}</Text>
           ) : (
             <View style={styles.chipWrap}>
               {typeChoices.map((agentType) => {
@@ -711,7 +717,7 @@ function AgentDefaultsSection({
               })}
             </View>
           )}
-          {isSaving ? <Text style={styles.optionEmpty}>Saving…</Text> : null}
+          {isSaving ? <Text style={styles.optionEmpty}>{t("Saving…")}</Text> : null}
         </View>
       </View>
     </View>
@@ -733,6 +739,7 @@ function AgentWorkspacesSection({
   onRemove?: (workspaceId: string) => void;
   workspaces: ReadonlyArray<AgentWorkspaceChoice>;
 }) {
+  const { t } = useTranslation();
   const [path, setPath] = useState("");
   // An agent's daemon is addressed by its actor id; routing is available
   // whenever this is an agent actor.
@@ -741,12 +748,12 @@ function AgentWorkspacesSection({
   return (
     <View style={styles.section}>
       <SectionEyebrow
-        label={`WORKSPACES · ${workspaces.length}`}
+        label={t("WORKSPACES · {{count}}", { count: workspaces.length })}
         style={styles.sectionEyebrow}
       />
       <View style={styles.card}>
         {workspaces.length === 0 ? (
-          <Text style={styles.optionEmptyPadded}>No daemon workspaces linked yet.</Text>
+          <Text style={styles.optionEmptyPadded}>{t("No daemon workspaces linked yet.")}</Text>
         ) : (
           workspaces.map((workspace, index) => (
             <View key={workspace.id}>
@@ -759,7 +766,7 @@ function AgentWorkspacesSection({
                 </View>
                 {onRemove ? (
                   <Pressable
-                    accessibilityLabel={`Remove ${workspaceLabel(workspace)}`}
+                    accessibilityLabel={t("Remove {{value}}", { value: workspaceLabel(workspace) })}
                     accessibilityRole="button"
                     disabled={isRemoving || !canRoute}
                     hitSlop={6}
@@ -783,7 +790,7 @@ function AgentWorkspacesSection({
                 autoCorrect={false}
                 editable={!isAdding && canRoute}
                 onChangeText={setPath}
-                placeholder="/Users/me/project"
+                placeholder={t("/Users/me/project")}
                 placeholderTextColor={colors.slate}
                 selectionColor={colors.cinnabar}
                 style={styles.workspaceInput}
@@ -809,13 +816,13 @@ function AgentWorkspacesSection({
                     canAdd ? styles.workspaceAddButtonText : null,
                   ]}
                 >
-                  {isAdding ? "Adding…" : "Add"}
+                  {isAdding ? t("Adding…") : t("Add")}
                 </Text>
               </Pressable>
             </View>
             {!canRoute ? (
               <Text style={styles.workspaceHint}>
-                Daemon routing is unavailable for this actor.
+                {t("Daemon routing is unavailable for this actor.")}
               </Text>
             ) : null}
           </>
@@ -842,20 +849,21 @@ function AuthorizedMembersSection({
   onGrant?: (memberActorId: string) => void;
   onRevoke?: (memberActorId: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.section}>
       <SectionEyebrow
-        label={`AUTHORIZED MEMBERS · ${humans.length}`}
+        label={t("AUTHORIZED MEMBERS · {{count}}", { count: humans.length })}
         style={styles.sectionEyebrow}
       />
       <View style={styles.card}>
         {isLoading ? (
           <View style={styles.loadingRowInline}>
             <ActivityIndicator color={colors.slate} />
-            <Text style={styles.optionEmpty}>Loading authorized members…</Text>
+            <Text style={styles.optionEmpty}>{t("Loading authorized members…")}</Text>
           </View>
         ) : humans.length === 0 ? (
-          <Text style={styles.optionEmptyPadded}>No members authorized yet.</Text>
+          <Text style={styles.optionEmptyPadded}>{t("No members authorized yet.")}</Text>
         ) : (
           humans.map((human, index) => (
             <View key={human.id}>
@@ -866,7 +874,7 @@ function AuthorizedMembersSection({
                 </View>
                 {onRevoke ? (
                   <Pressable
-                    accessibilityLabel={`Revoke ${human.displayName}`}
+                    accessibilityLabel={t("Revoke {{value}}", { value: human.displayName })}
                     accessibilityRole="button"
                     disabled={isRevoking}
                     hitSlop={6}
@@ -885,9 +893,9 @@ function AuthorizedMembersSection({
       {onGrant ? (
         <View style={styles.card}>
           <View style={styles.optionBlock}>
-            <Text style={styles.optionLabel}>Add prompt access</Text>
+            <Text style={styles.optionLabel}>{t("Add prompt access")}</Text>
             {candidates.length === 0 ? (
-              <Text style={styles.optionEmpty}>All team members are already authorized.</Text>
+              <Text style={styles.optionEmpty}>{t("All team members are already authorized.")}</Text>
             ) : (
               <View style={styles.chipWrap}>
                 {candidates.map((candidate) => (
@@ -924,11 +932,12 @@ function AgentVisibilitySection({
   onMakePersonal?: () => void;
   onShareToTeam?: () => void;
 }) {
+  const { t } = useTranslation();
   const isPersonal = actor.visibility === "personal";
   const action = isPersonal ? onShareToTeam : onMakePersonal;
   return (
     <View style={styles.section}>
-      <SectionEyebrow label="VISIBILITY" style={styles.sectionEyebrow} />
+      <SectionEyebrow label={t("VISIBILITY")} style={styles.sectionEyebrow} />
       <View style={styles.card}>
         <Pressable
           accessibilityRole="button"
@@ -947,12 +956,12 @@ function AgentVisibilitySection({
           />
           <View style={styles.managementBody}>
             <Text style={styles.neutralActionTitle}>
-              {isPersonal ? "Share to team" : "Make personal"}
+              {isPersonal ? t("Share to team") : t("Make personal")}
             </Text>
             <Text style={styles.managementHelper}>
               {isPersonal
-                ? "Team members can discover this agent after sharing."
-                : "Only the owner keeps access after making it personal."}
+                ? t("Team members can discover this agent after sharing.")
+                : t("Only the owner keeps access after making it personal.")}
             </Text>
           </View>
           {isUpdating ? <ActivityIndicator color={colors.slate} /> : null}

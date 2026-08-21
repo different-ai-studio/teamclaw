@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -32,8 +33,8 @@ export type TextPromptModalProps = {
  * hooks. Caller is responsible for trimming / dispatching the value.
  */
 export function TextPromptModal({
-  cancelLabel = "Cancel",
-  confirmLabel = "Done",
+  cancelLabel,
+  confirmLabel,
   description = null,
   initialValue = "",
   isVisible,
@@ -42,7 +43,10 @@ export function TextPromptModal({
   placeholder,
   title,
 }: TextPromptModalProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState(initialValue);
+  const resolvedCancelLabel = cancelLabel ?? t("Cancel");
+  const resolvedConfirmLabel = confirmLabel ?? t("Done");
 
   // Reset when reopened so stale text from a prior session doesn't
   // bleed into the next prompt.
@@ -66,7 +70,7 @@ export function TextPromptModal({
         style={styles.backdrop}
       >
         <Pressable
-          accessibilityLabel="Dismiss"
+          accessibilityLabel={t("Dismiss")}
           onPress={onCancel}
           style={StyleSheet.absoluteFill}
         />
@@ -93,7 +97,7 @@ export function TextPromptModal({
               onPress={onCancel}
               style={({ pressed }) => [styles.button, pressed ? styles.buttonPressed : null]}
             >
-              <Text style={styles.buttonText}>{cancelLabel}</Text>
+              <Text style={styles.buttonText}>{resolvedCancelLabel}</Text>
             </Pressable>
             <View style={styles.buttonDivider} />
             <Pressable
@@ -102,7 +106,7 @@ export function TextPromptModal({
               style={({ pressed }) => [styles.button, pressed ? styles.buttonPressed : null]}
             >
               <Text style={[styles.buttonText, styles.buttonTextPrimary]}>
-                {confirmLabel}
+                {resolvedConfirmLabel}
               </Text>
             </Pressable>
           </View>

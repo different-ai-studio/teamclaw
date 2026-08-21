@@ -3,37 +3,37 @@ import { describe, expect, it } from "vitest";
 describe("dayLabel", () => {
   const now = Date.UTC(2026, 4, 20, 12, 0, 0);
 
-  it('returns "今天" when the message is the same calendar day', async () => {
+  it('returns "Today" when the message is the same calendar day', async () => {
     const { dayLabel } = await import(
       "../features/sessions/components/day-separator-labels"
     );
     const iso = new Date(now).toISOString();
-    expect(dayLabel(iso, now)).toBe("今天");
+    expect(dayLabel(iso, now)).toBe("Today");
   });
 
-  it('returns "昨天" when the message is the previous calendar day', async () => {
+  it('returns "Yesterday" when the message is the previous calendar day', async () => {
     const { dayLabel } = await import(
       "../features/sessions/components/day-separator-labels"
     );
     const iso = new Date(now - 86400000).toISOString();
-    expect(dayLabel(iso, now)).toBe("昨天");
+    expect(dayLabel(iso, now)).toBe("Yesterday");
   });
 
-  it("returns 月/日 inside the same year", async () => {
+  it("returns a month/day date inside the same year (en-US)", async () => {
     const { dayLabel } = await import(
       "../features/sessions/components/day-separator-labels"
     );
-    // 2026-01-15 -> "1月15日" relative to a May 2026 now
+    // 2026-01-15 -> "January 15" relative to a May 2026 now
     const iso = "2026-01-15T03:00:00Z";
-    expect(dayLabel(iso, now)).toBe("1月15日");
+    expect(dayLabel(iso, now)).toBe("January 15");
   });
 
-  it("returns 年月日 when the year differs", async () => {
+  it("returns a full date when the year differs (en-US)", async () => {
     const { dayLabel } = await import(
       "../features/sessions/components/day-separator-labels"
     );
     const iso = "2025-11-09T03:00:00Z";
-    expect(dayLabel(iso, now)).toBe("2025年11月9日");
+    expect(dayLabel(iso, now)).toBe("November 9, 2025");
   });
 });
 

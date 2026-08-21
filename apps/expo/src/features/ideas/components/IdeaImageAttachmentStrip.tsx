@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
@@ -30,6 +31,7 @@ export function IdeaImageAttachmentStrip({
   onAdd,
   onRemove,
 }: IdeaImageAttachmentStripProps) {
+  const { t } = useTranslation();
   if (attachments.length === 0 && !onAdd) return null;
   return (
     <View style={styles.strip}>
@@ -51,7 +53,7 @@ export function IdeaImageAttachmentStrip({
             </View>
           ) : null}
           <Pressable
-            accessibilityLabel="Remove image"
+            accessibilityLabel={t("Remove image")}
             accessibilityRole="button"
             hitSlop={6}
             onPress={() => onRemove(attachment.id)}
@@ -63,13 +65,13 @@ export function IdeaImageAttachmentStrip({
       ))}
       {onAdd ? (
         <Pressable
-          accessibilityLabel="Add image"
+          accessibilityLabel={t("Add image")}
           accessibilityRole="button"
           onPress={onAdd}
           style={({ pressed }) => [styles.addTile, pressed ? styles.pressed : null]}
         >
           <Ionicons color={colors.slate} name="add" size={20} />
-          <Text style={styles.addTileText}>Image</Text>
+          <Text style={styles.addTileText}>{t("Image")}</Text>
         </Pressable>
       ) : null}
     </View>

@@ -1,6 +1,7 @@
 import type { Actor } from "../actors/actor-types";
 import { isActorOnline } from "../actors/actor-types";
 import type { Idea } from "./idea-types";
+import { t } from "../../lib/i18n";
 
 /**
  * Team-wide idea aggregation behind the Idea Statistics sheet, ported from the
@@ -11,10 +12,10 @@ import type { Idea } from "./idea-types";
 export type StatsPeriod = "today" | "week" | "month" | "all";
 
 export const STATS_PERIODS: ReadonlyArray<{ value: StatsPeriod; label: string }> = [
-  { value: "today", label: "Today" },
-  { value: "week", label: "Week" },
-  { value: "month", label: "Month" },
-  { value: "all", label: "All" },
+  { value: "today", label: t("Today") },
+  { value: "week", label: t("Week") },
+  { value: "month", label: t("Month") },
+  { value: "all", label: t("All") },
 ];
 
 /** Epoch millis before which rows are excluded, or null for "all time". */
@@ -92,7 +93,7 @@ export function buildIdeaStats(args: {
     const key = workspaceId || UNASSIGNED_WORKSPACE_ID;
     const existing = byWorkspace.get(key);
     byWorkspace.set(key, {
-      name: workspaceId ? idea.workspaceName ?? "Workspace" : "Unassigned",
+      name: workspaceId ? idea.workspaceName ?? t("Workspace") : t("Unassigned"),
       count: (existing?.count ?? 0) + 1,
     });
   }
@@ -102,7 +103,7 @@ export function buildIdeaStats(args: {
       const actor = actorById.get(actorId);
       return {
         actorId,
-        name: actor?.displayName ?? "Unknown",
+        name: actor?.displayName ?? t("Unknown"),
         isAgent: actor?.actorType === "agent",
         isOnline: actor ? isActorOnline(actor, now) : false,
         count,

@@ -1,38 +1,63 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { PrimaryButton } from "../../../ui/button";
 import { Hairline } from "../../../ui/atoms/Hairline";
-import { StatusDot, type StatusDotKind } from "../../../ui/atoms/StatusDot";
+import { StatusDot } from "../../../ui/atoms/StatusDot";
+import { SheetModal } from "../../../ui/SheetModal";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
+import { ServerSettingsSheet } from "./ServerSettingsSheet";
 
 type WelcomeScreenProps = {
   onGetStarted: () => void;
   errorMessage?: string | null;
+  /** Rebuild the Cloud API stack after a custom-server save (mirrors iOS). */
+  onServerChanged?: () => void | Promise<void>;
 };
 
-type RoleCard = {
-  id: string;
-  title: string;
-  status: StatusDotKind;
-};
-
-const ROLES: RoleCard[] = [
-  { id: "sales", title: "Sales", status: "error" },
-  { id: "support", title: "Support", status: "active" },
-  { id: "ops", title: "Ops", status: "muted" },
+const ROLE_IDS = [
+  { id: "sales", titleKey: "Sales", status: "error" as const },
+  { id: "support", titleKey: "Support", status: "active" as const },
+  { id: "ops", titleKey: "Ops", status: "muted" as const },
 ];
 
-export function WelcomeScreen({ onGetStarted, errorMessage }: WelcomeScreenProps) {
+export function WelcomeScreen({
+  onGetStarted,
+  errorMessage,
+  onServerChanged,
+}: WelcomeScreenProps) {
+  const { t } = useTranslation();
+  const [serverOpen, setServerOpen] = useState(false);
+
   return (
     <View style={styles.screen}>
+      <View style={styles.toolbar}>
+        <View style={styles.toolbarSpacer} />
+        <Pressable
+          accessibilityLabel={t("Server settings")}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => setServerOpen(true)}
+          style={({ pressed }) => [
+            styles.serverButton,
+            pressed ? styles.serverButtonPressed : null,
+          ]}
+          testID="welcome.serverSettingsButton"
+        >
+          <Ionicons color={colors.slate} name="globe-outline" size={22} />
+        </Pressable>
+      </View>
+
       <View style={styles.hero}>
         <RoleCardsRow />
         <Text style={styles.title}>TeamClu</Text>
         <View style={styles.copyBlock}>
-          <Text style={styles.body}>AI digital employees</Text>
-          <Text style={styles.body}>for every role.</Text>
+          <Text style={styles.body}>{t("AI digital employees")}</Text>
+          <Text style={styles.body}>{t("for every role.")}</Text>
         </View>
-        <Text style={styles.tagline}>Your Ally. Together.</Text>
+        <Text style={styles.tagline}>{t("Your Ally. Together.")}</Text>
       </View>
 
       {errorMessage ? (
@@ -42,20 +67,34 @@ export function WelcomeScreen({ onGetStarted, errorMessage }: WelcomeScreenProps
       ) : null}
 
       <View style={styles.actions}>
-        <PrimaryButton label="Get Started" onPress={onGetStarted} />
+        <PrimaryButton label={t("Get Started")} onPress={onGetStarted} />
       </View>
+
+      <SheetModal
+        onRequestClose={() => setServerOpen(false)}
+        visible={serverOpen}
+      >
+        <ServerSettingsSheet
+          onCancel={() => setServerOpen(false)}
+          onSaved={async () => {
+            setServerOpen(false);
+            await onServerChanged?.();
+          }}
+        />
+      </SheetModal>
     </View>
   );
 }
 
 function RoleCardsRow() {
+  const { t } = useTranslation();
   return (
     <View style={styles.rolesRow}>
-      {ROLES.map((role) => (
+      {ROLE_IDS.map((role) => (
         <View key={role.id} style={styles.roleCard}>
           <View style={styles.roleHeader}>
             <StatusDot kind={role.status} size={9} />
-            <Text style={styles.roleTitle}>{role.title}</Text>
+            <Text style={styles.roleTitle}>{t(role.titleKey)}</Text>
           </View>
           <View style={styles.rolePlaceholder}>
             <Hairline style={styles.placeholderTop} />
@@ -142,9 +181,25 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginBottom: spacing.lg,
   },
+  toolbar: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+  },
+  toolbarSpacer: {
+    flex: 1,
+  },
   screen: {
     backgroundColor: colors.mist,
     flex: 1,
+  },
+  serverButton: {
+    padding: spacing.sm,
+  },
+  serverButtonPressed: {
+    opacity: 0.6,
   },
   tagline: {
     color: colors.slate,

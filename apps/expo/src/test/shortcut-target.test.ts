@@ -115,3 +115,27 @@ describe("openShortcutTarget scheme guard", () => {
     expect(pushed).toEqual([]);
   });
 });
+
+describe("ShortcutsDrawer hooks order", () => {
+  it("does not call hooks after the mounted early-return", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const source = fs.readFileSync(
+      path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../features/shortcuts/ShortcutsDrawer.tsx",
+      ),
+      "utf8",
+    );
+    const fnStart = source.indexOf("export function ShortcutsDrawer");
+    const fnBody = source.slice(fnStart);
+    // Stop before nested helpers so we only inspect ShortcutsDrawer itself.
+    const end = fnBody.indexOf("\nfunction ProfileHeader");
+    const body = end >= 0 ? fnBody.slice(0, end) : fnBody;
+    const earlyReturn = body.search(/if\s*\(\s*!mounted\s*\)\s*return\s+null/);
+    expect(earlyReturn).toBeGreaterThan(-1);
+    const after = body.slice(earlyReturn);
+    expect(after).not.toMatch(/\buse(State|Memo|Effect|Ref|Callback)\s*[<(]/);
+  });
+});

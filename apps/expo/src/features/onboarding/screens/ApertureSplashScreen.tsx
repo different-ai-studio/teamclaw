@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 
@@ -43,6 +44,7 @@ export function ApertureSplashScreen({
   size = 240,
   onLapFinished,
 }: ApertureSplashScreenProps) {
+  const { t } = useTranslation();
   const progress = useRef(new Animated.Value(0)).current;
   const [reduceMotion, setReduceMotion] = useState(false);
   const finishedRef = useRef(false);
@@ -128,7 +130,7 @@ export function ApertureSplashScreen({
         </View>
 
         <View style={styles.caption}>
-          <Text style={styles.title}>Setting up TeamClu</Text>
+          <Text style={styles.title}>{t("Setting up TeamClu")}</Text>
           {/* Carries the "still working" signal once the dot has parked, so a
               slow bootstrap never looks frozen. */}
           <WorkingDots active={!reduceMotion} />

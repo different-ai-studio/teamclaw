@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Pressable,
@@ -43,7 +44,8 @@ export type SearchScreenProps = {
 };
 
 function HeaderBar() {
-  return <PageHeader title="Search" />;
+  const { t } = useTranslation();
+  return <PageHeader title={t("Search")} />;
 }
 
 export function SearchScreen({
@@ -56,6 +58,7 @@ export function SearchScreen({
   onSelectSession,
   sessions,
 }: SearchScreenProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [history, setHistory] = useState<string[]>([]);
@@ -123,7 +126,7 @@ export function SearchScreen({
           autoCapitalize="none"
           autoCorrect={false}
           onChangeText={setQuery}
-          placeholder="Search sessions, ideas, and members"
+          placeholder={t("Search sessions, ideas, and members")}
           placeholderTextColor={colors.slate}
           selectionColor={colors.cinnabar}
           style={styles.searchInput}
@@ -131,7 +134,7 @@ export function SearchScreen({
         />
         {query.length > 0 ? (
           <Pressable
-            accessibilityLabel="Clear search"
+            accessibilityLabel={t("Clear search")}
             accessibilityRole="button"
             hitSlop={8}
             onPress={() => setQuery("")}
@@ -146,12 +149,12 @@ export function SearchScreen({
           {isLoading ? (
             <View style={styles.loadingRow}>
               <ActivityIndicator color={colors.slate} />
-              <Text style={styles.stateBody}>Loading team data…</Text>
+              <Text style={styles.stateBody}>{t("Loading team data…")}</Text>
             </View>
           ) : history.length > 0 ? (
             <>
               <View style={styles.historyHeader}>
-                <SectionEyebrow label={`RECENT · ${history.length}`} />
+                <SectionEyebrow label={t("RECENT · {{count}}", { count: history.length })} />
                 <Pressable
                   accessibilityRole="button"
                   hitSlop={6}
@@ -159,7 +162,7 @@ export function SearchScreen({
                     void clearSearchHistory().then(() => setHistory([]));
                   }}
                 >
-                  <Text style={styles.historyClear}>Clear</Text>
+                  <Text style={styles.historyClear}>{t("Clear")}</Text>
                 </Pressable>
               </View>
               <View style={styles.historyList}>
@@ -183,18 +186,18 @@ export function SearchScreen({
             </>
           ) : (
             <>
-              <Text style={styles.stateTitle}>Search</Text>
+              <Text style={styles.stateTitle}>{t("Search")}</Text>
               <Text style={styles.stateBody}>
-                Search sessions, ideas, and members.
+                {t("Search sessions, ideas, and members.")}
               </Text>
             </>
           )}
         </View>
       ) : !anyResults ? (
         <View style={styles.stateBlock}>
-          <Text style={styles.stateTitle}>No results</Text>
+          <Text style={styles.stateTitle}>{t("No results")}</Text>
           <Text style={styles.stateBody}>
-            Nothing matched “{trimmed}”. Try different words.
+            {t("Nothing matched \u201c{{value}}\u201d. Try different words.", { value: trimmed })}
           </Text>
         </View>
       ) : (
@@ -202,7 +205,7 @@ export function SearchScreen({
           {sessionMatches.length > 0 ? (
             <View style={styles.section}>
               <SectionEyebrow
-                label={`Sessions · ${sessionMatches.length}`}
+                label={t("Sessions · {{count}}", { count: sessionMatches.length })}
                 style={styles.sectionLabel}
               />
               <View>
@@ -224,7 +227,7 @@ export function SearchScreen({
           {ideaMatches.length > 0 ? (
             <View style={styles.section}>
               <SectionEyebrow
-                label={`Ideas · ${ideaMatches.length}`}
+                label={t("Ideas · {{count}}", { count: ideaMatches.length })}
                 style={styles.sectionLabel}
               />
               <View>
@@ -245,7 +248,7 @@ export function SearchScreen({
           {memberMatches.length > 0 ? (
             <View style={styles.section}>
               <SectionEyebrow
-                label={`Members · ${memberMatches.length}`}
+                label={t("Members · {{count}}", { count: memberMatches.length })}
                 style={styles.sectionLabel}
               />
               <View>

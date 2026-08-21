@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, hai, spacing, typography } from "../../../ui/theme";
@@ -27,6 +28,7 @@ export function ConnectionBannerOverlay({
   connectionState,
   onReconnect,
 }: ConnectionBannerOverlayProps) {
+  const { t } = useTranslation();
   if (connectionState === "connected") return null;
   const isConnecting = connectionState === "connecting";
   const accent = isConnecting ? RECONNECTING_ACCENT : hai.cinnabarDeep;
@@ -39,7 +41,7 @@ export function ConnectionBannerOverlay({
         size={14}
       />
       <Text style={styles.label}>
-        {isConnecting ? "Reconnecting…" : "Realtime offline"}
+        {isConnecting ? t("Reconnecting…") : t("Realtime offline")}
       </Text>
       {!isConnecting && onReconnect ? (
         <Pressable
@@ -48,7 +50,7 @@ export function ConnectionBannerOverlay({
           onPress={onReconnect}
           style={({ pressed }) => [styles.cta, pressed ? styles.ctaPressed : null]}
         >
-          <Text style={styles.ctaText}>Retry</Text>
+          <Text style={styles.ctaText}>{t("Retry")}</Text>
         </Pressable>
       ) : null}
     </View>

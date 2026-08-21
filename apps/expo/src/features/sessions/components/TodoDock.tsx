@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
@@ -59,6 +60,7 @@ export type TodoDockProps = {
  * there are no parseable items so the dock reserves no space.
  */
 export function TodoDock({ text }: TodoDockProps) {
+  const { t } = useTranslation();
   const [isCollapsed, setIsCollapsed] = useState(true);
   const items = parseTodoText(text);
   if (items.length === 0) return null;
@@ -74,7 +76,7 @@ export function TodoDock({ text }: TodoDockProps) {
         onPress={() => setIsCollapsed((value) => !value)}
         style={styles.header}
       >
-        <Text style={styles.headerLabel}>TO-DO</Text>
+        <Text style={styles.headerLabel}>{t("TO-DO")}</Text>
         <Text style={styles.headerCount}>{`· ${completed} / ${items.length}`}</Text>
         <View style={styles.headerSpacer} />
         <Ionicons

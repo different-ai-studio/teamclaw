@@ -3,6 +3,7 @@ import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
@@ -32,6 +33,7 @@ const shortcutsCache = createShortcutRowsCache();
 
 export default function ShortcutsRoute() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { state } = useOnboarding();
   const teamId = state.currentTeam?.id ?? "";
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
@@ -65,7 +67,9 @@ export default function ShortcutsRoute() {
         void shortcutsCache.save(teamId, rows);
       } catch (err) {
         // Leave the cached rows on screen; the error line reports the refresh.
-        if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load shortcuts.");
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : t("Couldn't load shortcuts."));
+        }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -106,25 +110,25 @@ export default function ShortcutsRoute() {
       setEditingId(null);
       setEditDraft("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't rename shortcut.");
+      setError(err instanceof Error ? err.message : t("Couldn't rename shortcut."));
     }
   };
 
   const handleDelete = (shortcut: Shortcut) => {
     Alert.alert(
-      "Delete shortcut",
-      `Remove “${shortcut.label}” from your shortcuts?`,
+      t("Delete shortcut"),
+      t("Remove \"{{value}}\" from your shortcuts?", { value: shortcut.label }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("Cancel"), style: "cancel" },
         {
-          text: "Delete",
+          text: t("Delete"),
           style: "destructive",
           onPress: async () => {
             try {
               await createConfiguredShortcutsApi(supabase).deleteShortcut(shortcut.id);
               setShortcuts((prev) => prev.filter((row) => row.id !== shortcut.id));
             } catch (err) {
-              setError(err instanceof Error ? err.message : "Couldn't delete.");
+              setError(err instanceof Error ? err.message : t("Couldn't delete."));
             }
           },
         },
@@ -138,7 +142,7 @@ export default function ShortcutsRoute() {
         <View style={styles.headerSlot}>
           {folderStack.length > 0 ? (
             <Pressable
-              accessibilityLabel="Back to parent folder"
+              accessibilityLabel={t("Back to parent folder")}
               accessibilityRole="button"
               hitSlop={8}
               onPress={() => setFolderStack((stack) => stack.slice(0, -1))}
@@ -148,10 +152,10 @@ export default function ShortcutsRoute() {
             </Pressable>
           ) : null}
         </View>
-        <Text style={styles.headerTitle}>{currentFolderLabel ?? "Shortcuts"}</Text>
+        <Text style={styles.headerTitle}>{currentFolderLabel ?? t("Shortcuts")}</Text>
         <View style={styles.headerSlotGroup}>
           <Pressable
-            accessibilityLabel={editMode ? "Done editing" : "Edit shortcuts"}
+            accessibilityLabel={editMode ? t("Done editing") : t("Edit shortcuts")}
             accessibilityRole="button"
             hitSlop={8}
             onPress={() => {
@@ -162,7 +166,7 @@ export default function ShortcutsRoute() {
             style={styles.headerSlotPressable}
           >
             <Text style={[styles.headerActionText, editMode ? styles.headerActionTextActive : null]}>
-              {editMode ? "Done" : "Edit"}
+              {editMode ? t("Done") : t("Edit")}
             </Text>
           </Pressable>
           <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
@@ -175,18 +179,18 @@ export default function ShortcutsRoute() {
         {isLoading ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.slate} />
-            <Text style={styles.body}>Loading shortcuts…</Text>
+            <Text style={styles.body}>{t("Loading shortcuts…")}</Text>
           </View>
         ) : error ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>Couldn't load shortcuts</Text>
+            <Text style={styles.stateTitle}>{t("Couldn't load shortcuts")}</Text>
             <Text style={styles.body}>{error}</Text>
           </View>
         ) : shortcuts.length === 0 ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>No shortcuts</Text>
+            <Text style={styles.stateTitle}>{t("No shortcuts")}</Text>
             <Text style={styles.body}>
-              Pin a URL, session, or team page to your shortcuts drawer to see it here.
+              {t("Pin a URL, session, or team page to your shortcuts drawer to see it here.")}
             </Text>
           </View>
         ) : (
@@ -194,7 +198,7 @@ export default function ShortcutsRoute() {
             {folders.length > 0 ? (
               <View style={styles.section}>
                 <SectionEyebrow
-                  label={`FOLDERS · ${folders.length}`}
+                  label={`${t("FOLDERS")} · ${folders.length}`}
                   style={styles.sectionEyebrow}
                 />
                 <View style={styles.card}>
@@ -222,7 +226,7 @@ export default function ShortcutsRoute() {
                         >
                           {editMode ? (
                             <Pressable
-                              accessibilityLabel="Delete folder"
+                              accessibilityLabel={t("Delete folder")}
                               accessibilityRole="button"
                               hitSlop={6}
                               onPress={() => handleDelete(folder)}
@@ -271,7 +275,7 @@ export default function ShortcutsRoute() {
             {leaves.length > 0 ? (
               <View style={styles.section}>
                 <SectionEyebrow
-                  label={`PINNED · ${leaves.length}`}
+                  label={`${t("PINNED")} · ${leaves.length}`}
                   style={styles.sectionEyebrow}
                 />
                 <View style={styles.card}>
@@ -296,7 +300,7 @@ export default function ShortcutsRoute() {
                         >
                           {editMode ? (
                             <Pressable
-                              accessibilityLabel="Delete"
+                              accessibilityLabel={t("Delete")}
                               accessibilityRole="button"
                               hitSlop={6}
                               onPress={() => handleDelete(shortcut)}
@@ -356,7 +360,7 @@ export default function ShortcutsRoute() {
 
         {folderStack.length === 0 ? (
           <View style={styles.section}>
-            <SectionEyebrow label="SYSTEM" style={styles.sectionEyebrow} />
+            <SectionEyebrow label={t("SYSTEM")} style={styles.sectionEyebrow} />
             <View style={styles.card}>
               <Pressable
                 accessibilityRole="button"
@@ -369,7 +373,7 @@ export default function ShortcutsRoute() {
                 <View style={styles.iconTile}>
                   <Ionicons color={colors.basalt} name="settings-outline" size={18} />
                 </View>
-                <Text style={styles.rowLabel}>Settings</Text>
+                <Text style={styles.rowLabel}>{t("Settings")}</Text>
                 <View style={{ flex: 1 }} />
                 {Constants.expoConfig?.version ? (
                   <Text style={styles.rowVersion}>

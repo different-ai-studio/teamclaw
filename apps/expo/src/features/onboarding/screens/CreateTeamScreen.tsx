@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -27,6 +28,7 @@ export function CreateTeamScreen({
   onCreateTeam,
   onSignOut,
 }: CreateTeamScreenProps) {
+  const { t } = useTranslation();
   const [teamName, setTeamName] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [isServerErrorDismissed, setIsServerErrorDismissed] = useState(false);
@@ -34,7 +36,7 @@ export function CreateTeamScreen({
   const submit = async () => {
     const nextName = teamName.trim();
     if (nextName.length < 2) {
-      setLocalError("Give the team a name with at least 2 characters.");
+      setLocalError(t("Give the team a name with at least 2 characters."));
       return;
     }
 
@@ -59,17 +61,18 @@ export function CreateTeamScreen({
     >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text style={styles.title}>Create your first team</Text>
+          <Text style={styles.title}>{t("Create your first team")}</Text>
           <Text style={styles.body}>
-            Pick a name for the shared workspace. You can refine the rest of the setup once
-            you land in the app shell.
+            {t(
+              "Pick a name for the shared workspace. You can refine the rest of the setup once you land in the app shell.",
+            )}
           </Text>
         </View>
 
         <AppCard elevated style={styles.card}>
           <AppInput
             editable={!isBusy}
-            label="Team name"
+            label={t("Team name")}
             onChangeText={(value) => {
               setTeamName(value);
               if (localError) {
@@ -79,7 +82,7 @@ export function CreateTeamScreen({
                 setIsServerErrorDismissed(true);
               }
             }}
-            placeholder="Editorial Ops"
+            placeholder={t("Editorial Ops")}
             value={teamName}
           />
 
@@ -87,7 +90,7 @@ export function CreateTeamScreen({
 
           <PrimaryButton
             isLoading={isBusy}
-            label="Create team"
+            label={t("Create team")}
             onPress={() => {
               void submit();
             }}
@@ -95,10 +98,11 @@ export function CreateTeamScreen({
         </AppCard>
 
         <AppCard compact style={styles.noteCard}>
-          <Text style={styles.noteTitle}>Signed-in account</Text>
+          <Text style={styles.noteTitle}>{t("Signed-in account")}</Text>
           <Text style={styles.noteBody}>
-            Your account is ready. This step creates the first shared space for
-            your team.
+            {t(
+              "Your account is ready. This step creates the first shared space for your team.",
+            )}
           </Text>
         </AppCard>
 
@@ -120,7 +124,7 @@ export function CreateTeamScreen({
           ]}
           testID="createTeam.signOutButton"
         >
-          <Text style={styles.signOutLabel}>Sign out</Text>
+          <Text style={styles.signOutLabel}>{t("Sign out")}</Text>
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>

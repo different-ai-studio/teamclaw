@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useConnectedAgentsStore, useOnboarding, useTeamMqtt } from "../_layout";
 import { createActorsApi } from "../../src/features/actors/actor-api";
@@ -20,15 +21,17 @@ import { supabase } from "../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
 import { uuidV4 } from "../../src/lib/uuid";
 import { showToast } from "../../src/ui/Toast";
+import { t } from "../../src/lib/i18n";
 
 function deriveTitle(firstMessage: string): string {
   const trimmed = firstMessage.trim();
-  if (!trimmed) return "New session";
+  if (!trimmed) return t("New Session");
   const firstLine = trimmed.split(/\n/)[0] ?? trimmed;
   return firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
 }
 
 export default function NewSessionRoute() {
+  const { t: tHook } = useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams<{ ideaId?: string }>();
   const ideaId = typeof params.ideaId === "string" ? params.ideaId : null;
@@ -84,7 +87,7 @@ export default function NewSessionRoute() {
     () =>
       ideas.map((idea) => ({
         ideaId: idea.ideaId,
-        displayTitle: idea.title.trim() || "Untitled idea",
+        displayTitle: idea.title.trim() || tHook("Untitled idea"),
       })),
     [ideas],
   );
@@ -107,12 +110,12 @@ export default function NewSessionRoute() {
         ideaId: chosenIdeaId,
       }) => {
         if (!state.currentTeam) {
-          setErrorMessage("No active team — bootstrap first.");
+          setErrorMessage(tHook("No active team — bootstrap first."));
           return;
         }
         const memberActorId = state.currentMemberActorId;
         if (!memberActorId) {
-          setErrorMessage("Couldn't resolve your member identity in this team.");
+          setErrorMessage(tHook("Couldn't resolve your member identity in this team."));
           return;
         }
 
@@ -125,7 +128,7 @@ export default function NewSessionRoute() {
             .map((id) => actorById.get(id))
             .filter((actor): actor is Actor => Boolean(actor && isAgentActor(actor)));
           if (selectedAgents.length > 0 && !connectedAgentsStore) {
-            throw new Error("Connected agents are not ready — wait for TeamClu to reconnect.");
+            throw new Error(tHook("Connected agents are not ready — wait for TeamClu to reconnect."));
           }
           if (selectedAgents.length > 0) {
             await connectedAgentsStore?.reload();
@@ -160,7 +163,7 @@ export default function NewSessionRoute() {
               : [];
 
           if (runtimePlans.length > 0 && !teamMqtt) {
-            throw new Error("MQTT is not connected — wait for TeamClu to reconnect.");
+            throw new Error(tHook("MQTT is not connected — wait for TeamClu to reconnect."));
           }
 
           const idea = chosenIdeaId
@@ -208,7 +211,7 @@ export default function NewSessionRoute() {
             });
             for (const plan of runtimePlans) {
               const actorName =
-                actorById.get(plan.agentActorId)?.displayName ?? "Agent";
+                actorById.get(plan.agentActorId)?.displayName ?? tHook("Agent");
               void runtimeRpc.runtimeStart({
                 targetActorId: plan.targetActorId,
                 workspaceId: plan.workspaceId,
@@ -220,8 +223,8 @@ export default function NewSessionRoute() {
                 showToast(
                   "error",
                   err instanceof Error
-                    ? `Couldn't start ${actorName}: ${err.message}`
-                    : `Couldn't start ${actorName}.`,
+                    ? tHook("Couldn't start {{value}}: {{message}}", { value: actorName, message: err.message })
+                    : tHook("Couldn't start {{value}}.", { value: actorName }),
                 );
               });
             }
@@ -232,7 +235,7 @@ export default function NewSessionRoute() {
           setErrorMessage(
             error instanceof Error
               ? error.message
-              : "Couldn't create the session — try again.",
+              : tHook("Couldn't create the session — try again."),
           );
         } finally {
           setIsBusy(false);

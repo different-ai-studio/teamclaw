@@ -1,5 +1,6 @@
 import { Redirect, Stack, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   AppState,
@@ -104,21 +105,20 @@ function canRenderSessionDetail(
 }
 
 export default function SessionDetailRoute() {
+  const { t } = useTranslation();
   const router = useRouter();
   const navigation = useNavigation();
   const { sessionId: rawSessionId } = useLocalSearchParams<{
     sessionId?: string | string[];
   }>();
 
-  // Hide the parent tab bar while a session detail is on screen, matching iOS's
-  // NavigationStack behaviour. Restore on unmount so the bar comes back on pop.
+  // Hide the parent tab bar while a session detail is on screen. Restore on
+  // unmount so the bar comes back on pop.
   //
-  // Android only. `tabBarStyle` is an option of the JS `Tabs` navigator, and
-  // iOS now runs `NativeTabs` (see `(tabs)/_layout.tsx`), where the bar is a
-  // real UITabBar that this cannot reach — hiding it there needs
-  // `hidesBottomBarWhenPushed` on the pushed view controller, which the
-  // installed react-native-screens does not expose. Guarded rather than left to
-  // silently no-op, so the gap is visible in the code that owns it.
+  // Android only here. `tabBarStyle` is an option of the JS `Tabs` navigator.
+  // iOS runs `NativeTabs` (see `(tabs)/_layout.tsx`): a real UITabBar that
+  // this cannot reach. That side hides via `NativeTabs`'s `hidden` prop,
+  // driven from pathname with `shouldHideNativeTabBar`.
   //
   // Restoring means putting the real style back, not clearing the override:
   // runtime options are merged *over* `screenOptions`, so `undefined` wins and
@@ -466,7 +466,7 @@ export default function SessionDetailRoute() {
         actorId: actor.actorId,
         displayName: actor.displayName,
         kind: "member" as const,
-        subtitle: "Member",
+        subtitle: t("Member"),
       }));
     return [...agents, ...members];
   }, [detailState.session, teamActors]);
@@ -555,7 +555,7 @@ export default function SessionDetailRoute() {
     granted: boolean,
   ) => {
     if (!permissionCommandSender) {
-      showToast("error", "移动端 MQTT 未连接，重连后再试。");
+      showToast("error", t("Mobile MQTT is not connected — reconnect and try again."));
       return;
     }
 
@@ -574,7 +574,7 @@ export default function SessionDetailRoute() {
     });
 
     if (!target) {
-      showToast("error", "还没定位到这个 agent runtime，请等 agent 在线后重试。");
+      showToast("error", t("Couldn't locate that agent's runtime — wait for it to come online and try again."));
       return;
     }
 
@@ -591,11 +591,11 @@ export default function SessionDetailRoute() {
         return next;
       });
       selectionTick();
-      showToast("success", granted ? "Permission allowed" : "Permission denied");
+      showToast("success", granted ? t("Permission allowed") : t("Permission denied"));
     } catch (err) {
       showToast(
         "error",
-        err instanceof Error ? err.message : "Permission response failed",
+        err instanceof Error ? err.message : t("Permission response failed"),
       );
     }
   };
@@ -645,7 +645,7 @@ export default function SessionDetailRoute() {
     reject: boolean,
   ) => {
     if (!permissionCommandSender) {
-      setQuestionError("移动端 MQTT 未连接，重连后再试。");
+      setQuestionError(t("Mobile MQTT is not connected — reconnect and try again."));
       return;
     }
     const fallbackAgentIds =
@@ -662,7 +662,7 @@ export default function SessionDetailRoute() {
         : null,
     });
     if (!target) {
-      setQuestionError("还没定位到这个 agent runtime，请等 agent 在线后重试。");
+      setQuestionError(t("Couldn't locate that agent's runtime — wait for it to come online and try again."));
       return;
     }
 
@@ -679,7 +679,7 @@ export default function SessionDetailRoute() {
       controller?.resolvePendingQuestion(question.id);
       selectionTick();
     } catch (err) {
-      setQuestionError(err instanceof Error ? err.message : "Couldn't send the answer.");
+      setQuestionError(err instanceof Error ? err.message : t("Couldn't send the answer."));
     } finally {
       setIsAnsweringQuestion(false);
     }
@@ -687,15 +687,15 @@ export default function SessionDetailRoute() {
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen options={{ title: "会话详情" }} />
+      <Stack.Screen options={{ title: t("Session detail") }} />
       {detailState.status === "loading" ? (
         <View style={styles.cardContainer}>
           <AppCard elevated style={styles.card}>
             <View style={styles.loadingRow}>
               <ActivityIndicator color={colors.faint} />
-              <Text style={styles.cardTitle}>加载会话中</Text>
+              <Text style={styles.cardTitle}>{t("Loading session")}</Text>
             </View>
-            <Text style={styles.body}>正在准备这个会话的详情壳子。</Text>
+            <Text style={styles.body}>{t("Preparing this session's detail shell.")}</Text>
           </AppCard>
         </View>
       ) : null}
@@ -703,11 +703,11 @@ export default function SessionDetailRoute() {
       {detailState.status === "error" && !canRenderSessionDetail(detailState) ? (
         <View style={styles.cardContainer}>
           <AppCard elevated style={styles.card}>
-            <Text style={styles.cardTitle}>无法打开会话</Text>
+            <Text style={styles.cardTitle}>{t("Couldn't open session")}</Text>
             <Text style={styles.body}>{detailState.errorMessage}</Text>
             <PrimaryButton
               fullWidth={false}
-              label="返回会话列表"
+              label={t("Back to sessions")}
               onPress={handleBackToList}
             />
           </AppCard>
@@ -717,11 +717,13 @@ export default function SessionDetailRoute() {
       {detailState.status === "not-found" ? (
         <View style={styles.cardContainer}>
           <AppCard elevated style={styles.card}>
-            <Text style={styles.cardTitle}>未找到会话</Text>
-            <Text style={styles.body}>这个会话可能已被删除，或者你当前没有访问权限。</Text>
+            <Text style={styles.cardTitle}>{t("Session not found")}</Text>
+            <Text style={styles.body}>
+              {t("This session may have been deleted, or you don't currently have access to it.")}
+            </Text>
             <PrimaryButton
               fullWidth={false}
-              label="返回会话列表"
+              label={t("Back to sessions")}
               onPress={handleBackToList}
             />
           </AppCard>
@@ -777,12 +779,12 @@ export default function SessionDetailRoute() {
             try {
               await createConfiguredSessionsApi(supabase).deleteMessage(messageId);
               successTone();
-              showToast("success", "Message deleted");
+              showToast("success", t("Message deleted"));
               void controller?.load();
             } catch (err) {
               showToast(
                 "error",
-                err instanceof Error ? err.message : "Couldn't delete message",
+                err instanceof Error ? err.message : t("Couldn't delete message"),
               );
             }
           }}
@@ -833,7 +835,7 @@ export default function SessionDetailRoute() {
             sessionId
               ? async () => {
                   const session = detailState.session;
-                  const title = session?.title?.trim() ?? "TeamClu session";
+                  const title = session?.title?.trim() ?? t("TeamClu session");
                   const url = `teamclu://session/${sessionId}`;
                   try {
                     await Share.share({ message: `${title}\n${url}`, url });
@@ -854,12 +856,12 @@ export default function SessionDetailRoute() {
                     await createSessionMutesApi({
                       getAccessToken: supabaseAccessToken(supabase),
                     }).setMuted(sessionId, next);
-                    showToast("success", next ? "已静音" : "已取消静音");
+                    showToast("success", next ? t("Muted") : t("Unmuted"));
                   } catch (err) {
                     setIsMuted(!next);
                     showToast(
                       "error",
-                      err instanceof Error ? err.message : "无法切换静音",
+                      err instanceof Error ? err.message : t("Couldn't toggle mute"),
                     );
                   }
                 }
@@ -886,7 +888,7 @@ export default function SessionDetailRoute() {
           <ModelPickerSheet
             agentName={
               teamActors.find((actor) => actor.actorId === runtimeInfo.agentId)
-                ?.displayName ?? "Agent"
+                ?.displayName ?? t("Agent")
             }
             currentModel={runtimeInfo.currentModel}
             models={
@@ -899,7 +901,7 @@ export default function SessionDetailRoute() {
               const targetActorId = runtimeInfo.agentId;
               const requesterActorId = state.currentMemberActorId;
               if (!targetActorId || !teamMqtt || !currentTeam?.id || !requesterActorId) {
-                showToast("error", "This agent's runtime isn't online.");
+                showToast("error", t("This agent's runtime isn't online."));
                 return;
               }
               void createRuntimeRpcClient({
@@ -915,12 +917,12 @@ export default function SessionDetailRoute() {
                 .then(() => {
                   // The daemon republishes the retained runtime state, so the
                   // derived `runtimeInfo` picks the new model up on its own.
-                  showToast("success", `Model set to ${modelId}`);
+                  showToast("success", t("Model set to {{value}}", { value: modelId }));
                 })
                 .catch((err) => {
                   showToast(
                     "error",
-                    err instanceof Error ? err.message : "Couldn't set model",
+                    err instanceof Error ? err.message : t("Couldn't set model"),
                   );
                 });
             }}
@@ -929,7 +931,7 @@ export default function SessionDetailRoute() {
       </SheetModal>
 
       <TextPromptModal
-        confirmLabel="Save"
+        confirmLabel={t("Save")}
         initialValue={editingMessage?.content ?? ""}
         isVisible={editingMessage !== null}
         onCancel={() => setEditingMessage(null)}
@@ -947,11 +949,11 @@ export default function SessionDetailRoute() {
           } catch (err) {
             showToast(
               "error",
-              err instanceof Error ? err.message : "Couldn't edit message",
+              err instanceof Error ? err.message : t("Couldn't edit message"),
             );
           }
         }}
-        title="Edit message"
+        title={t("Edit message")}
       />
     </View>
   );

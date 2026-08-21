@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useConnectedAgentsStore, useOnboarding, useTeamMqtt } from "../_layout";
 import { createActorsApi } from "../../src/features/actors/actor-api";
 import { isAgentActor, type Actor } from "../../src/features/actors/actor-types";
@@ -39,6 +40,7 @@ type WorkspaceRow = {
 };
 
 export default function SessionMembersRoute() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { state } = useOnboarding();
   const teamMqtt = useTeamMqtt();
@@ -108,10 +110,10 @@ export default function SessionMembersRoute() {
         "error",
         participantsResult.reason instanceof Error
           ? participantsResult.reason.message
-          : "Couldn't load participants",
+          : t("Couldn't load participants"),
       );
     }
-  }, [sessionId, teamId]);
+  }, [sessionId, teamId, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,11 +137,11 @@ export default function SessionMembersRoute() {
       .filter((row) => row.actorType !== "agent")
       .map((row) => ({
         actorId: row.actorId,
-        displayName: row.displayName || actorById.get(row.actorId)?.displayName || "Member",
+        displayName: row.displayName || actorById.get(row.actorId)?.displayName || t("Member"),
         isOnline: true,
         canRemove: Boolean(currentActorId) && row.actorId !== currentActorId,
       }));
-  }, [actorById, participants, state.currentMemberActorId]);
+  }, [actorById, participants, state.currentMemberActorId, t]);
 
   const agents: MemberSheetAgent[] = useMemo(() => {
     return participants
@@ -155,7 +157,7 @@ export default function SessionMembersRoute() {
         });
         return {
           actorId: row.actorId,
-          displayName: row.displayName || actor?.displayName || "Agent",
+          displayName: row.displayName || actor?.displayName || t("Agent"),
           agentType: agentBackendDisplayName(
             actor?.defaultAgentType ?? actor?.agentTypes?.[0] ?? null,
           ),
@@ -166,7 +168,7 @@ export default function SessionMembersRoute() {
           currentModel: row.model ?? runtime?.currentModel ?? null,
         };
       });
-  }, [actorById, participants, runtimeByAgentId]);
+  }, [actorById, participants, runtimeByAgentId, t]);
 
   const participantIds = useMemo(
     () => participants.map((row) => row.actorId),
@@ -190,11 +192,11 @@ export default function SessionMembersRoute() {
     try {
       await createConfiguredSessionsApi(supabase).removeParticipant(sessionId, actorId);
       setParticipants((prev) => prev.filter((row) => row.actorId !== actorId));
-      showToast("success", "Removed from session");
+      showToast("success", t("Removed from session"));
     } catch (err) {
       showToast(
         "error",
-        err instanceof Error ? err.message : "Couldn't remove participant",
+        err instanceof Error ? err.message : t("Couldn't remove participant"),
       );
     }
   };
@@ -214,13 +216,13 @@ export default function SessionMembersRoute() {
         .map((id) => actorById.get(id))
         .filter((actor): actor is Actor => Boolean(actor && isAgentActor(actor)));
       if (freshAgents.length > 0 && !state.currentMemberActorId) {
-        throw new Error("Couldn't resolve your member identity in this team.");
+        throw new Error(t("Couldn't resolve your member identity in this team."));
       }
       if (freshAgents.length > 0 && !teamMqtt) {
-        throw new Error("MQTT is not connected — wait for TeamClu to reconnect.");
+        throw new Error(t("MQTT is not connected — wait for TeamClu to reconnect."));
       }
       if (freshAgents.length > 0 && !connectedAgentsStore) {
-        throw new Error("Connected agents are not ready — wait for TeamClu to reconnect.");
+        throw new Error(t("Connected agents are not ready — wait for TeamClu to reconnect."));
       }
       if (freshAgents.length > 0) {
         await connectedAgentsStore?.reload();
@@ -256,7 +258,7 @@ export default function SessionMembersRoute() {
         });
         for (const plan of runtimePlans) {
           const actorName =
-            actorById.get(plan.agentActorId)?.displayName ?? "Agent";
+            actorById.get(plan.agentActorId)?.displayName ?? t("Agent");
           void runtimeRpc.runtimeStart({
             targetActorId: plan.targetActorId,
             workspaceId: plan.workspaceId,
@@ -268,20 +270,22 @@ export default function SessionMembersRoute() {
             showToast(
               "error",
               err instanceof Error
-                ? `Couldn't start ${actorName}: ${err.message}`
-                : `Couldn't start ${actorName}.`,
+                ? t("Couldn't start {{value}}: {{message}}", { value: actorName, message: err.message })
+                : t("Couldn't start {{value}}.", { value: actorName }),
             );
           });
         }
       }
       showToast(
         "success",
-        fresh.length === 1 ? "Added to session" : `Added ${fresh.length} to session`,
+        fresh.length === 1
+          ? t("Added to session")
+          : t("Added {{count}} to session", { count: fresh.length }),
       );
     } catch (err) {
       showToast(
         "error",
-        err instanceof Error ? err.message : "Couldn't add participants",
+        err instanceof Error ? err.message : t("Couldn't add participants"),
       );
     } finally {
       setAddMode(null);
@@ -299,7 +303,7 @@ export default function SessionMembersRoute() {
     ) {
       showToast(
         "error",
-        "This agent's runtime isn't reporting models — wait for it to reconnect.",
+        t("This agent's runtime isn't reporting models — wait for it to reconnect."),
       );
       return;
     }
@@ -313,7 +317,7 @@ export default function SessionMembersRoute() {
     const runtime = runtimeByAgentId.get(actorId);
     const currentMemberActorId = state.currentMemberActorId;
     if (!runtime?.runtimeId || !teamMqtt || !currentMemberActorId) {
-      showToast("error", "This agent's runtime isn't online.");
+      showToast("error", t("This agent's runtime isn't online."));
       return;
     }
     try {
@@ -331,26 +335,26 @@ export default function SessionMembersRoute() {
       setParticipants((prev) =>
         prev.map((row) => (row.actorId === actorId ? { ...row, model: modelId } : row)),
       );
-      showToast("success", `Model set to ${modelId}`);
+      showToast("success", t("Model set to {{value}}", { value: modelId }));
     } catch (err) {
-      showToast("error", err instanceof Error ? err.message : "Couldn't set model");
+      showToast("error", err instanceof Error ? err.message : t("Couldn't set model"));
     }
   };
 
   const handleRestart = (actorId: string) => {
     const actor = actorById.get(actorId);
     if (!actor || !isAgentActor(actor)) {
-      showToast("error", "Couldn't resolve this agent.");
+      showToast("error", t("Couldn't resolve this agent."));
       return;
     }
     const runtime = runtimeByAgentId.get(actorId);
     const currentMemberActorId = state.currentMemberActorId;
     if (!sessionId || !teamId || !currentMemberActorId) {
-      showToast("error", "Session or member identity is not ready.");
+      showToast("error", t("Session or member identity is not ready."));
       return;
     }
     if (!teamMqtt) {
-      showToast("error", "MQTT is not connected — wait for TeamClu to reconnect.");
+      showToast("error", t("MQTT is not connected — wait for TeamClu to reconnect."));
       return;
     }
 
@@ -408,11 +412,11 @@ export default function SessionMembersRoute() {
           agentType: plan.agentType,
           initialPrompt: "",
         });
-        showToast("success", "Runtime restart requested");
+        showToast("success", t("Runtime restart requested"));
       } catch (err) {
         showToast(
           "error",
-          err instanceof Error ? err.message : "Couldn't restart runtime",
+          err instanceof Error ? err.message : t("Couldn't restart runtime"),
         );
       }
     })();

@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Dimensions,
   Pressable,
@@ -56,6 +57,7 @@ function glyphForStatus(status: TodoItemStatus): Glyph {
  * Mounted as a sticky top region by SessionDetailScreen when `snapshots.length > 0`.
  */
 export function SessionPlansPanel({ snapshots, onClose }: SessionPlansPanelProps) {
+  const { t } = useTranslation();
   const [pageWidth, setPageWidth] = useState(
     Dimensions.get("window").width - spacing.lg * 2,
   );
@@ -80,7 +82,7 @@ export function SessionPlansPanel({ snapshots, onClose }: SessionPlansPanelProps
   if (snapshots.length === 0) return null;
 
   return (
-    <View accessibilityLabel="Plans panel" style={styles.outer}>
+    <View accessibilityLabel={t("Plans panel")} style={styles.outer}>
       <View style={styles.panel} onLayout={handleLayout}>
         <ScrollView
           decelerationRate="fast"
@@ -123,6 +125,7 @@ function PlanPage({
   snapshot: AgentPlanSnapshot;
   onClose?: () => void;
 }) {
+  const { t } = useTranslation();
   const completedCount = useMemo(
     () => snapshot.items.filter((item) => item.status === "completed").length,
     [snapshot.items],
@@ -131,14 +134,14 @@ function PlanPage({
     <View style={styles.pageInner}>
       <View style={styles.headerRow}>
         <Text numberOfLines={1} style={styles.headerTitle}>
-          {snapshot.agentName} — Plans
+          {t("{{value}} — Plans", { value: snapshot.agentName })}
         </Text>
         <Text style={styles.headerCounter}>
           {completedCount} / {snapshot.items.length}
         </Text>
         {onClose ? (
           <Pressable
-            accessibilityLabel="Close plans panel"
+            accessibilityLabel={t("Close plans panel")}
             accessibilityRole="button"
             hitSlop={8}
             onPress={onClose}

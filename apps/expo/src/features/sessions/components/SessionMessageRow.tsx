@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActionSheetIOS,
   Alert,
@@ -14,6 +15,7 @@ import {
 } from "react-native";
 import Markdown from "react-native-markdown-display";
 
+import { t } from "../../../lib/i18n";
 import { colors, hai, iosType, radii, spacing, typography } from "../../../ui/theme";
 import type { MessageAttachment, SessionMessage } from "../session-types";
 import { buildThinkingBody, buildThinkingPreview } from "./agent-thinking-presentation";
@@ -61,7 +63,7 @@ export type SessionMessageRowProps = {
 export function normalizeBody(message: SessionMessage): string {
   const body = message.content.trim();
   if (!body) {
-    return "(empty message)";
+    return t("(empty message)");
   }
   return body;
 }
@@ -86,12 +88,12 @@ export function isAgentThinkingKind(kind: string): boolean {
 function agentNoteStyle(kind: string): { eyebrow: string; tint: string } {
   const lower = kind.trim().toLowerCase();
   if (lower === "agent_tool_call") {
-    return { eyebrow: "TOOL CALL", tint: hai.basalt };
+    return { eyebrow: t("TOOL CALL"), tint: hai.basalt };
   }
   if (lower === "agent_tool_result") {
-    return { eyebrow: "TOOL RESULT", tint: hai.basalt };
+    return { eyebrow: t("TOOL RESULT"), tint: hai.basalt };
   }
-  return { eyebrow: "TOOL", tint: hai.basalt };
+  return { eyebrow: t("TOOL"), tint: hai.basalt };
 }
 
 export function formatTimestamp(value: string): string {
@@ -122,6 +124,7 @@ export function SessionMessageRow({
   isStreaming = false,
   toolResult,
 }: SessionMessageRowProps) {
+  const { t: tHook } = useTranslation();
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [noteExpanded, setNoteExpanded] = useState(false);
 
@@ -154,14 +157,14 @@ export function SessionMessageRow({
     const confirmDelete = () => {
       if (!onDelete) return;
       const run = () => onDelete(message.messageId);
-      const title = "Delete this message?";
-      const body = "The message is removed for everyone in this session.";
+      const title = tHook("Delete this message?");
+      const body = tHook("The message is removed for everyone in this session.");
       if (Platform.OS === "ios") {
         ActionSheetIOS.showActionSheetWithOptions(
           {
             title,
             message: body,
-            options: ["Delete", "Cancel"],
+            options: [tHook("Delete"), tHook("Cancel")],
             cancelButtonIndex: 1,
             destructiveButtonIndex: 0,
           },
@@ -172,33 +175,33 @@ export function SessionMessageRow({
         return;
       }
       Alert.alert(title, body, [
-        { text: "Delete", style: "destructive", onPress: run },
-        { text: "Cancel", style: "cancel" },
+        { text: tHook("Delete"), style: "destructive", onPress: run },
+        { text: tHook("Cancel"), style: "cancel" },
       ]);
     };
 
     const actions: Action[] = [
       {
-        label: "Copy",
+        label: tHook("Copy"),
         run: () => {
           void Clipboard.setStringAsync(message.content);
         },
       },
     ];
     if (onReply) {
-      actions.push({ label: "Reply", run: () => onReply(message) });
+      actions.push({ label: tHook("Reply"), run: () => onReply(message) });
     }
     if (isOwnMessage && onEdit) {
-      actions.push({ label: "Edit", run: () => onEdit(message) });
+      actions.push({ label: tHook("Edit"), run: () => onEdit(message) });
     }
     if (isOwnMessage && onDelete) {
       actions.push({
-        label: "Delete",
+        label: tHook("Delete"),
         style: "destructive",
         run: () => confirmDelete(),
       });
     }
-    actions.push({ label: "Cancel", style: "cancel" });
+    actions.push({ label: tHook("Cancel"), style: "cancel" });
 
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -217,7 +220,7 @@ export function SessionMessageRow({
       return;
     }
     Alert.alert(
-      "Message",
+      tHook("Message"),
       message.content.slice(0, 80),
       actions.map((a) => ({
         text: a.label,
@@ -264,7 +267,7 @@ export function SessionMessageRow({
       <View style={[styles.row, styles.thinkingRow, styles.rowOther]}>
         <View style={styles.thinkingGutter} />
         <Pressable
-          accessibilityHint="Tap to expand"
+          accessibilityHint={tHook("Tap to expand")}
           accessibilityRole="button"
           onPress={() => setNoteExpanded((value) => !value)}
           style={({ pressed }) => [
@@ -280,7 +283,7 @@ export function SessionMessageRow({
                 size={12}
               />
               <Ionicons color={colors.slate} name="sparkles-outline" size={13} />
-              <Text style={styles.thinkingLabel}>Thinking</Text>
+              <Text style={styles.thinkingLabel}>{tHook("Thinking")}</Text>
               {!noteExpanded ? (
                 <Text numberOfLines={1} style={styles.thinkingPreview}>
                   {preview}
@@ -318,7 +321,7 @@ export function SessionMessageRow({
     return (
       <View style={[styles.row, styles.rowOther]}>
         <Pressable
-          accessibilityHint="Tap to expand"
+          accessibilityHint={tHook("Tap to expand")}
           accessibilityRole="button"
           onPress={() => setNoteExpanded((value) => !value)}
           style={({ pressed }) => [
@@ -354,7 +357,7 @@ export function SessionMessageRow({
   // and carries the "{Agent} · {Model}" caption.
   const isAgentReply = !isOwnMessage && message.kind.trim().toLowerCase() === "agent_reply";
   const captionLabel = isOwnMessage
-    ? "You"
+    ? tHook("You")
     : isAgentReply
       ? [senderName, message.model].filter(Boolean).join(" · ")
       : senderName ?? "";
@@ -375,7 +378,7 @@ export function SessionMessageRow({
         </Text>
       ) : null}
       <Pressable
-        accessibilityHint="Long-press to copy or delete"
+        accessibilityHint={tHook("Long-press to copy or delete")}
         delayLongPress={350}
         onLongPress={handleLongPress}
         style={({ pressed }) => [
@@ -413,7 +416,7 @@ export function SessionMessageRow({
                 isOwnMessage ? styles.replyBodyOwn : styles.replyBodyOther,
               ]}
             >
-              {replyToMessage.content || "(empty message)"}
+              {replyToMessage.content || tHook("(empty message)")}
             </Text>
           </Pressable>
         ) : null}
@@ -485,7 +488,7 @@ function OutboxStatusDot({
   if (status === "sending") {
     return (
       <Ionicons
-        accessibilityLabel="Sending"
+        accessibilityLabel={t("Sending")}
         color={colors.basalt}
         name="ellipsis-horizontal"
         size={12}
@@ -496,7 +499,7 @@ function OutboxStatusDot({
   if (status === "sent") {
     return (
       <Ionicons
-        accessibilityLabel="Delivered"
+        accessibilityLabel={t("Delivered")}
         color={colors.slate}
         name="checkmark"
         size={12}
@@ -507,7 +510,7 @@ function OutboxStatusDot({
   if (status === "failed") {
     return (
       <Pressable
-        accessibilityLabel="Retry sending message"
+        accessibilityLabel={t("Retry sending message")}
         accessibilityRole="button"
         hitSlop={6}
         onPress={onRetry ? () => onRetry(messageId) : undefined}
@@ -551,7 +554,7 @@ function AttachmentChip({
   if (mime.startsWith("audio/")) {
     return <AudioPlayerChip isOwn={isOwn} url={attachment.url} />;
   }
-  const label = attachment.path?.split("/").pop() ?? (mime || "Attachment");
+  const label = attachment.path?.split("/").pop() ?? (mime || t("Attachment"));
   return (
     <View
       style={[

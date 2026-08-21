@@ -1,3 +1,5 @@
+import { t } from "../../lib/i18n";
+
 export interface SessionSummary {
   sessionId: string;
   teamId: string;
@@ -62,7 +64,7 @@ export interface MessageRecord {
 }
 
 export interface SessionGroup {
-  label: "今天" | "昨天" | "本周" | "更早";
+  label: "Today" | "Yesterday" | "This Week" | "Earlier";
   sessions: SessionSummary[];
 }
 
@@ -233,7 +235,7 @@ export function reduceSessionDetailRouteState(
       status: "error",
       session,
       messages: [],
-      errorMessage: getSettledErrorMessage(messagesResult.reason, "加载消息失败。"),
+      errorMessage: getSettledErrorMessage(messagesResult.reason, t("Failed to load messages.")),
     };
   }
 
@@ -241,7 +243,7 @@ export function reduceSessionDetailRouteState(
     status: "error",
     session: null,
     messages: [],
-    errorMessage: getSettledErrorMessage(sessionResult.reason, "加载会话失败。"),
+    errorMessage: getSettledErrorMessage(sessionResult.reason, t("Failed to load session.")),
   };
 }
 
@@ -290,16 +292,16 @@ export function groupSessionsByRecency(sessions: SessionSummary[], now = new Dat
 
   const groups: SessionGroup[] = [];
   if (today.length > 0) {
-    groups.push({ label: "今天", sessions: today });
+    groups.push({ label: "Today", sessions: today });
   }
   if (yesterday.length > 0) {
-    groups.push({ label: "昨天", sessions: yesterday });
+    groups.push({ label: "Yesterday", sessions: yesterday });
   }
   if (thisWeek.length > 0) {
-    groups.push({ label: "本周", sessions: thisWeek });
+    groups.push({ label: "This Week", sessions: thisWeek });
   }
   if (earlier.length > 0) {
-    groups.push({ label: "更早", sessions: earlier });
+    groups.push({ label: "Earlier", sessions: earlier });
   }
 
   return groups;

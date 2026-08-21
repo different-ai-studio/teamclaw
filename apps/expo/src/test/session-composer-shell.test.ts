@@ -53,7 +53,7 @@ describe("buildComposerPresentation", () => {
       }),
     ).toMatchObject({
       canSend: false,
-      helperText: "实时连接暂时不可用，仍可稍后重试发送。",
+      helperText: "Realtime is temporarily unavailable. You can retry sending later.",
       isDisabled: true,
     });
   });
@@ -72,7 +72,7 @@ describe("buildComposerPresentation", () => {
       }),
     ).toMatchObject({
       canSend: false,
-      helperText: "正在连接实时通道，连上后就可以发送。",
+      helperText: "Connecting to realtime. You can send once it is up.",
       isDisabled: true,
     });
   });

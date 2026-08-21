@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Pressable,
@@ -38,6 +39,7 @@ function buildDeeplink(token: string): string {
 
 export default function InviteRoute() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { state } = useOnboarding();
   const teamId = state.currentTeam?.id ?? "";
 
@@ -82,7 +84,7 @@ export default function InviteRoute() {
         setNeedsUpgrade(true);
         setError(null);
       } else {
-        setError(err instanceof Error ? err.message : "Couldn't create invite.");
+        setError(err instanceof Error ? err.message : t("Couldn't create invite."));
       }
     } finally {
       setIsCreating(false);
@@ -104,7 +106,7 @@ export default function InviteRoute() {
       setOrgName("");
       setContact("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "升级失败，请重试。");
+      setError(err instanceof Error ? err.message : t("Upgrade failed — please try again."));
     } finally {
       setIsUpgrading(false);
     }
@@ -113,7 +115,7 @@ export default function InviteRoute() {
   const handleCopy = async () => {
     if (!invite) return;
     await Clipboard.setStringAsync(invite.deeplink);
-    showToast("success", "Invite link copied");
+    showToast("success", t("Invite link copied"));
   };
 
   const handleShare = async () => {
@@ -129,7 +131,7 @@ export default function InviteRoute() {
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Invite</Text>
+        <Text style={styles.headerTitle}>{t("Invite")}</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -141,17 +143,17 @@ export default function InviteRoute() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.section}>
-          <SectionEyebrow label="KIND" style={styles.sectionEyebrow} />
+          <SectionEyebrow label={t("KIND")} style={styles.sectionEyebrow} />
           <View style={styles.segmented}>
             <SegmentChoice
               disabled={invite !== null}
-              label="Teammate"
+              label={t("Teammate")}
               onPress={() => setKind("member")}
               selected={kind === "member"}
             />
             <SegmentChoice
               disabled={invite !== null}
-              label="Agent"
+              label={t("Agent")}
               onPress={() => setKind("agent")}
               selected={kind === "agent"}
             />
@@ -159,7 +161,7 @@ export default function InviteRoute() {
         </View>
 
         <View style={styles.section}>
-          <SectionEyebrow label="DISPLAY NAME" style={styles.sectionEyebrow} />
+          <SectionEyebrow label={t("DISPLAY NAME")} style={styles.sectionEyebrow} />
           <View style={styles.card}>
             <TextInput
               autoCapitalize="words"
@@ -167,7 +169,7 @@ export default function InviteRoute() {
               editable={invite === null && !isCreating}
               maxLength={64}
               onChangeText={setName}
-              placeholder={kind === "member" ? "Teammate's name" : "Agent's name"}
+              placeholder={kind === "member" ? t("Teammate's name") : t("Agent's name")}
               placeholderTextColor={colors.slate}
               selectionColor={colors.cinnabar}
               style={styles.input}
@@ -178,17 +180,17 @@ export default function InviteRoute() {
 
         {kind === "member" ? (
           <View style={styles.section}>
-            <SectionEyebrow label="ROLE" style={styles.sectionEyebrow} />
+            <SectionEyebrow label={t("ROLE")} style={styles.sectionEyebrow} />
             <View style={styles.segmented}>
               <SegmentChoice
                 disabled={invite !== null}
-                label="Member"
+                label={t("Member")}
                 onPress={() => setRole("member")}
                 selected={role === "member"}
               />
               <SegmentChoice
                 disabled={invite !== null}
-                label="Admin"
+                label={t("Admin")}
                 onPress={() => setRole("admin")}
                 selected={role === "admin"}
               />
@@ -196,11 +198,11 @@ export default function InviteRoute() {
           </View>
         ) : (
           <View style={styles.section}>
-            <SectionEyebrow label="AGENT KIND" style={styles.sectionEyebrow} />
+            <SectionEyebrow label={t("AGENT KIND")} style={styles.sectionEyebrow} />
             <View style={styles.segmented}>
               <SegmentChoice
                 disabled={invite !== null}
-                label="Daemon"
+                label={t("Daemon")}
                 onPress={() => setAgentKind("daemon")}
                 selected={agentKind === "daemon"}
               />
@@ -210,16 +212,18 @@ export default function InviteRoute() {
 
         {needsUpgrade ? (
           <View style={styles.section}>
-            <SectionEyebrow label="升级账号" style={styles.sectionEyebrow} />
+            <SectionEyebrow label={t("Upgrade account")} style={styles.sectionEyebrow} />
             <Text style={styles.upgradeHint}>
-              当前团队还在公共组织下，只能自己使用。升级账号、创建你自己的团队后即可邀请成员。
+              {t(
+                "This team is still on the public org, so only you can use it. Upgrade and create your own team to invite members.",
+              )}
             </Text>
             <View style={styles.card}>
               <TextInput
                 editable={!isUpgrading}
                 maxLength={64}
                 onChangeText={setOrgName}
-                placeholder="团队/组织名称"
+                placeholder={t("Team / org name")}
                 placeholderTextColor={colors.slate}
                 style={styles.input}
                 value={orgName}
@@ -229,7 +233,7 @@ export default function InviteRoute() {
                 editable={!isUpgrading}
                 maxLength={64}
                 onChangeText={setContact}
-                placeholder="联系方式（选填）"
+                placeholder={t("Contact (optional)")}
                 placeholderTextColor={colors.slate}
                 style={styles.input}
                 value={contact}
@@ -251,7 +255,7 @@ export default function InviteRoute() {
               ]}
             >
               <Text style={styles.upgradeButtonLabel}>
-                {isUpgrading ? "升级中…" : "升级账号"}
+                {isUpgrading ? t("Upgrading…") : t("Upgrade account")}
               </Text>
             </Pressable>
           </View>
@@ -261,7 +265,7 @@ export default function InviteRoute() {
 
         {invite ? (
           <View style={styles.section}>
-            <SectionEyebrow label="SHARE INVITE" style={styles.sectionEyebrow} />
+            <SectionEyebrow label={t("SHARE INVITE")} style={styles.sectionEyebrow} />
             <View style={styles.card}>
               <Text selectable style={styles.deeplink}>
                 {invite.deeplink}
@@ -277,7 +281,7 @@ export default function InviteRoute() {
                   ]}
                 >
                   <Ionicons color={colors.cinnabar} name="share-outline" size={18} />
-                  <Text style={styles.actionLabel}>Share</Text>
+                  <Text style={styles.actionLabel}>{t("Share")}</Text>
                 </Pressable>
                 <View style={styles.actionDivider} />
                 <Pressable
@@ -289,7 +293,7 @@ export default function InviteRoute() {
                   ]}
                 >
                   <Ionicons color={colors.cinnabar} name="copy-outline" size={18} />
-                  <Text style={styles.actionLabel}>Copy</Text>
+                  <Text style={styles.actionLabel}>{t("Copy")}</Text>
                 </Pressable>
               </View>
             </View>
@@ -314,7 +318,7 @@ export default function InviteRoute() {
                   canInvite ? styles.ctaTextActive : styles.ctaTextInactive,
                 ]}
               >
-                Create invite link
+                {t("Create invite link")}
               </Text>
             )}
           </Pressable>

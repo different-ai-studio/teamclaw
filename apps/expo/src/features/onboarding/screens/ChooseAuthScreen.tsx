@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Pressable,
   StyleSheet,
@@ -8,62 +9,92 @@ import {
   View,
 } from "react-native";
 
+import {
+  getCloudApiUrlOverride,
+  hasCloudApiUrlOverride,
+} from "../../../lib/cloud-api/cloud-api-url";
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { colors, radii, shadows, spacing, typography } from "../../../ui/theme";
 import { parseInviteToken } from "../invite-api";
 import { SheetModal } from "../../../ui/SheetModal";
+import { ServerSettingsSheet } from "./ServerSettingsSheet";
 
 export type ChooseAuthScreenProps = {
   errorMessage?: string | null;
   isBusy?: boolean;
   onSignInOrRegister: () => void;
   onJoinWithToken: (token: string) => void | Promise<void>;
+  /** Rebuild the Cloud API stack after a custom-server save (mirrors iOS). */
+  onServerChanged?: () => void | Promise<void>;
 };
 
 /**
- * The "set up TeamClu" picker — sign in, or join with an invite. Mirrors
- * `apps/ios/.../ChooseAuthView.swift`:
- *   - Sign in or register: go to the existing email OTP screen
- *   - Join a team: open InviteJoinSheet, paste the link, then sign in — the
- *     token is stashed and claimed once a real account exists
- *
- * The former "private workspace" path was anonymous sign-in; anonymous
- * accounts have been removed from the product.
+ * The "set up TeamClu" picker — sign in, join with an invite, or point at a
+ * custom Cloud API. Mirrors `apps/ios/.../ChooseAuthView.swift`.
  */
 export function ChooseAuthScreen({
   errorMessage,
   isBusy = false,
   onSignInOrRegister,
   onJoinWithToken,
+  onServerChanged,
 }: ChooseAuthScreenProps) {
+  const { t } = useTranslation();
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [serverOpen, setServerOpen] = useState(false);
+  // Bumped after every server-sheet save so the row caption re-reads the
+  // stored address.
+  const [serverEpoch, setServerEpoch] = useState(0);
+
+  const serverCaption = (() => {
+    void serverEpoch;
+    if (hasCloudApiUrlOverride()) {
+      const raw = getCloudApiUrlOverride();
+      try {
+        const host = raw ? new URL(raw).host : null;
+        if (host) return t("Connected to {{host}}.", { host });
+      } catch {
+        // Fall through.
+      }
+    }
+    return t("Point the app at your own deployment.");
+  })();
 
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>Set up TeamClu</Text>
+        <Text style={styles.title}>{t("Set up TeamClu")}</Text>
         <Text style={styles.subtitle}>
-          Create your workspace or join the team that already works with your AI
-          allies.
+          {t(
+            "Create your workspace or join the team that already works with your AI allies.",
+          )}
         </Text>
       </View>
 
       <View style={styles.actions}>
         <ActionRow
-          caption="Use email, Apple, or Google to sync across devices."
+          caption={t("Use email, Apple, or Google to sync across devices.")}
           disabled={isBusy}
           icon="mail-outline"
           isPrimary
           onPress={onSignInOrRegister}
           testID="choose.signInButton"
-          title="Sign in or register"
+          title={t("Sign in or register")}
         />
         <ActionRow
-          caption="Paste an invite link from a teammate."
+          caption={t("Paste an invite link from a teammate.")}
           disabled={isBusy}
           icon="link-outline"
           onPress={() => setInviteOpen(true)}
-          title="Join a team"
+          title={t("Join a team")}
+        />
+        <ActionRow
+          caption={serverCaption}
+          disabled={isBusy}
+          icon="server-outline"
+          onPress={() => setServerOpen(true)}
+          testID="choose.customServerButton"
+          title={t("Custom server")}
         />
       </View>
 
@@ -81,6 +112,22 @@ export function ChooseAuthScreen({
           onCancel={() => setInviteOpen(false)}
           onSubmit={async (token) => {
             await onJoinWithToken(token);
+          }}
+        />
+      </SheetModal>
+
+      <SheetModal
+        onRequestClose={() => {
+          if (!isBusy) setServerOpen(false);
+        }}
+        visible={serverOpen}
+      >
+        <ServerSettingsSheet
+          onCancel={() => setServerOpen(false)}
+          onSaved={async () => {
+            setServerOpen(false);
+            setServerEpoch((value) => value + 1);
+            await onServerChanged?.();
           }}
         />
       </SheetModal>
@@ -152,6 +199,7 @@ function InviteJoinSheet({
   onCancel: () => void;
   onSubmit: (token: string) => void | Promise<void>;
 }) {
+  const { t } = useTranslation();
   const [raw, setRaw] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const visibleError = localError ?? errorMessage;
@@ -159,13 +207,13 @@ function InviteJoinSheet({
   const submit = () => {
     const trimmed = raw.trim();
     if (!trimmed) {
-      setLocalError("Paste an invite link or token first.");
+      setLocalError(t("Paste an invite link or token first."));
       return;
     }
     // Accept either a full `teamclu://invite?token=...` link or a bare token.
     const parsed = parseInviteToken(trimmed) ?? trimmed;
     if (!parsed) {
-      setLocalError("Couldn't read a token from that link.");
+      setLocalError(t("Couldn't read a token from that link."));
       return;
     }
     setLocalError(null);
@@ -175,9 +223,9 @@ function InviteJoinSheet({
   return (
     <View style={styles.sheet}>
       <View style={styles.sheetHeader}>
-        <Text style={styles.sheetTitle}>Join with invite link</Text>
+        <Text style={styles.sheetTitle}>{t("Join with invite link")}</Text>
         <Pressable
-          accessibilityLabel="Cancel"
+          accessibilityLabel={t("Cancel")}
           accessibilityRole="button"
           hitSlop={8}
           onPress={onCancel}
@@ -188,8 +236,9 @@ function InviteJoinSheet({
       <Hairline />
       <View style={styles.sheetBody}>
         <Text style={styles.sheetCaption}>
-          Paste the link your teammate shared. TeamClu will sign you in and add
-          you to their team.
+          {t(
+            "Paste the link your teammate shared. TeamClu will sign you in and add you to their team.",
+          )}
         </Text>
         <TextInput
           autoCapitalize="none"
@@ -201,7 +250,7 @@ function InviteJoinSheet({
             setRaw(value);
             if (localError) setLocalError(null);
           }}
-          placeholder="teamclu://invite?token=… or just the token"
+          placeholder={t("teamclu://invite?token=… or just the token")}
           placeholderTextColor={colors.slate}
           selectionColor={colors.cinnabar}
           style={styles.sheetInput}
@@ -226,7 +275,7 @@ function InviteJoinSheet({
           ]}
         >
           <Text style={styles.sheetSubmitLabel}>
-            {isBusy ? "Joining…" : "Continue"}
+            {isBusy ? t("Joining…") : t("Continue")}
           </Text>
         </Pressable>
       </View>

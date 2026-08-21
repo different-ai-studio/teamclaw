@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   FlatList,
@@ -83,6 +84,7 @@ import type { SessionMessage, SessionSummary } from "../session-types";
 import type { PendingAcpQuestion } from "../pending-questions";
 import { AcpQuestionCard } from "../components/AcpQuestionCard";
 import { SheetModal } from "../../../ui/SheetModal";
+import { t } from "../../../lib/i18n";
 
 type SessionDetailRenderableState = SessionDetailControllerState & {
   status: "empty" | "ready" | "error";
@@ -171,12 +173,12 @@ function connectionDescriptor(
 ): { dot: "active" | "idle" | "error"; label: string } {
   switch (state) {
     case "connected":
-      return { dot: "active", label: "Live" };
+      return { dot: "active", label: t("Live") };
     case "connecting":
-      return { dot: "idle", label: "Connecting" };
+      return { dot: "idle", label: t("Connecting") };
     case "disconnected":
     default:
-      return { dot: "error", label: "Offline" };
+      return { dot: "error", label: t("Offline") };
   }
 }
 
@@ -203,7 +205,8 @@ function SessionHeader({
   onToggleMute?: () => void;
   session: SessionSummary;
 }) {
-  const title = session.title.trim() || "Untitled session";
+  const { t: tHook } = useTranslation();
+  const title = session.title.trim() || tHook("Untitled session");
   const status = connectionDescriptor(connectionState);
 
   return (
@@ -241,13 +244,13 @@ function SessionHeader({
             <Text style={styles.headerSeparator}>·</Text>
             <Text style={styles.headerStatusLabel}>
               {session.participantCount}{" "}
-              {session.participantCount === 1 ? "actor" : "actors"}
+              {session.participantCount === 1 ? tHook("actor") : tHook("actors")}
             </Text>
           </View>
         </View>
         {onTogglePlans ? (
           <Pressable
-            accessibilityLabel={plansPanelOpen ? "Hide plans" : "Show plans"}
+            accessibilityLabel={plansPanelOpen ? tHook("Hide plans") : tHook("Show plans")}
             accessibilityRole="button"
             hitSlop={8}
             onPress={onTogglePlans}
@@ -274,7 +277,7 @@ function SessionHeader({
         </Pressable>
         {onToggleMute ? (
           <Pressable
-            accessibilityLabel={isMuted ? "Unmute notifications" : "Mute notifications"}
+            accessibilityLabel={isMuted ? tHook("Unmute notifications") : tHook("Mute notifications")}
             accessibilityRole="button"
             hitSlop={8}
             onPress={onToggleMute}
@@ -317,7 +320,7 @@ function runtimeEventBody(message: SessionMessage): string {
     return buildThinkingPreview(body, 120);
   }
   if (body) return body;
-  return "Working…";
+  return t("Working…");
 }
 
 function agentTurnPreview(turn: AgentTurnFeedItem): string {
@@ -327,7 +330,7 @@ function agentTurnPreview(turn: AgentTurnFeedItem): string {
   if (streamBody) return streamBody;
   const lastRuntime = turn.runtimeEvents[turn.runtimeEvents.length - 1];
   if (lastRuntime) return runtimeEventBody(lastRuntime);
-  return "Working…";
+  return t("Working…");
 }
 
 function agentTurnTime(turn: AgentTurnFeedItem): string {
@@ -382,6 +385,7 @@ function AgentTurnCard({
   senderName?: string;
   turn: AgentTurnFeedItem;
 }) {
+  const { t: tHook } = useTranslation();
   const [cursorVisible, setCursorVisible] = useState(true);
   useEffect(() => {
     if (!turn.isActive || turn.stream?.isComplete) {
@@ -393,7 +397,7 @@ function AgentTurnCard({
     }, 420);
     return () => clearInterval(timer);
   }, [turn.isActive, turn.stream?.isComplete]);
-  const displayName = senderName ?? "Agent";
+  const displayName = senderName ?? tHook("Agent");
   const avatarGlyph = senderAvatarGlyph ?? (displayName.charAt(0).toUpperCase() || "AI");
   const preview = agentTurnPreview(turn);
   const time = agentTurnTime(turn);
@@ -413,7 +417,7 @@ function AgentTurnCard({
         )}
       </View>
       <Pressable
-        accessibilityHint="Open agent turn details"
+        accessibilityHint={tHook("Open agent turn details")}
         accessibilityRole="button"
         onPress={onOpenDetail ? () => onOpenDetail(turn) : undefined}
         style={({ pressed }) => [
@@ -429,7 +433,11 @@ function AgentTurnCard({
               {displayName}
             </Text>
             <Text style={styles.turnBadge}>
-              {turn.isActive ? (turn.stream?.isComplete ? "同步中" : "正在回复") : "回复"}
+              {turn.isActive
+                ? turn.stream?.isComplete
+                  ? tHook("Syncing")
+                  : tHook("Replying")
+                : tHook("Reply")}
             </Text>
           </View>
           <View style={styles.turnActions}>
@@ -438,7 +446,7 @@ function AgentTurnCard({
           </View>
           {isWorking && onInterrupt ? (
             <Pressable
-              accessibilityLabel={`Interrupt ${displayName}`}
+              accessibilityLabel={tHook("Interrupt {{value}}", { value: displayName })}
               accessibilityRole="button"
               hitSlop={6}
               onPress={() => onInterrupt(turn.agentId)}
@@ -454,7 +462,7 @@ function AgentTurnCard({
           </Text>
         ) : null}
         {turn.finalMessage ? (
-          <Markdown style={turnMarkdown}>{preview || "(empty message)"}</Markdown>
+          <Markdown style={turnMarkdown}>{preview || tHook("(empty message)")}</Markdown>
         ) : (
           <Text numberOfLines={4} style={styles.turnPreview}>
             {preview}
@@ -465,9 +473,7 @@ function AgentTurnCard({
           <View style={styles.turnDetailRow}>
             <Ionicons color={colors.slate} name="list-outline" size={13} />
             <Text style={styles.turnDetailText}>
-              {/* The neighbouring status label is Chinese; this line was half
-                  English ("过程 · 3 events"). */}
-              过程 · {detailCount} 条
+              {tHook("Process · {{count}}", { count: detailCount })}
             </Text>
           </View>
         ) : null}
@@ -507,7 +513,7 @@ function AgentTurnDetailModal({
     >
       {turn ? (
         <TurnDetailScreen
-          agentName={senderName ?? "Agent"}
+          agentName={senderName ?? t("Agent")}
           onClose={onClose}
           onDenyPermission={onDenyPermission}
           onGrantPermission={onGrantPermission}
@@ -521,6 +527,7 @@ function AgentTurnDetailModal({
 }
 
 export function SessionDetailScreen(props: SessionDetailScreenProps) {
+  const { t: tHook } = useTranslation();
   const {
     agentChips,
     composerText,
@@ -770,7 +777,7 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
         >
           <StatusDot kind={runtimeStatusKind(runtimeInfo.status)} size={6} />
           <Text style={styles.runtimeLabel}>
-            Runtime · {runtimeInfo.status}
+            {tHook("Runtime")} · {runtimeInfo.status}
             {runtimeInfo.currentModel ? ` · ${runtimeInfo.currentModel}` : ""}
           </Text>
           {onChangeRuntimeModel ? (
@@ -812,7 +819,7 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
                     pressed ? styles.loadOlderPressed : null,
                   ]}
                 >
-                  <Text style={styles.loadOlderText}>加载更早的消息</Text>
+                  <Text style={styles.loadOlderText}>{tHook("Load older messages")}</Text>
                 </Pressable>
               ) : null
             }
@@ -958,9 +965,9 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
               name="chatbubbles-outline"
               size={40}
             />
-            <Text style={styles.emptyTitle}>No messages yet</Text>
+            <Text style={styles.emptyTitle}>{tHook("No messages yet")}</Text>
             <Text style={styles.emptyBody}>
-              Be the first to write in this session.
+              {tHook("Be the first to write in this session.")}
             </Text>
           </View>
         )}
@@ -970,9 +977,9 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
         <View style={styles.replyBar}>
           <View style={styles.replyBarAccent} />
           <View style={styles.replyBarBody}>
-            <Text style={styles.replyBarLabel}>Replying to message</Text>
+            <Text style={styles.replyBarLabel}>{tHook("Replying to message")}</Text>
             <Text numberOfLines={1} style={styles.replyBarPreview}>
-              {replyTarget.content || "(empty message)"}
+              {replyTarget.content || tHook("(empty message)")}
             </Text>
           </View>
           {onClearReply ? (

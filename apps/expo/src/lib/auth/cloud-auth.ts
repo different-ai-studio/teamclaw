@@ -72,6 +72,54 @@ function api(): CloudApiClient {
   return apiSingleton;
 }
 
+/**
+ * Tear down auth singletons when the Cloud API base URL changes. The session
+ * storage key is not URL-scoped (same as iOS keychain), so a token from server
+ * A must not be replayed against server B.
+ *
+ * Revokes against `previousBaseUrl` when possible — by the time this runs the
+ * override is already persisted and `cloudApiBaseUrl()` returns the new host.
+ *
+ * Does not notify auth listeners (avoids a bootstrap race mid-switch); the
+ * caller is expected to `signOut` / `bootstrap` afterward.
+ */
+export async function tearDownCloudAuthForServerSwitch(
+  previousBaseUrl: string,
+): Promise<void> {
+  const existing = storeSingleton;
+  let token: string | null = null;
+  if (existing) {
+    await existing.start();
+    token = existing.current()?.accessToken ?? null;
+  }
+  if (token) {
+    const base = previousBaseUrl.replace(/\/+$/, "");
+    try {
+      await fetch(`${base}/v1/auth/signout`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      });
+    } catch {
+      // Best-effort remote revoke; always clear local state below.
+    }
+  }
+  storeSingleton = null;
+  apiSingleton = null;
+  pkceVerifiers.clear();
+  // Drop the shared session blob so a rebuilt store cannot reload server A's
+  // tokens. Import AsyncStorage here to avoid a circular init path.
+  const { default: AsyncStorage } = await import("@react-native-async-storage/async-storage");
+  try {
+    await AsyncStorage.removeItem("teamclu.cloud-session");
+  } catch {
+    // In-memory singletons are already gone.
+  }
+}
+
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }

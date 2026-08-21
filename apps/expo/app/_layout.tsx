@@ -1,4 +1,5 @@
 import "../src/lib/polyfills";
+import "../src/lib/i18n";
 
 import { initSentry, wrapRoot } from "../src/lib/telemetry/sentry";
 
@@ -43,7 +44,7 @@ import { supabase } from "../src/lib/supabase/client";
 import { colors } from "../src/ui/theme";
 import { appStatusBarProps } from "../src/ui/status-bar";
 import { createTeamMqttClient, type TeamMqttClient } from "../src/lib/mqtt/team-mqtt";
-import { resolveMqttUrl } from "../src/lib/mqtt/config";
+import { clearCachedMqttUrl, resolveMqttUrl } from "../src/lib/mqtt/config";
 import { createAgentAccessApi } from "../src/features/actors/agent-access-api";
 import { createRuntimeStateSubscriber } from "../src/features/actors/runtime-state-subscriber";
 import {
@@ -60,6 +61,8 @@ import { createPresenceApi } from "../src/features/notifications/presence-api";
 import { createForegroundPresenceHeartbeat } from "../src/features/notifications/presence-heartbeat";
 import { reportExpoClientVersion } from "../src/features/notifications/report-client-version";
 import { cloudApiBaseUrl, createCloudApiClient } from "../src/lib/cloud-api/client";
+import { hydrateCloudApiUrl } from "../src/lib/cloud-api/cloud-api-url";
+import { tearDownCloudAuthForServerSwitch } from "../src/lib/auth/cloud-auth";
 import { createPushTokenApi } from "../src/features/notifications/push-token-api";
 import { registerNativePushToken } from "../src/features/notifications/push-registration";
 import { getDb } from "../src/lib/db/sqlite";
@@ -73,6 +76,12 @@ type OnboardingContextValue = {
   controller: OnboardingController;
   state: OnboardingState;
   retryBootstrap: () => Promise<void>;
+  /**
+   * After the user saves a Cloud API address in ServerSettingsSheet: if the
+   * base URL changed, tear down MQTT + the old session (tokens are not
+   * URL-scoped), then re-bootstrap. Same-URL re-save is a retry.
+   */
+  applyServerChange: () => Promise<void>;
 };
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
@@ -126,16 +135,36 @@ function OnboardingProvider({ children }: { children: ReactNode }) {
   const teamMqttRef = useRef<TeamMqttClient | null>(null);
   const connectedAgentsStoreRef = useRef<ConnectedAgentsStore | null>(null);
   const lastNotificationDedupeKeyRef = useRef<string | null>(null);
+  const activeCloudBaseUrlRef = useRef<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
   const [teamMqtt, setTeamMqtt] = useState<TeamMqttClient | null>(null);
   const [connectedAgentsStore, setConnectedAgentsStore] = useState<ConnectedAgentsStore | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    void hydrateCloudApiUrl().then(() => {
+      if (cancelled) return;
+      try {
+        activeCloudBaseUrlRef.current = cloudApiBaseUrl();
+      } catch {
+        activeCloudBaseUrlRef.current = null;
+      }
+      setHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
     void controller.bootstrap().catch(() => {
       // Error state is stored inside the controller for the routes to render.
     });
-  }, [controller]);
+  }, [controller, hydrated]);
 
   useEffect(() => {
+    if (!hydrated) return;
     const { data } = supabase.auth.onAuthStateChange(() => {
       void controller.bootstrap().catch(() => {
         // Keep the controller state as the source of truth for auth/bootstrap failures.
@@ -145,7 +174,7 @@ function OnboardingProvider({ children }: { children: ReactNode }) {
     return () => {
       data.subscription.unsubscribe();
     };
-  }, [controller]);
+  }, [controller, hydrated]);
 
   // Mirrors iOS `AppOnboardingCoordinator` invite token replay. Any
   // `teamclu://invite/<token>` link — whether the OS hands it to us on
@@ -399,7 +428,38 @@ function OnboardingProvider({ children }: { children: ReactNode }) {
     retryBootstrap: async () => {
       await controller.bootstrap();
     },
+    applyServerChange: async () => {
+      let next: string;
+      try {
+        next = cloudApiBaseUrl();
+      } catch {
+        return;
+      }
+      const previous = activeCloudBaseUrlRef.current;
+      if (previous !== null && previous !== next) {
+        void connectedAgentsStoreRef.current?.dispose();
+        void teamMqttRef.current?.dispose();
+        connectedAgentsStoreRef.current = null;
+        teamMqttRef.current = null;
+        setTeamMqtt(null);
+        setConnectedAgentsStore(null);
+        await tearDownCloudAuthForServerSwitch(previous);
+        // Clear deployment-scoped caches the old session left behind. Full
+        // `controller.signOut()` would also do this, but it recreates auth
+        // against the *new* URL mid-switch; local clear is enough here.
+        await clearCachedMqttUrl();
+        await controller.signOut();
+      }
+      activeCloudBaseUrlRef.current = next;
+      await controller.bootstrap();
+    },
   };
+
+  if (!hydrated) {
+    // Hold the tree until the override is in memory so the first bootstrap
+    // (and any sync `cloudApiBaseUrl()` read) sees the right host.
+    return null;
+  }
 
   return (
     <OnboardingContext.Provider value={value}>

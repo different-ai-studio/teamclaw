@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Pressable,
@@ -39,6 +40,7 @@ const workspacesCache = createWorkspacesCache();
 
 export default function WorkspacesRoute() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { state } = useOnboarding();
   const teamId = state.currentTeam?.id ?? "";
   const memberActorId = state.currentMemberActorId;
@@ -98,7 +100,7 @@ export default function WorkspacesRoute() {
     } catch (err) {
       // Keep whatever the cache painted rather than blanking the list; the
       // error line says the refresh failed.
-      setError(err instanceof Error ? err.message : "Couldn't load workspaces.");
+      setError(err instanceof Error ? err.message : t("Couldn't load workspaces."));
       if (!cached) setRows([]);
     } finally {
       setIsLoading(false);
@@ -121,7 +123,7 @@ export default function WorkspacesRoute() {
       await workspacesApi.setArchived(id, archived);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't update workspace.");
+      setError(err instanceof Error ? err.message : t("Couldn't update workspace."));
     }
   };
 
@@ -161,7 +163,7 @@ export default function WorkspacesRoute() {
       );
       setPickingAgentFor(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't bind agent.");
+      setError(err instanceof Error ? err.message : t("Couldn't bind agent."));
     }
   };
 
@@ -173,7 +175,7 @@ export default function WorkspacesRoute() {
       setEditingPathId(null);
       setEditPathDraft("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't update path.");
+      setError(err instanceof Error ? err.message : t("Couldn't update path."));
     }
   };
 
@@ -190,10 +192,10 @@ export default function WorkspacesRoute() {
         createdByMemberId: memberActorId,
       });
       setCreateDraft("");
-      showToast("success", "Workspace created");
+      showToast("success", t("Workspace created"));
       await load();
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "Couldn't create workspace.");
+      setCreateError(err instanceof Error ? err.message : t("Couldn't create workspace."));
     } finally {
       setIsCreating(false);
     }
@@ -206,7 +208,7 @@ export default function WorkspacesRoute() {
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>Workspaces</Text>
+        <Text style={styles.headerTitle}>{t("Workspaces")}</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -227,7 +229,7 @@ export default function WorkspacesRoute() {
         }
       >
         <View style={styles.section}>
-          <SectionEyebrow label="NEW WORKSPACE" style={styles.sectionEyebrow} />
+          <SectionEyebrow label={t("NEW WORKSPACE")} style={styles.sectionEyebrow} />
           <View style={styles.card}>
             <View style={styles.createRow}>
               <TextInput
@@ -235,7 +237,7 @@ export default function WorkspacesRoute() {
                 autoCorrect={false}
                 editable={!isCreating}
                 onChangeText={setCreateDraft}
-                placeholder="workspace-name"
+                placeholder={t("workspace-name")}
                 placeholderTextColor={colors.slate}
                 selectionColor={colors.cinnabar}
                 style={styles.createInput}
@@ -261,7 +263,7 @@ export default function WorkspacesRoute() {
                       : styles.createButtonTextIdle,
                   ]}
                 >
-                  {isCreating ? "Creating…" : "Create"}
+                  {isCreating ? t("Creating…") : t("Create")}
                 </Text>
               </Pressable>
             </View>
@@ -272,25 +274,25 @@ export default function WorkspacesRoute() {
         {isLoading ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.slate} />
-            <Text style={styles.body}>Loading workspaces…</Text>
+            <Text style={styles.body}>{t("Loading workspaces…")}</Text>
           </View>
         ) : error ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>Couldn't load workspaces</Text>
+            <Text style={styles.stateTitle}>{t("Couldn't load workspaces")}</Text>
             <Text style={styles.body}>{error}</Text>
           </View>
         ) : rows.length === 0 ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.stateTitle}>No workspaces</Text>
+            <Text style={styles.stateTitle}>{t("No workspaces")}</Text>
             <Text style={styles.body}>
-              Workspaces show up here once an agent connects to one.
+              {t("Workspaces show up here once an agent connects to one.")}
             </Text>
           </View>
         ) : (
           <View style={styles.groups}>
             <View style={styles.section}>
               <SectionEyebrow
-                label={`ACTIVE · ${active.length}`}
+                label={`${t("ACTIVE")} · ${active.length}`}
                 style={styles.sectionEyebrow}
               />
               <View style={styles.card}>
@@ -309,7 +311,7 @@ export default function WorkspacesRoute() {
                               onBlur={() => void commitPath(row.id)}
                               onChangeText={setEditPathDraft}
                               onSubmitEditing={() => void commitPath(row.id)}
-                              placeholder="~/code/repo"
+                              placeholder={t("~/code/repo")}
                               placeholderTextColor={colors.slate}
                               returnKeyType="done"
                               selectionColor={colors.cinnabar}
@@ -328,7 +330,7 @@ export default function WorkspacesRoute() {
                               <Text style={styles.rowPath}>
                                 {row.path && row.path.length > 0
                                   ? row.path
-                                  : "Set local path…"}
+                                  : t("Set local path…")}
                               </Text>
                             </Pressable>
                           )}
@@ -358,7 +360,7 @@ export default function WorkspacesRoute() {
                                 !row.agent_id ? styles.agentChipTextSelected : null,
                               ]}
                             >
-                              None
+                              {t("None")}
                             </Text>
                           </Pressable>
                           {agents.map((agent) => {
@@ -399,8 +401,9 @@ export default function WorkspacesRoute() {
                           />
                           <Text style={styles.agentBindText}>
                             {row.agent_id
-                              ? agents.find((a) => a.actorId === row.agent_id)?.displayName ?? "Bound agent"
-                              : "Bind an agent"}
+                              ? agents.find((a) => a.actorId === row.agent_id)?.displayName ??
+                                t("Bound agent")
+                              : t("Bind an agent")}
                           </Text>
                         </Pressable>
                       )}
@@ -413,7 +416,7 @@ export default function WorkspacesRoute() {
             {archived.length > 0 ? (
               <View style={styles.section}>
                 <SectionEyebrow
-                  label={`ARCHIVED · ${archived.length}`}
+                  label={`${t("ARCHIVED")} · ${archived.length}`}
                   style={styles.sectionEyebrow}
                 />
                 <View style={styles.card}>

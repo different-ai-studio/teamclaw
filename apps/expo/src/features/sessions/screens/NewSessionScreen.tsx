@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActionSheetIOS,
   Alert,
@@ -68,6 +69,7 @@ export function NewSessionScreen({
   selectedIdeaId = null,
   workspaces = [],
 }: NewSessionScreenProps) {
+  const { t } = useTranslation();
   const [firstMessage, setFirstMessage] = useState("");
   const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
   const [primaryAgentId, setPrimaryAgentId] = useState<string | null>(null);
@@ -148,12 +150,12 @@ export function NewSessionScreen({
 
   const ideaLabel =
     pickedIdeaId === null
-      ? "None"
+      ? t("None")
       : ideas.find((i) => i.ideaId === pickedIdeaId)?.displayTitle ?? "—";
 
   const showIdeaPicker = () => {
     if (ideas.length === 0) return;
-    const labels = ["None", ...ideas.map((i) => i.displayTitle), "Cancel"];
+    const labels = [t("None"), ...ideas.map((i) => i.displayTitle), t("Cancel")];
     const dispatch = (index: number) => {
       if (index === 0) setPickedIdeaId(null);
       else if (index > 0 && index <= ideas.length) {
@@ -168,7 +170,7 @@ export function NewSessionScreen({
       return;
     }
     Alert.alert(
-      "Link to idea",
+      t("Link to idea"),
       undefined,
       labels.map((label, index) => {
         if (index === labels.length - 1) {
@@ -183,7 +185,7 @@ export function NewSessionScreen({
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>New Session</Text>
+        <Text style={styles.headerTitle}>{t("New Session")}</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons name="close" size={26} color={colors.onyx} />
         </Pressable>
@@ -198,7 +200,7 @@ export function NewSessionScreen({
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.section}>
-            <SectionEyebrow label="01 · COLLABORATORS" />
+            <SectionEyebrow label={`01 · ${t("COLLABORATORS")}`} />
             <Pressable
               accessibilityRole="button"
               onPress={() => setPickerOpen(true)}
@@ -210,7 +212,7 @@ export function NewSessionScreen({
             >
               <View style={styles.collaboratorsBody}>
                 {collaborators.length === 0 ? (
-                  <Text style={styles.collaboratorsPlaceholder}>Just you</Text>
+                  <Text style={styles.collaboratorsPlaceholder}>{t("Just you")}</Text>
                 ) : (
                   <ScrollView
                     contentContainerStyle={styles.chipRow}
@@ -241,7 +243,7 @@ export function NewSessionScreen({
           </View>
 
           <View style={styles.section}>
-            <SectionEyebrow label="02 · AGENT" />
+            <SectionEyebrow label={`02 · ${t("AGENT")}`} />
             <Pressable
               accessibilityRole="button"
               onPress={() => setAgentConfigOpen(true)}
@@ -251,7 +253,7 @@ export function NewSessionScreen({
                 pressed ? styles.rowPressed : null,
               ]}
             >
-              <Text style={styles.cardTitle}>Configure agent</Text>
+              <Text style={styles.cardTitle}>{t("Configure agent")}</Text>
               <View style={styles.agentValue}>
                 <Text numberOfLines={1} style={styles.cardBody}>
                   {agentConfig
@@ -259,7 +261,7 @@ export function NewSessionScreen({
                         workspaceLabelById.get(agentConfig.workspaceId) ??
                         agentConfig.workspaceId
                       }`
-                    : "Default"}
+                    : t("Default")}
                 </Text>
                 <Ionicons color={colors.slate} name="chevron-forward" size={14} />
               </View>
@@ -268,7 +270,7 @@ export function NewSessionScreen({
 
           {ideas.length > 0 ? (
             <View style={styles.section}>
-              <SectionEyebrow label="03 · IDEA" />
+              <SectionEyebrow label={`03 · ${t("IDEA")}`} />
               <Pressable
                 accessibilityRole="button"
                 onPress={showIdeaPicker}
@@ -278,7 +280,7 @@ export function NewSessionScreen({
                   pressed ? styles.rowPressed : null,
                 ]}
               >
-                <Text style={styles.cardTitle}>Link to idea</Text>
+                <Text style={styles.cardTitle}>{t("Link to idea")}</Text>
                 <View style={styles.ideaValue}>
                   <Text
                     numberOfLines={1}
@@ -297,14 +299,14 @@ export function NewSessionScreen({
 
           <View style={styles.section}>
             <SectionEyebrow
-              label={ideas.length > 0 ? "04 · FIRST MESSAGE" : "03 · FIRST MESSAGE"}
+              label={`${ideas.length > 0 ? "04" : "03"} · ${t("FIRST MESSAGE")}`}
             />
             <View style={styles.paperCard}>
               <TextInput
                 editable={!isBusy}
                 multiline
                 onChangeText={setFirstMessage}
-                placeholder="What do you want to ask the team?"
+                placeholder={t("What do you want to ask the team?")}
                 placeholderTextColor={colors.slate}
                 selectionColor={colors.cinnabar}
                 style={styles.input}
@@ -329,7 +331,7 @@ export function NewSessionScreen({
             ]}
           >
             <Text style={styles.ctaText}>
-              {isBusy ? "Starting…" : "Start session"}
+              {isBusy ? t("Starting…") : t("Start session")}
             </Text>
           </Pressable>
         </View>
@@ -364,7 +366,7 @@ export function NewSessionScreen({
           // say "Agent" and offer all three backends regardless of what that
           // agent can actually run — picking an unsupported one sends a
           // `runtime_start` the daemon cannot honour.
-          actorDisplayName={configuredAgent?.displayName ?? "Agent"}
+          actorDisplayName={configuredAgent?.displayName ?? t("Agent")}
           agentTypes={configuredAgent?.agentTypes}
           defaultType={
             agentConfig?.agentType ??
@@ -399,6 +401,7 @@ function CollaboratorChip({
   onMakePrimary,
   onRemove,
 }: CollaboratorChipProps) {
+  const { t } = useTranslation();
   return (
     <View
       style={[
@@ -408,7 +411,7 @@ function CollaboratorChip({
     >
       {onMakePrimary ? (
         <Pressable
-          accessibilityLabel={isPrimary ? "Primary agent" : "Make primary agent"}
+          accessibilityLabel={isPrimary ? t("Primary agent") : t("Make primary agent")}
           accessibilityRole="button"
           hitSlop={6}
           onPress={onMakePrimary}
@@ -431,7 +434,7 @@ function CollaboratorChip({
         {actor.displayName}
       </Text>
       <Pressable
-        accessibilityLabel={`Remove ${actor.displayName}`}
+        accessibilityLabel={t("Remove {{value}}", { value: actor.displayName })}
         accessibilityRole="button"
         hitSlop={6}
         onPress={onRemove}

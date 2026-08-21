@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Pressable,
   RefreshControl,
@@ -54,6 +55,7 @@ function HeaderBar({
   onInvite?: () => void;
   onOpenStats?: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <PageHeader
       count={count}
@@ -61,7 +63,7 @@ function HeaderBar({
         <View style={styles.toolbarGroup}>
           {onOpenStats ? (
             <Pressable
-              accessibilityLabel="Team statistics"
+              accessibilityLabel={t("Team statistics")}
               accessibilityRole="button"
               hitSlop={8}
               onPress={onOpenStats}
@@ -71,7 +73,7 @@ function HeaderBar({
             </Pressable>
           ) : null}
           <Pressable
-            accessibilityLabel="Invite Member"
+            accessibilityLabel={t("Invite Member")}
             accessibilityRole="button"
             disabled={!onInvite}
             hitSlop={8}
@@ -86,7 +88,7 @@ function HeaderBar({
           </Pressable>
         </View>
       }
-      title="Actors"
+      title={t("Actors")}
     />
   );
 }
@@ -132,6 +134,7 @@ export function ActorsListScreen({
   showAddYourAgentNotice = false,
   state,
 }: ActorsListScreenProps) {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
 
@@ -151,9 +154,9 @@ export function ActorsListScreen({
   const agents = useMemo(() => searched.filter(isAgentActor), [searched]);
 
   const segments: SegmentedFilterSegment<Filter>[] = [
-    { tag: "all", title: "All", count: humans.length + agents.length },
-    { tag: "humans", title: "Humans", count: humans.length },
-    { tag: "agents", title: "Agents", count: agents.length },
+    { tag: "all", title: t("All"), count: humans.length + agents.length },
+    { tag: "humans", title: t("Humans"), count: humans.length },
+    { tag: "agents", title: t("Agents"), count: agents.length },
   ];
 
   const visibleHumans = filter === "agents" ? [] : humans;
@@ -195,9 +198,9 @@ export function ActorsListScreen({
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]} style={styles.screen}>
         {headerBar}
         <View style={styles.stateBlock}>
-          <Text style={styles.stateTitle}>Couldn't load actors</Text>
-          <Text style={styles.stateBody}>{state.errorMessage ?? "Try again in a moment."}</Text>
-          <PrimaryButton fullWidth={false} label="Retry" onPress={onLoad} />
+          <Text style={styles.stateTitle}>{t("Couldn't load actors")}</Text>
+          <Text style={styles.stateBody}>{state.errorMessage ?? t("Try again in a moment.")}</Text>
+          <PrimaryButton fullWidth={false} label={t("Retry")} onPress={onLoad} />
         </View>
       </ScrollView>
     );
@@ -225,7 +228,7 @@ export function ActorsListScreen({
           autoCapitalize="none"
           autoCorrect={false}
           onChangeText={setQuery}
-          placeholder="Search actors"
+          placeholder={t("Search actors")}
           placeholderTextColor={colors.slate}
           selectionColor={colors.cinnabar}
           style={styles.searchInput}
@@ -233,7 +236,7 @@ export function ActorsListScreen({
         />
         {query.length > 0 ? (
           <Pressable
-            accessibilityLabel="Clear search"
+            accessibilityLabel={t("Clear search")}
             accessibilityRole="button"
             hitSlop={6}
             onPress={() => setQuery("")}
@@ -255,16 +258,16 @@ export function ActorsListScreen({
           testID="members.addYourAgentNotice"
         >
           <Ionicons color={colors.cinnabar} name="bulb-outline" size={16} />
-          <Text style={styles.ownAgentNoticeText}>Add your own agent</Text>
+          <Text style={styles.ownAgentNoticeText}>{t("Add your own agent")}</Text>
           <Ionicons color={colors.slate} name="chevron-forward" size={14} />
         </Pressable>
       ) : null}
 
       {humans.length + agents.length === 0 ? (
         <View style={styles.stateBlock}>
-          <Text style={styles.stateTitle}>No Actors Yet</Text>
+          <Text style={styles.stateTitle}>{t("No Actors Yet")}</Text>
           <Text style={styles.stateBody}>
-            Invite teammates or agents to see them here.
+            {t("Invite teammates or agents to see them here.")}
           </Text>
         </View>
       ) : (
@@ -274,7 +277,7 @@ export function ActorsListScreen({
               actors={visibleHumans}
               currentActorId={currentActorId}
               onSelectActor={onSelectActor}
-              title={`Humans · ${visibleHumans.length}`}
+              title={t("Humans · {{count}}", { count: visibleHumans.length })}
             />
           ) : null}
           {visibleAgents.length > 0 ? (
@@ -282,7 +285,7 @@ export function ActorsListScreen({
               actors={visibleAgents}
               currentActorId={currentActorId}
               onSelectActor={onSelectActor}
-              title={`Agent Actors · ${visibleAgents.length}`}
+              title={t("Agent Actors · {{count}}", { count: visibleAgents.length })}
             />
           ) : null}
         </View>

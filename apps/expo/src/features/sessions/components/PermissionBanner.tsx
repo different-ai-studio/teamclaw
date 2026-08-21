@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, radii, spacing, typography } from "../../../ui/theme";
@@ -31,15 +32,16 @@ export function PermissionBanner({
   onGrant,
   onDeny,
 }: PermissionBannerProps) {
+  const { t } = useTranslation();
   const summary =
     toolName && description
       ? `${toolName}: ${description}`
-      : toolName || description || "Tool permission requested";
+      : toolName || description || t("Tool permission requested");
   return (
     <View style={styles.outer}>
       <View style={styles.headerRow}>
         <Ionicons color={colors.cinnabar} name="shield-checkmark" size={16} />
-        <Text style={styles.title}>Permission Request</Text>
+        <Text style={styles.title}>{t("Permission Request")}</Text>
       </View>
       <Text style={styles.body}>{summary}</Text>
       {isResolved ? (
@@ -55,7 +57,7 @@ export function PermissionBanner({
               { color: wasGranted ? colors.sage : colors.cinnabarDeep },
             ]}
           >
-            {wasGranted ? "Allowed" : "Denied"}
+            {wasGranted ? t("Allowed") : t("Denied")}
           </Text>
         </View>
       ) : (
@@ -69,7 +71,7 @@ export function PermissionBanner({
               pressed ? styles.buttonPressed : null,
             ]}
           >
-            <Text style={[styles.buttonLabel, styles.buttonLabelDeny]}>Deny</Text>
+            <Text style={[styles.buttonLabel, styles.buttonLabelDeny]}>{t("Deny")}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -80,7 +82,7 @@ export function PermissionBanner({
               pressed ? styles.buttonPressed : null,
             ]}
           >
-            <Text style={[styles.buttonLabel, styles.buttonLabelAllow]}>Allow</Text>
+            <Text style={[styles.buttonLabel, styles.buttonLabelAllow]}>{t("Allow")}</Text>
           </Pressable>
         </View>
       )}

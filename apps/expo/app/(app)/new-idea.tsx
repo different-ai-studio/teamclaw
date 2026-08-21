@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -32,6 +33,7 @@ import { colors, hai, radii, spacing, typography } from "../../src/ui/theme";
 import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
 
 export default function NewIdeaRoute() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { state } = useOnboarding();
   const teamId = state.currentTeam?.id ?? "";
@@ -79,11 +81,11 @@ export default function NewIdeaRoute() {
 
   const workspaceLabel =
     pickedWorkspaceId === null
-      ? "None"
+      ? t("None")
       : workspaces.find((w) => w.id === pickedWorkspaceId)?.name ?? "—";
 
   const showWorkspacePicker = () => {
-    const labels = ["None", ...workspaces.map((w) => w.name), "Cancel"];
+    const labels = [t("None"), ...workspaces.map((w) => w.name), t("Cancel")];
     const dispatch = (index: number) => {
       if (index === 0) setPickedWorkspaceId(null);
       else if (index > 0 && index <= workspaces.length) {
@@ -98,7 +100,7 @@ export default function NewIdeaRoute() {
       return;
     }
     Alert.alert(
-      "Link workspace",
+      t("Link workspace"),
       undefined,
       labels.map((label, index) => {
         if (index === labels.length - 1) {
@@ -110,7 +112,7 @@ export default function NewIdeaRoute() {
   };
 
   const showImageSourcePicker = () => {
-    const labels = ["Photo Library", "Camera", "Cancel"];
+    const labels = [t("Photo Library"), t("Camera"), t("Cancel")];
     const dispatch = (index: number) => {
       const source: IdeaImageSource | null =
         index === 0 ? "library" : index === 1 ? "camera" : null;
@@ -123,7 +125,7 @@ export default function NewIdeaRoute() {
       );
       return;
     }
-    Alert.alert("Add image", undefined, [
+    Alert.alert(t("Add image"), undefined, [
       { text: labels[0], onPress: () => dispatch(0) },
       { text: labels[1], onPress: () => dispatch(1) },
       { text: labels[2], style: "cancel" },
@@ -170,7 +172,7 @@ export default function NewIdeaRoute() {
         router.push(`/(app)/idea-detail?ideaId=${idea.ideaId}`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't create idea.");
+      setError(err instanceof Error ? err.message : t("Couldn't create idea."));
     } finally {
       setIsBusy(false);
     }
@@ -180,7 +182,7 @@ export default function NewIdeaRoute() {
     <View style={styles.screen}>
       <GlassHeader>
         <View style={styles.headerSlot} />
-        <Text style={styles.headerTitle}>New Idea</Text>
+        <Text style={styles.headerTitle}>{t("New Idea")}</Text>
         <Pressable hitSlop={8} onPress={() => router.back()} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -192,7 +194,7 @@ export default function NewIdeaRoute() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.section}>
-          <SectionEyebrow label="TITLE" style={styles.sectionEyebrow} />
+          <SectionEyebrow label={t("TITLE")} style={styles.sectionEyebrow} />
           <View style={styles.card}>
             <TextInput
               autoCapitalize="sentences"
@@ -200,7 +202,7 @@ export default function NewIdeaRoute() {
               editable={!isBusy}
               maxLength={120}
               onChangeText={setTitle}
-              placeholder="Sum up the idea in a sentence"
+              placeholder={t("Sum up the idea in a sentence")}
               placeholderTextColor={colors.slate}
               selectionColor={colors.cinnabar}
               style={styles.titleInput}
@@ -211,7 +213,7 @@ export default function NewIdeaRoute() {
 
         {workspaces.length > 0 ? (
           <View style={styles.section}>
-            <SectionEyebrow label="WORKSPACE" style={styles.sectionEyebrow} />
+            <SectionEyebrow label={t("WORKSPACE")} style={styles.sectionEyebrow} />
             <Pressable
               accessibilityRole="button"
               onPress={showWorkspacePicker}
@@ -236,13 +238,13 @@ export default function NewIdeaRoute() {
         ) : null}
 
         <View style={styles.section}>
-          <SectionEyebrow label="DESCRIPTION" style={styles.sectionEyebrow} />
+          <SectionEyebrow label={t("DESCRIPTION")} style={styles.sectionEyebrow} />
           <View style={styles.card}>
             <TextInput
               editable={!isBusy}
               multiline
               onChangeText={setDescription}
-              placeholder="What does it look like? Who's it for?"
+              placeholder={t("What does it look like? Who's it for?")}
               placeholderTextColor={colors.slate}
               selectionColor={colors.cinnabar}
               style={styles.descriptionInput}
@@ -255,8 +257,8 @@ export default function NewIdeaRoute() {
           <SectionEyebrow
             label={
               images.attachments.length > 0
-                ? `IMAGES · ${images.attachments.length}`
-                : "IMAGES"
+                ? t("IMAGES · {{count}}", { count: images.attachments.length })
+                : t("IMAGES")
             }
             style={styles.sectionEyebrow}
           />
@@ -268,7 +270,7 @@ export default function NewIdeaRoute() {
             />
             {images.hasFailedUploads ? (
               <Text style={styles.attachmentError}>
-                One image failed to upload. Remove it and try again.
+                {t("One image failed to upload. Remove it and try again.")}
               </Text>
             ) : null}
           </View>
@@ -292,7 +294,7 @@ export default function NewIdeaRoute() {
             <Text
               style={[styles.ctaText, canCreate ? styles.ctaTextActive : styles.ctaTextInactive]}
             >
-              Create idea
+              {t("Create idea")}
             </Text>
           )}
         </Pressable>
