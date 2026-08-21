@@ -944,8 +944,10 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       slug: opts.slug,
     })
     await backend.teamSkills.installTeamSkill(teamId, created.slug)
+    // Stay on the marketplace list (or whatever pane is open). MarketplacePane
+    // refreshes its own catalog after adopt; jumping to skill detail felt like
+    // the main column "navigated away" from Add to team.
     await get().loadSection('skills', { force: true })
-    set({ detailTarget: { kind: 'skill', id: created.slug } })
   },
 
   detachMarketplaceSkill: async (slug) => {
