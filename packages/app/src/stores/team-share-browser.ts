@@ -750,13 +750,16 @@ async function materializeSkill(
   const wsPath = workspacePath()
   const detail = await backend.teamSkills.getTeamSkill(teamId, slug)
   const { url } = await backend.teamSkills.resolveDownload(teamId, slug, version)
+  // Download URLs are storage-presigned (S3/MinIO/Supabase). Passing a Bearer
+  // JWT makes MinIO answer 400 "multiple authentication types" and is what
+  // made marketplace auto-follow stuck on "Update failed — retry".
   const result = await invoke<{ archivedPath?: string }>('team_skill_install', {
     request: {
       workspacePath: wsPath,
       slug,
       teamId,
       downloadUrl: url,
-      accessToken: await getFreshAccessToken().catch(() => null),
+      accessToken: null,
       version,
       owner: detail.ownerActorId,
       category: detail.category,
@@ -1506,7 +1509,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       request: {
         slug,
         downloadUrl: url,
-        accessToken: await getFreshAccessToken().catch(() => null),
+        accessToken: null,
         version: installedVersion,
         owner: detail.ownerActorId,
         category: detail.category,

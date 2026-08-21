@@ -428,6 +428,34 @@ pub async fn team_skill_install(
         .map_err(|e| format!("team skill install task failed: {}", e))?
 }
 
+/// Storage download URLs from `resolveDownload` are already signed (S3/MinIO
+/// query auth, or Supabase Storage `token=`). Attaching a Bearer JWT makes
+/// MinIO reject the GET as "multiple authentication types" (HTTP 400) — which
+/// is exactly what auto-follow hits when bumping an installed pack to a new
+/// marketplace/team version. Only attach Bearer when the URL is not presigned.
+fn is_presigned_storage_url(url: &str) -> bool {
+    url.contains("X-Amz-Signature=")
+        || url.contains("X-Amz-Credential=")
+        || url.contains("X-Amz-Algorithm=")
+        // Supabase Storage signed URLs carry the JWT in the query string.
+        || url.contains("token=")
+}
+
+fn download_request(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    access_token: Option<&str>,
+) -> reqwest::blocking::RequestBuilder {
+    let mut download = client.get(url);
+    if is_presigned_storage_url(url) {
+        return download;
+    }
+    if let Some(token) = access_token.filter(|t| !t.is_empty()) {
+        download = download.header("Authorization", format!("Bearer {}", token));
+    }
+    download
+}
+
 /// Blocking half. Runs off the Tauri main thread: HTTP + zip + filesystem.
 fn team_skill_install_blocking(
     req: TeamSkillInstallRequest,
@@ -440,11 +468,7 @@ fn team_skill_install_blocking(
     let target = skills.join(&slug);
 
     let client = build_cloud_api_client()?;
-    let mut download = client.get(&req.download_url);
-    if let Some(token) = req.access_token.as_deref().filter(|t| !t.is_empty()) {
-        download = download.header("Authorization", format!("Bearer {}", token));
-    }
-    let resp = download
+    let resp = download_request(&client, &req.download_url, req.access_token.as_deref())
         .send()
         .map_err(|e| format!("Download failed: {}", format_reqwest_error(&e)))?;
     if !resp.status().is_success() {
@@ -1016,13 +1040,13 @@ pub async fn team_skill_diff(
         }
 
         let client = build_cloud_api_client()?;
-        let mut download = client.get(&request.download_url);
-        if let Some(token) = request.access_token.as_deref().filter(|t| !t.is_empty()) {
-            download = download.header("Authorization", format!("Bearer {}", token));
-        }
-        let resp = download
-            .send()
-            .map_err(|e| format!("Download failed: {}", format_reqwest_error(&e)))?;
+        let resp = download_request(
+            &client,
+            &request.download_url,
+            request.access_token.as_deref(),
+        )
+        .send()
+        .map_err(|e| format!("Download failed: {}", format_reqwest_error(&e)))?;
         if !resp.status().is_success() {
             return Err(format!("Download failed with status {}", resp.status()));
         }
@@ -1257,6 +1281,19 @@ mod tests {
             force: false,
             archive_unmanaged: false,
         }
+    }
+
+    #[test]
+    fn detects_presigned_storage_urls() {
+        assert!(is_presigned_storage_url(
+            "https://s3.example/bucket/key?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=x&X-Amz-Signature=y"
+        ));
+        assert!(is_presigned_storage_url(
+            "https://supabase.example/storage/v1/object/sign/team-skills/x?token=abc.def"
+        ));
+        assert!(!is_presigned_storage_url(
+            "https://api.example/v1/teams/t/skills/s/versions/1/download"
+        ));
     }
 
     #[test]
