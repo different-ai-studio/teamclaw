@@ -61,6 +61,9 @@ function mapCatalogVersion(r: any) {
   };
 }
 
+/** Mirrors MARKET_STATUSES in pg-repo/marketplace.ts and the DB CHECK. */
+const MARKET_STATUSES: readonly string[] = ["draft", "published", "delisted"];
+
 function requireFields(body: any) {
   const summary = String(body.summary ?? "").trim();
   if (!summary) throw new ApiError(400, "validation_failed", "summary is required");
@@ -164,6 +167,11 @@ export function makeSupabaseMarketplaceMethods({
       created_by: skill.owner_actor_id,
     });
     if (iErr && iErr.code !== "23505") throw iErr;
+    // 23505 means a concurrent align (a daemon poll racing a UI load) already
+    // wrote this version. The loser must stop here: falling through would
+    // stamp team_skills with *this* call's snapshot over whatever the winning
+    // row holds, and advance latest_version to a version it did not write.
+    if (iErr) return 0;
 
     await adminClient
       .from("team_skills")
@@ -188,7 +196,9 @@ export function makeSupabaseMarketplaceMethods({
         const q = `%${String(opts.q).trim()}%`;
         query = query.or(`slug.ilike.${q},display_name.ilike.${q},summary.ilike.${q}`);
       }
-      const { data, error } = await query.order("slug").limit(100);
+      const { data, error } = await query
+        .order("slug")
+        .limit(Math.min(Number(opts.limit ?? 100) || 100, 200));
       if (error) throw error;
       const rows = data ?? [];
 
@@ -222,7 +232,14 @@ export function makeSupabaseMarketplaceMethods({
     },
 
     async getMarketplaceSkill(slug: string, opts: any = {}) {
-      const { data, error } = await supabase
+      // Read the catalog row with the service-role client, not the caller's.
+      // The RLS policy on marketplace_skills only exposes status='published',
+      // so the delisted branch two lines down was unreachable on this backend:
+      // a team following a delisted skill got 404 instead of the "已下架"
+      // notice the UI is written to render. Visibility is enforced right here
+      // instead — draft stays hidden, delisted resolves.
+      const a = await admin();
+      const { data, error } = await a
         .from("marketplace_skills")
         .select("*")
         .eq("slug", slug)
@@ -231,15 +248,21 @@ export function makeSupabaseMarketplaceMethods({
       if (!data || (data.status !== "published" && data.status !== "delisted")) {
         throw new ApiError(404, "not_found", `marketplace skill not found: ${slug}`);
       }
-      const { data: versions, error: vErr } = await supabase
+      const { data: versions, error: vErr } = await a
         .from("marketplace_skill_versions")
         .select("*")
         .eq("skill_id", data.id)
+        // Never-promoted drafts stay invisible regardless of client.
         .not("published_at", "is", null)
         .order("version", { ascending: false });
       if (vErr) throw vErr;
 
-      const { count } = await supabase
+      // Also service-role: team_skills RLS limits SELECT to the caller's own
+      // teams, so counting with the caller's client answered 0 or 1 for a
+      // skill adopted by forty teams — and disagreed with the pg backend on
+      // the same field. Only the aggregate crosses the boundary; no team is
+      // named.
+      const { count } = await a
         .from("team_skills")
         .select("id", { count: "exact", head: true })
         .eq("origin", "marketplace")
@@ -409,10 +432,26 @@ export function makeSupabaseMarketplaceMethods({
         .eq("version", version)
         .maybeSingle();
       if (!row) throw new ApiError(404, "not_found", `version ${version} not found`);
+      // Idempotent promote of the already-live version.
+      if (row.published_at && skill.latest_version === version) return mapCatalogVersion(row);
+
+      // Promoting backwards looks like a rollback and is not one: teams that
+      // already aligned carry upstream_version above the new latest, so align
+      // short-circuits and they keep running the bad version while the
+      // operator believes it was pulled. Rolling back is `revert` (§5.2).
+      if (version < (skill.latest_version ?? 0)) {
+        throw new ApiError(
+          409,
+          "conflict",
+          `v${version} is older than the current latest v${skill.latest_version} — use revert to roll back`,
+        );
+      }
 
       const { data: updated, error } = await a
         .from("marketplace_skill_versions")
-        .update({ published_at: new Date().toISOString() })
+        // published_at records when this version first shipped; a re-promote of
+        // the current latest already returned above, so never re-stamp it.
+        .update(row.published_at ? {} : { published_at: new Date().toISOString() })
         .eq("id", row.id)
         .select("*")
         .single();
@@ -445,6 +484,15 @@ export function makeSupabaseMarketplaceMethods({
         .eq("version", version)
         .maybeSingle();
       if (!source) throw new ApiError(404, "not_found", `version ${version} not found`);
+      // Publishing is `promote`; revert only restores something that shipped.
+      // Without this, reverting to a never-promoted draft published it.
+      if (!source.published_at) {
+        throw new ApiError(
+          409,
+          "conflict",
+          `v${version} was never promoted — there is nothing to revert to`,
+        );
+      }
 
       const { data: maxRows } = await a
         .from("marketplace_skill_versions")
@@ -476,9 +524,13 @@ export function makeSupabaseMarketplaceMethods({
 
       await a
         .from("marketplace_skills")
+        // Status untouched: forcing `published` un-delisted a skill without
+        // re-subscribing the teams delisting detached (§7.3), and there is no
+        // re-subscribe endpoint — they were frozen while the catalog claimed
+        // to be live. Un-delisting is an explicit PATCH; detached teams
+        // re-adopt.
         .update({
           latest_version: next,
-          status: "published",
           summary: source.summary,
           when_to_use: source.when_to_use,
           when_not_to_use: source.when_not_to_use,
@@ -498,7 +550,13 @@ export function makeSupabaseMarketplaceMethods({
       const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (body.displayName !== undefined) update.display_name = String(body.displayName).trim();
       if (body.publisher !== undefined) update.publisher = String(body.publisher).trim();
-      if (body.summary !== undefined || body.category !== undefined) {
+      if (
+        body.summary !== undefined ||
+        body.category !== undefined ||
+        body.whenToUse !== undefined ||
+        body.whenNotToUse !== undefined ||
+        body.requires !== undefined
+      ) {
         Object.assign(
           update,
           requireFields({
@@ -516,6 +574,11 @@ export function makeSupabaseMarketplaceMethods({
           : [];
       }
       if (body.status !== undefined) {
+        // Unvalidated, this reached the marketplace_skills_status_valid CHECK
+        // and surfaced as an opaque 500 instead of a 400 naming the field.
+        if (!MARKET_STATUSES.includes(body.status)) {
+          throw new ApiError(400, "validation_failed", `unknown status: ${body.status}`);
+        }
         update.status = body.status;
         if (body.status === "delisted") {
           await a
@@ -646,7 +709,25 @@ export function makeSupabaseMarketplaceMethods({
         blob_scope: "marketplace",
         object_path: mVer.object_path,
       });
-      if (vErr) throw vErr;
+      if (vErr) {
+        // No transactions over PostgREST, so the skill row committed a moment
+        // ago has to be taken back by hand. Leaving it behind is worse than
+        // this compensating delete: the skill reads as "v1" with no v1 to
+        // download, and the slug is now taken so the user cannot even retry.
+        // Scoped to the id we just created, so a concurrent adopt is untouched.
+        const { error: cleanupErr } = await supabase
+          .from("team_skills")
+          .delete()
+          .eq("id", skill.id);
+        if (cleanupErr) {
+          console.error(
+            "[adoptMarketplaceSkill] orphan team_skills row left behind:",
+            skill.id,
+            cleanupErr,
+          );
+        }
+        throw vErr;
+      }
 
       return { ...mapTeamSkillRow(skill), similarSkills: similar };
     },

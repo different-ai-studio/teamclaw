@@ -50,9 +50,24 @@ export function marketplaceObjectPath(contentHash: string): string {
   return `marketplace/blobs/sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
 }
 
-/** Blob GC may only walk `teams/<teamId>/` — never `marketplace/`. */
+/**
+ * Whether blob GC is allowed to consider this object.
+ *
+ * Design §4.2: marketplace packages share the skills namespace with team
+ * packages and are deliberately absent from `amuxc_blobs`, so any collector
+ * that walks the whole namespace and deletes what that table does not mention
+ * would wipe every marketplace package — silently, surfacing only at some
+ * team's next install. Collection is restricted to `teams/<teamId>/`;
+ * `marketplace/` is the catalog's own business.
+ *
+ * Currently asserted by tests rather than called by a collector: no skills-blob
+ * GC exists yet. It is here so the one that gets written has the rule to import
+ * instead of re-deriving it.
+ */
 export function isTeamScopedSkillObjectPath(objectPath: string): boolean {
-  return objectPath.startsWith("teams/") && !objectPath.startsWith("marketplace/");
+  // The old `&& !startsWith("marketplace/")` could never fire — a path cannot
+  // start with both prefixes — which read as a second guard while being none.
+  return objectPath.startsWith("teams/");
 }
 
 function mapCatalogSkill(row: any, extra: Record<string, unknown> = {}) {
@@ -416,12 +431,28 @@ export function makeMarketplaceRepo(db: DbLike, ctx: MarketplaceCtx = {}) {
     async promoteMarketplaceSkillVersion(slug: string, version: number) {
       const skill = await loadCatalog(slug);
       const row = await loadCatalogVersion(skill.id, version);
-      if (row.publishedAt) {
-        // Idempotent promote of already-live version.
-        if (skill.latestVersion === version) return mapCatalogVersion(row);
+      // Idempotent promote of the already-live version.
+      if (row.publishedAt && skill.latestVersion === version) return mapCatalogVersion(row);
+
+      // Promoting backwards looks like a rollback and is not one. Teams that
+      // already aligned carry `upstream_version` above the new latest, so
+      // `alignTeamSkillToMarketplace` short-circuits and they keep running the
+      // bad version — while the operator believes it was pulled. It would also
+      // rewrite the older version's `published_at`, destroying the record of
+      // when it actually shipped. Rolling back is `revert`, which moves
+      // forward carrying old content (§5.2).
+      if (version < (skill.latestVersion ?? 0)) {
+        throw new ApiError(
+          409,
+          "conflict",
+          `v${version} is older than the current latest v${skill.latestVersion} — use revert to roll back`,
+        );
       }
+
       const [updated] = await (db.update(marketplaceSkillVersions) as any)
-        .set({ publishedAt: new Date() })
+        // Never re-stamp: `published_at` records when this version first went
+        // live, and a re-promote of the current latest already returned above.
+        .set(row.publishedAt ? {} : { publishedAt: new Date() })
         .where(eq(marketplaceSkillVersions.id, row.id))
         .returning();
 
@@ -443,8 +474,16 @@ export function makeMarketplaceRepo(db: DbLike, ctx: MarketplaceCtx = {}) {
     async revertMarketplaceSkillVersion(slug: string, version: number) {
       const skill = await loadCatalog(slug);
       const source = await loadCatalogVersion(skill.id, version);
-      if (!source.publishedAt && !source.contentHash) {
-        throw new ApiError(400, "validation_failed", `version ${version} has no package to revert to`);
+      // `contentHash` is NOT NULL and regex-validated on insert, so the old
+      // `!publishedAt && !contentHash` could never fire — reverting to a
+      // never-promoted draft silently published it. Publishing is `promote`;
+      // revert only ever restores something that already shipped.
+      if (!source.publishedAt) {
+        throw new ApiError(
+          409,
+          "conflict",
+          `v${version} was never promoted — there is nothing to revert to`,
+        );
       }
 
       const [maxRow] = await db
@@ -470,10 +509,15 @@ export function makeMarketplaceRepo(db: DbLike, ctx: MarketplaceCtx = {}) {
         })
         .returning();
 
+      // Status is deliberately untouched. Forcing `published` here un-delisted
+      // a skill without re-subscribing the teams that delisting detached
+      // (§7.3) — and there is no re-subscribe endpoint, so those teams were
+      // frozen at their last version with the catalog claiming to be live.
+      // Un-delisting is an explicit PATCH, and it does not resurrect
+      // subscriptions either: a detached team re-adopts.
       await (db.update(marketplaceSkills) as any)
         .set({
           latestVersion: next,
-          status: "published",
           summary: source.summary,
           whenToUse: source.whenToUse,
           whenNotToUse: source.whenNotToUse,
@@ -629,8 +673,9 @@ export async function alignTeamSkillToMarketplace(db: DbLike, skill: any): Promi
     skipped.map((s: any) => `v${s.version}: ${s.changelog}`).join("\n") || mVer.changelog;
 
   const nextVersion = (skill.latestVersion ?? 0) + 1;
+  let inserted: any;
   try {
-    await (db.insert(teamSkillVersions) as any)
+    [inserted] = await (db.insert(teamSkillVersions) as any)
       .values({
         skillId: skill.id,
         version: nextVersion,
@@ -646,10 +691,23 @@ export async function alignTeamSkillToMarketplace(db: DbLike, skill: any): Promi
         objectPath: mVer.objectPath,
         createdBy: skill.ownerActorId,
       })
-      .onConflictDoNothing();
-  } catch {
+      .onConflictDoNothing()
+      .returning();
+  } catch (err) {
+    // Align is a side effect on a read path, so a failure here must not fail
+    // the caller's list — but it must not be invisible either. The old bare
+    // `catch { return 0 }` reported a connection or constraint failure as
+    // "nothing to do", which is the same shape as success.
+    console.error("[marketplace align] insert failed (swallowed):", err);
     return 0;
   }
+
+  // Nothing was inserted: a concurrent align (a daemon poll racing a UI load)
+  // already wrote this version. The loser must stop here. Falling through to
+  // the update below would stamp team_skills with *this* call's snapshot on
+  // top of whatever the winning row actually holds, and advance
+  // `latest_version` to a version this call did not write.
+  if (!inserted) return 0;
 
   await (db.update(teamSkills) as any)
     .set({

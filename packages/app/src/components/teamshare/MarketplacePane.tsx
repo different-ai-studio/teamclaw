@@ -60,13 +60,20 @@ export function MarketplacePane({ slug }: { slug?: string }) {
   const [detail, setDetail] = React.useState<MarketplaceSkillDetail | null>(null)
   const [adopting, setAdopting] = React.useState(false)
 
-  const reload = React.useCallback(async () => {
+  /**
+   * `items.length` used to sit in this callback's deps while the body calls
+   * setItems, so the first successful load changed `reload`'s identity and the
+   * effect below re-fired — every mount fetched the catalog twice. The offline
+   * fallback needs the current length, not a reactive dependency on it, so it
+   * reads through the functional updater instead.
+   */
+  const reload = React.useCallback(async (query: string, cat: TeamSkillCategory | 'all') => {
     setLoading(true)
     try {
       const backend = getBackend()
       const list = await backend.marketplace.listMarketplaceSkills({
-        q: q.trim() || undefined,
-        category: category === 'all' ? undefined : category,
+        q: query.trim() || undefined,
+        category: cat === 'all' ? undefined : cat,
         teamId: teamId ?? undefined,
       })
       setItems(list)
@@ -74,15 +81,22 @@ export function MarketplacePane({ slug }: { slug?: string }) {
       setOffline(false)
     } catch {
       setOffline(true)
-      if (!items.length) setItems(readCache())
+      setItems((prev) => (prev.length ? prev : readCache()))
     } finally {
       setLoading(false)
     }
-  }, [q, category, teamId, items.length])
+  }, [teamId])
 
+  // Debounced: the search box drives this directly, and each request also costs
+  // a requireActorForTeam plus a team_skills adoption scan server-side, so one
+  // per keystroke is not free. Category and team changes go through the same
+  // timer — a 250ms delay on a dropdown is imperceptible and keeps one path.
   React.useEffect(() => {
-    void reload()
-  }, [reload])
+    const timer = setTimeout(() => {
+      void reload(q, category)
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [q, category, reload])
 
   React.useEffect(() => {
     if (!slug) {
@@ -112,7 +126,7 @@ export function MarketplacePane({ slug }: { slug?: string }) {
       await adoptMarketplaceSkill(marketplaceSlug)
       toast.success(t('teamShare.marketplaceAdopted', '已引入团队'))
       await loadSection('skills')
-      void reload()
+      void reload(q, category)
       if (slug) {
         const d = await getBackend().marketplace.getMarketplaceSkill(slug, { teamId })
         setDetail(d)
@@ -284,12 +298,27 @@ export function MarketplacePane({ slug }: { slug?: string }) {
           <ul className="space-y-1">
             {items.map((item) => (
               <li key={item.slug}>
-                <button
-                  type="button"
+                {/*
+                  A div, not a button: the adopt control below is itself a
+                  <button>, and a button inside a button is invalid markup that
+                  browsers are free to reparent during HTML parsing — the adopt
+                  control could end up outside the row, or dead. The row keeps
+                  keyboard access through role/tabIndex.
+                */}
+                <div
+                  role="button"
+                  tabIndex={0}
                   className={cn(
-                    'flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-selected',
+                    'flex w-full cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-selected',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   )}
                   onClick={() => openDetail({ kind: 'marketplace-item', slug: item.slug })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openDetail({ kind: 'marketplace-item', slug: item.slug })
+                    }
+                  }}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-semibold text-foreground">
@@ -326,7 +355,7 @@ export function MarketplacePane({ slug }: { slug?: string }) {
                       </Button>
                     )}
                   </div>
-                </button>
+                </div>
               </li>
             ))}
           </ul>

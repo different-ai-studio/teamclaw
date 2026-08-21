@@ -266,16 +266,23 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
 
       // Lazy marketplace align (§7.1): project upstream latest into subscribed
       // rows before decorating install state. Idempotent under concurrent polls.
+      let alignedAny = false;
       for (const r of rows) {
         if (r.upstreamSubscribed && r.origin === "marketplace") {
-          await alignTeamSkillToMarketplace(db, r);
+          if (await alignTeamSkillToMarketplace(db, r)) alignedAny = true;
         }
       }
-      rows = await db
-        .select()
-        .from(teamSkills)
-        .where(and(...conditions))
-        .orderBy(teamSkills.slug);
+      // Only re-read when something actually moved. This is the endpoint every
+      // daemon polls on a 10-minute tick, and for a team with no marketplace
+      // skills the loop above is a no-op — paying for a second full scan of the
+      // registry on every poll to observe nothing is the wrong default.
+      if (alignedAny) {
+        rows = await db
+          .select()
+          .from(teamSkills)
+          .where(and(...conditions))
+          .orderBy(teamSkills.slug);
+      }
 
       if (!rows.length) return [];
 
@@ -489,7 +496,23 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
     async revertTeamSkillVersion(teamId: string, slug: string, targetVersion: number, body: any = {}) {
       const userId = requireUser();
       const callerActorId = await requireActorForTeam(db, userId, teamId);
-      const skill = await loadSkill(teamId, slug);
+      let skill = await loadSkill(teamId, slug);
+
+      // A revert is a team-authored version like any other, so it detaches a
+      // subscribed skill exactly as `createTeamSkillVersion` does. Without this
+      // the new version carries no `upstream_version`, the next align reads
+      // that as "upstream 0" and immediately re-projects marketplace latest —
+      // the revert is undone on the very next list request, silently.
+      if (skill.upstreamSubscribed) {
+        await (db.update(teamSkills) as any)
+          .set({
+            upstreamSubscribed: false,
+            upstreamDetachedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(teamSkills.id, skill.id));
+        skill = await loadSkill(teamId, slug);
+      }
 
       const [source] = await db
         .select()
@@ -525,6 +548,17 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
           whenNotToUse: source.whenNotToUse,
           requires: (source.requires as any) ?? null,
           createdBy: callerActorId,
+          // Blob ownership travels with the content. A marketplace-sourced
+          // version lives at `object_path` and is deliberately absent from
+          // `amuxc_blobs` (design §4.1), so a revert that dropped these two
+          // columns produced a row whose download fell into the team-blob
+          // branch, found nothing, and 409'd forever.
+          blobScope: source.blobScope ?? "team",
+          objectPath: source.objectPath ?? null,
+          // Provenance only — the skill is detached above, so nothing aligns
+          // against it. Keeping it means a later re-adopt can still tell which
+          // upstream version these bytes came from.
+          upstreamVersion: source.upstreamVersion ?? null,
         })
         .returning();
 
@@ -749,39 +783,48 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
         .slice(0, 3)
         .map((s: any) => ({ slug: s.slug, summary: s.summary }));
 
-      const [skill] = await (db.insert(teamSkills) as any)
-        .values({
-          teamId,
-          slug: teamSlug,
-          ownerActorId: callerActorId,
-          summary: m.summary,
-          category: m.category,
-          whenToUse: m.whenToUse,
-          whenNotToUse: m.whenNotToUse,
-          requires: m.requires,
-          status: "published",
-          latestVersion: 1,
-          createdBy: callerActorId,
-          origin: "marketplace",
-          upstreamSlug: marketplaceSlug,
-          upstreamSubscribed: true,
-        })
-        .returning();
+      // Both inserts or neither. Committing the skill row and then failing on
+      // the version row leaves a skill stuck at "v1" with no v1 to download,
+      // and — because the slug is now taken — no way to re-adopt it either.
+      // The failure modes are real: RLS on team_skill_versions, a unique
+      // violation from a concurrent adopt, a dropped connection.
+      const skill = await (db as any).transaction(async (tx: any) => {
+        const [created] = await (tx.insert(teamSkills) as any)
+          .values({
+            teamId,
+            slug: teamSlug,
+            ownerActorId: callerActorId,
+            summary: m.summary,
+            category: m.category,
+            whenToUse: m.whenToUse,
+            whenNotToUse: m.whenNotToUse,
+            requires: m.requires,
+            status: "published",
+            latestVersion: 1,
+            createdBy: callerActorId,
+            origin: "marketplace",
+            upstreamSlug: marketplaceSlug,
+            upstreamSubscribed: true,
+          })
+          .returning();
 
-      await (db.insert(teamSkillVersions) as any).values({
-        skillId: skill.id,
-        version: 1,
-        contentHash: mVer.contentHash,
-        size: mVer.size,
-        changelog: `引自市场 ${marketplaceSlug} v${wantVersion}`,
-        summary: mVer.summary,
-        whenToUse: mVer.whenToUse,
-        whenNotToUse: mVer.whenNotToUse,
-        requires: mVer.requires,
-        createdBy: callerActorId,
-        upstreamVersion: wantVersion,
-        blobScope: "marketplace",
-        objectPath: mVer.objectPath,
+        await (tx.insert(teamSkillVersions) as any).values({
+          skillId: created.id,
+          version: 1,
+          contentHash: mVer.contentHash,
+          size: mVer.size,
+          changelog: `引自市场 ${marketplaceSlug} v${wantVersion}`,
+          summary: mVer.summary,
+          whenToUse: mVer.whenToUse,
+          whenNotToUse: mVer.whenNotToUse,
+          requires: mVer.requires,
+          createdBy: callerActorId,
+          upstreamVersion: wantVersion,
+          blobScope: "marketplace",
+          objectPath: mVer.objectPath,
+        });
+
+        return created;
       });
 
       return { ...mapSkill(skill), similarSkills: similar };

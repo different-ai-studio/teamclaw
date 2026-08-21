@@ -69,7 +69,13 @@ function zipDir(root) {
   const files = [];
   function walk(rel) {
     const abs = join(root, rel);
-    for (const name of readdirSync(abs)) {
+    // Sorted, not raw readdir order. The whole pipeline is content-addressed on
+    // sha256(zip): the hash is the storage key and prepare/complete dedupe on
+    // it. readdirSync returns entries in filesystem order — roughly insertion
+    // order on APFS, hash order on ext4 — so publishing an unchanged skill from
+    // a laptop and from CI produced two different hashes, two blobs, and a
+    // second "new version" with byte-identical content.
+    for (const name of readdirSync(abs).sort()) {
       if (name === "." || name === "..") continue;
       const child = rel ? `${rel}/${name}` : name;
       const st = statSync(join(root, child));
@@ -78,6 +84,9 @@ function zipDir(root) {
     }
   }
   walk("");
+  // Depth-first with sorted siblings is already deterministic; this pins the
+  // final order regardless of how walk() is refactored later.
+  files.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
   const parts = [];
   const central = [];

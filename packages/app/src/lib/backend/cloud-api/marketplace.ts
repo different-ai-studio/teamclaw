@@ -71,6 +71,8 @@ export interface MarketplaceBackend {
     q?: string;
     category?: TeamSkillCategory;
     teamId?: string;
+    /** Cap the page. Used by callers that only need existence, not content. */
+    limit?: number;
   }): Promise<MarketplaceSkill[]>;
   getMarketplaceSkill(
     slug: string,
@@ -100,6 +102,7 @@ export function createMarketplaceModule(client: CloudApiClient): MarketplaceBack
       if (opts.q) params.set("q", opts.q);
       if (opts.category) params.set("category", opts.category);
       if (opts.teamId) params.set("teamId", opts.teamId);
+      if (opts.limit) params.set("limit", String(opts.limit));
       const qs = params.toString();
       const out = await client.get<{ items: MarketplaceSkill[] }>(
         `${basePath}${qs ? `?${qs}` : ""}`,

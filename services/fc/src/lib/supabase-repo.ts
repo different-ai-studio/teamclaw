@@ -3143,20 +3143,25 @@ export function createSupabaseBusinessRepository(options) {
       let rows = data ?? [];
 
       // Lazy marketplace align (§7.1).
+      let alignedAny = false;
       for (const r of rows) {
         if (r.upstream_subscribed && r.origin === "marketplace") {
-          await this._alignMarketplaceSkillRow(r);
+          if (await this._alignMarketplaceSkillRow(r)) alignedAny = true;
         }
       }
-      ({ data, error } = await supabase
-        .from("team_skills")
-        .select("*")
-        .eq("team_id", teamId)
-        .order("slug", { ascending: true }));
-      if (error) throw error;
-      rows = data ?? [];
-      if (opts.status) rows = rows.filter((r: any) => r.status === opts.status);
-      if (opts.category) rows = rows.filter((r: any) => r.category === opts.category);
+      // Re-read only when something moved, and keep the filters on the server.
+      // This is the endpoint every daemon polls on a 10-minute tick: the old
+      // unconditional refetch doubled its query count for teams with no
+      // marketplace skills at all, and dropping .eq(status)/.eq(category)
+      // pulled every skill row in the team over the wire to filter in JS.
+      if (alignedAny) {
+        let refetch = supabase.from("team_skills").select("*").eq("team_id", teamId);
+        if (opts.status) refetch = refetch.eq("status", opts.status);
+        if (opts.category) refetch = refetch.eq("category", opts.category);
+        ({ data, error } = await refetch.order("slug", { ascending: true }));
+        if (error) throw error;
+        rows = data ?? [];
+      }
       if (!rows.length) return [];
 
       const installs = subjectActorId
@@ -3354,6 +3359,23 @@ export function createSupabaseBusinessRepository(options) {
         throw new ApiError(409, "conflict", `v${targetVersion} is already the latest version`);
       }
 
+      // A revert is a team-authored version, so it detaches a subscribed skill
+      // exactly as publishing one does. Without this the new row carries no
+      // upstream_version, the next align reads that as "upstream 0" and
+      // re-projects marketplace latest — undoing the revert on the next list
+      // request, silently. Mirrors createTeamSkillVersion on this backend.
+      if (skill.upstream_subscribed) {
+        const { error: dErr } = await supabase
+          .from("team_skills")
+          .update({
+            upstream_subscribed: false,
+            upstream_detached_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", skill.id);
+        if (dErr) throw dErr;
+      }
+
       const changelog = String(body.changelog ?? "").trim() || `Reverted to v${targetVersion}`;
       const nextVersion = (skill.latest_version ?? 0) + 1;
       const snapshot = {
@@ -3372,6 +3394,13 @@ export function createSupabaseBusinessRepository(options) {
           size: source.size ?? 0,
           changelog,
           created_by: callerActorId,
+          // Blob ownership travels with the content: a marketplace-sourced
+          // version lives at object_path and is deliberately absent from
+          // amuxc_blobs, so dropping these produced a row whose download fell
+          // into the team-blob branch and 409'd forever.
+          blob_scope: source.blob_scope ?? "team",
+          object_path: source.object_path ?? null,
+          upstream_version: source.upstream_version ?? null,
           ...snapshot,
         })
         .select("*")
