@@ -57,10 +57,15 @@ env:
   BRANDING_REPO: ${{ vars.BRANDING_REPO }}
   OSS_BUCKET_DEFAULT: ${{ secrets.OSS_BUCKET }}
   OSS_ENDPOINT_DEFAULT: ${{ secrets.OSS_ENDPOINT }}
-  CDN_BASE_DEFAULT: ${{ vars.OSS_CDN_BASE || 'https://teamclu.ucar.cc' }}
+  CDN_BASE_DEFAULT: ${{ vars.OSS_CDN_BASE || 'https://teamclaw.ucar.cc' }}
 
 jobs:
+  mirror-pi:
+    uses: ./.github/workflows/mirror-pi-oss.yml
+    secrets: inherit
+
   build-macos:
+    needs: mirror-pi
     strategy:
       fail-fast: false
       matrix:

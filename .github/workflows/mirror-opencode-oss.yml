@@ -62,7 +62,7 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          SERVED=$(curl -fsSL "https://teamclu.ucar.cc/opencode/latest.json" 2>/dev/null \
+          SERVED=$(curl -fsSL "https://teamclaw.ucar.cc/opencode/latest.json" 2>/dev/null \
             | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' 2>/dev/null || echo "")
           if [ "$SERVED" = "$VERSION" ]; then
             echo "mirror already serves $VERSION — nothing to do"
@@ -168,7 +168,7 @@ jobs:
           VERSION: ${{ steps.tag.outputs.version }}
         run: |
           set -euo pipefail
-          BASE="https://teamclu.ucar.cc/opencode"
+          BASE="https://teamclaw.ucar.cc/opencode"
           # Fails the run if the CDN serves a manifest that disagrees with what
           # we just published — i.e. if the no-cache header is not being honored.
           SERVED=$(curl -fsSL "$BASE/latest.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')

@@ -54,7 +54,7 @@ jobs:
           # publishes to OSS, but brand-setup validates these fields.
           oss-bucket-default: ${{ secrets.OSS_BUCKET }}
           oss-endpoint-default: ${{ secrets.OSS_ENDPOINT }}
-          cdn-base-default: ${{ vars.OSS_CDN_BASE || 'https://teamclu.ucar.cc' }}
+          cdn-base-default: ${{ vars.OSS_CDN_BASE || 'https://teamclaw.ucar.cc' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
