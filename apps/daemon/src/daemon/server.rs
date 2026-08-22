@@ -3454,6 +3454,10 @@ pub(crate) mod tests {
     pub(crate) struct TestServer {
         pub(crate) server: DaemonServer,
         _tmp: TempDir,
+        // Keep the event loop alive for the AsyncClient-backed publisher used
+        // by these unit-test fixtures. Dropping it closes rumqttc's request
+        // channel, making otherwise local subscribe/publish calls fail.
+        _mqtt_eventloop: rumqttc::EventLoop,
     }
 
     #[derive(Clone, Default)]
@@ -3756,6 +3760,7 @@ pub(crate) mod tests {
                 cron_turn_event_rx: Some(cron_turn_event_rx),
             },
             _tmp: tmp,
+            _mqtt_eventloop: mqtt.eventloop,
         }
     }
 
