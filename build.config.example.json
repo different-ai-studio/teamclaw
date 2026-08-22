@@ -18,7 +18,7 @@
   "features": {
     "updater": true
   },
-  "localAgent": "opencode",
+  "localAgent": "pi",
   "defaults": {
     "theme": "system"
   },
