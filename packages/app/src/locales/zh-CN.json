@@ -875,6 +875,8 @@
       "upgrade": "升级",
       "needsApiKey": "缺 API Key——进去后在「设置 → LLM」里填。",
       "needsNode": "使用 Pi 前请先安装 Node.js 22.19 或更高版本。",
+      "recheck": "我已安装 Node.js，重新检测",
+      "rechecking": "检测中…",
       "installed": "已安装",
       "installing": "安装中…",
       "ready": "就绪",

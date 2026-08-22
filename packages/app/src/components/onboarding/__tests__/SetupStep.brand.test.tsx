@@ -92,6 +92,26 @@ describe('SetupStep on a build that targets pi', () => {
     expect(screen.getByRole('button', { name: '继续' })).toBeDisabled()
   })
 
+  it('rechecks both Pi views after the user installs Node', async () => {
+    const listRequirements = vi.fn(async () => {})
+    const listAgentRuntimes = vi.fn(async () => {})
+    seed({
+      agentRuntimes: [
+        req('opencode', { title: 'OpenCode' }),
+        req('pi', { title: 'Pi', present: false, version: null, blocker: 'node' }),
+      ],
+      listRequirements,
+      listAgentRuntimes,
+    })
+    render(<SetupStep role="guided" onDone={() => {}} />)
+    listRequirements.mockClear()
+    listAgentRuntimes.mockClear()
+
+    screen.getByRole('button', { name: '我已安装 Node.js，重新检测' }).click()
+    await vi.waitFor(() => expect(listRequirements).toHaveBeenCalledWith('pi'))
+    expect(listAgentRuntimes).toHaveBeenCalledOnce()
+  })
+
   it('opens the developer picker on the build’s runtime', () => {
     render(<SetupStep role="developer" onDone={() => {}} />)
     screen.getByRole('button', { name: '继续' }).click()
