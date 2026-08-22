@@ -366,6 +366,7 @@ fn for_each_log_line(
     let mut line = Vec::new();
     let mut line_start = 0_usize;
     let mut line_no = 1_usize;
+    let mut offset = 0_usize;
 
     loop {
         let buffer = reader.fill_buf()?;
@@ -400,6 +401,7 @@ fn for_each_log_line(
         let content_len = newline.unwrap_or(take);
         line.extend_from_slice(&buffer[..content_len]);
         reader.consume(take);
+        offset = offset.saturating_add(take);
 
         if has_newline {
             let text = String::from_utf8(std::mem::take(&mut line)).map_err(|error| {
@@ -415,7 +417,7 @@ fn for_each_log_line(
                 text,
                 is_final,
             })?;
-            line_start = line_start.saturating_add(take);
+            line_start = offset;
             line_no += 1;
         }
     }
@@ -1033,6 +1035,34 @@ mod tests {
             Err(error) => error,
         };
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn torn_tail_truncation_preserves_records_spanning_reader_buffers() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = LogRecord::Put {
+            id: 1,
+            item: DurableInbound {
+                topic: "amux/team/actor/notify".into(),
+                payload: vec![7; 10_000],
+                retained: false,
+                message_id: Some("large-record".into()),
+            },
+        };
+        let first_line = format!("{}\n", serde_json::to_string(&first).unwrap());
+        let mut contents = first_line.as_bytes().to_vec();
+        contents.extend_from_slice(b"{\"Put\":{\"id\":2,\"item\":");
+        std::fs::write(dir.path().join("inbox.log"), contents).unwrap();
+
+        let reopened = DurableMqttStore::open_at(dir.path()).unwrap();
+        assert_eq!(reopened.inbound_len(), 1);
+        assert_eq!(reopened.inbound(1).unwrap().payload.len(), 10_000);
+        assert_eq!(
+            std::fs::metadata(dir.path().join("inbox.log"))
+                .unwrap()
+                .len(),
+            first_line.len() as u64
+        );
     }
 
     #[test]

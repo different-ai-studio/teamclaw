@@ -44,7 +44,6 @@ const WORKER_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 const RECOVERY_SIGNAL_TIMEOUT: Duration = Duration::from_secs(2);
 const WAKE_GAP_THRESHOLD: Duration = Duration::from_secs(120);
 const INBOUND_RETRY_MAX: Duration = Duration::from_secs(30);
-const SUPERVISOR_EVENT_SEND_TIMEOUT: Duration = Duration::from_secs(2);
 const DURABLE_STORE_FAILURE_PREFIX: &str = "durable_store:";
 
 /// The one snapshot published to `/v1/info`. Keeping the fields together
@@ -415,7 +414,7 @@ pub enum MqttSupervisorEvent {
 }
 
 pub struct MqttSupervisor {
-    pub events: mpsc::Receiver<MqttSupervisorEvent>,
+    pub events: mpsc::UnboundedReceiver<MqttSupervisorEvent>,
     pub inbound: mpsc::Receiver<MqttInbound>,
     inbound_disposition_tx: mpsc::Sender<(u64, MqttInboundDisposition)>,
     control_tx: mpsc::Sender<MqttControl>,
@@ -594,37 +593,12 @@ fn worker_exit_matches_generation(
     active_worker_generation == exited_worker_generation
 }
 
-fn supervisor_event_is_critical(event: &MqttSupervisorEvent) -> bool {
-    matches!(
-        event,
-        MqttSupervisorEvent::TransportConnected { .. }
-            | MqttSupervisorEvent::SubscriptionsReady { .. }
-            | MqttSupervisorEvent::GenerationReady { .. }
-            | MqttSupervisorEvent::Terminated
-    )
-}
-
-async fn emit_supervisor_event(
-    events_tx: &mpsc::Sender<MqttSupervisorEvent>,
+fn emit_supervisor_event(
+    events_tx: &mpsc::UnboundedSender<MqttSupervisorEvent>,
     event: MqttSupervisorEvent,
 ) {
-    match events_tx.try_send(event) {
-        Ok(()) => {}
-        Err(mpsc::error::TrySendError::Closed(_)) => {}
-        Err(mpsc::error::TrySendError::Full(event)) => {
-            if supervisor_event_is_critical(&event) {
-                if tokio::time::timeout(SUPERVISOR_EVENT_SEND_TIMEOUT, events_tx.send(event))
-                    .await
-                    .is_err()
-                {
-                    warn!(
-                        "MQTT supervisor event receiver remained full; critical event was dropped"
-                    );
-                }
-            } else {
-                debug!("MQTT supervisor event receiver is full; dropping an informational event");
-            }
-        }
+    if events_tx.send(event).is_err() {
+        debug!("MQTT supervisor event receiver is closed");
     }
 }
 
@@ -639,7 +613,11 @@ impl MqttSupervisor {
         connected: Arc<AtomicBool>,
         snapshot: MqttSnapshotHandle,
     ) -> Self {
-        let (events_tx, events) = mpsc::channel(1024);
+        // Lifecycle events are low-volume and must never be dropped: losing
+        // SubscriptionsReady would leave the daemon permanently below the
+        // generation readiness fence. This channel is separate from the
+        // bounded command/inbound data paths.
+        let (events_tx, events) = mpsc::unbounded_channel();
         let (inbound_tx, inbound) = mpsc::channel(INBOUND_CAPACITY);
         let (inbound_disposition_tx, inbound_disposition_rx) = mpsc::channel(INBOUND_CAPACITY);
         let (control_tx, control_rx) = mpsc::channel(CONTROL_CAPACITY);
@@ -784,7 +762,7 @@ async fn run_supervisor(
     backend: Arc<dyn Backend>,
     mut command_rx: mpsc::Receiver<MqttCommand>,
     mut shutdown_rx: oneshot::Receiver<()>,
-    events_tx: mpsc::Sender<MqttSupervisorEvent>,
+    events_tx: mpsc::UnboundedSender<MqttSupervisorEvent>,
     inbound_tx: mpsc::Sender<MqttInbound>,
     mut inbound_disposition_rx: mpsc::Receiver<(u64, MqttInboundDisposition)>,
     mut control_rx: mpsc::Receiver<MqttControl>,
@@ -966,8 +944,7 @@ async fn run_supervisor(
                     worker_generation,
                     reason,
                 },
-            )
-            .await;
+            );
         }
 
         let tick = tokio::time::sleep(SUPERVISOR_TICK);
@@ -1259,7 +1236,7 @@ async fn run_supervisor(
                             MqttSupervisorEvent::Rebuilt { .. }
                             | MqttSupervisorEvent::Terminated => {}
                         }
-                        emit_supervisor_event(&events_tx, event).await;
+                        emit_supervisor_event(&events_tx, event);
                     }
                     Some(WorkerEvent::Exited {
                         worker_generation: exited_worker_generation,
@@ -1370,7 +1347,7 @@ async fn run_supervisor(
     while let Some(command) = pending_commands.pop_front() {
         fail_command(command, "MQTT supervisor is shutting down");
     }
-    emit_supervisor_event(&events_tx, MqttSupervisorEvent::Terminated).await;
+    emit_supervisor_event(&events_tx, MqttSupervisorEvent::Terminated);
 }
 
 fn spawn_worker(
