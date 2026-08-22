@@ -1,0 +1,137 @@
+name: Mirror Pi to OSS
+
+# Pi is published only as an npm package. We create a versioned tarball with
+# Pi's full production dependency closure bundled inside it, then publish that
+# immutable artifact to OSS. This lets mainland clients install Pi without an
+# npm-registry round trip when the official route is unavailable.
+on:
+  workflow_call: {}
+  push:
+    paths:
+      - apps/daemon/pi.lock.json
+  schedule:
+    - cron: "20 18 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: mirror-pi-oss
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    env:
+      PI_PACKAGE: '@earendil-works/pi-coding-agent'
+      OSS_BASE: https://teamclaw.ucar.cc/pi
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve the required official Pi version
+        id: pi
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./apps/daemon/pi.lock.json').version.replace(/^v/, '')")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Mirroring official $PI_PACKAGE@$VERSION"
+
+      - name: Skip when OSS already has this version
+        id: skip
+        env:
+          VERSION: ${{ steps.pi.outputs.version }}
+        run: |
+          set -euo pipefail
+          SERVED=$(curl -fsSL "$OSS_BASE/latest.json" 2>/dev/null | node -pe "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" 2>/dev/null || true)
+          if [ "$SERVED" = "$VERSION" ]; then
+            echo "Pi OSS mirror already serves $VERSION"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build a dependency-bundled package from the official registry
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.pi.outputs.version }}
+        run: |
+          set -euo pipefail
+          WORK=$(mktemp -d)
+          mkdir -p assets "$WORK/package"
+          npm pack "$PI_PACKAGE@$VERSION" --pack-destination "$WORK"
+          tar -xzf "$WORK"/*.tgz -C "$WORK/package"
+          cd "$WORK/package/package"
+          # Install exactly the official package's production closure, then make
+          # npm include it in the new tarball. Optional native dependencies stay
+          # optional: npm may omit an unsupported platform binary, as upstream
+          # itself does during a normal install.
+          npm install --omit=dev --no-audit --no-fund
+          node <<'NODE'
+          const fs = require('fs')
+          const pkg = require('./package.json')
+          pkg.bundledDependencies = [...new Set([
+            ...Object.keys(pkg.dependencies || {}),
+            ...Object.keys(pkg.optionalDependencies || {}),
+          ])].sort()
+          fs.writeFileSync('package.json', `${JSON.stringify(pkg, null, 2)}\n`)
+          NODE
+          npm pack --pack-destination "$GITHUB_WORKSPACE/assets"
+          ls -lh "$GITHUB_WORKSPACE/assets"
+
+      - name: Upload immutable artifact and fresh manifest
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          VERSION: ${{ steps.pi.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "${OSS_ACCESS_KEY_ID:-}" || { echo '::error::OSS secrets not configured'; exit 1; }
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
+          python3 - <<'PY'
+          import glob, hashlib, json, os
+          import oss2
+
+          files = glob.glob('assets/*.tgz')
+          if len(files) != 1:
+              raise SystemExit(f'expected one bundled Pi tarball, got: {files}')
+          path = files[0]
+          asset = os.path.basename(path)
+          with open(path, 'rb') as fh:
+              sha256 = hashlib.sha256(fh.read()).hexdigest()
+          endpoint = os.environ['OSS_ENDPOINT']
+          if not endpoint.startswith('http'):
+              endpoint = 'https://' + endpoint
+          auth = oss2.Auth(os.environ['OSS_ACCESS_KEY_ID'], os.environ['OSS_ACCESS_KEY_SECRET'])
+          bucket = oss2.Bucket(auth, endpoint, os.environ['OSS_BUCKET'])
+          version = os.environ['VERSION']
+          key = f'pi/{version}/{asset}'
+          bucket.put_object_from_file(key, path, headers={'Cache-Control': 'public, max-age=31536000, immutable'})
+          manifest = json.dumps({'version': version, 'asset': asset, 'sha256': sha256}, indent=2).encode()
+          bucket.put_object('pi/latest.json', manifest, headers={
+              'Cache-Control': 'no-cache, no-store, max-age=0',
+              'Content-Type': 'application/json',
+          })
+          print(f'published {key} ({sha256})')
+          PY
+
+      - name: Verify public manifest and artifact
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.pi.outputs.version }}
+        run: |
+          set -euo pipefail
+          MANIFEST=$(curl -fsSL "$OSS_BASE/latest.json")
+          echo "$MANIFEST" | node -e '
+            let s=""; process.stdin.on("data", x => s += x).on("end", () => {
+              const m = JSON.parse(s)
+              if (m.version !== process.env.VERSION || !m.asset || !/^[a-f0-9]{64}$/.test(m.sha256)) process.exit(1)
+              console.log(m.version + ' ' + m.asset)
+            })'
+          ASSET=$(echo "$MANIFEST" | node -pe "JSON.parse(require('fs').readFileSync(0, 'utf8')).asset")
+          curl -fsI "$OSS_BASE/$VERSION/$ASSET" >/dev/null

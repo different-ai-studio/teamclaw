@@ -139,8 +139,9 @@ pub async fn setup_list_requirements<R: Runtime>(
     };
 
     // `present` = no action needed. For opencode that is simply "installed"
-    // (amuxd pins no version); pi still has a lock, so there it means "installed
-    // AND new enough". `version` = the installed version, for the UI to show.
+    // (amuxd pins no version); pi still has a lock AND requires a supported Node
+    // runtime, so there it means "installed, new enough, and runnable".
+    // `version` = the installed version, for the UI to show.
     // amuxd: desktop-managed sidecar — satisfied when the bundle includes it.
     let amuxd_version = doctor
         .as_ref()
@@ -188,7 +189,9 @@ pub async fn setup_list_requirements<R: Runtime>(
             optional: false,
             present: runtime_satisfied,
             version: runtime_version,
-            blocker: None,
+            blocker: (runtime_id == "pi")
+                .then(|| runtime.and_then(pi_blocker))
+                .flatten(),
         },
     ])
 }
@@ -244,6 +247,14 @@ fn cursor_blocker(node: &serde_json::Value) -> Option<String> {
     None
 }
 
+/// Pi's global npm shim still runs with the host Node binary. Do not let the
+/// setup wizard launch its install command until Node meets Pi's declared
+/// minimum; otherwise both the guided and self-select paths fail only after a
+/// slow npm request.
+fn pi_blocker(node: &serde_json::Value) -> Option<String> {
+    (!node["nodeSatisfied"].as_bool().unwrap_or(false)).then(|| "node".to_string())
+}
+
 /// Install status of every agent runtime the user can pick from (#881).
 ///
 /// One `amuxd doctor` call covers all four — the daemon reports every runtime
@@ -278,9 +289,11 @@ pub async fn setup_list_agent_runtimes<R: Runtime>(
             // Reported whether or not the runtime is present: a cursor install
             // with no API key is here and pickable, and the UI still has to be
             // able to say what it is waiting on.
-            blocker: (id == "cursor")
-                .then(|| node.and_then(cursor_blocker))
-                .flatten(),
+            blocker: match id {
+                "cursor" => node.and_then(cursor_blocker),
+                "pi" => node.and_then(pi_blocker),
+                _ => None,
+            },
         }
     };
     Ok(RUNTIMES

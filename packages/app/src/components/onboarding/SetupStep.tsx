@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Loader2, AlertCircle, Download, Terminal, Cpu, MousePointer2, Bot } from 'lucide-react'
+import { Check, Loader2, AlertCircle, Download, Terminal, Cpu, MousePointer2, Bot, RefreshCw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -125,7 +125,12 @@ function RuntimeCard({
           {t('onboarding.setup.needsApiKey', 'Needs an API key — add it in Settings → LLM later.')}
         </span>
       )}
-      {fetchable && (
+      {runtime.blocker === 'node' && (
+        <span className="text-[11px] leading-4 text-faint">
+          {t('onboarding.setup.needsNode', 'Needs Node.js 22.19 or later before Pi can be installed.')}
+        </span>
+      )}
+      {fetchable && runtime.blocker !== 'node' && (
         <button
           type="button"
           disabled={busy}
@@ -158,7 +163,9 @@ function DependencyRow({ req, installing }: { req: RequirementStatus; installing
         <span className="text-[13px] text-foreground">{req.title}</span>
       </span>
       <span className="font-mono text-[11px] text-faint">
-        {req.version ??
+        {req.blocker === 'node'
+          ? t('onboarding.setup.needsNode', 'Needs Node.js 22.19 or later before Pi can be installed.')
+          : req.version ??
           (ok
             ? t('onboarding.setup.ready', 'ready')
             : installing
@@ -188,6 +195,7 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
     useSetupStore()
   const setRuntime = useOnboardingStore((s) => s.setRuntime)
   const [selected, setSelected] = React.useState<DaemonLocalAgent>(DEFAULT_RUNTIME)
+  const [rechecking, setRechecking] = React.useState(false)
 
   React.useEffect(() => {
     void listAgentRuntimes()
@@ -237,14 +245,16 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
   // app can fetch.
   const guidedRuntime = agentRuntimes.find((r) => r.id === GUIDED_RUNTIME)
   const guidedRuntimeMissing = role === 'guided' && !!guidedRuntime && !usable(guidedRuntime)
+  const guidedRuntimeNeedsNode = guidedRuntime?.blocker === 'node'
   const guidedInstallTriggered = React.useRef(false)
   React.useEffect(() => {
-    if (!guidedRuntimeMissing || guidedInstallTriggered.current) return
+    if (!guidedRuntimeMissing || guidedRuntimeNeedsNode || guidedInstallTriggered.current) return
     guidedInstallTriggered.current = true
     void install(GUIDED_RUNTIME)
-  }, [guidedRuntimeMissing, install])
+  }, [guidedRuntimeMissing, guidedRuntimeNeedsNode, install])
 
   const selectedRuntime = agentRuntimes.find((r) => r.id === selected)
+  const nodeBlocked = selectedRuntime?.blocker === 'node'
   const runtimeReady = usable(selectedRuntime)
   const canContinue = loaded && !installing && !amuxdMissing && runtimeReady
   /**
@@ -256,7 +266,11 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
    * other moving part, so the whole window reads as hung. Anything that greys
    * the button out while the machine is still working spins.
    */
-  const busy = !!installing || amuxdMissing || guidedRuntimeMissing || (!runtimeReady && visibleRuntimes.length > 0)
+  const busy =
+    !!installing ||
+    amuxdMissing ||
+    (guidedRuntimeMissing && !guidedRuntimeNeedsNode) ||
+    (!runtimeReady && visibleRuntimes.length > 0 && selectedRuntime?.blocker !== 'node')
 
   const pick = (id: DaemonLocalAgent) => {
     setSelected(id)
@@ -266,6 +280,18 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
   const proceed = () => {
     setRuntime(selected)
     onDone()
+  }
+
+  const recheck = async () => {
+    setRechecking(true)
+    try {
+      // Node may have been installed while onboarding stayed open. Re-probe both
+      // views: the selected-runtime row controls Continue, and the picker must
+      // also restore Pi's Install action for the self-select path.
+      await Promise.all([listRequirements(selected), listAgentRuntimes()])
+    } finally {
+      setRechecking(false)
+    }
   }
 
   if (!loaded) {
@@ -341,6 +367,21 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
               .filter((r) => r.id === 'git')
               .map((r) => <DependencyRow key={r.id} req={r} installing={installing === r.id} />)}
         </div>
+
+        {nodeBlocked && (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 w-full rounded-[8px] border-border bg-paper text-[12px] text-ink-2 hover:bg-selected/30"
+            disabled={rechecking}
+            onClick={() => void recheck()}
+          >
+            <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', rechecking && 'animate-spin')} />
+            {rechecking
+              ? t('onboarding.setup.rechecking', 'Checking…')
+              : t('onboarding.setup.recheck', 'I installed Node.js — check again')}
+          </Button>
+        )}
 
         {/* The runtime error matters most on the guided path: nothing there is
             user-initiated, so a failed auto-install has no other way to surface

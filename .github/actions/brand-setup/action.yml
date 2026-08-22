@@ -6,7 +6,7 @@ description: >
 
 inputs:
   brand:
-    description: "Brand id — a directory under brands/ in the branding repo (e.g. betly, copilot361)"
+    description: "Release channel id — built-in teamclu, or a directory under brands/ (e.g. copilot361)"
     required: true
   branding-repo:
     description: "owner/repo of the private enterprise-branding repo"
@@ -26,6 +26,10 @@ inputs:
     description: "Fallback public CDN base when the brand does not declare one"
     required: false
     default: ""
+  cdn-refresh-region-default:
+    description: "Fallback Alibaba CDN region for mutable release files"
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -39,8 +43,60 @@ runs:
         OSS_BUCKET_DEFAULT: ${{ inputs.oss-bucket-default }}
         OSS_ENDPOINT_DEFAULT: ${{ inputs.oss-endpoint-default }}
         CDN_BASE_DEFAULT: ${{ inputs.cdn-base-default }}
+        CDN_REFRESH_REGION_DEFAULT: ${{ inputs.cdn-refresh-region-default }}
       run: |
         set -euo pipefail
+
+        # TeamClu Beta is the first-party OSS channel, not an OEM brand. Keep
+        # its release definition in this repository so it cannot be silently
+        # renamed or repointed by the retired Betly configuration.
+        if [ "$BRAND" = "teamclu" ]; then
+          test -n "$OSS_BUCKET_DEFAULT" || { echo '::error::OSS bucket is not configured'; exit 1; }
+          test -n "$OSS_ENDPOINT_DEFAULT" || { echo '::error::OSS endpoint is not configured'; exit 1; }
+          test -n "$CDN_BASE_DEFAULT" || { echo '::error::OSS CDN base is not configured'; exit 1; }
+          cp build.config.production.json build.config.json
+          BRAND="$BRAND" python3 - <<'PY'
+        import json, os
+
+        with open('build.config.json', encoding='utf-8') as f:
+            cfg = json.load(f)
+        app = cfg.setdefault('app', {})
+        # The Beta page and window make the product migration explicit; the
+        # product name remains TeamClu so bundle paths stay compatible.
+        app['displayName'] = 'TeamClu 群策'
+        app['shortName'] = 'teamclu'
+        with open('build.config.json', 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+            f.write('\n')
+
+        out = {
+            'BRAND': 'teamclu',
+            'CHROME_EXTENSION_ID': '',
+            'APP_NAME': app['displayName'],
+            'APP_PRODUCT_NAME': app.get('name') or 'TeamClu',
+            'APP_SLUG': 'teamclu',
+            'OSS_BUCKET': os.environ['OSS_BUCKET_DEFAULT'],
+            'OSS_ENDPOINT': os.environ['OSS_ENDPOINT_DEFAULT'],
+            # Preserve the former TeamClaw beta URL while its domain remains
+            # the compatibility distribution hostname.
+            'OSS_PREFIX': 'beta',
+            'CDN_BASE': os.environ['CDN_BASE_DEFAULT'].rstrip('/'),
+            'CDN_REFRESH_REGION': os.environ.get('CDN_REFRESH_REGION_DEFAULT', ''),
+            'BRAND_MAC_EXTRA_ARGS': '',
+        }
+        with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
+            for key, value in out.items():
+                f.write(f'{key}={value}\n')
+        with open('brand-page.json', 'w', encoding='utf-8') as f:
+            json.dump({
+                'lang': 'zh-CN',
+                'badge': '每日 Beta',
+                'noindex': False,
+                'footerNote': 'TeamClu 群策 Beta，每日构建，欢迎反馈。',
+            }, f, ensure_ascii=False)
+        PY
+          exit 0
+        fi
 
         # Unlike release.yml — which treats a missing branding repo as "build the
         # default TeamClu" — every brand this pipeline publishes is defined in
@@ -156,7 +212,7 @@ runs:
             'CDN_BASE': cdn_base.rstrip('/'),
             # Empty => bucket is served straight from the OSS endpoint with no CDN
             # in front, so there is no edge cache to purge.
-            'CDN_REFRESH_REGION': oss.get('cdnRefreshRegion') or '',
+            'CDN_REFRESH_REGION': oss.get('cdnRefreshRegion') or os.environ.get('CDN_REFRESH_REGION_DEFAULT', ''),
             'BRAND_MAC_EXTRA_ARGS': (meta.get('build') or {}).get('macExtraArgs') or '',
         }
         with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:

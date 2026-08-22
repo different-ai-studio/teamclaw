@@ -1,11 +1,14 @@
-name: Release (OSS, multi-brand)
+name: Release TeamClu Beta / Copilot361 (OSS)
 
-# Multi-brand OSS release channel. Replaces the old release-beta.yml, which was
-# hardwired to a single unbranded TeamClu build published under `beta/`.
+# OSS release channel for two independent products:
 #
-# Every brand — including `betly`, the live-beta channel that used to BE this
-# workflow's only mode — is defined by a directory in the private
-# enterprise-branding repo (see vars.BRANDING_REPO):
+# - `teamclu`: the first-party daily Beta, built from this repository and
+#   published under `/beta/` for the existing TeamClaw URL to remain valid.
+# - `copilot361`: an independent OEM build, resolved from the private branding
+#   repository (see vars.BRANDING_REPO).
+#
+# Betly is intentionally absent: its former TeamClaw channel is now TeamClu
+# Beta, with TeamClu identity and release page copy.
 #
 #   brands/<brand>/build.config.json  complete build config (backend + identity)
 #   brands/<brand>/brand.json         distribution knobs (OSS bucket/prefix/CDN,
@@ -27,18 +30,18 @@ on:
         required: true
         type: choice
         options:
-          - betly
+          - teamclu
           - copilot361
-        default: betly
+        default: teamclu
       tag:
         description: "Version tag to publish (e.g. v0.2.8-beta.1)"
         required: true
         type: string
 
-# Keyed on brand alone, deliberately: every release of a brand overwrites that
+# Keyed on channel alone, deliberately: every release overwrites that channel's
 # brand's single latest.json, so two releases of the SAME brand are never safe to
 # run concurrently regardless of tag. Including the tag here left them in
-# separate groups, so on 2026-07-16 a betly v0.2.24-beta.5 run started 3 minutes
+# separate groups, so a TeamClu Beta run that starts earlier but finishes later
 # earlier but finished 2 minutes later than a v0.2.25-beta.1 run and clobbered
 # the manifest back to the older version — last writer wins, and build duration,
 # not version order, decides the winner. Different brands publish to different
@@ -47,20 +50,25 @@ concurrency:
   group: release-oss-${{ inputs.brand }}
   cancel-in-progress: true
 
-# Per-brand values (bucket, endpoint, prefix, CDN base, app name) are exported
+# Per-channel values (bucket, endpoint, prefix, CDN base, app name) are exported
 # into $GITHUB_ENV by the brand-setup action. Only the credentials — which are
 # genuinely secret and shared across buckets — come from repo secrets. The three
-# *_DEFAULT values below are the fallbacks a brand inherits when its brand.json
-# omits that OSS field; betly relies on them to keep publishing exactly where the
-# old release-beta.yml did.
+# *_DEFAULT values below are also the complete source of distribution settings
+# for the built-in TeamClu Beta channel.
 env:
   BRANDING_REPO: ${{ vars.BRANDING_REPO }}
   OSS_BUCKET_DEFAULT: ${{ secrets.OSS_BUCKET }}
   OSS_ENDPOINT_DEFAULT: ${{ secrets.OSS_ENDPOINT }}
-  CDN_BASE_DEFAULT: ${{ vars.OSS_CDN_BASE || 'https://teamclu.ucar.cc' }}
+  CDN_BASE_DEFAULT: ${{ vars.OSS_CDN_BASE || 'https://teamclaw.ucar.cc' }}
+  CDN_REFRESH_REGION_DEFAULT: ${{ vars.OSS_CDN_REFRESH_REGION || '' }}
 
 jobs:
+  mirror-pi:
+    uses: ./.github/workflows/mirror-pi-oss.yml
+    secrets: inherit
+
   build-macos:
+    needs: mirror-pi
     strategy:
       fail-fast: false
       matrix:
@@ -99,6 +107,7 @@ jobs:
           oss-bucket-default: ${{ env.OSS_BUCKET_DEFAULT }}
           oss-endpoint-default: ${{ env.OSS_ENDPOINT_DEFAULT }}
           cdn-base-default: ${{ env.CDN_BASE_DEFAULT }}
+          cdn-refresh-region-default: ${{ env.CDN_REFRESH_REGION_DEFAULT }}
 
       - name: Verify Tauri signing key
         env:
@@ -181,7 +190,7 @@ jobs:
       # before Vite bundles them, which is why this is its own step ahead of the
       # parallel block rather than part of it.
       #
-      # A brand with no app.logo (betly) simply keeps the stock icons.
+      # TeamClu Beta uses the stock icons when it has no explicit app.logo.
       - name: Install deps + apply brand to tauri.conf + icons
         shell: bash
         run: |
@@ -300,9 +309,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           DEVICE_JWT_SECRET: ${{ secrets.DEVICE_JWT_SECRET }}
         with:
-          # BRAND_MAC_EXTRA_ARGS comes from brand.json build.macExtraArgs — betly
-          # passes --features beta-devtools to enable the WebKit inspector in the
-          # release build; shipping brands leave it empty.
+          # OEM brands may provide build.macExtraArgs; TeamClu Beta deliberately
+          # leaves it empty so the beta is a normal TeamClu build.
           args: "--target ${{ matrix.target }} ${{ env.BRAND_MAC_EXTRA_ARGS }}"
 
       - name: Upload installers to OSS + emit updater fragment
@@ -455,6 +463,7 @@ jobs:
           oss-bucket-default: ${{ env.OSS_BUCKET_DEFAULT }}
           oss-endpoint-default: ${{ env.OSS_ENDPOINT_DEFAULT }}
           cdn-base-default: ${{ env.CDN_BASE_DEFAULT }}
+          cdn-refresh-region-default: ${{ env.CDN_REFRESH_REGION_DEFAULT }}
 
       - name: Verify Tauri signing key
         env:
@@ -720,6 +729,7 @@ jobs:
           oss-bucket-default: ${{ env.OSS_BUCKET_DEFAULT }}
           oss-endpoint-default: ${{ env.OSS_ENDPOINT_DEFAULT }}
           cdn-base-default: ${{ env.CDN_BASE_DEFAULT }}
+          cdn-refresh-region-default: ${{ env.CDN_REFRESH_REGION_DEFAULT }}
 
       # NOT `apt-get install protobuf-compiler`. The ubuntu runner's
       # /etc/apt/apt-mirrors.txt puts the Azure-internal mirror first and the
@@ -819,6 +829,7 @@ jobs:
           oss-bucket-default: ${{ env.OSS_BUCKET_DEFAULT }}
           oss-endpoint-default: ${{ env.OSS_ENDPOINT_DEFAULT }}
           cdn-base-default: ${{ env.CDN_BASE_DEFAULT }}
+          cdn-refresh-region-default: ${{ env.CDN_REFRESH_REGION_DEFAULT }}
 
       - name: Download all updater fragments
         uses: actions/download-artifact@v8

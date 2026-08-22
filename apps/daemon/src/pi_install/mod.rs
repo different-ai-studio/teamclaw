@@ -6,6 +6,7 @@
 //! present, otherwise `pi` on PATH (including `~/.npm-global/bin`).
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::opencode_install::{parse_semver, version_ge};
 
@@ -63,18 +64,50 @@ pub struct PiStatus {
     pub present: bool,
     pub version: Option<String>,
     pub path: Option<String>,
+    /// Pi is a Node CLI. Keep this separate from Pi's own version so onboarding
+    /// can explain the real prerequisite before attempting `npm install`.
+    pub node_present: bool,
+    pub node_version: Option<String>,
+    pub node_satisfied: bool,
     pub required_version: String,
     pub satisfied: bool,
 }
 
+/// Pi 0.84.x declares `node >=22.19.0`. Keep the check in the daemon (rather
+/// than the React onboarding screen) so CLI, Settings and first-run setup all
+/// make the same decision.
+const MIN_NODE_VERSION: &str = "22.19.0";
+
+fn node_version() -> Option<String> {
+    let out = std::process::Command::new("node")
+        .arg("--version")
+        .env("PATH", crate::runtime::well_known_bin::augmented_path())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
+    (!line.is_empty()).then_some(line)
+}
+
 pub fn doctor() -> PiStatus {
     let want = required_version();
+    let node_version = node_version();
+    let node_satisfied = node_version
+        .as_deref()
+        .map(|v| version_ge(v, MIN_NODE_VERSION))
+        .unwrap_or(false);
     let detected = detect_pi();
     let (present, version, path) = match &detected {
         Some((p, v)) => (true, Some(v.clone()), Some(p.clone())),
         None => (false, None, None),
     };
-    let satisfied = version
+    let pi_satisfied = version
         .as_deref()
         .map(|v| version_ge(v, &want))
         .unwrap_or(false);
@@ -82,8 +115,11 @@ pub fn doctor() -> PiStatus {
         present,
         version,
         path,
+        node_present: node_version.is_some(),
+        node_version,
+        node_satisfied,
         required_version: want,
-        satisfied,
+        satisfied: pi_satisfied && node_satisfied,
     }
 }
 
@@ -94,24 +130,153 @@ fn progress(event: &str, message: &str) {
     );
 }
 
+const PI_NPM_PKG: &str = "@earendil-works/pi-coding-agent";
+const PI_MIRROR_BASE: &str = "https://teamclaw.ucar.cc/pi";
+const OFFICIAL_REGISTRY: &str = "https://registry.npmjs.org";
+const NETWORK_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[derive(Debug, Deserialize)]
+struct PiMirrorManifest {
+    version: String,
+    asset: String,
+    sha256: String,
+}
+
+fn npm_package_spec(min_version: &str) -> String {
+    format!("{PI_NPM_PKG}@{min_version}")
+}
+
+fn command_with_runtime_path(command: &str) -> std::process::Command {
+    let mut process = std::process::Command::new(command);
+    process.env("PATH", crate::runtime::well_known_bin::augmented_path());
+    process
+}
+
 fn has_command(cmd: &str) -> bool {
-    std::process::Command::new(cmd)
+    command_with_runtime_path(cmd)
         .arg("--version")
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
-const PI_NPM_PKG: &str = "@earendil-works/pi-coding-agent";
+/// The official npm registry is the preferred source. A short probe lets users
+/// on a slow or blocked route fall back to our OSS bundle before npm spends
+/// minutes retrying its own registry requests.
+fn official_registry_available(version: &str) -> bool {
+    let url = format!("{OFFICIAL_REGISTRY}/@earendil-works%2Fpi-coding-agent/{version}");
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()
+        .and_then(|runtime| {
+            runtime.block_on(async {
+                reqwest::Client::builder()
+                    .timeout(NETWORK_PROBE_TIMEOUT)
+                    .build()
+                    .ok()?
+                    .get(url)
+                    .send()
+                    .await
+                    .ok()?
+                    .error_for_status()
+                    .ok()?;
+                Some(())
+            })
+        })
+        .is_some()
+}
 
-fn npm_package_spec(min_version: &str) -> String {
-    format!("{PI_NPM_PKG}@{min_version}")
+fn mirror_manifest() -> Option<PiMirrorManifest> {
+    let url = format!("{}/latest.json", PI_MIRROR_BASE.trim_end_matches('/'));
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()
+        .and_then(|runtime| {
+            runtime.block_on(async {
+                let response = reqwest::Client::builder()
+                    .timeout(NETWORK_PROBE_TIMEOUT)
+                    .build()
+                    .ok()?
+                    .get(url)
+                    .send()
+                    .await
+                    .ok()?
+                    .error_for_status()
+                    .ok()?;
+                response.json::<PiMirrorManifest>().await.ok()
+            })
+        })
+}
+
+fn download_bytes(url: &str) -> anyhow::Result<Vec<u8>> {
+    let url = url.to_owned();
+    let bytes = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let response = reqwest::get(url).await?.error_for_status()?;
+            Ok::<_, anyhow::Error>(response.bytes().await?)
+        })?;
+    Ok(bytes.to_vec())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
+}
+
+/// Fetch the versioned, dependency-bundled package from OSS and materialize it
+/// as a temporary `.tgz` that npm can install without contacting a registry.
+fn mirrored_bundle(version: &str) -> anyhow::Result<tempfile::NamedTempFile> {
+    let manifest =
+        mirror_manifest().ok_or_else(|| anyhow::anyhow!("Pi OSS mirror is unavailable"))?;
+    if manifest.version.trim_start_matches('v') != version {
+        anyhow::bail!(
+            "Pi OSS mirror has {}, but this build requires {version}",
+            manifest.version
+        );
+    }
+    if !safe_mirror_asset(&manifest.asset) {
+        anyhow::bail!("Pi OSS mirror returned an invalid asset name");
+    }
+    let url = format!(
+        "{}/{}/{}",
+        PI_MIRROR_BASE.trim_end_matches('/'),
+        version,
+        manifest.asset
+    );
+    progress("mirror", &format!("downloading Pi from OSS: {url}"));
+    let bytes = download_bytes(&url)?;
+    if sha256_hex(&bytes) != manifest.sha256.to_ascii_lowercase() {
+        anyhow::bail!(
+            "Pi OSS bundle checksum mismatch; retry later or use the official npm registry"
+        );
+    }
+    let file = tempfile::Builder::new().suffix(".tgz").tempfile()?;
+    std::fs::write(file.path(), bytes)?;
+    Ok(file)
+}
+
+fn safe_mirror_asset(asset: &str) -> bool {
+    !asset.is_empty() && !asset.contains('/') && !asset.contains('\\') && asset.ends_with(".tgz")
 }
 
 /// Install or upgrade pi via `npm install -g @earendil-works/pi-coding-agent@<lock>`
 /// (falls back to `bun add -g` when npm is absent).
 pub fn run_install(force: bool) -> anyhow::Result<()> {
     let want = required_version();
+    let node = node_version();
+    if !node
+        .as_deref()
+        .map(|v| version_ge(v, MIN_NODE_VERSION))
+        .unwrap_or(false)
+    {
+        let found = node.as_deref().unwrap_or("not found");
+        anyhow::bail!(
+            "Pi requires Node.js >= {MIN_NODE_VERSION}; found {found}. Install or upgrade Node.js first"
+        );
+    }
 
     if !force {
         if let Some((path, have)) = detect_pi() {
@@ -131,17 +296,50 @@ pub fn run_install(force: bool) -> anyhow::Result<()> {
         }
     }
 
-    let pkg = npm_package_spec(&want);
-    let (cmd, args): (&str, Vec<String>) = if has_command("npm") {
-        ("npm", vec!["install".into(), "-g".into(), pkg])
-    } else if has_command("bun") {
-        ("bun", vec!["add".into(), "-g".into(), pkg])
-    } else {
+    if !has_command("npm") && !has_command("bun") {
         anyhow::bail!("neither npm nor bun found; install Node.js or Bun first");
-    };
+    }
+
+    let pkg = npm_package_spec(&want);
+    let official_available = official_registry_available(&want);
+    let (cmd, args, _bundle): (&str, Vec<String>, Option<tempfile::NamedTempFile>) =
+        if official_available {
+            progress(
+                "source",
+                "official npm registry is reachable; installing Pi from upstream",
+            );
+            if has_command("npm") {
+                ("npm", vec!["install".into(), "-g".into(), pkg], None)
+            } else {
+                ("bun", vec!["add".into(), "-g".into(), pkg], None)
+            }
+        } else {
+            // Node distributions include npm. Only npm can reliably consume our
+            // bundled tarball in offline mode, so do not silently send a blocked
+            // network to Bun when the fallback has been selected.
+            if !has_command("npm") {
+                anyhow::bail!(
+                    "official npm registry is unreachable and the Pi OSS fallback requires npm"
+                );
+            }
+            let bundle = mirrored_bundle(&want)?;
+            let local = bundle.path().to_string_lossy().to_string();
+            (
+                "npm",
+                vec![
+                    "install".into(),
+                    "-g".into(),
+                    "--offline".into(),
+                    "--no-audit".into(),
+                    "--no-fund".into(),
+                    local,
+                ],
+                Some(bundle),
+            )
+        };
 
     progress("install", &format!("running {cmd} {}", args.join(" ")));
-    let output = std::process::Command::new(cmd)
+    let output = command_with_runtime_path(cmd)
         .args(args.iter().map(String::as_str))
         .output()
         .map_err(|e| anyhow::anyhow!("failed to run {cmd}: {e}"))?;
@@ -184,16 +382,32 @@ mod tests {
     }
 
     #[test]
+    fn pi_mirror_manifest_is_versioned_and_uses_a_safe_asset_name() {
+        let manifest: PiMirrorManifest = serde_json::from_str(
+            r#"{"version":"0.84.2","asset":"earendil-works-pi-coding-agent-0.84.2.tgz","sha256":"abc"}"#,
+        )
+        .unwrap();
+        assert_eq!(manifest.version, "0.84.2");
+        assert!(safe_mirror_asset(&manifest.asset));
+        assert!(!safe_mirror_asset("../pi.tgz"));
+        assert!(!safe_mirror_asset("pi.zip"));
+    }
+
+    #[test]
     fn pi_status_serializes_camel_case() {
         let s = PiStatus {
             present: true,
             version: Some("0.81.1".into()),
             path: Some("/x/pi".into()),
+            node_present: true,
+            node_version: Some("v22.19.0".into()),
+            node_satisfied: true,
             required_version: "0.81.1".into(),
             satisfied: true,
         };
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["requiredVersion"], serde_json::json!("0.81.1"));
+        assert_eq!(v["nodeSatisfied"], serde_json::json!(true));
         assert_eq!(v["satisfied"], serde_json::json!(true));
     }
 }
