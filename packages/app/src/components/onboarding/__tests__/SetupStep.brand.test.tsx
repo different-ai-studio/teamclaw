@@ -62,6 +62,36 @@ describe('SetupStep on a build that targets pi', () => {
     await vi.waitFor(() => expect(install).toHaveBeenCalledWith('pi'))
   })
 
+  it('does not start the guided Pi install until Node meets Pi’s requirement', async () => {
+    const install = vi.fn(async () => {})
+    seed({
+      agentRuntimes: [
+        req('opencode', { title: 'OpenCode' }),
+        req('pi', { title: 'Pi', present: false, version: null, blocker: 'node' }),
+      ],
+      install,
+    })
+    render(<SetupStep role="guided" onDone={() => {}} />)
+
+    expect(await screen.findByText('使用 Pi 前请先安装 Node.js 22.19 或更高版本。')).toBeInTheDocument()
+    expect(install).not.toHaveBeenCalledWith('pi')
+    expect(screen.getByRole('button', { name: '继续' })).toBeDisabled()
+  })
+
+  it('does not offer the self-select Pi install until Node meets Pi’s requirement', () => {
+    seed({
+      agentRuntimes: [
+        req('opencode', { title: 'OpenCode' }),
+        req('pi', { title: 'Pi', present: false, version: null, blocker: 'node' }),
+      ],
+    })
+    render(<SetupStep role="developer" onDone={() => {}} />)
+
+    expect(screen.getByText('使用 Pi 前请先安装 Node.js 22.19 或更高版本。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '安装' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '继续' })).toBeDisabled()
+  })
+
   it('opens the developer picker on the build’s runtime', () => {
     render(<SetupStep role="developer" onDone={() => {}} />)
     screen.getByRole('button', { name: '继续' }).click()

@@ -874,6 +874,7 @@
       "install": "Install",
       "upgrade": "Upgrade",
       "needsApiKey": "Needs an API key — add it in Settings → LLM later.",
+      "needsNode": "Install Node.js 22.19 or later to use Pi.",
       "installed": "installed",
       "installing": "installing…",
       "ready": "ready",

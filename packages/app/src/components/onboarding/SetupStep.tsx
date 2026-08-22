@@ -125,7 +125,12 @@ function RuntimeCard({
           {t('onboarding.setup.needsApiKey', 'Needs an API key — add it in Settings → LLM later.')}
         </span>
       )}
-      {fetchable && (
+      {runtime.blocker === 'node' && (
+        <span className="text-[11px] leading-4 text-faint">
+          {t('onboarding.setup.needsNode', 'Needs Node.js 22.19 or later before Pi can be installed.')}
+        </span>
+      )}
+      {fetchable && runtime.blocker !== 'node' && (
         <button
           type="button"
           disabled={busy}
@@ -158,7 +163,9 @@ function DependencyRow({ req, installing }: { req: RequirementStatus; installing
         <span className="text-[13px] text-foreground">{req.title}</span>
       </span>
       <span className="font-mono text-[11px] text-faint">
-        {req.version ??
+        {req.blocker === 'node'
+          ? t('onboarding.setup.needsNode', 'Needs Node.js 22.19 or later before Pi can be installed.')
+          : req.version ??
           (ok
             ? t('onboarding.setup.ready', 'ready')
             : installing
@@ -237,12 +244,13 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
   // app can fetch.
   const guidedRuntime = agentRuntimes.find((r) => r.id === GUIDED_RUNTIME)
   const guidedRuntimeMissing = role === 'guided' && !!guidedRuntime && !usable(guidedRuntime)
+  const guidedRuntimeNeedsNode = guidedRuntime?.blocker === 'node'
   const guidedInstallTriggered = React.useRef(false)
   React.useEffect(() => {
-    if (!guidedRuntimeMissing || guidedInstallTriggered.current) return
+    if (!guidedRuntimeMissing || guidedRuntimeNeedsNode || guidedInstallTriggered.current) return
     guidedInstallTriggered.current = true
     void install(GUIDED_RUNTIME)
-  }, [guidedRuntimeMissing, install])
+  }, [guidedRuntimeMissing, guidedRuntimeNeedsNode, install])
 
   const selectedRuntime = agentRuntimes.find((r) => r.id === selected)
   const runtimeReady = usable(selectedRuntime)
@@ -256,7 +264,11 @@ export function SetupStep({ role, onDone }: { role: OnboardingRole; onDone: () =
    * other moving part, so the whole window reads as hung. Anything that greys
    * the button out while the machine is still working spins.
    */
-  const busy = !!installing || amuxdMissing || guidedRuntimeMissing || (!runtimeReady && visibleRuntimes.length > 0)
+  const busy =
+    !!installing ||
+    amuxdMissing ||
+    (guidedRuntimeMissing && !guidedRuntimeNeedsNode) ||
+    (!runtimeReady && visibleRuntimes.length > 0 && selectedRuntime?.blocker !== 'node')
 
   const pick = (id: DaemonLocalAgent) => {
     setSelected(id)

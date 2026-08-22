@@ -63,18 +63,50 @@ pub struct PiStatus {
     pub present: bool,
     pub version: Option<String>,
     pub path: Option<String>,
+    /// Pi is a Node CLI. Keep this separate from Pi's own version so onboarding
+    /// can explain the real prerequisite before attempting `npm install`.
+    pub node_present: bool,
+    pub node_version: Option<String>,
+    pub node_satisfied: bool,
     pub required_version: String,
     pub satisfied: bool,
 }
 
+/// Pi 0.84.x declares `node >=22.19.0`. Keep the check in the daemon (rather
+/// than the React onboarding screen) so CLI, Settings and first-run setup all
+/// make the same decision.
+const MIN_NODE_VERSION: &str = "22.19.0";
+
+fn node_version() -> Option<String> {
+    let out = std::process::Command::new("node")
+        .arg("--version")
+        .env("PATH", crate::runtime::well_known_bin::augmented_path())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
+    (!line.is_empty()).then_some(line)
+}
+
 pub fn doctor() -> PiStatus {
     let want = required_version();
+    let node_version = node_version();
+    let node_satisfied = node_version
+        .as_deref()
+        .map(|v| version_ge(v, MIN_NODE_VERSION))
+        .unwrap_or(false);
     let detected = detect_pi();
     let (present, version, path) = match &detected {
         Some((p, v)) => (true, Some(v.clone()), Some(p.clone())),
         None => (false, None, None),
     };
-    let satisfied = version
+    let pi_satisfied = version
         .as_deref()
         .map(|v| version_ge(v, &want))
         .unwrap_or(false);
@@ -82,8 +114,11 @@ pub fn doctor() -> PiStatus {
         present,
         version,
         path,
+        node_present: node_version.is_some(),
+        node_version,
+        node_satisfied,
         required_version: want,
-        satisfied,
+        satisfied: pi_satisfied && node_satisfied,
     }
 }
 
@@ -112,6 +147,17 @@ fn npm_package_spec(min_version: &str) -> String {
 /// (falls back to `bun add -g` when npm is absent).
 pub fn run_install(force: bool) -> anyhow::Result<()> {
     let want = required_version();
+    let node = node_version();
+    if !node
+        .as_deref()
+        .map(|v| version_ge(v, MIN_NODE_VERSION))
+        .unwrap_or(false)
+    {
+        let found = node.as_deref().unwrap_or("not found");
+        anyhow::bail!(
+            "Pi requires Node.js >= {MIN_NODE_VERSION}; found {found}. Install or upgrade Node.js first"
+        );
+    }
 
     if !force {
         if let Some((path, have)) = detect_pi() {
@@ -189,11 +235,15 @@ mod tests {
             present: true,
             version: Some("0.81.1".into()),
             path: Some("/x/pi".into()),
+            node_present: true,
+            node_version: Some("v22.19.0".into()),
+            node_satisfied: true,
             required_version: "0.81.1".into(),
             satisfied: true,
         };
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["requiredVersion"], serde_json::json!("0.81.1"));
+        assert_eq!(v["nodeSatisfied"], serde_json::json!(true));
         assert_eq!(v["satisfied"], serde_json::json!(true));
     }
 }
