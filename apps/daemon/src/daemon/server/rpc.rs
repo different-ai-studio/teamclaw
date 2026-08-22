@@ -51,9 +51,13 @@ impl DaemonServer {
             "publishing RpcResponse"
         );
         if let Err(e) = self
-            .mqtt
-            .client
-            .publish(res_topic, rumqttc::QoS::AtLeastOnce, false, bytes)
+            .publisher_handle
+            .publish(
+                &res_topic,
+                bytes,
+                false,
+                teamclu_transport::DeliveryGuarantee::AtLeastOnce,
+            )
             .await
         {
             warn!("failed to publish RpcResponse: {}", e);

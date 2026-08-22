@@ -84,6 +84,10 @@ impl MqttClient {
         opts.set_credentials(username, password);
         opts.set_keep_alive(Duration::from_secs(30));
         opts.set_clean_session(true);
+        // The worker persists inbound frames before acknowledging them. This
+        // prevents a slow/full durable inbox from turning QoS1 delivery into
+        // an in-memory-only handoff.
+        opts.set_manual_acks(true);
         // ACP live events can carry full LLM chunks and tool-call payloads.
         // Match the desktop client so daemon-originated session/live publishes
         // do not trip rumqttc's 10 KiB default packet cap.
