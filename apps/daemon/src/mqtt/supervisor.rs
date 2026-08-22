@@ -466,7 +466,8 @@ fn restart_delay(failure_count: u32) -> Duration {
 }
 
 fn inbound_retry_delay(attempt: u32) -> Duration {
-    Duration::from_secs(1_u64 << attempt.saturating_sub(1).min(4)).min(INBOUND_RETRY_MAX)
+    let exponent = attempt.saturating_sub(1).min(5);
+    Duration::from_secs(1_u64 << exponent).min(INBOUND_RETRY_MAX)
 }
 
 fn schedule_restart_at(next_restart: &mut Instant, restart_failures: &mut u32, now: Instant) {
@@ -490,6 +491,10 @@ fn watchdog_rebuild_request_allowed(
         return false;
     }
     rebuild_requested_at.is_none()
+}
+
+fn wake_gap_requires_recovery(last_observed_ms: u64, now_ms: u64) -> bool {
+    now_ms.saturating_sub(last_observed_ms) >= WAKE_GAP_THRESHOLD.as_millis() as u64
 }
 
 impl MqttSupervisor {
@@ -664,6 +669,10 @@ async fn run_supervisor(
     let mut shutting_down = false;
     let mut ready_connection_generation = None::<u64>;
     let mut last_observed_ms = MqttHeartbeat::now_ms();
+    // A recovery signal is an edge, not a command to repeatedly tear down the
+    // worker. Keep the state in the supervisor so focus/online/watchdog/wake
+    // signals all converge on one active recovery attempt.
+    let mut recovery_in_progress = false;
 
     snapshot_update(&snapshot, |current| {
         current.phase = "Connecting".to_string();
@@ -772,6 +781,7 @@ async fn run_supervisor(
                 current.worker_generation = Some(worker_generation);
                 current.connected = false;
                 current.ready_generation = None;
+                current.next_retry_at = None;
             });
             let _ = events_tx
                 .send(MqttSupervisorEvent::Rebuilt {
@@ -891,12 +901,17 @@ async fn run_supervisor(
                         });
                     } else {
                         let reason = format!("{} recovery", request.reason.as_str());
+                        let already_recovering = recovery_in_progress;
                         snapshot_update(&snapshot, |current| {
-                            current.phase = "Recovering".to_string();
+                            if !already_recovering {
+                                current.phase = "Recovering".to_string();
+                            }
                             current.last_recovery_reason = Some(request.reason.as_str().to_string());
                             current.connected = false;
                             current.ready_generation = None;
+                            current.next_retry_at = None;
                         });
+                        recovery_in_progress = true;
                         ready_connection_generation = None;
                         let _ = request.reply.send(MqttRecoveryAccepted {
                             accepted: true,
@@ -904,13 +919,19 @@ async fn run_supervisor(
                             request_id: request.request_id,
                             worker_generation: current_generation,
                         });
-                        if worker.is_some() {
+                        // Once a recovery is active, later signals only update
+                        // the reason above. Repeated teardown here was the
+                        // source of rebuild storms after a laptop wake or a
+                        // flapping VPN.
+                        if !already_recovering && worker.is_some() {
                             stop_worker(&mut worker, &heartbeat).await;
                             transport_connected_generation = None;
                             connected.store(false, Ordering::Relaxed);
                         }
                         restart_reason.get_or_insert(reason);
-                        next_restart = Instant::now();
+                        if !already_recovering {
+                            next_restart = Instant::now();
+                        }
                     }
                 } else {
                     shutting_down = true;
@@ -954,6 +975,7 @@ async fn run_supervisor(
                                     *ready_worker,
                                 ) {
                                     restart_failures = 0;
+                                    recovery_in_progress = false;
                                     ready_connection_generation = Some(*ready_gen);
                                     snapshot_update(&snapshot, |current| {
                                         current.phase = "Ready".to_string();
@@ -1013,15 +1035,30 @@ async fn run_supervisor(
         }
 
         let now_ms = MqttHeartbeat::now_ms();
-        if now_ms.saturating_sub(last_observed_ms) >= WAKE_GAP_THRESHOLD.as_millis() as u64 {
+        if wake_gap_requires_recovery(last_observed_ms, now_ms) {
             last_observed_ms = now_ms;
-            if worker.is_some() && !connected.load(Ordering::Relaxed) {
+            if !shutting_down && !recovery_in_progress {
+                recovery_in_progress = true;
+                snapshot_update(&snapshot, |current| {
+                    current.phase = "Recovering".to_string();
+                    current.connected = false;
+                    current.ready_generation = None;
+                    current.last_recovery_reason = Some("daemon_wake_gap".to_string());
+                    current.next_retry_at = None;
+                });
+                ready_connection_generation = None;
                 restart_reason.get_or_insert("daemon wake gap recovery".to_string());
+                // A wall-clock gap means the old socket may have survived in
+                // a half-closed state. Stop that generation even if its last
+                // snapshot said Ready, then let the normal credential/backoff
+                // path create exactly one replacement worker.
+                if worker.is_some() {
+                    stop_worker(&mut worker, &heartbeat).await;
+                    transport_connected_generation = None;
+                    connected.store(false, Ordering::Relaxed);
+                }
                 next_restart = Instant::now();
             }
-            snapshot_update(&snapshot, |current| {
-                current.last_recovery_reason = Some("daemon_wake_gap".to_string());
-            });
         } else {
             last_observed_ms = now_ms;
         }
@@ -2076,6 +2113,19 @@ mod tests {
         assert!(!watchdog_rebuild_request_allowed(false, &mut requested_at));
         assert!(requested_at.is_none());
         assert!(watchdog_rebuild_request_allowed(true, &mut requested_at));
+    }
+
+    #[test]
+    fn wall_clock_wake_gap_is_only_triggered_once_per_observation() {
+        let threshold = WAKE_GAP_THRESHOLD.as_millis() as u64;
+        assert!(!wake_gap_requires_recovery(1_000, 1_000 + threshold - 1));
+        assert!(wake_gap_requires_recovery(1_000, 1_000 + threshold));
+
+        // The supervisor advances its observation timestamp after handling the
+        // gap. A second pass at the same wall-clock value must not create a
+        // second recovery edge.
+        let observed = 1_000 + threshold;
+        assert!(!wake_gap_requires_recovery(observed, observed));
     }
 
     #[test]

@@ -104,6 +104,7 @@ impl From<ShareModeResponse> for ShareModeConfig {
 /// Access token must be refreshed this long before its `expires_at` so an
 /// in-flight request never races the expiry boundary.
 const ACCESS_TOKEN_LEEWAY: Duration = Duration::from_secs(60);
+const REFRESH_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Mutable token state shared across all clones of a `CloudApiBackend`.
 ///
@@ -249,7 +250,22 @@ impl CloudApiBackend {
 
         // Slow path: serialize refreshes so concurrent callers don't each submit
         // the (about-to-rotate) refresh token in parallel.
-        let _guard = self.refresh_lock.lock().await;
+        // A waiter must not sit behind a wedged refresh forever. The request
+        // itself has a timeout too, but this bound protects callers when the
+        // coordinator is contended during wake/reconnect bursts.
+        let _guard =
+            match tokio::time::timeout(REFRESH_LOCK_TIMEOUT, self.refresh_lock.lock()).await {
+                Ok(guard) => guard,
+                Err(_) => {
+                    let error = BackendError::Provider {
+                        provider: "cloud_api",
+                        code: Some("refresh_coordinator_busy".to_string()),
+                        message: "token refresh coordinator is busy".to_string(),
+                    };
+                    self.remember_refresh_failure(&error, Duration::from_secs(2));
+                    return Err(error);
+                }
+            };
 
         // Re-check: another task may have refreshed while we waited on the gate.
         if let Some(token) = self.cached_access_token() {
@@ -293,11 +309,7 @@ impl CloudApiBackend {
             Ok(Ok(resp)) => resp,
             Ok(Err(error)) => {
                 let error = network_error(error);
-                self.token
-                    .lock()
-                    .expect("token state poisoned")
-                    .refresh_failure =
-                    Some((Instant::now() + Duration::from_secs(5), error.to_string()));
+                self.remember_refresh_failure(&error, Duration::from_secs(5));
                 return Err(error);
             }
             Err(_) => {
@@ -306,11 +318,7 @@ impl CloudApiBackend {
                     code: None,
                     message: "token refresh timed out".to_string(),
                 };
-                self.token
-                    .lock()
-                    .expect("token state poisoned")
-                    .refresh_failure =
-                    Some((Instant::now() + Duration::from_secs(5), error.to_string()));
+                self.remember_refresh_failure(&error, Duration::from_secs(5));
                 return Err(error);
             }
         };
@@ -330,14 +338,18 @@ impl CloudApiBackend {
             } else {
                 Duration::from_secs(5)
             };
-            self.token
-                .lock()
-                .expect("token state poisoned")
-                .refresh_failure = Some((Instant::now() + cooldown, error.to_string()));
+            self.remember_refresh_failure(&error, cooldown);
             return Err(error);
         }
 
-        let body: TokenResponse = resp.json().await.map_err(network_error)?;
+        let body: TokenResponse = match resp.json().await {
+            Ok(body) => body,
+            Err(error) => {
+                let error = network_error(error);
+                self.remember_refresh_failure(&error, Duration::from_secs(5));
+                return Err(error);
+            }
+        };
 
         // Capture the rotated refresh token. Supabase revokes the prior token
         // after the reuse interval, so we must keep (and persist) the new one.
@@ -383,6 +395,13 @@ impl CloudApiBackend {
             }
             _ => None,
         }
+    }
+
+    fn remember_refresh_failure(&self, error: &BackendError, cooldown: Duration) {
+        self.token
+            .lock()
+            .expect("token state poisoned")
+            .refresh_failure = Some((Instant::now() + cooldown, error.to_string()));
     }
 
     /// Best-effort write of a rotated refresh token back to `backend.toml`.
@@ -1874,6 +1893,38 @@ mod tests {
         assert_eq!(
             refreshes, 1,
             "access token should be cached, not re-fetched"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_refresh_failures_share_one_cloud_attempt() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/auth/refresh"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        let backend = CloudApiBackend::new(config(&server));
+
+        let mut calls = Vec::new();
+        for _ in 0..16 {
+            let backend = backend.clone();
+            calls.push(tokio::spawn(async move { backend.access_token().await }));
+        }
+        for call in calls {
+            assert!(call.await.unwrap().is_err());
+        }
+
+        let refreshes = server
+            .received_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|request| request.url.path() == "/v1/auth/refresh")
+            .count();
+        assert_eq!(
+            refreshes, 1,
+            "one failed refresh must fan out to all waiters"
         );
     }
 

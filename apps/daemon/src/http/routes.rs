@@ -372,14 +372,7 @@ async fn mqtt_recover(
     principal: super::auth::Principal,
     Json(body): Json<MqttRecoverBody>,
 ) -> Result<Json<crate::mqtt::MqttRecoveryAccepted>, super::errors::HttpError> {
-    if !peer.ip().is_loopback()
-        || !state
-            .config
-            .bind
-            .parse::<SocketAddr>()
-            .map(|addr| addr.ip().is_loopback())
-            .unwrap_or(false)
-    {
+    if !recovery_listener_allows(peer, &state.config.bind) {
         return Err(super::errors::HttpError::forbidden(
             "MQTT recovery is available only on the daemon loopback listener",
         ));
@@ -403,8 +396,50 @@ async fn mqtt_recover(
     Ok(Json(response))
 }
 
+fn recovery_listener_allows(peer: SocketAddr, bind: &str) -> bool {
+    peer.ip().is_loopback()
+        && bind
+            .parse::<SocketAddr>()
+            .map(|addr| addr.ip().is_loopback())
+            .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn mqtt_recovery_requires_loopback_peer_and_listener() {
+        assert!(recovery_listener_allows(
+            "127.0.0.1:40000".parse().unwrap(),
+            "127.0.0.1:0"
+        ));
+        assert!(recovery_listener_allows(
+            "[::1]:40000".parse().unwrap(),
+            "[::1]:0"
+        ));
+        assert!(!recovery_listener_allows(
+            "192.168.1.10:40000".parse().unwrap(),
+            "127.0.0.1:0"
+        ));
+        assert!(!recovery_listener_allows(
+            "127.0.0.1:40000".parse().unwrap(),
+            "0.0.0.0:0"
+        ));
+        assert!(!recovery_listener_allows(
+            "127.0.0.1:40000".parse().unwrap(),
+            "not-an-address"
+        ));
+    }
+
+    #[test]
+    fn mqtt_recovery_reasons_are_strictly_allowlisted() {
+        assert!(MqttRecoveryReason::parse("long_visibility_resume").is_some());
+        assert!(MqttRecoveryReason::parse("user_requested").is_some());
+        assert!(MqttRecoveryReason::parse("force_credential_refresh").is_none());
+        assert!(MqttRecoveryReason::parse("").is_none());
+    }
+
     /// Every capture in this router must use axum 0.7's `:name` form.
     ///
     /// matchit 0.7 treats `{name}` as a LITERAL path segment, so a route

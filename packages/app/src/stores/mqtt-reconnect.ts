@@ -43,6 +43,14 @@ interface MqttReconnectState {
 /** Hidden longer than this before visibility resume counts as sleep/wake. */
 export const MQTT_SLEEP_WAKE_HIDDEN_MS = 60_000
 
+export function daemonMqttNeedsRecovery(
+  snapshot: { connected: boolean; phase: string } | null,
+  fallbackConnected: boolean | null,
+): boolean {
+  if (snapshot) return !snapshot.connected && snapshot.phase !== 'Stopped'
+  return fallbackConnected !== true
+}
+
 /** True when the broker rejected MQTT credentials (expired JWT after sleep, etc.). */
 export function isMqttAuthFailure(message: string): boolean {
   const m = message.toLowerCase()
@@ -97,6 +105,17 @@ async function runMqttRecovery(
 ): Promise<void> {
   if (generation !== recoveryGeneration) return
   const utils = await import('@/lib/utils')
+  if (utils.isTauri() && reason !== 'user_requested' && reason !== 'credential_rejected') {
+    const { getDaemonMqttSnapshot } = await import('@/lib/daemon-local-client')
+    const snapshot = await getDaemonMqttSnapshot()
+    if (snapshot?.connected) {
+      get().setConnected(true)
+      void import('@/lib/daemon-probe-signal')
+        .then((m) => m.requestDaemonProbe())
+        .catch(() => {})
+      return
+    }
+  }
   const tasks: Promise<unknown>[] = []
   if (utils.isTauri()) {
     tasks.push(
@@ -232,18 +251,27 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
       const bridge = await import('@/lib/mqtt-bridge').catch(() => null)
       if (!bridge) return
       const { mqttStatus } = bridge
+      const { getDaemonMqttSnapshot } = await import('@/lib/daemon-local-client').catch(() => ({
+        getDaemonMqttSnapshot: async () => null,
+      }))
       const setConnected = get().setConnected
       const setError = get().setError
       const probe = async () => {
+        const daemonSnapshot = await getDaemonMqttSnapshot()
+        if (daemonSnapshot) {
+          setConnected(daemonSnapshot.connected)
+          return daemonSnapshot
+        }
         try {
           const status = await mqttStatus()
           setConnected(status.connected)
         } catch {
           setConnected(false)
         }
+        return null
       }
-      await probe()
-      if (get().connected !== true) {
+      const initialSnapshot = await probe()
+      if (daemonMqttNeedsRecovery(initialSnapshot, get().connected)) {
         void recoverMqttCredentials(get, 'auto', 'startup')
       }
       try {
@@ -280,8 +308,8 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
           }
           if (document.visibilityState !== 'visible') return
           void (async () => {
-            await probe()
-            if (get().connected === true) return
+            const snapshot = await probe()
+            if (!daemonMqttNeedsRecovery(snapshot, get().connected)) return
 
             const wasDiscarded =
               'wasDiscarded' in document &&
@@ -304,8 +332,8 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
         })
         window.addEventListener('focus', () => {
           void (async () => {
-            await probe()
-            if (get().connected !== true) {
+            const snapshot = await probe()
+            if (daemonMqttNeedsRecovery(snapshot, get().connected)) {
               await recoverMqttCredentials(get, 'auto', 'visibility_resume')
             }
           })()
