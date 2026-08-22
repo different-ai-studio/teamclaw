@@ -425,7 +425,7 @@ impl DaemonServer {
             // Re-publish retained RuntimeInfo so clients that missed the
             // original retain (late subscribe, reconnect) still populate the
             // model picker without spawning a duplicate process.
-            self.publish_actor_state().await;
+            let _ = self.publish_actor_state().await;
             if !session_id.is_empty() {
                 if let Some(tc) = self.teamclu.as_mut() {
                     if let Err(e) = tc.ensure_session_live_subscription(session_id).await {
@@ -700,7 +700,7 @@ impl DaemonServer {
         let _ = self.sessions.save(&self.sessions_path);
 
         // ACTIVE — refresh the actor snapshot so clients see the attachment.
-        self.publish_actor_state().await;
+        let _ = self.publish_actor_state().await;
 
         // Replay any messages the runtime missed before it was spawned.
         // Uses Option B (event loop hook is not needed here because
@@ -801,7 +801,7 @@ impl DaemonServer {
         }
         // Detach: the session drops out of `live_sessions`, so clients render
         // it cold. Absence is the signal — there is no "stopped" entry.
-        self.publish_actor_state().await;
+        let _ = self.publish_actor_state().await;
     }
 
     pub(crate) async fn handle_start_runtime(
@@ -925,7 +925,7 @@ impl DaemonServer {
         // `agent_runtimes.current_model` this used to do is gone: the model
         // lives on the participant row and the actor snapshot (ADR-0004/0005).
         if success {
-            self.publish_actor_state().await;
+            let _ = self.publish_actor_state().await;
         }
 
         RpcResponse {

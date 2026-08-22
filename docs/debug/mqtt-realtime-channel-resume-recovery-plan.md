@@ -1,6 +1,6 @@
 # MQTT 实时通道睡眠唤醒与断联恢复方案
 
-> 状态：已完成 Subagent review，并按 review 修订；暂不修改实现代码
+> 状态：已完成 Subagent review，并按 review 落地实现；真实 broker 故障注入待验收
 >
 > 适用分支：`fix/p2-daemon-status-probe`
 >
@@ -10,8 +10,12 @@
 >
 > 本文不是重新设计 MQTT supervisor。此前未提交的 MQTT 架构改造是本方案的
 > 基线，本次只补齐“睡眠/唤醒、VPN 恢复后如何主动恢复”和对应的故障注入验收。
-> 本文同时明确当前未提交架构改造尚未完成的 durable 语义、代次一致性和安全边界，
-> 避免把现有的 at-least-once 实现误写成 exactly-once。
+> 执行状态（2026-08-22）：基础 supervisor/worker、recovery signal、token 协同和前端
+> 状态修复已提交；durable 崩溃窗口、outbox event identity、旧 worker 事件隔离和
+> durable 存储故障停止重试已完成；queue high-water mark、存储错误分类透传和人工
+> recovery 解锁策略已补齐，真实 broker/TCP/TLS/macOS sleep 故障注入仍需在可控环境验收。
+> 本文同时明确 durable 语义、代次一致性和安全边界，避免把 at-least-once 实现误写成
+> exactly-once。
 
 ## 0. Review 修订摘要
 
@@ -47,11 +51,16 @@ Subagent review 认为原计划不能直接进入实现，主要缺口已在下�
   - durable inbox/outbox 接入。
 - `apps/daemon/src/mqtt/durable_queue.rs`
   - append-only durable inbox/outbox；
-  - ACK、恢复、日志压缩和 torn tail 处理。
+  - ACK、恢复、日志压缩和 torn tail 处理；
+  - inbox dedup 仅保留未 ACK 项，支持旧格式兼容和崩溃后重建，避免历史 ID 无限增长；
+  - queue compact 持久化 high-water mark，旧 generation 的延迟 ACK 不会命中新消息。
 - `apps/daemon/src/daemon/server.rs`
   - daemon business owner 与 MQTT worker 解耦；
   - MQTT inbound 交给 command executor；
-  - `/v1/info.mqtt_connected` 由当前 generation 的 readiness 更新。
+  - `/v1/info.mqtt_connected` 由当前 generation 的 readiness 更新；
+  - actor retained state 发布失败会阻止当前 generation 进入 Ready，并保留 durable
+    store 错误分类；
+  - durable `StorageError` 只允许人工 recovery 解锁，网络/唤醒信号不会再次启动重建。
 - `apps/daemon/src/daemon/server/command_executor.rs`
   - MQTT worker 不再直接执行业务 handler；
   - 业务 ACK 在 handler 完成后发出。

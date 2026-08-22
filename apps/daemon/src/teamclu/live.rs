@@ -221,18 +221,32 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use std::sync::Mutex;
-    use teamclu_transport::PublisherError;
+    use teamclu_transport::{IncomingFrame, PublisherError};
 
     /// Records the `DeliveryGuarantee` of every `publish` call so tests can
     /// assert the QoS chosen by `LivePublisher`.
     #[derive(Default)]
     struct RecordingPublisher {
-        calls: Mutex<Vec<DeliveryGuarantee>>,
+        calls: Mutex<Vec<(DeliveryGuarantee, Vec<u8>)>>,
     }
 
     impl RecordingPublisher {
         fn guarantees(&self) -> Vec<DeliveryGuarantee> {
-            self.calls.lock().unwrap().clone()
+            self.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(delivery, _)| delivery.clone())
+                .collect()
+        }
+
+        fn payloads(&self) -> Vec<Vec<u8>> {
+            self.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(_, payload)| payload.clone())
+                .collect()
         }
     }
 
@@ -241,11 +255,11 @@ mod tests {
         async fn publish(
             &self,
             _topic: &str,
-            _payload: Vec<u8>,
+            payload: Vec<u8>,
             _retain: bool,
             delivery: DeliveryGuarantee,
         ) -> Result<(), PublisherError> {
-            self.calls.lock().unwrap().push(delivery);
+            self.calls.lock().unwrap().push((delivery, payload));
             Ok(())
         }
 
@@ -324,6 +338,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(recorder.guarantees(), vec![DeliveryGuarantee::AtMostOnce]);
+    }
+
+    #[tokio::test]
+    async fn live_event_id_is_on_wire_for_durable_replay_dedup() {
+        let (recorder, live) = publisher();
+        let env = acp_envelope(amux::acp_event::Event::Output(amux::AcpOutput {
+            text: "hi".to_string(),
+            ..Default::default()
+        }));
+        live.publish_acp_event("session-1", "actor-1", &env)
+            .await
+            .unwrap();
+
+        let payload = recorder.payloads().pop().expect("published payload");
+        let wire = LiveEventEnvelope::decode(payload.as_slice()).unwrap();
+        assert!(!wire.event_id.is_empty());
+        assert_eq!(
+            crate::mqtt::subscriber::stable_message_id(&IncomingFrame {
+                topic: "amux/team-1/session/session-1/live".to_string(),
+                payload,
+                retained: false,
+            }),
+            Some(wire.event_id)
+        );
     }
 
     #[tokio::test]

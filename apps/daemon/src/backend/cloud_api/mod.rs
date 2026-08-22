@@ -3085,6 +3085,10 @@ mod tests {
         );
 
         // Next refresh succeeds and clears the latch.
+        // Clear the shared failure cooldown to model re-onboarding/fresh
+        // credentials; ordinary callers must continue respecting the cooldown
+        // after a terminal refresh rejection.
+        backend.invalidate_cached_credential();
         assert_eq!(backend.access_token().await.unwrap(), "access-token");
         assert_eq!(
             backend.cloud_auth_health(),

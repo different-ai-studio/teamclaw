@@ -862,14 +862,14 @@ impl DaemonServer {
         mqtt_supervisor: &MqttSupervisor,
         generation: u64,
         worker_generation: u64,
-    ) -> Result<(), ()> {
+    ) -> Result<(), String> {
         let current = || mqtt_supervisor.is_generation_current(generation, worker_generation);
         if !current() {
             warn!(
                 context,
                 generation, worker_generation, "discarding stale MQTT restore attempt"
             );
-            return Err(());
+            return Err("stale MQTT generation".to_string());
         }
         if subscribe {
             let runtime_topic = self.topics.runtime_commands_wildcard();
@@ -887,10 +887,10 @@ impl DaemonServer {
                     "subscribe_all failed after CONNACK, reconnecting"
                 );
                 mark_mqtt_connected(&self.mqtt_connected_flag, false);
-                return Err(());
+                return Err(format!("MQTT runtime subscription failed: {e}"));
             }
             if !current() {
-                return Err(());
+                return Err("stale MQTT generation after runtime subscription".to_string());
             }
             if let Some(tc) = &mut self.teamclu {
                 if let Err(e) = tc.subscribe_all().await {
@@ -900,12 +900,12 @@ impl DaemonServer {
                         "teamclu subscribe failed after CONNACK, reconnecting"
                     );
                     mark_mqtt_connected(&self.mqtt_connected_flag, false);
-                    return Err(());
+                    return Err(format!("teamclu subscription failed: {e}"));
                 }
             }
         }
         if !current() {
-            return Err(());
+            return Err("stale MQTT generation before state restore".to_string());
         }
         if self.config.team_id.is_some() {
             let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
@@ -927,10 +927,10 @@ impl DaemonServer {
                     "publish_actor_presence failed after CONNACK, reconnecting"
                 );
                 mark_mqtt_connected(&self.mqtt_connected_flag, false);
-                return Err(());
+                return Err(format!("MQTT actor presence publish failed: {e}"));
             }
             if !current() {
-                return Err(());
+                return Err("stale MQTT generation after actor presence".to_string());
             }
             // That publish is presence-only, so it overwrites the retained
             // snapshot with an empty catalog and no live sessions — measured
@@ -939,17 +939,43 @@ impl DaemonServer {
             // session. Re-publishing the real snapshot is not optional on
             // reconnect: `apply_start_runtime` takes its dedup path for an
             // attachment that already exists, so nothing else would restore it.
-            self.publish_actor_state().await;
+            if let Err(error) = self.publish_actor_state().await {
+                warn!(%error, "failed to publish actor state after MQTT reconnect");
+                mark_mqtt_connected(&self.mqtt_connected_flag, false);
+                let reason = if matches!(
+                    &error,
+                    teamclu_transport::PublisherError::Unavailable(message)
+                        if message.starts_with("could not persist MQTT publish")
+                ) {
+                    format!("durable_store:actor_state_publish_failed: {error}")
+                } else {
+                    format!("MQTT actor state publish failed: {error}")
+                };
+                return Err(reason);
+            }
             if !current() {
-                return Err(());
+                return Err("stale MQTT generation after actor state".to_string());
             }
         } else {
             warn!("no team_id yet; skipping presence announce until onboarding completes");
+            if let Err(error) = self.publish_actor_state().await {
+                warn!(%error, "failed to publish actor state before onboarding");
+                mark_mqtt_connected(&self.mqtt_connected_flag, false);
+                let reason = if matches!(
+                    &error,
+                    teamclu_transport::PublisherError::Unavailable(message)
+                        if message.starts_with("could not persist MQTT publish")
+                ) {
+                    format!("durable_store:actor_state_publish_failed: {error}")
+                } else {
+                    format!("MQTT actor state publish failed: {error}")
+                };
+                return Err(reason);
+            }
         }
         if !current() {
-            return Err(());
+            return Err("stale MQTT generation before readiness".to_string());
         }
-        self.publish_all_agent_states().await;
         Ok(())
     }
 
@@ -1745,7 +1771,7 @@ impl DaemonServer {
                     event = mqtt_supervisor.events.recv() => match event {
                         Some(MqttSupervisorEvent::TransportConnected { generation, worker_generation }) => {
                             info!(generation, "MQTT first generation transport connected; restoring subscriptions and daemon state");
-                            let restored = tokio::time::timeout(
+                            let restore_reason = match tokio::time::timeout(
                                 Duration::from_secs(15),
                                     self.mqtt_resubscribe_after_connack(
                                         "initial",
@@ -1756,12 +1782,26 @@ impl DaemonServer {
                                     ),
                             )
                             .await
-                            .is_ok_and(|result| result.is_ok());
-                            if restored && mqtt_supervisor.mark_generation_ready(generation, worker_generation).await {
+                            {
+                                Ok(Ok(())) => None,
+                                Ok(Err(reason)) => Some(reason),
+                                Err(_) => Some("MQTT state restore timed out".to_string()),
+                            };
+                            if restore_reason.is_none()
+                                && mqtt_supervisor
+                                    .mark_generation_ready(generation, worker_generation)
+                                    .await
+                            {
                                 break;
                             }
                             mqtt_supervisor
-                                .request_rebuild("initial MQTT subscription/state restore failed")
+                                .request_rebuild_for_generation(
+                                    generation,
+                                    worker_generation,
+                                    restore_reason.as_deref().unwrap_or(
+                                        "initial MQTT subscription/state restore failed",
+                                    ),
+                                )
                                 .await;
                         }
                         Some(MqttSupervisorEvent::Terminated) | None => {
@@ -1967,7 +2007,7 @@ impl DaemonServer {
                             }
                             Some(MqttSupervisorEvent::SubscriptionsReady { generation, worker_generation }) => {
                                 info!(generation, "MQTT subscriptions ready; restoring daemon state");
-                                let restored = tokio::time::timeout(
+                                let restore_reason = match tokio::time::timeout(
                                     Duration::from_secs(15),
                                     self.mqtt_resubscribe_after_connack(
                                         "auto-reconnect",
@@ -1978,13 +2018,27 @@ impl DaemonServer {
                                     ),
                                 )
                                 .await
-                                .is_ok_and(|result| result.is_ok());
-                                if restored && mqtt_supervisor.mark_generation_ready(generation, worker_generation).await {
+                                {
+                                    Ok(Ok(())) => None,
+                                    Ok(Err(reason)) => Some(reason),
+                                    Err(_) => Some("MQTT state restore timed out".to_string()),
+                                };
+                                if restore_reason.is_none()
+                                    && mqtt_supervisor
+                                        .mark_generation_ready(generation, worker_generation)
+                                        .await
+                                {
                                     info!(generation, "MQTT generation readiness acknowledged");
                                 } else {
                                     warn!(generation, "MQTT state restore failed; requesting generation rebuild");
                                     mqtt_supervisor
-                                        .request_rebuild("MQTT subscription/state restore failed")
+                                        .request_rebuild_for_generation(
+                                            generation,
+                                            worker_generation,
+                                            restore_reason
+                                                .as_deref()
+                                                .unwrap_or("MQTT subscription/state restore failed"),
+                                        )
                                         .await;
                                 }
                             }
@@ -2038,7 +2092,7 @@ impl DaemonServer {
                             // `apply_start_runtime` and so were invisible in the
                             // retain until an unrelated reconnect.
                             if actor_state_dirty {
-                                self.publish_actor_state().await;
+                                let _ = self.publish_actor_state().await;
                             }
                             for (agent_id, acp_event) in coalesce_text_events(agent_events) {
                                 self.forward_agent_event(&agent_id, acp_event).await;

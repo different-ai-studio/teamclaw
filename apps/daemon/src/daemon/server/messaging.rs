@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::runtime::acp_event_frame::AcpEventFrame;
+use teamclu_transport::PublisherError;
 
 /// One-way latency probe (dev-only). When the daemon is started with
 /// AMUX_LATENCY_PROBE=1, outgoing ACP envelopes carry a `probe:<ms>` marker in
@@ -43,12 +44,12 @@ impl DaemonServer {
     /// `runtime/{id}/state` retains are no longer published — clients read
     /// `{actor}/state` only (ADR-0004 phase 7, iOS out of scope).
     pub(crate) async fn publish_runtime_state_by_id(&self, _agent_id: &str) {
-        self.publish_actor_state().await;
+        let _ = self.publish_actor_state().await;
     }
 
     /// Re-publish the actor snapshot on startup / MQTT reconnect.
     pub(crate) async fn publish_all_agent_states(&self) {
-        self.publish_actor_state().await;
+        let _ = self.publish_actor_state().await;
     }
 
     /// Publish the whole actor snapshot on the one retained topic this actor
@@ -64,7 +65,7 @@ impl DaemonServer {
     /// `apply_start_runtime` (which is why they never got a spawn-time retain),
     /// but they do live in `RuntimeManager.agents`, so they appear here as soon
     /// as this fires on attach.
-    pub(crate) async fn publish_actor_state(&self) {
+    pub(crate) async fn publish_actor_state(&self) -> Result<(), PublisherError> {
         let (default_workspace_id, default_worktree) =
             self.resolve_default_workspace_for_publish().await;
 
@@ -140,7 +141,7 @@ impl DaemonServer {
         };
 
         let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
-        let _ = publisher.publish_actor_presence(&state).await;
+        publisher.publish_actor_presence(&state).await
     }
 
     /// Returns the single collab session_id this runtime should publish
@@ -289,7 +290,7 @@ impl DaemonServer {
                 session.status = amux::AgentStatus::Error as i32;
                 let _ = self.sessions.save(&self.sessions_path);
             }
-            self.publish_actor_state().await;
+            let _ = self.publish_actor_state().await;
         }
 
         // Handle internal RawJson events (session_title, tool_title_update)

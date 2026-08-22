@@ -1,6 +1,7 @@
 # MQTT 实时通道重连架构改造计划
 
-> 状态：代码实现已完成于 `fix/p2-daemon-status-probe`，MQTT 改动尚未提交；真实 broker 故障注入仍需在可控环境验收
+> 状态：基础代码实现已提交于 `fix/p2-daemon-status-probe`；durable 崩溃窗口、旧
+> worker 事件隔离和存储故障停止重试已完成，真实 broker 故障注入仍需在可控环境验收
 >
 > 目标：一次性完成 MQTT worker、连接 supervisor、业务 command executor 和独立 watchdog 的拆分，消除当前 90 秒固定等待以及主事件循环被业务 handler 卡死后无法自愈的问题。
 >
