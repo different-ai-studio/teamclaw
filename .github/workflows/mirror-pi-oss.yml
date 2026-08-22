@@ -67,6 +67,9 @@ jobs:
           # npm include it in the new tarball. Optional native dependencies stay
           # optional: npm may omit an unsupported platform binary, as upstream
           # itself does during a normal install.
+          # The upstream tarball's shrinkwrap includes stale development
+          # entries. It is not usable for a production-only bundle.
+          rm npm-shrinkwrap.json
           npm install --omit=dev --no-audit --no-fund
           node <<'NODE'
           const fs = require('fs')
