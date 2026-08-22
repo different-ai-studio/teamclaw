@@ -820,7 +820,6 @@ impl DaemonServer {
 
         let initial_model_override = runtime_start_initial_model_override(start);
 
-
         let outcome = self
             .apply_start_runtime(
                 at,

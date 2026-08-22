@@ -7,6 +7,7 @@
 
 use std::time::{Duration, Instant};
 
+use prost::Message;
 use tracing::{error, warn};
 
 use crate::mqtt::{MqttInbound, MqttInboundDisposition, MqttSupervisor};
@@ -15,6 +16,15 @@ use super::DaemonServer;
 
 pub(crate) struct DaemonCommandExecutor<'a> {
     server: &'a mut DaemonServer,
+}
+
+/// Result of the business side of a durable inbound message. The transport
+/// layer owns the durable ACK, so handlers must not ACK MQTT frames directly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HandlerOutcome {
+    Success,
+    Retryable { reason: String },
+    Permanent { reason: String },
 }
 
 impl<'a> DaemonCommandExecutor<'a> {
@@ -29,15 +39,23 @@ impl<'a> DaemonCommandExecutor<'a> {
         &mut self,
         envelope: MqttInbound,
         supervisor: &MqttSupervisor,
-    ) {
+    ) -> HandlerOutcome {
         let started = Instant::now();
         let id = envelope.id;
-        if let Some(message) = crate::mqtt::subscriber::parse_frame(&envelope.frame) {
-            // Do not cancel a side-effecting handler at an arbitrary wall-clock
-            // boundary. Its HTTP/RPC clients own their cancellation and retry
-            // semantics; cancelling here could replay a partially applied command.
-            self.server.handle_incoming(message).await;
-        }
+        let outcome = if let Some(message) = crate::mqtt::subscriber::parse_frame(&envelope.frame) {
+            if let Err(reason) = validate_inbound_message(&message) {
+                HandlerOutcome::Permanent { reason }
+            } else {
+                // Do not cancel a side-effecting handler at an arbitrary wall-clock
+                // boundary. Its HTTP/RPC clients own their cancellation and retry
+                // semantics; cancelling here could replay a partially applied command.
+                self.server.handle_incoming(message).await
+            }
+        } else {
+            HandlerOutcome::Permanent {
+                reason: "unsupported or malformed MQTT inbound frame".to_string(),
+            }
+        };
 
         let duration = started.elapsed();
         if duration >= Duration::from_secs(10) {
@@ -56,8 +74,43 @@ impl<'a> DaemonCommandExecutor<'a> {
             );
         }
 
-        supervisor
-            .dispose_inbound(id, MqttInboundDisposition::Ack)
-            .await;
+        let disposition = match &outcome {
+            HandlerOutcome::Success => MqttInboundDisposition::Ack,
+            HandlerOutcome::Retryable { .. } => MqttInboundDisposition::Retry,
+            HandlerOutcome::Permanent { reason } => MqttInboundDisposition::DeadLetter {
+                reason: reason.clone(),
+            },
+        };
+        supervisor.dispose_inbound(id, disposition).await;
+        outcome
+    }
+}
+
+fn validate_inbound_message(
+    message: &crate::mqtt::subscriber::IncomingMessage,
+) -> Result<(), String> {
+    use crate::mqtt::subscriber::IncomingMessage;
+    match message {
+        IncomingMessage::RuntimeCommand { .. } => Ok(()),
+        IncomingMessage::TeamcluRpc { payload, .. } => {
+            crate::proto::teamclu::RpcRequest::decode(payload.as_slice())
+                .map(|_| ())
+                .map_err(|error| format!("invalid RpcRequest: {error}"))
+        }
+        IncomingMessage::TeamcluRpcResponse { payload, .. } => {
+            crate::proto::teamclu::RpcResponse::decode(payload.as_slice())
+                .map(|_| ())
+                .map_err(|error| format!("invalid RpcResponse: {error}"))
+        }
+        IncomingMessage::TeamcluSessionLive { payload, .. } => {
+            crate::proto::teamclu::LiveEventEnvelope::decode(payload.as_slice())
+                .map(|_| ())
+                .map_err(|error| format!("invalid LiveEventEnvelope: {error}"))
+        }
+        IncomingMessage::TeamcluNotify { payload, .. } => {
+            crate::proto::teamclu::Notify::decode(payload.as_slice())
+                .map(|_| ())
+                .map_err(|error| format!("invalid Notify: {error}"))
+        }
     }
 }

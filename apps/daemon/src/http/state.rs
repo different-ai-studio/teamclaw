@@ -5,7 +5,7 @@
 //! that need fine-grained pieces extract from this struct rather than
 //! introducing parallel statics.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
@@ -92,6 +92,11 @@ pub struct DaemonMetadata {
     /// Whether the daemon's MQTT connection is currently established.
     /// Updated by the MQTT event loop; surfaced via `/v1/info`.
     pub mqtt_connected: Arc<AtomicBool>,
+    /// Generation-independent MQTT recovery signal exposed only to the local
+    /// daemon HTTP adapter. The receiver is attached when the supervisor starts.
+    pub mqtt_recovery: Option<crate::mqtt::MqttRecoveryHandle>,
+    /// A single coherent MQTT status snapshot for `/v1/info`.
+    pub mqtt_snapshot: crate::mqtt::MqttSnapshotHandle,
 }
 
 /// Outcome of the cloud `agents.agent_types` advertise. Surfaced via

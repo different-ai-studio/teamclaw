@@ -1,4 +1,5 @@
 mod daemon_config;
+pub mod device_mcp;
 pub mod edit;
 pub mod global_team_store;
 pub mod layout;
@@ -9,7 +10,6 @@ pub mod provider_auth;
 mod roles_skills;
 mod session_store;
 pub mod team_config;
-pub mod device_mcp;
 pub mod team_mcp;
 pub mod workspace_control;
 mod workspace_instructions;
@@ -24,8 +24,8 @@ pub use daemon_config::{
     WeChatChannel, WeComChannel, BOOTSTRAP_ACTOR_NAME,
 };
 pub use member_store::{MemberStore, PendingInvite, StoredMember};
-pub use model_resolution::first_available;
 pub use model_catalog::DeviceModelCatalog;
+pub use model_resolution::first_available;
 pub use provider_auth::{
     builtin_provider_auth_methods, merge_live_provider_auth_methods, ProviderAuthMethod,
     ProviderAuthMethodType, ProviderAuthMethodsResponse,

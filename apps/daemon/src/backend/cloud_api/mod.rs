@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Shared cloud-auth health flag, cloned across every `CloudApiBackend` clone so
 /// the HTTP layer observes the same state as the refresh path. Set when a token
@@ -118,6 +118,9 @@ struct TokenState {
     /// JWT expiry as epoch seconds (wall clock). Must not use `Instant` — macOS
     /// suspends the monotonic clock during sleep while JWT expiry is wall-clock.
     expires_at_epoch: Option<i64>,
+    /// Shared transient refresh failure cooldown. Waiters receive the same
+    /// failure instead of serially retrying the same black-holed request.
+    refresh_failure: Option<(Instant, String)>,
 }
 
 #[derive(Clone)]
@@ -228,6 +231,7 @@ impl CloudApiBackend {
                 refresh_token,
                 access_token: None,
                 expires_at_epoch: None,
+                refresh_failure: None,
             })),
             refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
             persist_path,
@@ -252,6 +256,23 @@ impl CloudApiBackend {
             return Ok(token);
         }
 
+        // A failed refresh is shared across all waiters for a short wall-clock
+        // cooldown. Without this guard, every waiter acquires the mutex in
+        // turn and submits the same dead refresh token or black-holed request.
+        {
+            let mut state = self.token.lock().expect("token state poisoned");
+            if let Some((until, message)) = state.refresh_failure.as_ref() {
+                if *until > Instant::now() {
+                    return Err(BackendError::Provider {
+                        provider: "cloud_api",
+                        code: None,
+                        message: message.clone(),
+                    });
+                }
+                state.refresh_failure = None;
+            }
+        }
+
         let refresh_token = {
             let state = self.token.lock().expect("token state poisoned");
             state.refresh_token.clone()
@@ -268,14 +289,31 @@ impl CloudApiBackend {
                 refresh_token: &refresh_token,
             })
             .send();
-        let resp = tokio::time::timeout(Duration::from_secs(30), send_fut)
-            .await
-            .map_err(|_| BackendError::Provider {
-                provider: "cloud_api",
-                code: None,
-                message: "token refresh timed out".to_string(),
-            })?
-            .map_err(network_error)?;
+        let resp = match tokio::time::timeout(Duration::from_secs(30), send_fut).await {
+            Ok(Ok(resp)) => resp,
+            Ok(Err(error)) => {
+                let error = network_error(error);
+                self.token
+                    .lock()
+                    .expect("token state poisoned")
+                    .refresh_failure =
+                    Some((Instant::now() + Duration::from_secs(5), error.to_string()));
+                return Err(error);
+            }
+            Err(_) => {
+                let error = BackendError::Provider {
+                    provider: "cloud_api",
+                    code: None,
+                    message: "token refresh timed out".to_string(),
+                };
+                self.token
+                    .lock()
+                    .expect("token state poisoned")
+                    .refresh_failure =
+                    Some((Instant::now() + Duration::from_secs(5), error.to_string()));
+                return Err(error);
+            }
+        };
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -286,7 +324,17 @@ impl CloudApiBackend {
             if is_terminal_refresh_status(status) {
                 self.auth_health.mark_terminal();
             }
-            return Err(BackendError::Auth(refresh_failure_message(&text)));
+            let error = BackendError::Auth(refresh_failure_message(&text));
+            let cooldown = if is_terminal_refresh_status(status) {
+                Duration::from_secs(10)
+            } else {
+                Duration::from_secs(5)
+            };
+            self.token
+                .lock()
+                .expect("token state poisoned")
+                .refresh_failure = Some((Instant::now() + cooldown, error.to_string()));
+            return Err(error);
         }
 
         let body: TokenResponse = resp.json().await.map_err(network_error)?;
@@ -304,6 +352,7 @@ impl CloudApiBackend {
             let mut state = self.token.lock().expect("token state poisoned");
             state.access_token = Some(body.access_token.clone());
             state.expires_at_epoch = body.expires_at;
+            state.refresh_failure = None;
             if let Some(ref new_rt) = rotated {
                 state.refresh_token = new_rt.clone();
             }
@@ -394,6 +443,7 @@ impl CloudApiBackend {
         let mut state = self.token.lock().expect("token state poisoned");
         state.access_token = None;
         state.expires_at_epoch = None;
+        state.refresh_failure = None;
     }
 
     pub(super) async fn get<T>(&self, path: &str) -> BackendResult<T>

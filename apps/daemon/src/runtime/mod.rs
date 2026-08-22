@@ -21,13 +21,13 @@ pub mod permission_policy;
 pub mod prompt_attachments;
 pub mod refresh;
 pub mod sidecar;
-pub mod well_known_bin;
 pub mod supervisor;
 pub mod team_cloud_config;
 pub mod team_skills;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod turn_aggregator;
+pub mod well_known_bin;
 mod workspace_runtime;
 
 pub use backend::{create_backend, AgentBackend, OpencodeHttpBackend};

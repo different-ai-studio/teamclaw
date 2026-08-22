@@ -175,6 +175,10 @@ pub struct DaemonServer {
     refresh_coordinator: Option<Arc<crate::runtime::refresh::RuntimeRefreshCoordinator>>,
     /// Shared flag written by the MQTT event loop and read by `/v1/info`.
     mqtt_connected_flag: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// Recovery signal receiver is installed into the supervisor exactly once.
+    mqtt_recovery_rx: Option<mpsc::Receiver<crate::mqtt::MqttRecoveryRequest>>,
+    mqtt_recovery_handle: crate::mqtt::MqttRecoveryHandle,
+    mqtt_snapshot: crate::mqtt::MqttSnapshotHandle,
     /// Resolves the team's cloud-sourced managed (shared) LLM on a short TTL.
     /// Shared with the HTTP layer (`GET /v1/workspaces/:id/providers`) so a
     /// provider read can re-materialize `provider.team` off the same throttled
@@ -707,6 +711,10 @@ impl DaemonServer {
         )));
 
         let (mqtt_publisher, mqtt_command_rx) = MqttPublisher::channel();
+        let (mqtt_recovery_handle, mqtt_recovery_rx) = crate::mqtt::MqttRecoveryHandle::channel();
+        let mqtt_snapshot = Arc::new(parking_lot::RwLock::new(
+            crate::mqtt::MqttSnapshot::default(),
+        ));
         let publisher_handle: Arc<dyn MessagePublisher> = mqtt_publisher;
         let topics =
             crate::mqtt::Topics::new(config.team_id.as_deref().unwrap_or_default(), &actor_id);
@@ -751,6 +759,9 @@ impl DaemonServer {
             config,
             config_path: config_path.to_path_buf(),
             mqtt_command_rx: Some(mqtt_command_rx),
+            mqtt_recovery_rx: Some(mqtt_recovery_rx),
+            mqtt_recovery_handle,
+            mqtt_snapshot,
             nats: None,
             publisher_handle,
             topics,
@@ -848,7 +859,18 @@ impl DaemonServer {
         &mut self,
         context: &str,
         subscribe: bool,
+        mqtt_supervisor: &MqttSupervisor,
+        generation: u64,
+        worker_generation: u64,
     ) -> Result<(), ()> {
+        let current = || mqtt_supervisor.is_generation_current(generation, worker_generation);
+        if !current() {
+            warn!(
+                context,
+                generation, worker_generation, "discarding stale MQTT restore attempt"
+            );
+            return Err(());
+        }
         if subscribe {
             let runtime_topic = self.topics.runtime_commands_wildcard();
             if let Err(e) = self
@@ -867,6 +889,9 @@ impl DaemonServer {
                 mark_mqtt_connected(&self.mqtt_connected_flag, false);
                 return Err(());
             }
+            if !current() {
+                return Err(());
+            }
             if let Some(tc) = &mut self.teamclu {
                 if let Err(e) = tc.subscribe_all().await {
                     warn!(
@@ -878,6 +903,9 @@ impl DaemonServer {
                     return Err(());
                 }
             }
+        }
+        if !current() {
+            return Err(());
         }
         if self.config.team_id.is_some() {
             let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
@@ -901,6 +929,9 @@ impl DaemonServer {
                 mark_mqtt_connected(&self.mqtt_connected_flag, false);
                 return Err(());
             }
+            if !current() {
+                return Err(());
+            }
             // That publish is presence-only, so it overwrites the retained
             // snapshot with an empty catalog and no live sessions — measured
             // 7346 bytes down to 19 across a daemon restart. Every reader then
@@ -909,8 +940,14 @@ impl DaemonServer {
             // reconnect: `apply_start_runtime` takes its dedup path for an
             // attachment that already exists, so nothing else would restore it.
             self.publish_actor_state().await;
+            if !current() {
+                return Err(());
+            }
         } else {
             warn!("no team_id yet; skipping presence announce until onboarding completes");
+        }
+        if !current() {
+            return Err(());
         }
         self.publish_all_agent_states().await;
         Ok(())
@@ -991,6 +1028,8 @@ impl DaemonServer {
             meta.configured_agent_types = supported_agent_type_names(&self.config);
             meta.agent_types_advertise = agent_types_advertise.clone();
             meta.mqtt_connected = mqtt_connected_flag.clone();
+            meta.mqtt_recovery = Some(self.mqtt_recovery_handle.clone());
+            meta.mqtt_snapshot = self.mqtt_snapshot.clone();
             // The HTTP workspace runtime endpoints share this supervisor's
             // refresh coordinator for status + apply-intent semantics.
             let execution_context_assembler = Arc::new(self.execution_context_assembler());
@@ -1677,15 +1716,21 @@ impl DaemonServer {
                 .mqtt_command_rx
                 .take()
                 .expect("MQTT command receiver already taken");
+            let recovery_rx = self
+                .mqtt_recovery_rx
+                .take()
+                .expect("MQTT recovery receiver already taken");
             let mut mqtt_supervisor = MqttSupervisor::spawn(
                 self.config.clone(),
                 self.actor_id.clone(),
                 token,
                 self.backend.clone(),
                 command_rx,
+                recovery_rx,
                 self.mqtt_connected_flag
                     .clone()
                     .expect("MQTT connected flag must be installed before run"),
+                self.mqtt_snapshot.clone(),
             );
 
             // ── 3. Wait for the first generation to become ready ──
@@ -1698,15 +1743,21 @@ impl DaemonServer {
                         return Ok(());
                     }
                     event = mqtt_supervisor.events.recv() => match event {
-                        Some(MqttSupervisorEvent::TransportConnected { generation }) => {
+                        Some(MqttSupervisorEvent::TransportConnected { generation, worker_generation }) => {
                             info!(generation, "MQTT first generation transport connected; restoring subscriptions and daemon state");
                             let restored = tokio::time::timeout(
                                 Duration::from_secs(15),
-                                self.mqtt_resubscribe_after_connack("initial", true),
+                                    self.mqtt_resubscribe_after_connack(
+                                        "initial",
+                                        true,
+                                        &mqtt_supervisor,
+                                        generation,
+                                        worker_generation,
+                                    ),
                             )
                             .await
                             .is_ok_and(|result| result.is_ok());
-                            if restored && mqtt_supervisor.mark_generation_ready(generation).await {
+                            if restored && mqtt_supervisor.mark_generation_ready(generation, worker_generation).await {
                                 break;
                             }
                             mqtt_supervisor
@@ -1911,18 +1962,24 @@ impl DaemonServer {
                     }
                     event = mqtt_supervisor.events.recv() => {
                         match event {
-                            Some(MqttSupervisorEvent::TransportConnected { generation }) => {
+                            Some(MqttSupervisorEvent::TransportConnected { generation, worker_generation }) => {
                                 info!(generation, "MQTT generation transport connected; worker is restoring subscriptions");
                             }
-                            Some(MqttSupervisorEvent::SubscriptionsReady { generation }) => {
+                            Some(MqttSupervisorEvent::SubscriptionsReady { generation, worker_generation }) => {
                                 info!(generation, "MQTT subscriptions ready; restoring daemon state");
                                 let restored = tokio::time::timeout(
                                     Duration::from_secs(15),
-                                    self.mqtt_resubscribe_after_connack("auto-reconnect", false),
+                                    self.mqtt_resubscribe_after_connack(
+                                        "auto-reconnect",
+                                        false,
+                                        &mqtt_supervisor,
+                                        generation,
+                                        worker_generation,
+                                    ),
                                 )
                                 .await
                                 .is_ok_and(|result| result.is_ok());
-                                if restored && mqtt_supervisor.mark_generation_ready(generation).await {
+                                if restored && mqtt_supervisor.mark_generation_ready(generation, worker_generation).await {
                                     info!(generation, "MQTT generation readiness acknowledged");
                                 } else {
                                     warn!(generation, "MQTT state restore failed; requesting generation rebuild");
@@ -1931,13 +1988,13 @@ impl DaemonServer {
                                         .await;
                                 }
                             }
-                            Some(MqttSupervisorEvent::GenerationReady { generation }) => {
+                            Some(MqttSupervisorEvent::GenerationReady { generation, .. }) => {
                                 info!(generation, "MQTT generation ready for business traffic");
                             }
-                            Some(MqttSupervisorEvent::Disconnected { generation, reason }) => {
+                            Some(MqttSupervisorEvent::Disconnected { generation, reason, .. }) => {
                                 warn!(generation, %reason, "MQTT generation disconnected; recovery is owned by supervisor");
                             }
-                            Some(MqttSupervisorEvent::Rebuilt { generation, reason }) => {
+                            Some(MqttSupervisorEvent::Rebuilt { generation, reason, .. }) => {
                                 info!(generation, %reason, "MQTT generation rebuilt");
                             }
                             Some(MqttSupervisorEvent::Terminated) | None => {
@@ -3619,6 +3676,11 @@ pub(crate) mod tests {
                 refresh_watch_registry: None,
                 refresh_coordinator: None,
                 mqtt_connected_flag: None,
+                mqtt_recovery_rx: None,
+                mqtt_recovery_handle: crate::mqtt::MqttRecoveryHandle::channel().0,
+                mqtt_snapshot: Arc::new(parking_lot::RwLock::new(
+                    crate::mqtt::MqttSnapshot::default(),
+                )),
                 managed_llm: Arc::new(crate::runtime::managed_llm::ManagedLlmResolver::new(
                     backend,
                 )),
@@ -3922,7 +3984,8 @@ pub(crate) mod tests {
         assert_eq!(err.error_code, "ENV_ASSEMBLE_FAILED");
         assert_eq!(err.failed_stage, "env_setup");
         assert!(
-            err.error_message.contains("workspace identity resolution failed"),
+            err.error_message
+                .contains("workspace identity resolution failed"),
             "unexpected error message: {}",
             err.error_message
         );

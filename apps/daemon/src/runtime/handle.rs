@@ -456,12 +456,11 @@ mod tests {
     #[tokio::test]
     async fn shutdown_waits_for_detach_acknowledgement() {
         let mut handle = RuntimeHandle::test_dummy();
-        let generation =
-            super::super::opencode_http::host_pool::HostGeneration::test_for_routing(
-                "gen-a",
-                IsolationDomainKey::Workspace("ws-a".to_string()),
-                ProcessEnvRevision::from_bindings(&std::collections::HashMap::new()),
-            );
+        let generation = super::super::opencode_http::host_pool::HostGeneration::test_for_routing(
+            "gen-a",
+            IsolationDomainKey::Workspace("ws-a".to_string()),
+            ProcessEnvRevision::from_bindings(&std::collections::HashMap::new()),
+        );
         handle.host_generation_id = generation.generation_id.clone();
         handle.route_lease = Some(generation.test_route_lease());
         let (cmd_tx, mut cmd_rx) = mpsc::channel(1);

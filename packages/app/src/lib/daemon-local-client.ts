@@ -310,6 +310,67 @@ async function daemonFetchData<T>(path: string, init?: RequestInit): Promise<T> 
   return result.data
 }
 
+export type DaemonMqttRecoveryReason =
+  | 'startup'
+  | 'visibility_resume'
+  | 'long_visibility_resume'
+  | 'network_online'
+  | 'user_requested'
+  | 'watchdog'
+  | 'credential_rejected'
+
+export interface DaemonMqttSnapshot {
+  connected: boolean
+  phase: string
+  worker_generation: number | null
+  connection_attempt: number | null
+  ready_generation: number | null
+  last_error_code: string | null
+  last_error_at: string | null
+  last_recovery_reason: string | null
+  next_retry_at: string | null
+  last_ready_at: string | null
+  snapshot_version: number
+}
+
+/** Read the daemon's coherent MQTT snapshot without relying on a stale event. */
+export async function getDaemonMqttSnapshot(): Promise<DaemonMqttSnapshot | null> {
+  try {
+    const body = await daemonFetchData<{
+      mqtt?: DaemonMqttSnapshot
+      mqtt_connected?: boolean
+    }>('/v1/info')
+    if (body.mqtt) return body.mqtt
+    return body.mqtt_connected == null
+      ? null
+      : {
+          connected: body.mqtt_connected,
+          phase: body.mqtt_connected ? 'Ready' : 'Recovering',
+          worker_generation: null,
+          connection_attempt: null,
+          ready_generation: null,
+          last_error_code: null,
+          last_error_at: null,
+          last_recovery_reason: null,
+          next_retry_at: null,
+          last_ready_at: null,
+          snapshot_version: 0,
+        }
+  } catch {
+    return null
+  }
+}
+
+/** Wake the daemon's MQTT supervisor; this returns before broker CONNACK. */
+export async function recoverDaemonMqtt(
+  reason: DaemonMqttRecoveryReason,
+): Promise<{ accepted: boolean; outcome: string }> {
+  return daemonFetchData('/v1/mqtt/recover', {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+}
+
 /**
  * Like {@link daemonFetch} but does not parse a JSON body. Used for protobuf
  * POSTs that return an empty 2xx (e.g. `202 Accepted`).

@@ -82,21 +82,46 @@ let recoveryGeneration = 0
 
 type RecoverMode = 'auto' | 'user'
 
-async function runMqttRecovery(get: () => MqttReconnectState, generation: number): Promise<void> {
+type RecoveryReason =
+  | 'startup'
+  | 'visibility_resume'
+  | 'long_visibility_resume'
+  | 'network_online'
+  | 'user_requested'
+  | 'credential_rejected'
+
+async function runMqttRecovery(
+  get: () => MqttReconnectState,
+  generation: number,
+  reason: RecoveryReason,
+): Promise<void> {
   if (generation !== recoveryGeneration) return
-  try {
-    const { refreshSession } = await import('@/lib/auth/session-store')
-    await refreshSession()
-  } catch {
-    // Offline or refresh token dead — bump still retries with the best token we have.
+  const utils = await import('@/lib/utils')
+  const tasks: Promise<unknown>[] = []
+  if (utils.isTauri()) {
+    tasks.push(
+      import('@/lib/daemon-local-client')
+        .then(({ recoverDaemonMqtt }) => recoverDaemonMqtt(reason))
+        .catch(() => undefined),
+    )
   }
+  tasks.push(
+    import('@/lib/auth/session-store')
+      .then(({ refreshSession }) => refreshSession())
+      .catch(() => undefined),
+  )
+  await Promise.all(tasks)
   if (generation !== recoveryGeneration) return
   get().bump()
+  void import('@/lib/daemon-probe-signal')
+    .then((m) => m.requestDaemonProbe())
+    .catch(() => {})
 }
 
 async function recoverMqttCredentials(
   get: () => MqttReconnectState,
   mode: RecoverMode = 'auto',
+  reason: RecoveryReason = mode === 'user' ? 'user_requested' : 'visibility_resume',
 ): Promise<void> {
   if (authRecoveryInFlight) {
     if (mode === 'user') {
@@ -111,7 +136,7 @@ async function recoverMqttCredentials(
 
   lastAuthRecoveryMs = now
   const generation = recoveryGeneration
-  authRecoveryInFlight = runMqttRecovery(get, generation).finally(() => {
+  authRecoveryInFlight = runMqttRecovery(get, generation, reason).finally(() => {
     authRecoveryInFlight = null
   })
   return authRecoveryInFlight
@@ -158,7 +183,7 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
       // (auto mode) is cooldown-throttled so a flapping link can't spam it.
       if (typeof window !== 'undefined') {
         window.addEventListener('online', () => {
-          void recoverMqttCredentials(get)
+          void recoverMqttCredentials(get, 'auto', 'network_online')
           void import('@/lib/daemon-probe-signal')
             .then((m) => m.requestDaemonProbe())
             .catch(() => {})
@@ -190,7 +215,7 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
             disconnectedEscalation = setTimeout(() => {
               disconnectedEscalation = null
               if (get().connected !== true) {
-                void recoverMqttCredentials(get)
+                void recoverMqttCredentials(get, 'auto', 'visibility_resume')
               }
             }, BROWSER_RECONNECT_GRACE_MS)
           }
@@ -199,7 +224,7 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
           setError(message)
           logMqttNetworkDiag('error', { message, transport: 'browser' })
           if (isMqttAuthFailure(message)) {
-            void recoverMqttCredentials(get)
+            void recoverMqttCredentials(get, 'auto', 'credential_rejected')
           }
         })
         return
@@ -218,6 +243,9 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
         }
       }
       await probe()
+      if (get().connected !== true) {
+        void recoverMqttCredentials(get, 'auto', 'startup')
+      }
       try {
         const { listen } = await import('@tauri-apps/api/event')
         await listen<boolean>('mqtt:connected', (e) => {
@@ -231,7 +259,7 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
           setError(msg)
           logMqttNetworkDiag('error', { message: msg, transport: 'tauri' })
           if (isMqttAuthFailure(msg)) {
-            void recoverMqttCredentials(get)
+            void recoverMqttCredentials(get, 'auto', 'credential_rejected')
           }
         })
         // Reconcile any change that landed while the listener was attaching.
@@ -262,9 +290,23 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
             hiddenAtMs = null
 
             if (shouldAutoRecoverMqttAfterVisibility({ wasDiscarded, hiddenMs })) {
-              await recoverMqttCredentials(get)
+              await recoverMqttCredentials(
+                get,
+                'auto',
+                hiddenMs >= MQTT_SLEEP_WAKE_HIDDEN_MS || wasDiscarded
+                  ? 'long_visibility_resume'
+                  : 'visibility_resume',
+              )
             } else {
               get().bump()
+            }
+          })()
+        })
+        window.addEventListener('focus', () => {
+          void (async () => {
+            await probe()
+            if (get().connected !== true) {
+              await recoverMqttCredentials(get, 'auto', 'visibility_resume')
             }
           })()
         })

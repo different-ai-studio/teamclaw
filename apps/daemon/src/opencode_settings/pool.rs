@@ -102,8 +102,17 @@ impl OpenCodeSettingsService {
     /// Client for provider OAuth / config that isn't tied to a project
     /// workspace — see [`WorkspaceSettingsContextResolver::resolve_device_settings_context`].
     pub async fn client_for_device(&self) -> Result<OpenCodeSettingsClient, OpenCodeSettingsError> {
-        if let Some(base) = self.test_fixtures.lock().unwrap().get(DEVICE_FIXTURE_KEY).cloned() {
-            return Ok(OpenCodeSettingsClient::new(base, Path::new(DEVICE_FIXTURE_KEY)));
+        if let Some(base) = self
+            .test_fixtures
+            .lock()
+            .unwrap()
+            .get(DEVICE_FIXTURE_KEY)
+            .cloned()
+        {
+            return Ok(OpenCodeSettingsClient::new(
+                base,
+                Path::new(DEVICE_FIXTURE_KEY),
+            ));
         }
 
         let (Some(pool), Some(resolver)) = (&self.pool, &self.context_resolver) else {

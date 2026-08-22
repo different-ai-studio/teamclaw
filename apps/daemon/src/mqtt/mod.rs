@@ -8,7 +8,8 @@ mod topics;
 pub use client::client_danger;
 pub use client::MqttClient;
 pub use supervisor::{
-    MqttCommand, MqttInbound, MqttInboundDisposition, MqttPublisher, MqttSupervisor,
-    MqttSupervisorEvent,
+    MqttCommand, MqttInbound, MqttInboundDisposition, MqttPublisher, MqttRecoveryAccepted,
+    MqttRecoveryError, MqttRecoveryHandle, MqttRecoveryReason, MqttRecoveryRequest, MqttSnapshot,
+    MqttSnapshotHandle, MqttSupervisor, MqttSupervisorEvent,
 };
 pub use topics::Topics;

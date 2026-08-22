@@ -308,7 +308,10 @@ pub fn load_merged_mcp(
 pub fn split_put_body(
     workspace: &Path,
     body: HashMap<String, McpServerConfig>,
-) -> (HashMap<String, McpServerConfig>, HashMap<String, McpServerConfig>) {
+) -> (
+    HashMap<String, McpServerConfig>,
+    HashMap<String, McpServerConfig>,
+) {
     let mut device = HashMap::new();
     let mut workspace_owned = HashMap::new();
     for (name, cfg) in filter_put_body(workspace, body) {

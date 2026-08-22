@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use std::time::{Duration, Instant};
@@ -41,6 +41,183 @@ const CONTROL_CAPACITY: usize = 32;
 const WORKER_COMMAND_CAPACITY: usize = 2048;
 const WORKER_DISPOSITION_CAPACITY: usize = 2048;
 const WORKER_STOP_TIMEOUT: Duration = Duration::from_secs(5);
+const RECOVERY_SIGNAL_TIMEOUT: Duration = Duration::from_secs(2);
+const WAKE_GAP_THRESHOLD: Duration = Duration::from_secs(120);
+const INBOUND_RETRY_MAX: Duration = Duration::from_secs(30);
+
+/// The one snapshot published to `/v1/info`. Keeping the fields together
+/// prevents the UI from observing `connected=true` with a stale recovery phase.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MqttSnapshot {
+    pub snapshot_version: u64,
+    pub connected: bool,
+    pub phase: String,
+    pub worker_generation: Option<u64>,
+    pub connection_attempt: Option<u64>,
+    pub ready_generation: Option<u64>,
+    pub last_error_code: Option<String>,
+    pub last_error_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_recovery_reason: Option<String>,
+    pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_ready_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub type MqttSnapshotHandle = Arc<parking_lot::RwLock<MqttSnapshot>>;
+
+impl Default for MqttSnapshot {
+    fn default() -> Self {
+        Self {
+            snapshot_version: 0,
+            connected: false,
+            phase: "Starting".to_string(),
+            worker_generation: None,
+            connection_attempt: None,
+            ready_generation: None,
+            last_error_code: None,
+            last_error_at: None,
+            last_recovery_reason: None,
+            next_retry_at: None,
+            last_ready_at: None,
+        }
+    }
+}
+
+fn snapshot_update(snapshot: &MqttSnapshotHandle, update: impl FnOnce(&mut MqttSnapshot)) {
+    let mut current = snapshot.write();
+    update(&mut current);
+    current.snapshot_version = current.snapshot_version.wrapping_add(1);
+}
+
+fn mqtt_error_code(reason: &str) -> &'static str {
+    let reason = reason.to_ascii_lowercase();
+    if reason.contains("dns") || reason.contains("resolve") {
+        "dns_failure"
+    } else if reason.contains("tls") || reason.contains("certificate") {
+        "tls_failure"
+    } else if reason.contains("not authorized")
+        || reason.contains("bad username")
+        || reason.contains("authentication")
+    {
+        "broker_auth_rejected"
+    } else if reason.contains("timeout") || reason.contains("timed out") {
+        "network_timeout"
+    } else if reason.contains("502") || reason.contains("503") {
+        "broker_unavailable"
+    } else if reason.contains("closed") || reason.contains("eof") {
+        "connection_closed"
+    } else {
+        "transport_failure"
+    }
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MqttRecoveryReason {
+    Startup,
+    VisibilityResume,
+    LongVisibilityResume,
+    NetworkOnline,
+    UserRequested,
+    Watchdog,
+    CredentialRejected,
+}
+
+impl MqttRecoveryReason {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "startup" => Some(Self::Startup),
+            "visibility_resume" => Some(Self::VisibilityResume),
+            "long_visibility_resume" => Some(Self::LongVisibilityResume),
+            "network_online" => Some(Self::NetworkOnline),
+            "user_requested" => Some(Self::UserRequested),
+            "watchdog" => Some(Self::Watchdog),
+            "credential_rejected" => Some(Self::CredentialRejected),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Startup => "startup",
+            Self::VisibilityResume => "visibility_resume",
+            Self::LongVisibilityResume => "long_visibility_resume",
+            Self::NetworkOnline => "network_online",
+            Self::UserRequested => "user_requested",
+            Self::Watchdog => "watchdog",
+            Self::CredentialRejected => "credential_rejected",
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MqttRecoveryOutcome {
+    Recovering,
+    AlreadyHealthy,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MqttRecoveryAccepted {
+    pub accepted: bool,
+    pub outcome: MqttRecoveryOutcome,
+    pub request_id: String,
+    pub worker_generation: Option<u64>,
+}
+
+#[derive(Debug)]
+pub enum MqttRecoveryError {
+    Unavailable,
+    Timeout,
+}
+
+pub struct MqttRecoveryRequest {
+    pub reason: MqttRecoveryReason,
+    pub request_id: String,
+    pub reply: oneshot::Sender<MqttRecoveryAccepted>,
+}
+
+/// A bounded, try-send-only recovery signal. The HTTP layer can be started
+/// before the supervisor, so the receiver is attached later by `spawn`.
+#[derive(Debug, Clone)]
+pub struct MqttRecoveryHandle {
+    tx: mpsc::Sender<MqttRecoveryRequest>,
+    next_request_id: Arc<AtomicU64>,
+}
+
+impl MqttRecoveryHandle {
+    pub fn channel() -> (Self, mpsc::Receiver<MqttRecoveryRequest>) {
+        let (tx, rx) = mpsc::channel(1);
+        (
+            Self {
+                tx,
+                next_request_id: Arc::new(AtomicU64::new(1)),
+            },
+            rx,
+        )
+    }
+
+    pub async fn request(
+        &self,
+        reason: MqttRecoveryReason,
+    ) -> Result<MqttRecoveryAccepted, MqttRecoveryError> {
+        let request_id = format!(
+            "mqtt-recovery-{}",
+            self.next_request_id.fetch_add(1, Ordering::Relaxed)
+        );
+        let (reply, response) = oneshot::channel();
+        self.tx
+            .try_send(MqttRecoveryRequest {
+                reason,
+                request_id,
+                reply,
+            })
+            .map_err(|_| MqttRecoveryError::Unavailable)?;
+        tokio::time::timeout(RECOVERY_SIGNAL_TIMEOUT, response)
+            .await
+            .map_err(|_| MqttRecoveryError::Timeout)?
+            .map_err(|_| MqttRecoveryError::Unavailable)
+    }
+}
 
 /// Commands accepted by the stable publisher proxy.
 pub enum MqttCommand {
@@ -71,10 +248,11 @@ pub struct MqttInbound {
     pub frame: IncomingFrame,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum MqttInboundDisposition {
     Ack,
     Retry,
+    DeadLetter { reason: String },
 }
 
 /// A generation-independent publisher handle. It is intentionally the only
@@ -163,23 +341,28 @@ pub enum MqttSupervisorEvent {
     /// daemon state are not ready yet.
     TransportConnected {
         generation: u64,
+        worker_generation: u64,
     },
     /// The worker restored every subscription known before this generation
     /// was rebuilt and received all corresponding SUBACK packets.
     SubscriptionsReady {
         generation: u64,
+        worker_generation: u64,
     },
     /// The daemon command executor has completed subscriptions and state
     /// restoration for this generation.
     GenerationReady {
         generation: u64,
+        worker_generation: u64,
     },
     Disconnected {
         generation: u64,
+        worker_generation: u64,
         reason: String,
     },
     Rebuilt {
         generation: u64,
+        worker_generation: u64,
         reason: String,
     },
     Terminated,
@@ -194,11 +377,13 @@ pub struct MqttSupervisor {
     join: Option<tokio::task::JoinHandle<()>>,
     watchdog_shutdown: Option<oneshot::Sender<()>>,
     watchdog_join: Option<tokio::task::JoinHandle<()>>,
+    snapshot: MqttSnapshotHandle,
 }
 
 enum MqttControl {
     GenerationReady {
         generation: u64,
+        worker_generation: u64,
         reply: oneshot::Sender<bool>,
     },
     Rebuild {
@@ -209,6 +394,7 @@ enum MqttControl {
 enum WorkerControl {
     GenerationReady {
         generation: u64,
+        worker_generation: u64,
         reply: oneshot::Sender<bool>,
     },
 }
@@ -258,11 +444,14 @@ fn generation_is_current(active: u64, incoming: u64) -> bool {
 
 fn is_current_ready_generation(
     worker_present: bool,
+    active_worker_generation: u64,
     active_generation: u64,
     transport_connected_generation: Option<u64>,
     ready_generation: u64,
+    ready_worker_generation: u64,
 ) -> bool {
     worker_present
+        && active_worker_generation == ready_worker_generation
         && transport_connected_generation == Some(ready_generation)
         && generation_is_current(active_generation, ready_generation)
 }
@@ -274,6 +463,10 @@ fn restart_delay(failure_count: u32) -> Duration {
         .checked_mul(multiplier)
         .unwrap_or(REBUILD_RETRY_MAX)
         .min(REBUILD_RETRY_MAX)
+}
+
+fn inbound_retry_delay(attempt: u32) -> Duration {
+    Duration::from_secs(1_u64 << attempt.saturating_sub(1).min(4)).min(INBOUND_RETRY_MAX)
 }
 
 fn schedule_restart_at(next_restart: &mut Instant, restart_failures: &mut u32, now: Instant) {
@@ -306,7 +499,9 @@ impl MqttSupervisor {
         initial_token: String,
         backend: Arc<dyn Backend>,
         command_rx: mpsc::Receiver<MqttCommand>,
+        recovery_rx: mpsc::Receiver<MqttRecoveryRequest>,
         connected: Arc<AtomicBool>,
+        snapshot: MqttSnapshotHandle,
     ) -> Self {
         let (events_tx, events) = mpsc::channel(128);
         let (inbound_tx, inbound) = mpsc::channel(INBOUND_CAPACITY);
@@ -321,6 +516,7 @@ impl MqttSupervisor {
         let watchdog_join = tokio::spawn(async move {
             mqtt_watchdog(watchdog_heartbeat, watchdog_control, watchdog_shutdown_rx).await;
         });
+        let supervisor_snapshot = snapshot.clone();
         let join = tokio::spawn(async move {
             run_supervisor(
                 config,
@@ -333,8 +529,10 @@ impl MqttSupervisor {
                 inbound_tx,
                 inbound_disposition_rx,
                 control_rx,
+                recovery_rx,
                 connected,
                 heartbeat,
+                supervisor_snapshot,
             )
             .await;
         });
@@ -348,6 +546,7 @@ impl MqttSupervisor {
             join: Some(join),
             watchdog_shutdown: Some(watchdog_shutdown_tx),
             watchdog_join: Some(watchdog_join),
+            snapshot,
         }
     }
 
@@ -366,11 +565,15 @@ impl MqttSupervisor {
         }
     }
 
-    pub async fn mark_generation_ready(&self, generation: u64) -> bool {
+    pub async fn mark_generation_ready(&self, generation: u64, worker_generation: u64) -> bool {
         let (reply, result) = oneshot::channel();
         if self
             .control_tx
-            .send(MqttControl::GenerationReady { generation, reply })
+            .send(MqttControl::GenerationReady {
+                generation,
+                worker_generation,
+                reply,
+            })
             .await
             .is_err()
         {
@@ -399,6 +602,16 @@ impl MqttSupervisor {
             warn!(id, %error, "MQTT supervisor closed before durable inbound disposition");
         }
     }
+
+    /// Check the generation fence without waiting on the supervisor loop. This
+    /// is used by the daemon-owned state restore future, which may be awaiting
+    /// cloud/storage work while a recovery signal rebuilds the worker.
+    pub fn is_generation_current(&self, generation: u64, worker_generation: u64) -> bool {
+        let snapshot = self.snapshot.read();
+        snapshot.worker_generation == Some(worker_generation)
+            && snapshot.connection_attempt == Some(generation)
+            && matches!(snapshot.phase.as_str(), "TransportConnected" | "Restoring")
+    }
 }
 
 struct WorkerHandle {
@@ -420,8 +633,10 @@ async fn run_supervisor(
     inbound_tx: mpsc::Sender<MqttInbound>,
     mut inbound_disposition_rx: mpsc::Receiver<(u64, MqttInboundDisposition)>,
     mut control_rx: mpsc::Receiver<MqttControl>,
+    mut recovery_rx: mpsc::Receiver<MqttRecoveryRequest>,
     connected: Arc<AtomicBool>,
     heartbeat: Arc<MqttHeartbeat>,
+    snapshot: MqttSnapshotHandle,
 ) {
     let (worker_events_tx, mut worker_events_rx) = mpsc::channel(128);
     let mut worker = Some(spawn_worker(
@@ -429,6 +644,7 @@ async fn run_supervisor(
         actor_id.clone(),
         initial_token,
         backend.clone(),
+        0,
         0,
         BTreeMap::new(),
         worker_events_tx.clone(),
@@ -440,11 +656,20 @@ async fn run_supervisor(
     let mut pending_commands = VecDeque::<MqttCommand>::new();
     let mut pending_dispositions = VecDeque::<(u64, MqttInboundDisposition)>::new();
     let mut generation = 0_u64;
+    let mut worker_generation = 0_u64;
     let mut transport_connected_generation = None::<u64>;
     let mut restart_reason = None::<String>;
     let mut next_restart = Instant::now();
     let mut restart_failures = 0_u32;
     let mut shutting_down = false;
+    let mut ready_connection_generation = None::<u64>;
+    let mut last_observed_ms = MqttHeartbeat::now_ms();
+
+    snapshot_update(&snapshot, |current| {
+        current.phase = "Connecting".to_string();
+        current.worker_generation = Some(worker_generation);
+        current.ready_generation = None;
+    });
 
     loop {
         if let Some(active) = worker.as_ref() {
@@ -486,6 +711,11 @@ async fn run_supervisor(
             let reason = restart_reason
                 .take()
                 .unwrap_or_else(|| "MQTT worker exited".to_string());
+            snapshot_update(&snapshot, |current| {
+                current.phase = "AuthRecovering".to_string();
+                current.connected = false;
+                current.ready_generation = None;
+            });
             let token = match tokio::time::timeout(Duration::from_secs(10), backend.auth_token())
                 .await
             {
@@ -493,15 +723,36 @@ async fn run_supervisor(
                 Ok(Err(error)) => {
                     warn!(%error, "could not obtain MQTT credential while starting a new worker");
                     schedule_restart(&mut next_restart, &mut restart_failures);
+                    snapshot_update(&snapshot, |current| {
+                        current.phase = "Backoff".to_string();
+                        current.last_error_code = Some("cloud_auth_failure".to_string());
+                        current.next_retry_at = Some(
+                            chrono::Utc::now()
+                                + chrono::Duration::seconds(
+                                    restart_delay(restart_failures).as_secs() as i64,
+                                ),
+                        );
+                    });
                     continue;
                 }
                 Err(_) => {
                     warn!("timed out obtaining MQTT credential while starting a new worker");
                     schedule_restart(&mut next_restart, &mut restart_failures);
+                    snapshot_update(&snapshot, |current| {
+                        current.phase = "Backoff".to_string();
+                        current.last_error_code = Some("cloud_auth_timeout".to_string());
+                        current.next_retry_at = Some(
+                            chrono::Utc::now()
+                                + chrono::Duration::seconds(
+                                    restart_delay(restart_failures).as_secs() as i64,
+                                ),
+                        );
+                    });
                     continue;
                 }
             };
             connected.store(false, Ordering::Relaxed);
+            worker_generation = worker_generation.wrapping_add(1);
             let rebuilt_generation = generation;
             worker = Some(spawn_worker(
                 config.clone(),
@@ -509,15 +760,23 @@ async fn run_supervisor(
                 token,
                 backend.clone(),
                 generation,
+                worker_generation,
                 subscriptions.clone(),
                 worker_events_tx.clone(),
                 inbound_tx.clone(),
                 connected.clone(),
                 heartbeat.clone(),
             ));
+            snapshot_update(&snapshot, |current| {
+                current.phase = "Connecting".to_string();
+                current.worker_generation = Some(worker_generation);
+                current.connected = false;
+                current.ready_generation = None;
+            });
             let _ = events_tx
                 .send(MqttSupervisorEvent::Rebuilt {
                     generation: rebuilt_generation,
+                    worker_generation,
                     reason,
                 })
                 .await;
@@ -561,17 +820,20 @@ async fn run_supervisor(
             }
             control = control_rx.recv() => {
                 match control {
-                    Some(MqttControl::GenerationReady { generation: ready_generation, reply }) => {
+                    Some(MqttControl::GenerationReady { generation: ready_generation, worker_generation: ready_worker, reply }) => {
                         let accepted = is_current_ready_generation(
                             worker.is_some(),
+                            worker_generation,
                             generation,
                             transport_connected_generation,
                             ready_generation,
+                            ready_worker,
                         );
                         if accepted {
                             if let Some(active) = worker.as_ref() {
                                 let readiness = WorkerControl::GenerationReady {
                                     generation: ready_generation,
+                                    worker_generation: ready_worker,
                                     reply,
                                 };
                                 match active.control_tx.try_send(readiness) {
@@ -589,13 +851,24 @@ async fn run_supervisor(
                         }
                     }
                     Some(MqttControl::Rebuild { reason }) => {
-                        restart_reason = Some(reason);
+                        let first_request = restart_reason.is_none();
+                        restart_reason.get_or_insert(reason);
                         if worker.is_some() {
                             stop_worker(&mut worker, &heartbeat).await;
                             transport_connected_generation = None;
                             connected.store(false, Ordering::Relaxed);
+                            ready_connection_generation = None;
+                            if first_request {
+                                schedule_restart(&mut next_restart, &mut restart_failures);
+                            }
+                        } else if first_request {
+                            // A rebuild signal arriving while credential/backoff
+                            // recovery is already in progress only wakes the
+                            // existing retry. It must not count as another
+                            // worker failure or reset the exponential backoff
+                            // repeatedly.
+                            next_restart = Instant::now();
                         }
-                        schedule_restart(&mut next_restart, &mut restart_failures);
                     }
                     None => {
                         shutting_down = true;
@@ -603,36 +876,106 @@ async fn run_supervisor(
                     }
                 }
             }
+            request = recovery_rx.recv() => {
+                if let Some(request) = request {
+                    let current_generation = (worker.is_some()).then_some(worker_generation);
+                    let healthy = worker.is_some()
+                        && ready_connection_generation == Some(generation)
+                        && connected.load(Ordering::Relaxed);
+                    if healthy {
+                        let _ = request.reply.send(MqttRecoveryAccepted {
+                            accepted: true,
+                            outcome: MqttRecoveryOutcome::AlreadyHealthy,
+                            request_id: request.request_id,
+                            worker_generation: current_generation,
+                        });
+                    } else {
+                        let reason = format!("{} recovery", request.reason.as_str());
+                        snapshot_update(&snapshot, |current| {
+                            current.phase = "Recovering".to_string();
+                            current.last_recovery_reason = Some(request.reason.as_str().to_string());
+                            current.connected = false;
+                            current.ready_generation = None;
+                        });
+                        ready_connection_generation = None;
+                        let _ = request.reply.send(MqttRecoveryAccepted {
+                            accepted: true,
+                            outcome: MqttRecoveryOutcome::Recovering,
+                            request_id: request.request_id,
+                            worker_generation: current_generation,
+                        });
+                        if worker.is_some() {
+                            stop_worker(&mut worker, &heartbeat).await;
+                            transport_connected_generation = None;
+                            connected.store(false, Ordering::Relaxed);
+                        }
+                        restart_reason.get_or_insert(reason);
+                        next_restart = Instant::now();
+                    }
+                } else {
+                    shutting_down = true;
+                    break;
+                }
+            }
             event = worker_events_rx.recv() => {
                 match event {
                     Some(WorkerEvent::Supervisor(event)) => {
                         match &event {
-                            MqttSupervisorEvent::TransportConnected { generation: current } => {
+                            MqttSupervisorEvent::TransportConnected { generation: current, .. } => {
                                 generation = *current;
                                 transport_connected_generation = Some(*current);
+                                snapshot_update(&snapshot, |current_snapshot| {
+                                    current_snapshot.phase = "TransportConnected".to_string();
+                                    current_snapshot.worker_generation = Some(worker_generation);
+                                    current_snapshot.connection_attempt = Some(current_snapshot.connection_attempt.unwrap_or(0).saturating_add(1));
+                                    current_snapshot.connected = false;
+                                    current_snapshot.ready_generation = None;
+                                });
                             }
-                            MqttSupervisorEvent::Disconnected { .. } => {
+                            MqttSupervisorEvent::Disconnected { reason, .. } => {
                                 transport_connected_generation = None;
                                 connected.store(false, Ordering::Relaxed);
+                                ready_connection_generation = None;
+                                snapshot_update(&snapshot, |current| {
+                                    current.phase = "Recovering".to_string();
+                                    current.connected = false;
+                                    current.ready_generation = None;
+                                    current.last_error_code = Some(mqtt_error_code(reason).to_string());
+                                    current.last_error_at = Some(chrono::Utc::now());
+                                });
                             }
-                            MqttSupervisorEvent::GenerationReady { generation: ready_generation } => {
+                            MqttSupervisorEvent::GenerationReady { generation: ready_gen, worker_generation: ready_worker } => {
                                 if is_current_ready_generation(
                                     worker.is_some(),
+                                    worker_generation,
                                     generation,
                                     transport_connected_generation,
-                                    *ready_generation,
+                                    *ready_gen,
+                                    *ready_worker,
                                 ) {
                                     restart_failures = 0;
+                                    ready_connection_generation = Some(*ready_gen);
+                                    snapshot_update(&snapshot, |current| {
+                                        current.phase = "Ready".to_string();
+                                        current.connected = true;
+                                        current.ready_generation = Some(*ready_worker);
+                                        current.last_ready_at = Some(chrono::Utc::now());
+                                        current.next_retry_at = None;
+                                    });
                                 } else {
                                     debug!(
-                                        generation = *ready_generation,
+                                        generation = *ready_gen,
                                         active_generation = generation,
                                         "ignored stale MQTT generation readiness for restart backoff"
                                     );
                                 }
                             }
+                            MqttSupervisorEvent::SubscriptionsReady { .. } => {
+                                snapshot_update(&snapshot, |current| {
+                                    current.phase = "Restoring".to_string();
+                                });
+                            }
                             MqttSupervisorEvent::Rebuilt { .. }
-                            | MqttSupervisorEvent::SubscriptionsReady { .. }
                             | MqttSupervisorEvent::Terminated => {}
                         }
                         let _ = events_tx.send(event).await;
@@ -640,14 +983,23 @@ async fn run_supervisor(
                     Some(WorkerEvent::Exited { reason }) => {
                         if !shutting_down {
                             warn!(%reason, "MQTT worker exited; supervisor will create a new generation");
-                            restart_reason = Some(reason);
+                            restart_reason = Some(reason.clone());
                             transport_connected_generation = None;
                             connected.store(false, Ordering::Relaxed);
+                            ready_connection_generation = None;
                             let had_worker = worker.is_some();
                             stop_worker(&mut worker, &heartbeat).await;
                             if had_worker {
                                 schedule_restart(&mut next_restart, &mut restart_failures);
                             }
+                            snapshot_update(&snapshot, |current| {
+                                current.phase = "Backoff".to_string();
+                                current.connected = false;
+                                current.ready_generation = None;
+                                current.last_error_code = Some(mqtt_error_code(&reason).to_string());
+                                current.last_error_at = Some(chrono::Utc::now());
+                                current.next_retry_at = Some(chrono::Utc::now() + chrono::Duration::seconds(restart_delay(restart_failures).as_secs() as i64));
+                            });
                         }
                     }
                     None => {
@@ -659,9 +1011,28 @@ async fn run_supervisor(
             }
             _ = &mut tick => {}
         }
+
+        let now_ms = MqttHeartbeat::now_ms();
+        if now_ms.saturating_sub(last_observed_ms) >= WAKE_GAP_THRESHOLD.as_millis() as u64 {
+            last_observed_ms = now_ms;
+            if worker.is_some() && !connected.load(Ordering::Relaxed) {
+                restart_reason.get_or_insert("daemon wake gap recovery".to_string());
+                next_restart = Instant::now();
+            }
+            snapshot_update(&snapshot, |current| {
+                current.last_recovery_reason = Some("daemon_wake_gap".to_string());
+            });
+        } else {
+            last_observed_ms = now_ms;
+        }
     }
 
     connected.store(false, Ordering::Relaxed);
+    snapshot_update(&snapshot, |current| {
+        current.phase = "Stopped".to_string();
+        current.connected = false;
+        current.ready_generation = None;
+    });
     stop_worker(&mut worker, &heartbeat).await;
     while let Some(command) = pending_commands.pop_front() {
         fail_command(command, "MQTT supervisor is shutting down");
@@ -675,6 +1046,7 @@ fn spawn_worker(
     initial_token: String,
     backend: Arc<dyn Backend>,
     generation_seed: u64,
+    worker_generation: u64,
     initial_subscriptions: BTreeMap<String, QoS>,
     events_tx: mpsc::Sender<WorkerEvent>,
     inbound_tx: mpsc::Sender<MqttInbound>,
@@ -700,6 +1072,7 @@ fn spawn_worker(
             connected,
             heartbeat,
             generation_seed,
+            worker_generation,
             initial_subscriptions,
         };
         worker.run().await;
@@ -756,6 +1129,7 @@ struct MqttWorker {
     connected: Arc<AtomicBool>,
     heartbeat: Arc<MqttHeartbeat>,
     generation_seed: u64,
+    worker_generation: u64,
     initial_subscriptions: BTreeMap<String, QoS>,
 }
 
@@ -796,6 +1170,8 @@ impl MqttWorker {
         let mut subscribe_waiting_for_write = VecDeque::<PendingSubscribe>::new();
         let mut subscribe_inflight = HashMap::<u16, PendingSubscribe>::new();
         let mut inbound_staging = load_pending_inbound(&store);
+        let mut inbound_retry_attempts = HashMap::<u64, u32>::new();
+        let mut inbound_retry_deadlines = HashMap::<u64, Instant>::new();
         let mut forced_rebuild = None::<String>;
         let mut auto_restore_subscriptions = false;
         let mut subscriptions_ready_announced = false;
@@ -803,6 +1179,11 @@ impl MqttWorker {
 
         loop {
             self.heartbeat.touch();
+            self.flush_due_inbound_retries(
+                &mut store,
+                &mut inbound_staging,
+                &mut inbound_retry_deadlines,
+            );
             self.flush_inbound(&mut inbound_staging);
 
             if connected && generation_ready {
@@ -838,13 +1219,16 @@ impl MqttWorker {
                     }
                     control = self.control_rx.recv() => {
                         match control {
-                            Some(WorkerControl::GenerationReady { generation: ready_generation, reply }) => {
-                                let accepted = generation_is_current(generation, ready_generation) && connected;
+                            Some(WorkerControl::GenerationReady { generation: ready_generation, worker_generation: ready_worker_generation, reply }) => {
+                                let accepted = generation_is_current(generation, ready_generation)
+                                    && self.worker_generation == ready_worker_generation
+                                    && connected;
                                 if accepted {
                                     generation_ready = true;
                                     self.connected.store(true, Ordering::Relaxed);
                                     let _ = self.events_tx.send(WorkerEvent::Supervisor(MqttSupervisorEvent::GenerationReady {
                                         generation: ready_generation,
+                                        worker_generation: ready_worker_generation,
                                     })).await;
                                     info!(generation = ready_generation, "MQTT generation is fully ready");
                                 } else {
@@ -864,7 +1248,8 @@ impl MqttWorker {
                                 id,
                                 disposition,
                                 &mut store,
-                                &mut inbound_staging,
+                                &mut inbound_retry_attempts,
+                                &mut inbound_retry_deadlines,
                             );
                         }
                     }
@@ -909,7 +1294,10 @@ impl MqttWorker {
                                     self.backend.cached_credential_expiry_epoch(),
                                 );
                                 info!(generation, subscriptions = subscriptions.len(), previous_poll_errors, "MQTT transport connected; waiting for subscription and state restore");
-                                let _ = self.events_tx.send(WorkerEvent::Supervisor(MqttSupervisorEvent::TransportConnected { generation })).await;
+                                let _ = self.events_tx.send(WorkerEvent::Supervisor(MqttSupervisorEvent::TransportConnected {
+                                    generation,
+                                    worker_generation: self.worker_generation,
+                                })).await;
                                 if !auto_restore_subscriptions {
                                     self.announce_subscriptions_ready(
                                         generation,
@@ -938,14 +1326,23 @@ impl MqttWorker {
                                             "durable MQTT inbox is full; withholding broker ACK until business ACK"
                                         );
                                     } else {
-                                        match store.enqueue_inbound(frame.clone()) {
-                                            Ok(id) => {
+                                        let message_id = subscriber::stable_message_id(&frame);
+                                        match store.enqueue_inbound(frame.clone(), message_id) {
+                                            Ok(Some(id)) => {
                                                 inbound_staging.push_back(MqttInbound { id, frame });
                                                 // manual_acks is enabled in MqttClient. The
                                                 // broker ACK is emitted only after the local
                                                 // durable inbox append has synced.
                                                 if let Err(error) = active.client.try_ack(&publish) {
                                                     warn!(%error, "failed to ACK durably stored MQTT inbound");
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                // The durable dedup key was already accepted. It
+                                                // is safe to ACK this broker redelivery without
+                                                // scheduling a second business execution.
+                                                if let Err(error) = active.client.try_ack(&publish) {
+                                                    warn!(%error, "failed to ACK deduplicated MQTT inbound");
                                                 }
                                             }
                                             Err(error) => {
@@ -1039,6 +1436,7 @@ impl MqttWorker {
                                     self.connected.store(false, Ordering::Relaxed);
                                     let _ = self.events_tx.send(WorkerEvent::Supervisor(MqttSupervisorEvent::Disconnected {
                                         generation,
+                                        worker_generation: self.worker_generation,
                                         reason: reason.clone(),
                                     })).await;
                                 }
@@ -1111,9 +1509,9 @@ impl MqttWorker {
                     }
                     control = self.control_rx.recv() => {
                         match control {
-                            Some(WorkerControl::GenerationReady { generation: ready_generation, reply }) => {
+                            Some(WorkerControl::GenerationReady { generation: ready_generation, worker_generation: ready_worker_generation, reply }) => {
                                 let accepted = false;
-                                warn!(generation = ready_generation, active_generation = generation, "ignored MQTT generation readiness while transport is offline");
+                                warn!(generation = ready_generation, worker_generation = ready_worker_generation, active_generation = generation, "ignored MQTT generation readiness while transport is offline");
                                 let _ = reply.send(accepted);
                             }
                             None => {
@@ -1128,7 +1526,8 @@ impl MqttWorker {
                                 id,
                                 disposition,
                                 &mut store,
-                                &mut inbound_staging,
+                                &mut inbound_retry_attempts,
+                                &mut inbound_retry_deadlines,
                             );
                         }
                     }
@@ -1242,6 +1641,11 @@ impl MqttWorker {
                     return true;
                 }
                 let publish = DurablePublish {
+                    event_id: subscriber::stable_message_id(&IncomingFrame {
+                        topic: topic.clone(),
+                        payload: payload.clone(),
+                        retained: false,
+                    }),
                     topic,
                     payload,
                     retain,
@@ -1324,32 +1728,73 @@ impl MqttWorker {
         id: u64,
         disposition: MqttInboundDisposition,
         store: &mut DurableMqttStore,
-        staging: &mut VecDeque<MqttInbound>,
+        retry_attempts: &mut HashMap<u64, u32>,
+        retry_deadlines: &mut HashMap<u64, Instant>,
     ) {
         match disposition {
             MqttInboundDisposition::Ack => {
+                retry_attempts.remove(&id);
+                retry_deadlines.remove(&id);
                 if let Err(error) = store.ack_inbound(id) {
                     warn!(%error, id, "failed to ACK durable MQTT inbox item");
                 }
             }
             MqttInboundDisposition::Retry => {
-                if let Some(item) = store.inbound(id) {
-                    let frame = IncomingFrame {
-                        topic: item.topic.clone(),
-                        payload: item.payload.clone(),
-                        retained: item.retained,
-                    };
-                    if staging.len() < INBOUND_STAGING_CAPACITY {
-                        staging.push_back(MqttInbound { id, frame });
-                    } else {
-                        warn!(
-                            capacity = INBOUND_STAGING_CAPACITY,
-                            id,
-                            "MQTT inbound staging is full; durable item will replay after restart"
-                        );
-                    }
+                let attempt = retry_attempts.entry(id).or_insert(0);
+                *attempt = attempt.saturating_add(1);
+                let delay = inbound_retry_delay(*attempt);
+                retry_deadlines
+                    .entry(id)
+                    .or_insert_with(|| Instant::now() + delay.min(INBOUND_RETRY_MAX));
+                debug!(
+                    id,
+                    retry_attempt = *attempt,
+                    delay_ms = delay.as_millis() as u64,
+                    "scheduled durable MQTT inbound retry"
+                );
+            }
+            MqttInboundDisposition::DeadLetter { reason } => {
+                retry_attempts.remove(&id);
+                retry_deadlines.remove(&id);
+                if let Err(error) = store.dead_letter_inbound(id, reason) {
+                    warn!(%error, id, "failed to move durable MQTT inbox item to dead letter");
                 }
             }
+        }
+    }
+
+    fn flush_due_inbound_retries(
+        &self,
+        store: &DurableMqttStore,
+        staging: &mut VecDeque<MqttInbound>,
+        retry_deadlines: &mut HashMap<u64, Instant>,
+    ) {
+        let now = Instant::now();
+        let due = retry_deadlines
+            .iter()
+            .filter_map(|(&id, &deadline)| (deadline <= now).then_some(id))
+            .collect::<Vec<_>>();
+        for id in due {
+            retry_deadlines.remove(&id);
+            let Some(item) = store.inbound(id) else {
+                continue;
+            };
+            if staging.len() >= INBOUND_STAGING_CAPACITY {
+                warn!(
+                    capacity = INBOUND_STAGING_CAPACITY,
+                    id, "MQTT inbound staging is full; durable item will replay after restart"
+                );
+                retry_deadlines.insert(id, now + INBOUND_RETRY_MAX);
+                continue;
+            }
+            staging.push_back(MqttInbound {
+                id,
+                frame: IncomingFrame {
+                    topic: item.topic.clone(),
+                    payload: item.payload.clone(),
+                    retained: item.retained,
+                },
+            });
         }
     }
 
@@ -1382,7 +1827,10 @@ impl MqttWorker {
         let _ = self
             .events_tx
             .send(WorkerEvent::Supervisor(
-                MqttSupervisorEvent::SubscriptionsReady { generation },
+                MqttSupervisorEvent::SubscriptionsReady {
+                    generation,
+                    worker_generation: self.worker_generation,
+                },
             ))
             .await;
         info!(
@@ -1545,10 +1993,10 @@ mod tests {
         assert!(generation_is_current(7, 7));
         assert!(!generation_is_current(7, 6));
         assert!(!generation_is_current(7, 8));
-        assert!(is_current_ready_generation(true, 7, Some(7), 7));
-        assert!(!is_current_ready_generation(true, 7, Some(7), 6));
-        assert!(!is_current_ready_generation(true, 7, None, 7));
-        assert!(!is_current_ready_generation(false, 7, Some(7), 7));
+        assert!(is_current_ready_generation(true, 7, 7, Some(7), 7, 7));
+        assert!(!is_current_ready_generation(true, 7, 7, Some(7), 6, 7));
+        assert!(!is_current_ready_generation(true, 7, 7, None, 7, 7));
+        assert!(!is_current_ready_generation(false, 7, 7, Some(7), 7, 7));
     }
 
     #[test]
@@ -1635,6 +2083,41 @@ mod tests {
         let near_expiry = crate::backend::epoch_secs_now() + 60;
         assert!(proactive_reconnect_deadline(Some(near_expiry)).is_none());
         assert!(proactive_reconnect_deadline(None).is_some());
+    }
+
+    #[test]
+    fn inbound_retry_backoff_is_bounded_and_monotonic() {
+        assert_eq!(inbound_retry_delay(1), Duration::from_secs(1));
+        assert_eq!(inbound_retry_delay(2), Duration::from_secs(2));
+        assert_eq!(inbound_retry_delay(3), Duration::from_secs(4));
+        assert_eq!(inbound_retry_delay(5), Duration::from_secs(16));
+        assert_eq!(inbound_retry_delay(6), Duration::from_secs(30));
+        assert_eq!(inbound_retry_delay(100), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn recovery_signal_channel_keeps_only_one_pending_request() {
+        let (handle, mut receiver) = MqttRecoveryHandle::channel();
+        let (reply, _response) = oneshot::channel();
+        handle
+            .tx
+            .try_send(MqttRecoveryRequest {
+                reason: MqttRecoveryReason::NetworkOnline,
+                request_id: "one".into(),
+                reply,
+            })
+            .expect("first recovery signal should fit");
+        let (reply, _response) = oneshot::channel();
+        assert!(handle
+            .tx
+            .try_send(MqttRecoveryRequest {
+                reason: MqttRecoveryReason::VisibilityResume,
+                request_id: "two".into(),
+                reply,
+            })
+            .is_err());
+        let first = receiver.try_recv().expect("pending signal");
+        assert_eq!(first.request_id, "one");
     }
 
     #[tokio::test]

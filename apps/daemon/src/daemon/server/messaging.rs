@@ -100,12 +100,7 @@ impl DaemonServer {
             }
         };
 
-        let (
-            active_agent_type,
-            catalog_models,
-            live_sessions,
-            actor_available_commands,
-        ) = {
+        let (active_agent_type, catalog_models, live_sessions, actor_available_commands) = {
             let agents = self.agents.lock().await;
             (
                 agents.default_agent_type() as i32,
