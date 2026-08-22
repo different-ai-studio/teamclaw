@@ -67,7 +67,9 @@ fn read_raw() -> serde_json::Map<String, serde_json::Value> {
         .unwrap_or_default()
 }
 
-fn write_raw(root: &serde_json::Map<String, serde_json::Value>) -> Result<(), WorkspaceControlError> {
+fn write_raw(
+    root: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), WorkspaceControlError> {
     let path = device_mcp_file();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| WorkspaceControlError::Io(e.to_string()))?;

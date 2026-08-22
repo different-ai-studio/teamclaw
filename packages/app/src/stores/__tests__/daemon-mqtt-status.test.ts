@@ -46,6 +46,20 @@ describe('daemon-mqtt-status store', () => {
     release()
   })
 
+  it('keeps the initial false result as checking while MQTT finishes starting', async () => {
+    getDaemonMqttConnected.mockReset()
+    getDaemonMqttConnected.mockResolvedValueOnce(false).mockResolvedValue(true)
+
+    const release = subscribeDaemonMqttStatus()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(useDaemonMqttStatusStore.getState().connected).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(getDaemonMqttConnected).toHaveBeenCalledTimes(2)
+    expect(useDaemonMqttStatusStore.getState().connected).toBe(true)
+    release()
+  })
+
   it('runs a single shared poll no matter how many consumers subscribe', async () => {
     const a = subscribeDaemonMqttStatus()
     const b = subscribeDaemonMqttStatus()

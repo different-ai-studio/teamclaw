@@ -1,5 +1,30 @@
-import { describe, it, expect } from 'vitest'
-import { resolveLocalDaemonRuntimeStatus } from '../use-local-daemon-http-status'
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest'
+import { resolveLocalDaemonRuntimeStatus, useLocalDaemonHttpStatus } from '../use-local-daemon-http-status'
+
+const mocks = vi.hoisted(() => ({
+  daemonReady: true,
+  probeDaemonHttp: vi.fn(),
+}))
+
+const originalDocumentHidden = Object.getOwnPropertyDescriptor(document, 'hidden')
+
+vi.mock('@/stores/daemon-onboarding', () => ({
+  useDaemonOnboardingStore: (selector: (state: { status: string }) => unknown) =>
+    selector({ status: mocks.daemonReady ? 'ready' : 'starting' }),
+}))
+
+vi.mock('@/stores/daemon-mqtt-status', () => ({
+  useDaemonMqttConnected: () => true,
+}))
+
+vi.mock('@/lib/daemon-local-client', () => ({
+  probeDaemonHttp: mocks.probeDaemonHttp,
+}))
+
+vi.mock('@/lib/agent-device-reachability', () => ({
+  noteLocalDaemonSignals: vi.fn(),
+}))
 
 describe('resolveLocalDaemonRuntimeStatus', () => {
   it('returns offline when onboarding is not ready', () => {
@@ -70,5 +95,58 @@ describe('resolveLocalDaemonRuntimeStatus', () => {
         daemonMqttConnected: null,
       }),
     ).toBe('checking')
+  })
+})
+
+describe('useLocalDaemonHttpStatus', () => {
+  beforeEach(() => {
+    mocks.daemonReady = true
+    mocks.probeDaemonHttp.mockReset().mockResolvedValue({ ok: true, baseUrl: 'http://127.0.0.1' })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    if (originalDocumentHidden) {
+      Object.defineProperty(document, 'hidden', originalDocumentHidden)
+    }
+  })
+
+  it('re-probes when the window regains focus', async () => {
+    const { unmount } = renderHook(() => useLocalDaemonHttpStatus())
+
+    await waitFor(() => expect(mocks.probeDaemonHttp).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    expect(mocks.probeDaemonHttp).toHaveBeenCalledTimes(2)
+    unmount()
+
+    window.dispatchEvent(new Event('focus'))
+    expect(mocks.probeDaemonHttp).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-probes when the document becomes visible, but ignores hidden events', async () => {
+    let hidden = true
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => hidden,
+    })
+
+    const { unmount } = renderHook(() => useLocalDaemonHttpStatus())
+    await waitFor(() => expect(mocks.probeDaemonHttp).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(mocks.probeDaemonHttp).toHaveBeenCalledTimes(1)
+
+    hidden = false
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(mocks.probeDaemonHttp).toHaveBeenCalledTimes(2)
+    unmount()
   })
 })

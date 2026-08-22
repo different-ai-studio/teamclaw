@@ -6,6 +6,9 @@ import { onDaemonProbeRequested } from '@/lib/daemon-probe-signal'
 import { getKnownLocalDaemonActorId } from '@/lib/local-daemon-identity'
 import { QUICK_CHAT_DAEMON_PROBE_INTERVAL_MS } from '@/lib/session-agent-probe'
 
+const DAEMON_MQTT_STARTUP_SETTLE_MS = 15_000
+const DAEMON_MQTT_STARTUP_RETRY_MS = 1_000
+
 type DaemonMqttStatusState = {
   /** Daemon's own MQTT link from `GET /v1/info`. `null` = unknown / daemon unreachable. */
   connected: boolean | null
@@ -26,21 +29,58 @@ export const useDaemonMqttStatusStore = create<DaemonMqttStatusState>((set) => (
   setConnected: (connected) => set({ connected }),
   refresh: async () => {
     const connected = await getDaemonMqttConnected()
-    set({ connected })
-    // Warm the short-TTL device-reachability cache on every tick, not just when
-    // the value flips — the runtime-start gate reads it synchronously and a
-    // change-only write would leave it permanently expired.
-    const actorId = getKnownLocalDaemonActorId()
-    if (actorId) noteLocalDaemonSignals({ actorId, daemonMqttConnected: connected })
+    publishMqttStatus(connected)
   },
 }))
 
 let subscriberCount = 0
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let startupRetryTimer: ReturnType<typeof setTimeout> | null = null
+let startupSettling = false
+let startupDeadline = 0
+let pollingGeneration = 0
 let unsubscribeProbe: (() => void) | null = null
 
+function publishMqttStatus(connected: boolean | null): void {
+  useDaemonMqttStatusStore.getState().setConnected(connected)
+  // Warm the short-TTL device-reachability cache on every tick, not only when
+  // the value flips — the runtime-start gate reads it synchronously and a
+  // change-only write would leave it permanently expired.
+  const actorId = getKnownLocalDaemonActorId()
+  if (actorId) noteLocalDaemonSignals({ actorId, daemonMqttConnected: connected })
+}
+
+async function pollDuringStartup(generation: number): Promise<void> {
+  const connected = await getDaemonMqttConnected()
+  if (generation !== pollingGeneration) return
+  if (startupSettling && connected !== true && Date.now() < startupDeadline) {
+    // HTTP becomes ready before the daemon finishes its first MQTT CONNACK.
+    // Keep the UI in "checking" and retry quickly instead of showing a real
+    // disconnect that disappears as soon as the user clicks the banner.
+    if (!startupRetryTimer) {
+      startupRetryTimer = setTimeout(() => {
+        startupRetryTimer = null
+        void pollDuringStartup(generation)
+      }, DAEMON_MQTT_STARTUP_RETRY_MS)
+    }
+    return
+  }
+
+  startupSettling = false
+  publishMqttStatus(connected)
+}
+
 function startPolling() {
-  const poll = () => void useDaemonMqttStatusStore.getState().refresh()
+  const generation = ++pollingGeneration
+  startupSettling = true
+  startupDeadline = Date.now() + DAEMON_MQTT_STARTUP_SETTLE_MS
+  const poll = () => {
+    if (startupSettling) {
+      void pollDuringStartup(generation)
+    } else {
+      void useDaemonMqttStatusStore.getState().refresh()
+    }
+  }
   poll()
   pollTimer = setInterval(poll, QUICK_CHAT_DAEMON_PROBE_INTERVAL_MS)
   // Retry / network-online should not have to wait out the poll interval.
@@ -48,8 +88,13 @@ function startPolling() {
 }
 
 function stopPolling() {
+  pollingGeneration += 1
   if (pollTimer) clearInterval(pollTimer)
   pollTimer = null
+  if (startupRetryTimer) clearTimeout(startupRetryTimer)
+  startupRetryTimer = null
+  startupSettling = false
+  startupDeadline = 0
   unsubscribeProbe?.()
   unsubscribeProbe = null
   useDaemonMqttStatusStore.setState({ connected: null })
@@ -86,10 +131,6 @@ export function useDaemonMqttConnected(enabled = true): boolean | null {
 
 /** @internal test helper */
 export function __resetDaemonMqttStatusForTests(): void {
-  if (pollTimer) clearInterval(pollTimer)
-  pollTimer = null
-  unsubscribeProbe?.()
-  unsubscribeProbe = null
+  stopPolling()
   subscriberCount = 0
-  useDaemonMqttStatusStore.setState({ connected: null })
 }

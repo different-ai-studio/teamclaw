@@ -160,10 +160,13 @@ pub async fn spawn(
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let join = tokio::spawn(async move {
-        let server =
-            axum::serve(listener, app.into_make_service()).with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            });
+        let server = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.await;
+        });
         if let Err(e) = server.await {
             tracing::error!("http listener exited with error: {e}");
         } else {
@@ -208,6 +211,10 @@ pub fn metadata(actor_id: String, backend_kind: impl Into<String>) -> DaemonMeta
         configured_agent_types: Vec::new(),
         agent_types_advertise: Default::default(),
         mqtt_connected: Default::default(),
+        mqtt_recovery: None,
+        mqtt_snapshot: std::sync::Arc::new(parking_lot::RwLock::new(
+            crate::mqtt::MqttSnapshot::default(),
+        )),
     }
 }
 

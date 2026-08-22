@@ -138,8 +138,7 @@ impl CloudApiBackend {
         content: &str,
         external_message_id: Option<&str>,
     ) -> BackendResult<String> {
-        let (id, metadata) =
-            gateway_message_id_and_metadata(session_id, external_message_id, None);
+        let (id, metadata) = gateway_message_id_and_metadata(session_id, external_message_id, None);
         let message: CloudMessage = self
             .post(
                 &format!("/v1/sessions/{session_id}/messages"),
@@ -168,8 +167,7 @@ impl CloudApiBackend {
         content: &str,
         external_message_id: Option<&str>,
     ) -> BackendResult<String> {
-        let (id, metadata) =
-            gateway_message_id_and_metadata(session_id, external_message_id, None);
+        let (id, metadata) = gateway_message_id_and_metadata(session_id, external_message_id, None);
         let message: CloudMessage = self
             .post(
                 &format!("/v1/sessions/{session_id}/messages"),
@@ -385,7 +383,8 @@ mod tests {
         assert!(uuid::Uuid::parse_str(&id).is_ok());
         assert_ne!(id, native);
         assert_eq!(
-            meta.as_ref().and_then(|m| m["external_message_id"].as_str()),
+            meta.as_ref()
+                .and_then(|m| m["external_message_id"].as_str()),
             Some(native)
         );
         // Deterministic for idempotency.
@@ -402,7 +401,8 @@ mod tests {
         let (id, meta) = gateway_message_id_and_metadata("sess-1", Some(external), None);
         assert_eq!(id, external);
         assert_eq!(
-            meta.as_ref().and_then(|m| m["external_message_id"].as_str()),
+            meta.as_ref()
+                .and_then(|m| m["external_message_id"].as_str()),
             Some(external)
         );
     }

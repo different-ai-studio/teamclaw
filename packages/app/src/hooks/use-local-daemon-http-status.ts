@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { noteLocalDaemonSignals } from '@/lib/agent-device-reachability'
 import { probeDaemonHttp } from '@/lib/daemon-local-client'
-import { onDaemonProbeRequested } from '@/lib/daemon-probe-signal'
+import { onDaemonProbeRequested, requestDaemonProbe } from '@/lib/daemon-probe-signal'
 import { QUICK_CHAT_DAEMON_PROBE_INTERVAL_MS } from '@/lib/session-agent-probe'
 import { useDaemonOnboardingStore } from '@/stores/daemon-onboarding'
 import { useDaemonMqttConnected } from '@/stores/daemon-mqtt-status'
@@ -22,6 +22,8 @@ let probeSubscribers = 0
 let probeTimer: ReturnType<typeof setInterval> | null = null
 let unsubscribeProbeSignal: (() => void) | null = null
 let probeInFlight: Promise<void> | null = null
+let onWindowFocus: (() => void) | null = null
+let onVisibilityChange: (() => void) | null = null
 
 function setSharedStatus(next: LocalDaemonHttpStatus) {
   if (sharedStatus === next) return
@@ -45,6 +47,17 @@ function startSharedProbe() {
   void runSharedProbe()
   probeTimer = setInterval(() => void runSharedProbe(), QUICK_CHAT_DAEMON_PROBE_INTERVAL_MS)
   unsubscribeProbeSignal = onDaemonProbeRequested(() => void runSharedProbe())
+
+  // A backgrounded desktop window can pause its interval, leaving the warning
+  // stale after the daemon has already recovered. Re-probe as soon as the
+  // window is usable again; requestDaemonProbe also refreshes the shared MQTT
+  // status store, and runSharedProbe coalesces this with any in-flight poll.
+  onWindowFocus = () => requestDaemonProbe()
+  onVisibilityChange = () => {
+    if (!document.hidden) requestDaemonProbe()
+  }
+  window.addEventListener('focus', onWindowFocus)
+  document.addEventListener('visibilitychange', onVisibilityChange)
 }
 
 function stopSharedProbe() {
@@ -52,6 +65,10 @@ function stopSharedProbe() {
   probeTimer = null
   unsubscribeProbeSignal?.()
   unsubscribeProbeSignal = null
+  if (onWindowFocus) window.removeEventListener('focus', onWindowFocus)
+  if (onVisibilityChange) document.removeEventListener('visibilitychange', onVisibilityChange)
+  onWindowFocus = null
+  onVisibilityChange = null
   setSharedStatus('idle')
 }
 

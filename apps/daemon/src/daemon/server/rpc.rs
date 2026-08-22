@@ -51,9 +51,13 @@ impl DaemonServer {
             "publishing RpcResponse"
         );
         if let Err(e) = self
-            .mqtt
-            .client
-            .publish(res_topic, rumqttc::QoS::AtLeastOnce, false, bytes)
+            .publisher_handle
+            .publish(
+                &res_topic,
+                bytes,
+                false,
+                teamclu_transport::DeliveryGuarantee::AtLeastOnce,
+            )
             .await
         {
             warn!("failed to publish RpcResponse: {}", e);
@@ -149,7 +153,10 @@ impl DaemonServer {
             .to_string()
     }
 
-    pub(crate) async fn handle_incoming(&mut self, msg: subscriber::IncomingMessage) {
+    pub(crate) async fn handle_incoming(
+        &mut self,
+        msg: subscriber::IncomingMessage,
+    ) -> super::command_executor::HandlerOutcome {
         use prost::Message as ProstMessage;
         match msg {
             subscriber::IncomingMessage::RuntimeCommand {
@@ -256,7 +263,9 @@ impl DaemonServer {
                                         err = %e,
                                         "SessionMessageEnvelope decode failed"
                                     );
-                                    return;
+                                    return super::command_executor::HandlerOutcome::Permanent {
+                                        reason: format!("invalid SessionMessageEnvelope: {e}"),
+                                    };
                                 }
                             };
                             let Some(msg) = env.message.as_ref() else {
@@ -268,7 +277,9 @@ impl DaemonServer {
                                     daemon_team_id = %daemon_team_id,
                                     "SessionMessageEnvelope without inner message; dropping"
                                 );
-                                return;
+                                return super::command_executor::HandlerOutcome::Permanent {
+                                    reason: "SessionMessageEnvelope has no message".to_string(),
+                                };
                             };
                             // Dedup is enforced centrally in
                             // `route_session_message_to_runtimes` (the single
@@ -291,7 +302,7 @@ impl DaemonServer {
                             {
                                 if let Some(tc) = &mut self.teamclu {
                                     if !tc.should_process_idea_event(&session_id, &event) {
-                                        return;
+                                        return super::command_executor::HandlerOutcome::Success;
                                     }
                                 }
                                 if let Some(tc) = &self.teamclu {
@@ -327,6 +338,10 @@ impl DaemonServer {
                         }
                         _ => {}
                     }
+                } else {
+                    return super::command_executor::HandlerOutcome::Permanent {
+                        reason: "invalid LiveEventEnvelope".to_string(),
+                    };
                 }
             }
             subscriber::IncomingMessage::TeamcluNotify { actor_id, payload } => {
@@ -353,6 +368,9 @@ impl DaemonServer {
                                                 session_id = %n.refresh_hint,
                                                 "failed to ingest cloud session after membership.refresh notify"
                                             );
+                                            return super::command_executor::HandlerOutcome::Retryable {
+                                                reason: format!("failed to ingest membership refresh: {err}"),
+                                            };
                                         }
                                     }
                                 }
@@ -363,16 +381,23 @@ impl DaemonServer {
                                         session_id = %n.refresh_hint,
                                         "failed to fetch cloud session after membership.refresh notify"
                                     );
+                                    return super::command_executor::HandlerOutcome::Retryable {
+                                        reason: format!("membership refresh fetch failed: {err}"),
+                                    };
                                 }
                             }
                         }
                     }
                     Err(err) => {
                         warn!(?err, "failed to decode actor notify payload as Notify");
+                        return super::command_executor::HandlerOutcome::Permanent {
+                            reason: format!("invalid Notify: {err}"),
+                        };
                     }
                 }
             }
         }
+        super::command_executor::HandlerOutcome::Success
     }
 
     /// Derive the caller's MemberRole via a cloud `agent_member_access`

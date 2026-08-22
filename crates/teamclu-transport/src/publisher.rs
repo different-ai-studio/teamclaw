@@ -9,6 +9,8 @@ use crate::{encode_subject, DeliveryGuarantee, Transport, TransportMessage};
 
 #[derive(Debug, Error)]
 pub enum PublisherError {
+    #[error("transport unavailable: {0}")]
+    Unavailable(String),
     #[error("mqtt client error: {0}")]
     Mqtt(#[from] rumqttc::ClientError),
     #[error("nats publish error: {0}")]

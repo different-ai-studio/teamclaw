@@ -1,4 +1,3 @@
-use rumqttc::{Event, Packet};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -43,6 +42,7 @@ pub(crate) mod runtime_env;
 // cache) lives in `server/cron.rs` as a child module so it can reach the
 // server's private fields directly.
 mod channels;
+mod command_executor;
 mod cron;
 mod messaging;
 mod peers_workspaces;
@@ -50,7 +50,11 @@ mod remote_tools;
 mod rpc;
 mod runtime_lifecycle;
 use crate::history::EventHistory;
-use crate::mqtt::{publisher::Publisher, subscriber, MqttClient};
+#[cfg(test)]
+use crate::mqtt::MqttClient;
+use crate::mqtt::{
+    publisher::Publisher, subscriber, MqttPublisher, MqttSupervisor, MqttSupervisorEvent,
+};
 use crate::proto::amux;
 use crate::provider_config::ProviderConfig;
 use crate::runtime::acp_event_frame::AcpEventFrame;
@@ -78,21 +82,6 @@ fn mark_mqtt_connected(flag: &Option<Arc<std::sync::atomic::AtomicBool>>, connec
     if let Some(flag) = flag {
         flag.store(connected, std::sync::atomic::Ordering::Relaxed);
     }
-}
-
-/// After this long with `mqtt_connected == false`, tear down the rumqttc
-/// client and rebuild via the outer loop (fresh JWT + new TCP/WSS session).
-/// Backend/EMQX restarts can leave rumqttc auto-reconnect retrying with a
-/// stale password indefinitely; a full rebuild matches what process restart
-/// does. Three keepalive periods (30s each) gives the broker time to come
-/// back before we escalate.
-const MQTT_DISCONNECT_REBUILD: Duration = Duration::from_secs(90);
-
-fn mqtt_disconnect_rebuild_due(
-    disconnected_since: Option<std::time::Instant>,
-    threshold: Duration,
-) -> bool {
-    disconnected_since.is_some_and(|since| since.elapsed() >= threshold)
 }
 
 pub(crate) use crate::config::workspace_path::is_linkable_workspace_path;
@@ -136,13 +125,15 @@ pub struct DaemonServer {
     /// `channel-reload` (over `amuxd.sock`) can re-read the latest config
     /// without callers having to thread the path through every helper.
     config_path: PathBuf,
-    mqtt: MqttClient,
+    /// Receiver consumed exactly once by the MQTT supervisor. The publisher
+    /// proxy itself is shared with every business module and survives all
+    /// connection generations.
+    mqtt_command_rx: Option<mpsc::Receiver<crate::mqtt::MqttCommand>>,
     /// Set when running on the NATS transport (`config.transport.kind = "nats"`).
-    /// Mutually exclusive with the MQTT event loop in `mqtt`. On the MQTT path
-    /// this stays `None` and `mqtt` is the live backend.
+    /// Mutually exclusive with the MQTT supervisor.
     nats: Option<crate::nats::NatsBackend>,
-    /// Unified publisher handle. Set to `mqtt.client` on the MQTT path and
-    /// to `nats.client` on the NATS path during connect. All publishing
+    /// Unified publisher handle. On MQTT it is the generation-independent
+    /// supervisor proxy; on NATS it is the active NATS client. All publishing
     /// downstream (Publisher::new_from_handle, teamclu, channels) reads
     /// this so the same handler code works for both backends.
     publisher_handle: Arc<dyn MessagePublisher>,
@@ -184,6 +175,10 @@ pub struct DaemonServer {
     refresh_coordinator: Option<Arc<crate::runtime::refresh::RuntimeRefreshCoordinator>>,
     /// Shared flag written by the MQTT event loop and read by `/v1/info`.
     mqtt_connected_flag: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// Recovery signal receiver is installed into the supervisor exactly once.
+    mqtt_recovery_rx: Option<mpsc::Receiver<crate::mqtt::MqttRecoveryRequest>>,
+    mqtt_recovery_handle: crate::mqtt::MqttRecoveryHandle,
+    mqtt_snapshot: crate::mqtt::MqttSnapshotHandle,
     /// Resolves the team's cloud-sourced managed (shared) LLM on a short TTL.
     /// Shared with the HTTP layer (`GET /v1/workspaces/:id/providers`) so a
     /// provider read can re-materialize `provider.team` off the same throttled
@@ -587,23 +582,6 @@ fn hydrate_identity_from_backend(
     Ok(())
 }
 
-/// Best-effort first access token. Failure must not block startup — `run()`
-/// retries indefinitely before each MQTT connect.
-async fn initial_access_token(backend: &Arc<dyn Backend>) -> String {
-    match backend.auth_token().await {
-        Ok(token) => token,
-        Err(e) => {
-            warn!(
-                error = %e,
-                "initial Cloud API token fetch failed; HTTP/local control plane will start \
-                 and MQTT/collab will retry in the main loop (re-run `amuxd init` if the refresh \
-                 token is invalid)"
-            );
-            String::new()
-        }
-    }
-}
-
 impl DaemonServer {
     pub async fn new(
         mut config: DaemonConfig,
@@ -649,22 +627,12 @@ impl DaemonServer {
         }
         let actor_id = backend.actor_id().to_string();
 
-        // Best-effort token — `run()`'s outer loop retries before MQTT connect.
-        let token = initial_access_token(&backend).await;
-
         // Authoritative: resolve the MQTT broker from /v1/config/bootstrap.
         // When bootstrap is unreachable or answers without an `mqtt` block, keep
         // the last-known address already in daemon.toml (invite `?broker=` or a
         // previously persisted bootstrap value) and continue in degraded mode
         // (HTTP/local APIs stay up).
         apply_bootstrap_overrides(&backend, &mut config, config_path).await?;
-
-        let mqtt = if config.mqtt.broker_url.trim().is_empty() {
-            warn!("deferring MQTT client until broker URL is configured");
-            MqttClient::new_placeholder(&config)?
-        } else {
-            MqttClient::new(&config, &actor_id, &token)?
-        };
 
         let mut launch_configs = RuntimeManager::default_launch_configs();
         if let Some(claude) = config.agents.claude_code.as_ref() {
@@ -742,8 +710,14 @@ impl DaemonServer {
             Some(backend.clone()),
         )));
 
-        let publisher_handle: Arc<dyn MessagePublisher> = Arc::new(mqtt.client.clone());
-        let topics = mqtt.topics.clone();
+        let (mqtt_publisher, mqtt_command_rx) = MqttPublisher::channel();
+        let (mqtt_recovery_handle, mqtt_recovery_rx) = crate::mqtt::MqttRecoveryHandle::channel();
+        let mqtt_snapshot = Arc::new(parking_lot::RwLock::new(
+            crate::mqtt::MqttSnapshot::default(),
+        ));
+        let publisher_handle: Arc<dyn MessagePublisher> = mqtt_publisher;
+        let topics =
+            crate::mqtt::Topics::new(config.team_id.as_deref().unwrap_or_default(), &actor_id);
 
         // Local fast-path broadcast (SSE tee). Capacity sized for bursts of
         // coalesced deltas; a lagging subscriber skips events, which the MQTT
@@ -784,7 +758,10 @@ impl DaemonServer {
         Ok(Self {
             config,
             config_path: config_path.to_path_buf(),
-            mqtt,
+            mqtt_command_rx: Some(mqtt_command_rx),
+            mqtt_recovery_rx: Some(mqtt_recovery_rx),
+            mqtt_recovery_handle,
+            mqtt_snapshot,
             nats: None,
             publisher_handle,
             topics,
@@ -878,27 +855,57 @@ impl DaemonServer {
     /// Re-subscribe team topics and re-announce presence after MQTT CONNACK.
     /// Returns `Err(())` when the caller should break to the outer reconnect
     /// loop (same semantics as the first-connect path).
-    async fn mqtt_resubscribe_after_connack(&mut self, context: &str) -> Result<(), ()> {
-        mark_mqtt_connected(&self.mqtt_connected_flag, true);
-        if let Err(e) = self.mqtt.subscribe_all().await {
+    async fn mqtt_resubscribe_after_connack(
+        &mut self,
+        context: &str,
+        subscribe: bool,
+        mqtt_supervisor: &MqttSupervisor,
+        generation: u64,
+        worker_generation: u64,
+    ) -> Result<(), String> {
+        let current = || mqtt_supervisor.is_generation_current(generation, worker_generation);
+        if !current() {
             warn!(
                 context,
-                error = %e,
-                "subscribe_all failed after CONNACK, reconnecting"
+                generation, worker_generation, "discarding stale MQTT restore attempt"
             );
-            mark_mqtt_connected(&self.mqtt_connected_flag, false);
-            return Err(());
+            return Err("stale MQTT generation".to_string());
         }
-        if let Some(tc) = &mut self.teamclu {
-            if let Err(e) = tc.subscribe_all().await {
+        if subscribe {
+            let runtime_topic = self.topics.runtime_commands_wildcard();
+            if let Err(e) = self
+                .publisher_handle
+                .subscribe(
+                    &runtime_topic,
+                    teamclu_transport::DeliveryGuarantee::AtLeastOnce,
+                )
+                .await
+            {
                 warn!(
                     context,
                     error = %e,
-                    "teamclu subscribe failed after CONNACK, reconnecting"
+                    "subscribe_all failed after CONNACK, reconnecting"
                 );
                 mark_mqtt_connected(&self.mqtt_connected_flag, false);
-                return Err(());
+                return Err(format!("MQTT runtime subscription failed: {e}"));
             }
+            if !current() {
+                return Err("stale MQTT generation after runtime subscription".to_string());
+            }
+            if let Some(tc) = &mut self.teamclu {
+                if let Err(e) = tc.subscribe_all().await {
+                    warn!(
+                        context,
+                        error = %e,
+                        "teamclu subscribe failed after CONNACK, reconnecting"
+                    );
+                    mark_mqtt_connected(&self.mqtt_connected_flag, false);
+                    return Err(format!("teamclu subscription failed: {e}"));
+                }
+            }
+        }
+        if !current() {
+            return Err("stale MQTT generation before state restore".to_string());
         }
         if self.config.team_id.is_some() {
             let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
@@ -920,7 +927,10 @@ impl DaemonServer {
                     "publish_actor_presence failed after CONNACK, reconnecting"
                 );
                 mark_mqtt_connected(&self.mqtt_connected_flag, false);
-                return Err(());
+                return Err(format!("MQTT actor presence publish failed: {e}"));
+            }
+            if !current() {
+                return Err("stale MQTT generation after actor presence".to_string());
             }
             // That publish is presence-only, so it overwrites the retained
             // snapshot with an empty catalog and no live sessions — measured
@@ -929,11 +939,43 @@ impl DaemonServer {
             // session. Re-publishing the real snapshot is not optional on
             // reconnect: `apply_start_runtime` takes its dedup path for an
             // attachment that already exists, so nothing else would restore it.
-            self.publish_actor_state().await;
+            if let Err(error) = self.publish_actor_state().await {
+                warn!(%error, "failed to publish actor state after MQTT reconnect");
+                mark_mqtt_connected(&self.mqtt_connected_flag, false);
+                let reason = if matches!(
+                    &error,
+                    teamclu_transport::PublisherError::Unavailable(message)
+                        if message.starts_with("could not persist MQTT publish")
+                ) {
+                    format!("durable_store:actor_state_publish_failed: {error}")
+                } else {
+                    format!("MQTT actor state publish failed: {error}")
+                };
+                return Err(reason);
+            }
+            if !current() {
+                return Err("stale MQTT generation after actor state".to_string());
+            }
         } else {
             warn!("no team_id yet; skipping presence announce until onboarding completes");
+            if let Err(error) = self.publish_actor_state().await {
+                warn!(%error, "failed to publish actor state before onboarding");
+                mark_mqtt_connected(&self.mqtt_connected_flag, false);
+                let reason = if matches!(
+                    &error,
+                    teamclu_transport::PublisherError::Unavailable(message)
+                        if message.starts_with("could not persist MQTT publish")
+                ) {
+                    format!("durable_store:actor_state_publish_failed: {error}")
+                } else {
+                    format!("MQTT actor state publish failed: {error}")
+                };
+                return Err(reason);
+            }
         }
-        self.publish_all_agent_states().await;
+        if !current() {
+            return Err("stale MQTT generation before readiness".to_string());
+        }
         Ok(())
     }
 
@@ -1012,6 +1054,8 @@ impl DaemonServer {
             meta.configured_agent_types = supported_agent_type_names(&self.config);
             meta.agent_types_advertise = agent_types_advertise.clone();
             meta.mqtt_connected = mqtt_connected_flag.clone();
+            meta.mqtt_recovery = Some(self.mqtt_recovery_handle.clone());
+            meta.mqtt_snapshot = self.mqtt_snapshot.clone();
             // The HTTP workspace runtime endpoints share this supervisor's
             // refresh coordinator for status + apply-intent semantics.
             let execution_context_assembler = Arc::new(self.execution_context_assembler());
@@ -1669,39 +1713,12 @@ impl DaemonServer {
                 continue 'outer;
             }
 
-            // ── 2. Rebuild MqttClient ──
-            let credential_mode =
-                if self.config.mqtt.username.is_some() && self.config.mqtt.password.is_some() {
-                    "configured"
-                } else {
-                    "backend_token"
-                };
-            info!(
-                actor_id = %self.actor_id,
-                broker   = %self.config.mqtt.broker_url,
-                credential_mode,
-                "MQTT connecting"
-            );
-            self.mqtt = match MqttClient::new(&self.config, &self.actor_id, &token) {
-                Ok(c) => c,
-                Err(e) => {
-                    warn!("MqttClient build failed: {e}, retrying in 5s");
-                    tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-                        _ = &mut shutdown => {
-                            info!("shutdown signal received while rebuilding MQTT client");
-                            let _ = std::fs::remove_file(&sock_path);
-                            return Ok(());
-                        }
-                    }
-                    continue 'outer;
-                }
-            };
-
-            // ── 3. Rebuild teamclu with new AsyncClient ──
+            // ── 2. Start the generation-independent MQTT supervisor ──
+            // The supervisor owns every AsyncClient/EventLoop generation. The
+            // publisher proxy held by SessionManager and all channel modules is
+            // intentionally left untouched across reconnects.
             if let Some(team_id) = self.config.team_id.clone() {
-                self.publisher_handle = Arc::new(self.mqtt.client.clone());
-                self.topics = self.mqtt.topics.clone();
+                self.topics = crate::mqtt::Topics::new(&team_id, &self.config.actor.id);
                 self.refresh_rpc_client_publisher();
                 self.teamclu = match crate::teamclu::SessionManager::new(
                     self.publisher_handle.clone(),
@@ -1721,54 +1738,86 @@ impl DaemonServer {
                 };
             }
 
-            // ── 4. Wait for CONNACK ──
-            mark_mqtt_connected(&self.mqtt_connected_flag, false);
+            let command_rx = self
+                .mqtt_command_rx
+                .take()
+                .expect("MQTT command receiver already taken");
+            let recovery_rx = self
+                .mqtt_recovery_rx
+                .take()
+                .expect("MQTT recovery receiver already taken");
+            let mut mqtt_supervisor = MqttSupervisor::spawn(
+                self.config.clone(),
+                self.actor_id.clone(),
+                token,
+                self.backend.clone(),
+                command_rx,
+                recovery_rx,
+                self.mqtt_connected_flag
+                    .clone()
+                    .expect("MQTT connected flag must be installed before run"),
+                self.mqtt_snapshot.clone(),
+            );
+
+            // ── 3. Wait for the first generation to become ready ──
             loop {
-                match self.mqtt.eventloop.poll().await {
-                    Ok(Event::Incoming(Packet::ConnAck(_))) => {
-                        info!("MQTT CONNACK received");
-                        mark_mqtt_connected(&self.mqtt_connected_flag, true);
-                        break;
+                tokio::select! {
+                    _ = &mut shutdown => {
+                        mqtt_supervisor.shutdown().await;
+                        self.shutdown_for_exit().await;
+                        let _ = std::fs::remove_file(&sock_path);
+                        return Ok(());
                     }
-                    Ok(_) => {}
-                    Err(rumqttc::ConnectionError::ConnectionRefused(code)) => {
-                        warn!(
-                            reason = ?code,
-                            "MQTT connection refused during connect, refreshing token"
-                        );
-                        self.backend.invalidate_cached_credential();
-                        tokio::select! {
-                            _ = tokio::time::sleep(Duration::from_secs(3)) => {}
-                            _ = &mut shutdown => {
-                                info!("shutdown signal received while awaiting MQTT CONNACK");
-                                let _ = std::fs::remove_file(&sock_path);
-                                return Ok(());
+                    event = mqtt_supervisor.events.recv() => match event {
+                        Some(MqttSupervisorEvent::TransportConnected { generation, worker_generation }) => {
+                            info!(generation, "MQTT first generation transport connected; restoring subscriptions and daemon state");
+                            let restore_reason = match tokio::time::timeout(
+                                Duration::from_secs(15),
+                                    self.mqtt_resubscribe_after_connack(
+                                        "initial",
+                                        true,
+                                        &mqtt_supervisor,
+                                        generation,
+                                        worker_generation,
+                                    ),
+                            )
+                            .await
+                            {
+                                Ok(Ok(())) => None,
+                                Ok(Err(reason)) => Some(reason),
+                                Err(_) => Some("MQTT state restore timed out".to_string()),
+                            };
+                            if restore_reason.is_none()
+                                && mqtt_supervisor
+                                    .mark_generation_ready(generation, worker_generation)
+                                    .await
+                            {
+                                break;
                             }
+                            mqtt_supervisor
+                                .request_rebuild_for_generation(
+                                    generation,
+                                    worker_generation,
+                                    restore_reason.as_deref().unwrap_or(
+                                        "initial MQTT subscription/state restore failed",
+                                    ),
+                                )
+                                .await;
                         }
-                        continue 'outer;
-                    }
-                    Err(e) => {
-                        warn!("MQTT connect error: {e}, retrying...");
-                        tokio::select! {
-                            _ = tokio::time::sleep(Duration::from_secs(3)) => {}
-                            _ = &mut shutdown => {
-                                info!("shutdown signal received while awaiting MQTT CONNACK");
-                                let _ = std::fs::remove_file(&sock_path);
-                                return Ok(());
-                            }
+                        Some(MqttSupervisorEvent::Terminated) | None => {
+                            self.shutdown_for_exit().await;
+                            let _ = std::fs::remove_file(&sock_path);
+                            return Ok(());
                         }
+                        Some(MqttSupervisorEvent::SubscriptionsReady { .. })
+                        | Some(MqttSupervisorEvent::GenerationReady { .. })
+                        | Some(MqttSupervisorEvent::Disconnected { .. })
+                        | Some(MqttSupervisorEvent::Rebuilt { .. }) => {}
                     }
                 }
             }
 
-            // ── 5. Subscribe and announce ──
-            if self
-                .mqtt_resubscribe_after_connack("initial")
-                .await
-                .is_err()
-            {
-                continue 'outer;
-            }
+            // ── 4. Subscribe and announce ──
             info!(actor_id = %self.config.actor.id, "MQTT connected, listening for commands");
 
             if first_connect {
@@ -1782,45 +1831,15 @@ impl DaemonServer {
                 first_connect = false;
             }
 
-            // ── 6. Proactive reconnect timer ──
-            //
-            // Compute when to break the inner loop so we can fetch a fresh
-            // access_token and re-CONNECT before the current JWT expires.
-            // EMQX silently rejects PUB/SUB on a connection whose JWT exp
-            // has passed (it doesn't always disconnect), so waiting for a
-            // reactive ConnectionRefused leaves stale-ACL windows where
-            // the daemon thinks everything's fine but messages are dropped.
-            // Fire 5 min before the cached expiry; conservative 50 min
-            // fallback if expiry isn't cached yet.
-            let proactive_reconnect_in =
-                proactive_reconnect_delay(self.backend.cached_credential_expiry_epoch());
-            info!(
-                reconnect_in_secs = proactive_reconnect_in.as_secs(),
-                "scheduled proactive MQTT reconnect before token expiry"
-            );
-            let proactive_sleep = tokio::time::sleep(proactive_reconnect_in);
-            tokio::pin!(proactive_sleep);
-
-            // Track how long we've been disconnected so rumqttc auto-reconnect
-            // cannot wedge the daemon after a backend/EMQX restart.
-            let mut disconnected_since: Option<std::time::Instant> = None;
-
-            // ── 7. Event loop ──
-            //
-            // We must NEVER preempt `eventloop.poll()` with a timeout. rumqttc's
-            // poll() drives TLS handshake / TCP reconnect / packet IO inside one
-            // future; if we drop the future mid-flight (which timeout() does),
-            // the in-progress connection state is dropped, the underlying socket
-            // is closed (broker sees `ssl_closed`), and the next poll() starts a
-            // fresh reconnect — leading to a self-takeover loop where the
-            // daemon opens 4-5 sockets per ~50 ms timeout cycle and broker
-            // discards them. Use `tokio::select!` instead so the agent-event
-            // pump runs alongside poll() without cancelling it.
+            // ── 5. Business/control loop ──
+            // MQTT polling and connection recovery are now owned by the
+            // supervisor. This loop dispatches only decoded frames and local
+            // control commands, so a business await cannot freeze MQTT IO.
             loop {
                 tokio::select! {
-                    biased;
                     _ = &mut shutdown => {
                         info!("shutdown signal received, draining channels");
+                        mqtt_supervisor.shutdown().await;
                         self.shutdown_for_exit().await;
                         let _ = std::fs::remove_file(&sock_path);
                         return Ok(());
@@ -1829,6 +1848,7 @@ impl DaemonServer {
                         match sock_cmd {
                             Some(SockCommand::Shutdown) => {
                                 info!("shutdown control command received, draining channels");
+                                mqtt_supervisor.shutdown().await;
                                 self.shutdown_for_exit().await;
                                 let _ = std::fs::remove_file(&sock_path);
                                 return Ok(());
@@ -1980,100 +2000,78 @@ impl DaemonServer {
                             self.publish_cron_turn_event(ev).await;
                         }
                     }
-                    poll_result = self.mqtt.eventloop.poll() => {
-                        match poll_result {
-                            Ok(Event::Incoming(Packet::ConnAck(_))) => {
-                                // Network blip — rumqttc reconnected automatically.
-                                info!("MQTT reconnected (network blip), re-publishing state");
-                                disconnected_since = None;
-                                if self
-                                    .mqtt_resubscribe_after_connack("auto-reconnect")
-                                    .await
-                                    .is_err()
+                    event = mqtt_supervisor.events.recv() => {
+                        match event {
+                            Some(MqttSupervisorEvent::TransportConnected { generation, worker_generation }) => {
+                                info!(generation, "MQTT generation transport connected; worker is restoring subscriptions");
+                            }
+                            Some(MqttSupervisorEvent::SubscriptionsReady { generation, worker_generation }) => {
+                                info!(generation, "MQTT subscriptions ready; restoring daemon state");
+                                let restore_reason = match tokio::time::timeout(
+                                    Duration::from_secs(15),
+                                    self.mqtt_resubscribe_after_connack(
+                                        "auto-reconnect",
+                                        false,
+                                        &mqtt_supervisor,
+                                        generation,
+                                        worker_generation,
+                                    ),
+                                )
+                                .await
                                 {
-                                    self.backend.invalidate_cached_credential();
-                                    break;
+                                    Ok(Ok(())) => None,
+                                    Ok(Err(reason)) => Some(reason),
+                                    Err(_) => Some("MQTT state restore timed out".to_string()),
+                                };
+                                if restore_reason.is_none()
+                                    && mqtt_supervisor
+                                        .mark_generation_ready(generation, worker_generation)
+                                        .await
+                                {
+                                    info!(generation, "MQTT generation readiness acknowledged");
+                                } else {
+                                    warn!(generation, "MQTT state restore failed; requesting generation rebuild");
+                                    mqtt_supervisor
+                                        .request_rebuild_for_generation(
+                                            generation,
+                                            worker_generation,
+                                            restore_reason
+                                                .as_deref()
+                                                .unwrap_or("MQTT subscription/state restore failed"),
+                                        )
+                                        .await;
                                 }
                             }
-                            Ok(Event::Incoming(Packet::Publish(publish))) => {
-                                if let Some(msg) = subscriber::parse_incoming(&publish) {
-                                    self.handle_incoming(msg).await;
-                                }
+                            Some(MqttSupervisorEvent::GenerationReady { generation, .. }) => {
+                                info!(generation, "MQTT generation ready for business traffic");
                             }
-                            // EMQX rejected connection (JWT expired).
-                            Err(rumqttc::ConnectionError::ConnectionRefused(code)) => {
-                                mark_mqtt_connected(&self.mqtt_connected_flag, false);
-                                warn!(reason = ?code, "MQTT connection refused (token expired), reconnecting");
-                                self.backend.invalidate_cached_credential();
-                                break; // outer loop gets fresh token
+                            Some(MqttSupervisorEvent::Disconnected { generation, reason, .. }) => {
+                                warn!(generation, %reason, "MQTT generation disconnected; recovery is owned by supervisor");
                             }
-                            Err(e) => {
-                                mark_mqtt_connected(&self.mqtt_connected_flag, false);
-                                warn!("MQTT transient error: {e}, will retry (rumqttc auto-reconnects)");
-                                tokio::time::sleep(Duration::from_secs(5)).await;
+                            Some(MqttSupervisorEvent::Rebuilt { generation, reason, .. }) => {
+                                info!(generation, %reason, "MQTT generation rebuilt");
                             }
-                            Ok(_) => {} // other events (Outgoing(...), PingResp, etc.)
+                            Some(MqttSupervisorEvent::Terminated) | None => {
+                                self.shutdown_for_exit().await;
+                                let _ = std::fs::remove_file(&sock_path);
+                                return Ok(());
+                            }
                         }
                     }
-                    _ = &mut proactive_sleep => {
-                        info!(
-                            expiry = ?self.backend.cached_credential_expiry_epoch(),
-                            "JWT nearing expiry, proactively reconnecting MQTT before broker silently denies ACL"
-                        );
-                        mark_mqtt_connected(&self.mqtt_connected_flag, false);
-                        self.backend.invalidate_cached_credential();
-                        // Queue a graceful DISCONNECT so the broker sees an
-                        // intentional close (no LWT blip) before we drop the
-                        // eventloop. The drain loop below gives rumqttc a
-                        // bounded chance to write the packet.
-                        let _ = self.mqtt.client.disconnect().await;
-                        for _ in 0..3 {
-                            match tokio::time::timeout(
-                                Duration::from_millis(50),
-                                self.mqtt.eventloop.poll(),
-                            ).await {
-                                Ok(Err(_)) | Err(_) => break,
-                                Ok(Ok(_)) => {}
-                            }
+                    inbound = mqtt_supervisor.inbound.recv() => {
+                        if let Some(envelope) = inbound {
+                            command_executor::DaemonCommandExecutor::new(&mut self)
+                                .execute_mqtt(envelope, &mqtt_supervisor)
+                                .await;
                         }
-                        break; // outer loop fetches fresh token + reconnects
                     }
                     _ = tokio::time::sleep(Duration::from_millis(50)) => {
-                        // FIX 8: gate the pump on the shared MQTT-connected flag.
-                        // On a proactive reconnect / ConnectionRefused the old
-                        // AsyncClient (and its queued QoS1 deltas) is dropped
-                        // wholesale on rebuild, so publishing while the link is
-                        // known-down silently loses live deltas. Rather than
-                        // build a full outbox, we simply HOLD: skip draining
-                        // `poll_events()` (events stay buffered in the
-                        // RuntimeManager) until CONNACK re-sets the flag, so the
-                        // deltas are forwarded intact after reconnect. `false`
-                        // when the flag cell is absent (test/degraded) → treat as
-                        // connected so behavior is unchanged there.
                         let mqtt_up = self
                             .mqtt_connected_flag
                             .as_ref()
                             .map(|f| f.load(std::sync::atomic::Ordering::Relaxed))
                             .unwrap_or(true);
-                        if !mqtt_up {
-                            if disconnected_since.is_none() {
-                                disconnected_since = Some(std::time::Instant::now());
-                            } else if mqtt_disconnect_rebuild_due(
-                                disconnected_since,
-                                MQTT_DISCONNECT_REBUILD,
-                            ) {
-                                warn!(
-                                    threshold_secs = MQTT_DISCONNECT_REBUILD.as_secs(),
-                                    "MQTT disconnected too long, forcing full reconnect with fresh credentials"
-                                );
-                                self.backend.invalidate_cached_credential();
-                                break;
-                            }
-                        } else {
-                            disconnected_since = None;
-                        }
                         if mqtt_up {
-                            // Drain queued runtime events without preempting poll().
                             let (agent_events, evicted_runtime_ids, actor_state_dirty): (
                                 Vec<_>,
                                 Vec<String>,
@@ -2094,7 +2092,7 @@ impl DaemonServer {
                             // `apply_start_runtime` and so were invisible in the
                             // retain until an unrelated reconnect.
                             if actor_state_dirty {
-                                self.publish_actor_state().await;
+                                let _ = self.publish_actor_state().await;
                             }
                             for (agent_id, acp_event) in coalesce_text_events(agent_events) {
                                 self.forward_agent_event(&agent_id, acp_event).await;
@@ -3456,6 +3454,10 @@ pub(crate) mod tests {
     pub(crate) struct TestServer {
         pub(crate) server: DaemonServer,
         _tmp: TempDir,
+        // Keep the event loop alive for the AsyncClient-backed publisher used
+        // by these unit-test fixtures. Dropping it closes rumqttc's request
+        // channel, making otherwise local subscribe/publish calls fail.
+        _mqtt_eventloop: rumqttc::EventLoop,
     }
 
     #[derive(Clone, Default)]
@@ -3664,25 +3666,6 @@ pub(crate) mod tests {
         assert!(flag.load(std::sync::atomic::Ordering::Relaxed));
     }
 
-    #[test]
-    fn mqtt_disconnect_rebuild_due_after_threshold() {
-        use std::time::{Duration, Instant};
-
-        let since = Instant::now() - Duration::from_secs(91);
-        assert!(super::mqtt_disconnect_rebuild_due(
-            Some(since),
-            Duration::from_secs(90)
-        ));
-        assert!(!super::mqtt_disconnect_rebuild_due(
-            Some(Instant::now()),
-            Duration::from_secs(90)
-        ));
-        assert!(!super::mqtt_disconnect_rebuild_due(
-            None,
-            Duration::from_secs(90)
-        ));
-    }
-
     pub(crate) fn test_mqtt(actor_id: &str) -> MqttClient {
         let mut opts = MqttOptions::new("daemon-server-test", "localhost", 1883);
         opts.set_clean_session(true);
@@ -3726,7 +3709,7 @@ pub(crate) mod tests {
             server: DaemonServer {
                 config,
                 config_path: tmp.path().join("daemon.toml"),
-                mqtt,
+                mqtt_command_rx: None,
                 nats: None,
                 publisher_handle: publisher_handle.clone(),
                 topics,
@@ -3751,6 +3734,11 @@ pub(crate) mod tests {
                 refresh_watch_registry: None,
                 refresh_coordinator: None,
                 mqtt_connected_flag: None,
+                mqtt_recovery_rx: None,
+                mqtt_recovery_handle: crate::mqtt::MqttRecoveryHandle::channel().0,
+                mqtt_snapshot: Arc::new(parking_lot::RwLock::new(
+                    crate::mqtt::MqttSnapshot::default(),
+                )),
                 managed_llm: Arc::new(crate::runtime::managed_llm::ManagedLlmResolver::new(
                     backend,
                 )),
@@ -3772,6 +3760,7 @@ pub(crate) mod tests {
                 cron_turn_event_rx: Some(cron_turn_event_rx),
             },
             _tmp: tmp,
+            _mqtt_eventloop: mqtt.eventloop,
         }
     }
 
@@ -4054,7 +4043,8 @@ pub(crate) mod tests {
         assert_eq!(err.error_code, "ENV_ASSEMBLE_FAILED");
         assert_eq!(err.failed_stage, "env_setup");
         assert!(
-            err.error_message.contains("workspace identity resolution failed"),
+            err.error_message
+                .contains("workspace identity resolution failed"),
             "unexpected error message: {}",
             err.error_message
         );

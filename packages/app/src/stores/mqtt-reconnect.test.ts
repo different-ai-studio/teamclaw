@@ -9,6 +9,7 @@ import {
   __resetMqttReconnectForTests,
   __markAuthRecoveryForTests,
   BROWSER_RECONNECT_GRACE_MS,
+  daemonMqttNeedsRecovery,
 } from './mqtt-reconnect'
 
 vi.mock('@/lib/auth/session-store', () => ({
@@ -152,6 +153,26 @@ describe('shouldAutoRecoverMqttAfterVisibility', () => {
         hiddenMs: MQTT_SLEEP_WAKE_HIDDEN_MS - 1,
       }),
     ).toBe(false)
+  })
+})
+
+describe('daemonMqttNeedsRecovery', () => {
+  it('trusts a coherent daemon Ready snapshot over a stale app-side false', () => {
+    expect(daemonMqttNeedsRecovery({ connected: true, phase: 'Ready' }, false)).toBe(false)
+  })
+
+  it('requests recovery for a non-ready daemon snapshot', () => {
+    expect(daemonMqttNeedsRecovery({ connected: false, phase: 'Recovering' }, true)).toBe(true)
+    expect(daemonMqttNeedsRecovery({ connected: false, phase: 'Backoff' }, null)).toBe(true)
+  })
+
+  it('does not recover a deliberately stopped daemon', () => {
+    expect(daemonMqttNeedsRecovery({ connected: false, phase: 'Stopped' }, false)).toBe(false)
+  })
+
+  it('falls back to the app-side status when the daemon snapshot is unavailable', () => {
+    expect(daemonMqttNeedsRecovery(null, true)).toBe(false)
+    expect(daemonMqttNeedsRecovery(null, false)).toBe(true)
   })
 })
 

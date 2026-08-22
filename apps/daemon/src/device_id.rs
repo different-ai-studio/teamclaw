@@ -47,7 +47,13 @@ const DEVICE_ID_ENV: &str = "AMUXD_DEVICE_ID";
 pub fn daemon_device_id() -> String {
     static CACHED: OnceLock<String> = OnceLock::new();
     CACHED
-        .get_or_init(|| resolve(std::env::var(DEVICE_ID_ENV).ok(), device_id_path(), machine_id()))
+        .get_or_init(|| {
+            resolve(
+                std::env::var(DEVICE_ID_ENV).ok(),
+                device_id_path(),
+                machine_id(),
+            )
+        })
         .clone()
 }
 
@@ -318,7 +324,10 @@ mod tests {
         let id = resolve(None, Some(path.clone()), Some(("linux", "raw".to_string())));
 
         assert_eq!(id, "legacy-random-id");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "legacy-random-id\n");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "legacy-random-id\n"
+        );
     }
 
     /// The point of the change: losing the file recomputes the same id.
@@ -334,7 +343,10 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         let second = resolve(None, Some(path.clone()), machine());
 
-        assert_eq!(first, second, "a deleted cache must not rotate the identity");
+        assert_eq!(
+            first, second,
+            "a deleted cache must not rotate the identity"
+        );
     }
 
     /// Without a machine identity the daemon still has to work; it just loses
@@ -375,7 +387,10 @@ mod tests {
             return;
         };
         assert!(!platform.is_empty());
-        assert!(!raw.trim().is_empty(), "a blank raw id would hash to a constant");
+        assert!(
+            !raw.trim().is_empty(),
+            "a blank raw id would hash to a constant"
+        );
         let (_, again) = machine_id().expect("machine identity must not disappear between calls");
         assert_eq!(raw, again, "machine identity must be stable across calls");
     }

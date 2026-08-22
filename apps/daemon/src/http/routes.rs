@@ -4,12 +4,13 @@
 //! `/v1/auth/*`, `/v1/sessions/*`, `/v1/sessions/:id/stream`, etc.
 
 use axum::{
-    extract::State,
+    extract::{ConnectInfo, State},
     middleware,
     response::Html,
     routing::{delete, get, post, put, MethodRouter},
     Json, Router,
 };
+use std::net::SocketAddr;
 
 use super::apps;
 use super::auth;
@@ -25,12 +26,14 @@ use super::state::HttpState;
 use super::team;
 use super::team_sync;
 use super::workspaces;
+use crate::mqtt::MqttRecoveryReason;
 
 pub fn build(state: HttpState) -> Router {
     let body_cap = state.config.max_body_bytes;
     Router::new()
         .route("/v1/healthz", healthz_route())
         .route("/v1/info", info_route())
+        .route("/v1/mqtt/recover", post(mqtt_recover))
         // Embedded protocol console. Static zero-dependency HTML inlined into
         // the binary; it drives this same daemon's /v1/sessions API over fetch
         // + SSE and shows every event frame for debugging. Auth is carried by
@@ -321,6 +324,7 @@ struct InfoBody {
     agent_types_advertise: crate::http::state::AgentTypesAdvertise,
     /// Whether the daemon's MQTT connection is currently established.
     mqtt_connected: bool,
+    mqtt: crate::mqtt::MqttSnapshot,
 }
 
 #[derive(serde::Serialize)]
@@ -341,6 +345,7 @@ async fn info_handler(State(state): State<HttpState>) -> Json<InfoBody> {
         .map(|h| CloudAuthInfo {
             status: if h.terminal_failure { "expired" } else { "ok" },
         });
+    let mqtt = state.meta.mqtt_snapshot.read().clone();
     Json(InfoBody {
         version: state.meta.version,
         started_at: state.meta.started_at,
@@ -351,15 +356,90 @@ async fn info_handler(State(state): State<HttpState>) -> Json<InfoBody> {
         cloud_auth,
         configured_agent_types: state.meta.configured_agent_types.clone(),
         agent_types_advertise: state.meta.agent_types_advertise.lock().clone(),
-        mqtt_connected: state
-            .meta
-            .mqtt_connected
-            .load(std::sync::atomic::Ordering::Relaxed),
+        mqtt_connected: mqtt.connected,
+        mqtt,
     })
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct MqttRecoverBody {
+    reason: String,
+}
+
+async fn mqtt_recover(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    State(state): State<HttpState>,
+    principal: super::auth::Principal,
+    Json(body): Json<MqttRecoverBody>,
+) -> Result<Json<crate::mqtt::MqttRecoveryAccepted>, super::errors::HttpError> {
+    if !recovery_listener_allows(peer, &state.config.bind) {
+        return Err(super::errors::HttpError::forbidden(
+            "MQTT recovery is available only on the daemon loopback listener",
+        ));
+    }
+    super::auth::require_scope(&principal, "admin")?;
+    let reason = MqttRecoveryReason::parse(body.reason.trim())
+        .ok_or_else(|| super::errors::HttpError::validation("unknown MQTT recovery reason"))?;
+    let handle = state.meta.mqtt_recovery.as_ref().ok_or_else(|| {
+        super::errors::HttpError::runtime_unavailable("MQTT recovery supervisor is unavailable")
+    })?;
+    let response = handle.request(reason).await.map_err(|error| match error {
+        crate::mqtt::MqttRecoveryError::Unavailable => {
+            super::errors::HttpError::runtime_unavailable(
+                "MQTT recovery signal is busy or unavailable",
+            )
+        }
+        crate::mqtt::MqttRecoveryError::Timeout => super::errors::HttpError::runtime_unavailable(
+            "MQTT recovery supervisor did not acknowledge the signal",
+        ),
+    })?;
+    Ok(Json(response))
+}
+
+fn recovery_listener_allows(peer: SocketAddr, bind: &str) -> bool {
+    peer.ip().is_loopback()
+        && bind
+            .parse::<SocketAddr>()
+            .map(|addr| addr.ip().is_loopback())
+            .unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn mqtt_recovery_requires_loopback_peer_and_listener() {
+        assert!(recovery_listener_allows(
+            "127.0.0.1:40000".parse().unwrap(),
+            "127.0.0.1:0"
+        ));
+        assert!(recovery_listener_allows(
+            "[::1]:40000".parse().unwrap(),
+            "[::1]:0"
+        ));
+        assert!(!recovery_listener_allows(
+            "192.168.1.10:40000".parse().unwrap(),
+            "127.0.0.1:0"
+        ));
+        assert!(!recovery_listener_allows(
+            "127.0.0.1:40000".parse().unwrap(),
+            "0.0.0.0:0"
+        ));
+        assert!(!recovery_listener_allows(
+            "127.0.0.1:40000".parse().unwrap(),
+            "not-an-address"
+        ));
+    }
+
+    #[test]
+    fn mqtt_recovery_reasons_are_strictly_allowlisted() {
+        assert!(MqttRecoveryReason::parse("long_visibility_resume").is_some());
+        assert!(MqttRecoveryReason::parse("user_requested").is_some());
+        assert!(MqttRecoveryReason::parse("force_credential_refresh").is_none());
+        assert!(MqttRecoveryReason::parse("").is_none());
+    }
+
     /// Every capture in this router must use axum 0.7's `:name` form.
     ///
     /// matchit 0.7 treats `{name}` as a LITERAL path segment, so a route

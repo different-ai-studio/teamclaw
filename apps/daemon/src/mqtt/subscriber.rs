@@ -102,6 +102,50 @@ pub fn parse_frame(frame: &IncomingFrame) -> Option<IncomingMessage> {
     None
 }
 
+/// Extract the protocol-level id used to deduplicate MQTT redeliveries. A
+/// local durable queue id is intentionally not used here: it changes every
+/// time the broker redelivers the same packet.
+pub fn stable_message_id(frame: &IncomingFrame) -> Option<String> {
+    if frame.topic.ends_with("/rpc/req") {
+        return teamclu_proto::teamclu::RpcRequest::decode(frame.payload.as_slice())
+            .ok()
+            .map(|request| request.request_id)
+            .filter(|id| !id.is_empty());
+    }
+    if frame.topic.contains("/session/") && frame.topic.ends_with("/live") {
+        if let Ok(envelope) =
+            teamclu_proto::teamclu::LiveEventEnvelope::decode(frame.payload.as_slice())
+        {
+            if !envelope.event_id.is_empty() {
+                return Some(envelope.event_id);
+            }
+            if let Ok(message) =
+                teamclu_proto::teamclu::SessionMessageEnvelope::decode(envelope.body.as_slice())
+            {
+                return message
+                    .message
+                    .map(|message| message.message_id)
+                    .filter(|id| !id.is_empty());
+            }
+        }
+        return None;
+    }
+    if frame.topic.ends_with("/notify") {
+        return teamclu_proto::teamclu::SessionMessageEnvelope::decode(frame.payload.as_slice())
+            .ok()
+            .and_then(|envelope| envelope.message)
+            .map(|message| message.message_id)
+            .filter(|id| !id.is_empty());
+    }
+    if frame.topic.contains("/runtime/") && frame.topic.ends_with("/commands") {
+        return amux::RuntimeCommandEnvelope::decode(frame.payload.as_slice())
+            .ok()
+            .map(|envelope| envelope.command_id)
+            .filter(|id| !id.is_empty());
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
